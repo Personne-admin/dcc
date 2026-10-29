@@ -1273,6 +1273,23 @@ export namespace dcc::ctfe
             return unsupported();
         }
 
+        Result single_element_sequence(ast::BlockExpr const& expr, ast::ExprSema::ConstructionKind construction)
+        {
+            auto type = type_of(expr);
+            auto r = convert(*expr.body.tail, element_of(type));
+            if (r.flow != Flow::Normal || !r.value)
+                return r;
+            std::vector<comptime::Value> elements;
+            elements.push_back(std::move(*r.value));
+            if (construction == ast::ExprSema::ConstructionKind::Slice)
+                return folded(comptime::Value::make_slice(std::move(elements), type));
+
+            auto const* array = types::type_cast<types::ArrayType>(type);
+            if (array)
+                elements.resize(static_cast<std::size_t>(array->count), zero_object(array->element));
+            return folded(comptime::Value::make_aggregate(std::move(elements), type));
+        }
+
         Result enum_construction(ast::CallExpr const& call)
         {
             auto const* variant = call.sema.constructed_variant;
@@ -2485,8 +2502,14 @@ export namespace dcc::ctfe
                         inherit_taint(*folded_cast.value, *r.value);
                     return folded_cast;
                 }
-                case ast::ExprKind::Block:
-                    return block(static_cast<ast::BlockExpr const&>(expr).body);
+                case ast::ExprKind::Block: {
+                    auto const& block_expr = static_cast<ast::BlockExpr const&>(expr);
+                    auto construction = block_expr.sema.construction_kind;
+                    if ((construction == ast::ExprSema::ConstructionKind::Slice || construction == ast::ExprSema::ConstructionKind::Array) &&
+                        !block_expr.default_fill && block_expr.body.stmts.empty() && block_expr.body.tail)
+                        return single_element_sequence(block_expr, construction);
+                    return block(block_expr.body);
+                }
                 case ast::ExprKind::If: {
                     auto const& e = static_cast<ast::IfExpr const&>(expr);
                     auto r = expression(*e.condition);

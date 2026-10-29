@@ -1,0 +1,40 @@
+=== FILE: test.dc ===
+module test;
+
+struct D {
+    i32 a;
+    i32 b;
+}
+
+usize slice_count() {
+    []const D d = { { a = 1, b = 2 } };
+    return d.len;
+}
+
+i32 array_sum() {
+    D[1] d = { { a = 3, b = 4 } };
+    return d[0].a + d[0].b;
+}
+
+i32 array_scalar() {
+    i32[1] d = { 7 };
+    return d[0];
+}
+
+usize scalar_count() {
+    []const i32 d = { 7 };
+    return d.len;
+}
+
+const usize c1 = slice_count();
+const i32 c2 = array_sum();
+const i32 c3 = array_scalar();
+const usize c4 = scalar_count();
+
+@nomangle
+public i32 dcc_main() {
+    return c1 as i32 + c2 * 10 + c3 + c4 as i32 * 100;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 178
