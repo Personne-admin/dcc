@@ -5533,6 +5533,14 @@ export namespace dcc::sema
                     infer::TemplateBindings probe_b{m_types};
                     if (probe_b.deduce(param, analyzed.type))
                         return std::pair{UfcsReceiverMatch::Exact, analyzed.type};
+
+                    if (receiver_ptr && qualification_conversion_allowed(receiver_ptr->pointee_quals, param_ptr->pointee_quals))
+                    {
+                        auto* qualified = m_types.pointer_to(receiver_ptr->pointee, param_ptr->pointee_quals);
+                        infer::TemplateBindings qualified_b{m_types};
+                        if (qualified_b.deduce(param, qualified))
+                            return std::pair{UfcsReceiverMatch::Exact, qualified};
+                    }
                 }
 
                 auto const* analyzed_ptr = types::type_cast<types::PointerType>(analyzed.type);

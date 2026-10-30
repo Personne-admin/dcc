@@ -1,0 +1,34 @@
+=== FILE: lib.dc ===
+module lib;
+
+public struct Handle(P) {
+    P* state;
+}
+
+public i32 get(P)(const Handle(P)* self) {
+    return 1;
+}
+
+public i32 set(P)(Handle(P)* self, i32 value) {
+    i32* state = self.state;
+    *state = value;
+    return 0;
+}
+
+=== FILE: main.dc ===
+module m;
+
+import lib;
+
+void check() {
+    i32 value = 0;
+    lib::Handle(i32) handle = {state = &value};
+    lib::Handle(i32)* pointer = &handle;
+    const lib::Handle(i32)* const_pointer = &handle;
+    i32 first = pointer.get();
+    i32 second = const_pointer.get();
+    i32 third = pointer.set(7);
+    i32 fourth = first + second + third + value;
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===
