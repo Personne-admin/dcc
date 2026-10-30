@@ -26,9 +26,9 @@ using usize MIN_CAPACITY = 8;
 //! Construction
 //!
 
-public Array(T, A) new_array(T, A = DefaultAllocator)() if AllocatorPolicy(A) {
+public Array(T) new_array(T)() {
     return {
-        alloc = A{},
+        alloc = DefaultAllocator{},
         storage = slice::from_raw(null as T*, 0),
         count = 0,
     };
@@ -42,10 +42,15 @@ public Array(T, A) new_array(T, A)(A alloc) if AllocatorPolicy(A) {
     };
 }
 
-public Result(Array(T, A), AllocError) with_capacity(T, A = DefaultAllocator)(
+public Result(Array(T), AllocError) with_capacity(T)(
     usize capacity
-) if AllocatorPolicy(A) {
-    return with_capacity(A{}, capacity);
+) {
+    Array(T) self = new_array();
+    Status(AllocError) cap_st = self.reserve(capacity);
+    if !cap_st.is_ok() {
+        return cap_st.unwrap_err();
+    }
+    return Result::Ok(self);
 }
 
 public Result(Array(T, A), AllocError) with_capacity(T, A)(
@@ -61,10 +66,17 @@ public Result(Array(T, A), AllocError) with_capacity(T, A)(
 }
 
 /// copies `source` into a new array.
-public Result(Array(T, A), AllocError) from_slice(T, A = DefaultAllocator)(
+public Result(Array(T), AllocError) from_slice(T)(
     [] const T source
-) if AllocatorPolicy(A) {
-    return from_slice(A{}, source);
+) {
+    Result(Array(T), AllocError) self_r = with_capacity(source.len);
+    if self_r.is_err() {
+        return self_r;
+    }
+    Array(T) self = self_r.unwrap();
+    mem::copy(self.storage, source);
+    self.count = source.len;
+    return Result::Ok(self);
 }
 
 public Result(Array(T, A), AllocError) from_slice(T, A)(
