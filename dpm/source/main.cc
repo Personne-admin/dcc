@@ -1,7 +1,9 @@
 import std;
 import dcc.config;
+import dcc.help;
 import dpm.build;
 import dpm.cache;
+import dpm.cli;
 import dpm.edit;
 import dpm.fetch;
 import dpm.lock;
@@ -89,164 +91,71 @@ namespace
         std::vector<std::string> passthrough;
     };
 
-    std::optional<int> parse_common(std::span<char const* const> args, Common& c, std::string& error)
+    std::optional<int> common_from(dpm::cli::Parsed const& parsed, Common& c, std::string& error)
     {
-        for (std::size_t i = 0; i < args.size(); ++i)
+        using dpm::cli::Opt;
+        if (auto v = parsed.value(Opt::Profile))
+            c.profile = *v;
+        if (auto v = parsed.value(Opt::Target))
         {
-            std::string_view arg{args[i]};
-            auto value = [&](std::string_view option) -> std::optional<std::string>
+            c.target = dpm::build::parse_target(*v);
+            if (!c.target)
             {
-                if (i + 1 >= args.size())
-                {
-                    error = std::format("{} needs a value", option);
-                    return std::nullopt;
-                }
-                return std::string{args[++i]};
-            };
-            if (arg == "--")
-            {
-                for (++i; i < args.size(); ++i)
-                    c.passthrough.emplace_back(args[i]);
-                break;
-            }
-            if (arg == "--profile")
-            {
-                auto v = value(arg);
-                if (!v)
-                    return k_exit_usage;
-                c.profile = *v;
-            }
-            else if (arg == "--target")
-            {
-                auto v = value(arg);
-                if (!v)
-                    return k_exit_usage;
-                c.target = dpm::build::parse_target(*v);
-                if (!c.target)
-                {
-                    error = std::format("unknown target '{}'", *v);
-                    return k_exit_usage;
-                }
-            }
-            else if (arg == "-O")
-            {
-                auto v = value(arg);
-                if (!v)
-                    return k_exit_usage;
-                static constexpr std::array<std::pair<std::string_view, m::Optimize>, 4> levels{
-                    {{"0", m::Optimize::O0}, {"1", m::Optimize::O1}, {"2", m::Optimize::O2}, {"s", m::Optimize::Size}}};
-                auto it = std::ranges::find(levels, *v, &std::pair<std::string_view, m::Optimize>::first);
-                if (it == levels.end())
-                {
-                    error = std::format("unknown optimization level '{}'", *v);
-                    return k_exit_usage;
-                }
-                c.optimize = it->second;
-            }
-            else if (arg == "--manifest-path")
-            {
-                auto v = value(arg);
-                if (!v)
-                    return k_exit_usage;
-                fs::path file{*v};
-                if (file.filename() != k_project_file)
-                {
-                    error = "--manifest-path must name a project.dcon";
-                    return k_exit_usage;
-                }
-                std::error_code ec;
-                auto dir = file.has_parent_path() ? file.parent_path() : fs::path{"."};
-                fs::current_path(dir, ec);
-                if (ec)
-                {
-                    error = std::format("cannot enter {}", dir.string());
-                    return k_exit_usage;
-                }
-            }
-            else if (arg == "--offline")
-                c.offline = true;
-            else if (arg == "--refresh")
-                c.refresh = true;
-            else if (arg == "--locked")
-                c.locked = true;
-            else if (arg == "--no-build")
-                c.no_build = true;
-            else if (arg == "--verify-sources")
-                c.verify_sources = true;
-            else if (arg == "--undo")
-                c.undo = true;
-            else if (arg == "--registry-dir" || arg == "--location" || arg == "--base")
-            {
-                auto v = value(arg);
-                if (!v)
-                    return k_exit_usage;
-                (arg == "--registry-dir" ? c.registry_dir : arg == "--location" ? c.location : c.base) = *v;
-            }
-            else if (arg == "-v")
-                c.verbose = true;
-            else if (arg == "--color")
-            {
-                if (!value(arg))
-                    return k_exit_usage;
-            }
-            else if (arg == "--dev")
-                c.dev = true;
-            else if (arg == "--dry-run")
-                c.dry_run = true;
-            else if (arg == "--check")
-                c.check = true;
-            else if (arg == "--lib")
-                c.lib = true;
-            else if (arg == "--name")
-            {
-                auto v = value(arg);
-                if (!v)
-                    return k_exit_usage;
-                c.name = *v;
-            }
-            else if (arg == "--runner")
-            {
-                auto v = value(arg);
-                if (!v)
-                    return k_exit_usage;
-                c.runner = *v;
-            }
-            else if (arg == "--timeout")
-            {
-                auto v = value(arg);
-                if (!v)
-                    return k_exit_usage;
-                int seconds = 0;
-                auto [ptr, ec] = std::from_chars(v->data(), v->data() + v->size(), seconds);
-                if (ec != std::errc{} || ptr != v->data() + v->size() || seconds <= 0)
-                {
-                    error = "--timeout needs a positive number of seconds";
-                    return k_exit_usage;
-                }
-                c.timeout = std::chrono::seconds{seconds};
-            }
-            else if (arg == "-j")
-            {
-                auto v = value(arg);
-                if (!v)
-                    return k_exit_usage;
-                int jobs = 0;
-                auto [ptr, ec] = std::from_chars(v->data(), v->data() + v->size(), jobs);
-                if (ec != std::errc{} || ptr != v->data() + v->size() || jobs <= 0 || jobs > 256)
-                {
-                    error = "-j needs a number between 1 and 256";
-                    return k_exit_usage;
-                }
-                c.jobs = static_cast<std::size_t>(jobs);
-            }
-            else if (arg.starts_with("-") && arg.size() > 1)
-            {
-                error = std::format("unknown option {}", arg);
+                error = std::format("unknown target '{}'", *v);
                 return k_exit_usage;
             }
-            else
-                c.positional.emplace_back(arg);
         }
+        if (auto v = parsed.value(Opt::Optimize))
+        {
+            static constexpr std::array<std::pair<std::string_view, m::Optimize>, 4> levels{
+                {{"0", m::Optimize::O0}, {"1", m::Optimize::O1}, {"2", m::Optimize::O2}, {"s", m::Optimize::Size}}};
+            auto it = std::ranges::find(levels, *v, &std::pair<std::string_view, m::Optimize>::first);
+            if (it == levels.end())
+            {
+                error = std::format("unknown optimization level '{}'", *v);
+                return k_exit_usage;
+            }
+            c.optimize = it->second;
+        }
+        if (auto v = parsed.value(Opt::ManifestPath))
+        {
+            fs::path file{*v};
+            if (file.filename() != k_project_file)
+            {
+                error = "--manifest-path must name a project.dcon";
+                return k_exit_usage;
+            }
+            std::error_code ec;
+            auto dir = file.has_parent_path() ? file.parent_path() : fs::path{"."};
+            fs::current_path(dir, ec);
+            if (ec)
+            {
+                error = std::format("cannot enter {}", dir.string());
+                return k_exit_usage;
+            }
+        }
+        c.offline = parsed.has(Opt::Offline);
+        c.refresh = parsed.has(Opt::Refresh);
+        c.locked = parsed.has(Opt::Locked);
+        c.verbose = parsed.has(Opt::Verbose);
+        c.dev = parsed.has(Opt::Dev);
+        c.dry_run = parsed.has(Opt::DryRun);
+        c.check = parsed.has(Opt::Check);
+        c.lib = parsed.has(Opt::Lib);
+        c.no_build = parsed.has(Opt::NoBuild);
+        c.verify_sources = parsed.has(Opt::VerifySources);
+        c.undo = parsed.has(Opt::Undo);
+        c.name = parsed.value(Opt::Name).value_or("");
+        c.runner = parsed.value(Opt::Runner).value_or("");
+        c.registry_dir = parsed.value(Opt::RegistryDir).value_or("");
+        c.location = parsed.value(Opt::Location).value_or("");
+        c.base = parsed.value(Opt::Base).value_or("");
+        if (auto v = parsed.value(Opt::Timeout))
+            c.timeout = std::chrono::seconds{std::stoi(*v)};
+        if (auto v = parsed.value(Opt::Jobs))
+            c.jobs = static_cast<std::size_t>(std::stoi(*v));
+        c.positional = parsed.positional;
+        c.passthrough = parsed.passthrough;
         return std::nullopt;
     }
 
@@ -1229,22 +1138,10 @@ namespace
         return commit_edit(s, text);
     }
 
-    int cmd_check(std::span<char const* const> args)
+    int cmd_check(dpm::cli::Parsed const& parsed)
     {
-        bool tree = false;
-        fs::path file{k_project_file};
-        for (auto arg : args)
-        {
-            if (std::string_view{arg} == "--tree")
-                tree = true;
-            else if (std::string_view{arg}.starts_with("-"))
-            {
-                std::println(std::cerr, "dpm check: unknown option {}", arg);
-                return k_exit_usage;
-            }
-            else
-                file = arg;
-        }
+        bool tree = parsed.has(dpm::cli::Opt::Tree);
+        fs::path file = parsed.positional.empty() ? fs::path{k_project_file} : fs::path{parsed.positional[0]};
         auto text = read_file(file);
         if (!text)
         {
@@ -1266,22 +1163,16 @@ namespace
         return 0;
     }
 
-    int cmd_cache(std::span<char const* const> args)
+    int cmd_cache(dpm::cli::Parsed const& parsed)
     {
-        constexpr auto usage = "usage: dpm cache {path|verify|clean [--all]}";
-        if (args.empty())
-        {
-            std::println(std::cerr, "{}", usage);
-            return k_exit_usage;
-        }
-        std::string_view const sub{args[0]};
+        std::string_view const sub = std::string_view{parsed.command}.substr(6);
         dpm::cache::Cache cache{dpm::cache::default_root()};
-        if (sub == "path" && args.size() == 1)
+        if (sub == "path")
         {
             std::println("{}", cache.root().string());
             return 0;
         }
-        if (sub == "verify" && args.size() == 1)
+        if (sub == "verify")
         {
             auto lock = cache.lock();
             int bad = 0;
@@ -1297,15 +1188,14 @@ namespace
             std::println("{} trees checked, {} bad", entries.size(), bad);
             return bad == 0 ? 0 : k_exit_resolution;
         }
-        if (sub == "clean" && (args.size() == 1 || (args.size() == 2 && std::string_view{args[1]} == "--all")))
+        if (sub == "clean")
         {
             auto lock = cache.lock();
-            auto result = cache.clean(args.size() == 2);
+            auto result = cache.clean(parsed.has(dpm::cli::Opt::All));
             for (auto const& name : result.removed)
                 std::println("removed {}", name);
             return 0;
         }
-        std::println(std::cerr, "{}", usage);
         return k_exit_usage;
     }
 
@@ -1420,30 +1310,12 @@ namespace
         return 0;
     }
 
-    int cmd_registry(std::span<char const* const> args)
+    int cmd_registry(Common common, std::string_view sub)
     {
-        constexpr auto usage = "usage: dpm registry {init DIR [--name NAME] | alias LOC NAME | check [DIR] [--verify-sources] [--base REV] | yank ALIAS VERSION [--undo]} [--registry-dir DIR]";
-        if (args.empty())
-        {
-            std::println(std::cerr, "{}", usage);
-            return k_exit_usage;
-        }
-        std::string_view const sub{args[0]};
-        Common common;
         std::string error;
-        if (auto code = parse_common(args.subspan(1), common, error))
-        {
-            std::println(std::cerr, "dpm registry: {}", error);
-            return *code;
-        }
         auto ctx = publish_context();
         if (sub == "init")
         {
-            if (common.positional.size() != 1)
-            {
-                std::println(std::cerr, "usage: dpm registry init DIR [--name NAME]");
-                return k_exit_usage;
-            }
             auto initialized = dpm::publish::init_registry(common.positional[0], common.name, ctx, error);
             if (!initialized)
             {
@@ -1458,11 +1330,6 @@ namespace
         if (sub == "alias" || sub == "yank")
         {
             bool const alias = sub == "alias";
-            if (common.positional.size() != 2)
-            {
-                std::println(std::cerr, "{}", usage);
-                return k_exit_usage;
-            }
             if (!dir)
             {
                 std::println(std::cerr, "error: pass --registry-dir DIR (no ./dc-registry here)");
@@ -1493,11 +1360,6 @@ namespace
         }
         if (sub == "check")
         {
-            if (common.positional.size() > 1)
-            {
-                std::println(std::cerr, "{}", usage);
-                return k_exit_usage;
-            }
             fs::path root = !common.positional.empty() ? fs::path{common.positional[0]} : dir ? *dir : fs::path{"."};
             auto scan = dpm::publish::scan_registry(root, ctx);
             auto problems = scan.problems;
@@ -1525,54 +1387,44 @@ namespace
             std::println("{} aliases, {} versions, {} location pointers, {} problems", scan.aliases.size(), versions, scan.pointers.size(), problems.size());
             return code;
         }
-        std::println(std::cerr, "{}", usage);
         return k_exit_usage;
     }
 
-    void print_usage()
-    {
-        std::println(std::cerr,
-                     "usage: dpm <command> [options]\n"
-                     "  init [DIR] [--lib] [--name N]      create a package\n"
-                     "  add LOC[@VER] [--dev]              add a dependency\n"
-                     "  remove LOC [--dev]                 remove a dependency\n"
-                     "  update [LOC...] [--dry-run]        raise minimum versions\n"
-                     "  lock [--check]                     write project.lock.dcon\n"
-                     "  fetch                              download locked packages\n"
-                     "  check [--tree] [FILE]              validate a manifest or lock\n"
-                     "  build [PRODUCT]                    build products\n"
-                     "  run [PRODUCT] [-- ARGS]            build and run an executable\n"
-                     "  test [NAME...]                     build and run tests\n"
-                     "  publish [--registry-dir D] [--location L]   write the registry entry for this version\n"
-                     "  registry {{init DIR | alias LOC NAME | check [DIR] | yank ALIAS VERSION}}\n"
-                     "  tree | why LOC | clean | cache {{path|verify|clean [--all]}}\n"
-                     "options: --manifest-path P --profile NAME --target TRIPLE -O {{0,1,2,s}} --offline --refresh --locked -v -j N --timeout S --runner CMD");
-    }
 } // namespace
 
 auto main(int argc, char** argv) -> int
 {
     g_argv = argv;
-    if (argc < 2)
+    std::span<char const* const> args{argv + 1, static_cast<std::size_t>(argc - 1)};
+    auto parsed = dpm::cli::parse(args);
+    if (!parsed)
     {
-        print_usage();
+        auto const& failure = parsed.error();
+        if (!failure.message.empty())
+            std::println(std::cerr, "{}", failure.message);
+        else
+            std::print(std::cerr, "{}", dpm::cli::help_text(failure.topic, dcc::help::terminal_width()));
         return k_exit_usage;
     }
-    std::string_view const command{argv[1]};
-    std::span<char const* const> rest{argv + 2, static_cast<std::size_t>(argc - 2)};
+    if (parsed->help)
+    {
+        std::print("{}", dpm::cli::help_text(parsed->help_topic, dcc::help::terminal_width()));
+        return 0;
+    }
+    auto const command = parsed->command;
     if (command == "check")
-        return cmd_check(rest);
-    if (command == "cache")
-        return cmd_cache(rest);
-    if (command == "registry")
-        return cmd_registry(rest);
+        return cmd_check(*parsed);
+    if (command.starts_with("cache "))
+        return cmd_cache(*parsed);
     Common common;
     std::string error;
-    if (auto code = parse_common(rest, common, error))
+    if (auto code = common_from(*parsed, common, error))
     {
         std::println(std::cerr, "dpm {}: {}", command, error);
         return *code;
     }
+    if (command.starts_with("registry "))
+        return cmd_registry(std::move(common), std::string_view{command}.substr(9));
     if (command == "init")
         return cmd_init(std::move(common));
     if (command == "publish")
@@ -1602,6 +1454,5 @@ auto main(int argc, char** argv) -> int
         return cmd_test(std::move(common));
     if (command == "clean")
         return cmd_clean(std::move(common));
-    print_usage();
     return k_exit_usage;
 }

@@ -1,0 +1,12 @@
+usage: dpm registry <command>
+
+A registry is a git repository of alias records; see 'dpm help publish' for
+the usual way to add a version.
+
+commands:
+  init                      create an empty registry in DIR
+  alias                     reserve an alias for a location
+  check                     validate a registry clone
+  yank                      mark a version as yanked
+
+Run 'dpm help registry <command>' for the options and exit codes of one command.

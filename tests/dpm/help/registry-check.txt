@@ -1,0 +1,26 @@
+usage: dpm registry check [<dir>] [options]
+
+Checks registry.dcon, every alias record and every location pointer: file
+placement, sizes, ordering, unique aliases and locations, and that pointers
+and records agree. Nothing is fetched unless --verify-sources is given.
+
+options:
+  --registry-dir <dir>      registry clone to read and write. The default is
+                            ./dc-registry if that directory exists.
+  --offline                 never use the network; use only what is in the
+                            cache. The same as DPM_OFFLINE=1. Something that
+                            is missing from the cache is an error (exit code
+                            5).
+  --verify-sources          fetch every version and check its commit, hash,
+                            alias claim and dependency summary. This needs
+                            network access and fills the dpm cache.
+  --base <rev>              with --verify-sources, skip versions that are
+                            already in this git revision of the registry
+
+exit codes:
+  0                         success
+  2                         usage error
+  4                         resolution or integrity error (conflicting
+                            versions, hash mismatch, registry problems)
+  5                         network error, or something is missing from the
+                            cache while offline

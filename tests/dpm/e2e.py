@@ -925,6 +925,32 @@ def scenario_registry_init():
     check(r.returncode == 1 and "something.txt" in r.stderr and not os.path.exists(os.path.join(busy, "registry.dcon")), "init refuses a busy directory", detail(r))
 
 
+def scenario_help():
+    empty = os.path.join(ROOT, "no-project")
+    os.makedirs(empty)
+    r = dpm(empty, "--help")
+    check(r.returncode == 0 and r.stdout.startswith("usage: dpm <command> [options]") and "\n  build [<product>]" in r.stdout, "dpm --help", detail(r))
+    for command in ("build", "registry check", "publish", "cache clean", "init"):
+        words = command.split()
+        a = dpm(empty, "help", *words)
+        b = dpm(empty, *words, "--help")
+        check(a.returncode == 0 and a.stdout == b.stdout and a.stdout.startswith("usage: dpm " + command), "help for " + command, detail(a))
+    r = dpm(empty, "build", "--help", "--bogus")
+    check(r.returncode == 0 and "usage: dpm build" in r.stdout, "--help wins over later errors", detail(r))
+    r = dpm(empty)
+    check(r.returncode == 2 and r.stdout == "" and r.stderr.startswith("usage: dpm"), "bare dpm prints the overview to stderr", detail(r))
+    r = dpm(empty, "frobnicate")
+    check(r.returncode == 2 and "unknown command 'frobnicate' (see 'dpm --help')" in r.stderr, "unknown command", detail(r))
+    r = dpm(empty, "init", "--dev")
+    check(r.returncode == 2 and "does not apply" in r.stderr and "dpm init --help" in r.stderr, "an option of another command", detail(r))
+    r = dpm(empty, "cache")
+    check(r.returncode == 2 and "usage: dpm cache <command>" in r.stderr, "a group without a command", detail(r))
+    r = dpm(empty, "help", "nothing")
+    check(r.returncode == 2 and "dpm --help" in r.stderr, "help for an unknown topic", detail(r))
+    r = dpm(empty, "add")
+    check(r.returncode == 2 and "usage: dpm add <location>[@version]" in r.stderr, "a missing argument", detail(r))
+
+
 try:
     scenario_basic()
     scenario_run_args()
@@ -941,6 +967,7 @@ try:
     scenario_registry_verify_sources()
     scenario_publish_subdirectory()
     scenario_registry_init()
+    scenario_help()
     scenario_tests()
     scenario_formatting_and_determinism()
     scenario_misc()

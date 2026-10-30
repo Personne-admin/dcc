@@ -1,0 +1,38 @@
+usage: dpm <command> [options]
+       dpm help <command>
+       dpm <command> --help
+
+commands:
+  init [DIR]                create a package in DIR (default: the current
+                            directory)
+  add <location>[@version]  add a dependency
+  remove <location>         remove a dependency
+  update [<location>...]    raise minimum versions to the latest release
+  lock                      write project.lock.dcon
+  fetch                     download every locked package
+  check [<file>]            validate a manifest, lock or registry file
+  build [<product>]         build the products of the package
+  run [<product>] [-- <args>...]
+                            build and run an executable product
+  test [<name>...]          build and run the test programs
+  clean                     remove .dpm/out
+  tree                      print the resolved dependency graph
+  why <location>            explain why a package is in the build list
+  publish                   write the registry entry for the current version
+  cache path                print the cache directory
+  cache verify              check that every cached package matches its hash
+  cache clean               remove downloads and git data from the cache
+  registry init <dir>       create an empty registry in DIR
+  registry alias <location> <alias>
+                            reserve an alias for a location
+  registry check [<dir>]    validate a registry clone
+  registry yank <alias> <version>
+                            mark a version as yanked
+
+common options (see 'dpm help <command>' for the options of one command):
+  --manifest-path <file>    use this project.dcon instead of the one in the
+                            current directory
+  --offline                 never use the network; use only what is in the
+                            cache
+  --refresh                 ignore the 24-hour freshness window of cached
+                            registry files
