@@ -25,6 +25,7 @@ test-linux: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_module_relocations.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_opt_size.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_libdcext_rewrite_prerequisites.py $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_static_allocators.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_nomangle_reachability.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_process_output.py
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_link_inputs.py $(BUILD_DIR)/bin/dcc
@@ -43,6 +44,7 @@ test-win: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_module_relocations.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_opt_size.py $(BUILD_DIR)/bin/dcc
 	$(Q)WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/backend/test_libdcext_rewrite_prerequisites.py $(BUILD_DIR)/bin/dcc --windows
+	$(Q)WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/backend/test_static_allocators.py $(BUILD_DIR)/bin/dcc --windows
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_nomangle_reachability.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_process_output.py
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_link_inputs.py $(BUILD_DIR)/bin/dcc
@@ -144,6 +146,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_module_relocations.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_opt_size.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_libdcext_rewrite_prerequisites.py $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_static_allocators.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_nomangle_reachability.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_process_output.py
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_link_inputs.py $(BUILD_DIR)/bin/dcc

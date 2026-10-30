@@ -1,0 +1,325 @@
+module main;
+
+import core::slice;
+import std::alloc;
+import std::alloc::fixed;
+import std::result;
+
+using std::result::{ Result, Optional };
+using std::alloc::{ AllocError, AllocatorPolicy, allocation_start, as_bytes, as_typed, bytes_for, checked_add, checked_align_up, checked_mul, create_item, destroy_item, duplicate_slice, free_slice, reallocate, valid_alignment };
+using std::alloc::fixed::{ FixedBuffer, FixedHandle, borrow, new_fixed_buffer };
+
+//!
+//! Static allocator policies: contract, checked helpers and the fixed-buffer
+//! policy.
+//!
+
+void require_allocator(A)(A* self) if AllocatorPolicy(A) {}
+
+struct Empty {}
+
+struct NullPolicy {
+    usize allocations;
+    usize frees;
+}
+
+Result([] u8, AllocError) allocate(NullPolicy* self, usize len, usize align) {
+    self.allocations += 1;
+    return AllocError::OutOfMemory;
+}
+
+bool resize_in_place(NullPolicy* self, [] u8 block, usize new_bytes, usize align) {
+    return false;
+}
+
+void free(NullPolicy* self, [] u8 block, usize align) {
+    self.frees += 1;
+}
+
+i32 static_checks() {
+    if sizeof(FixedHandle) != sizeof(usize) {
+        return 110;
+    }
+
+    if sizeof(FixedBuffer) != sizeof([] u8) + 2 * sizeof(usize) {
+        return 111;
+    }
+
+    return 0;
+}
+
+i32 helper_checks() {
+    usize max = ~(0 as usize);
+    if !valid_alignment(1) || !valid_alignment(2) || !valid_alignment(4096) { return 10; }
+    if valid_alignment(0) || valid_alignment(3) || valid_alignment(6) { return 11; }
+    if checked_add(max, 1).is_some() || checked_add(max - 1, 1).unwrap_some() != max { return 12; }
+    if checked_mul(max, 2).is_some() || checked_mul(max, 1).unwrap_some() != max { return 13; }
+    if checked_mul(0, max).unwrap_some() != 0 { return 14; }
+    if checked_align_up(max, 2).is_some() { return 15; }
+    if checked_align_up(0, 8).unwrap_some() != 0 { return 16; }
+    if checked_align_up(1, 8).unwrap_some() != 8 { return 17; }
+
+    u8[64] backing = {};
+    [] u8 buffer = backing[0..64];
+    Result(usize, AllocError) start_r = allocation_start(buffer, 0, 8, 8);
+    if start_r.is_err() { return 18; }
+    usize start = start_r.unwrap();
+    if ((((buffer.ptr as usize) + start) & 7) != 0) { return 19; }
+    if start + 8 > 64 { return 20; }
+    if ((buffer.ptr as usize) + start) != ((&backing[start]) as usize) { return 21; }
+    if allocation_start(buffer, 0, 8, 3).unwrap_err() != AllocError::InvalidAlignment { return 22; }
+    if allocation_start(buffer, max - 1, 2, 1).unwrap_err() != AllocError::OutOfMemory { return 23; }
+    if allocation_start(buffer, 0, 128, 1).unwrap_err() != AllocError::OutOfMemory { return 24; }
+
+    u32[3] seed = {11, 12, 13};
+    [] u8 raw = as_bytes(seed[0..3]);
+    if raw.len != 3 * sizeof(u32) { return 25; }
+    if (raw.ptr as usize) != (seed[0..3].ptr as usize) { return 26; }
+    [] u32 round = as_typed(raw, 3);
+    if round.len != 3 || round[0] != 11 || round[2] != 13 { return 27; }
+    if bytes_for!u32(3).unwrap() != 3 * sizeof(u32) { return 28; }
+    return 0;
+}
+
+i32 contract_checks() {
+    u8[256] backing = {};
+    FixedBuffer fb = new_fixed_buffer(backing[0..256]);
+    FixedHandle handle = borrow(&fb);
+    require_allocator(&handle);
+
+    Result([] u8, AllocError) first_r = handle.allocate(8, 8);
+    if first_r.is_err() { return 30; }
+    [] u8 first = first_r.unwrap();
+    if first.len != 8 { return 31; }
+    if (((first.ptr as usize) & 7) != 0) { return 32; }
+
+    usize first_start = (first.ptr as usize) - (fb.buffer.ptr as usize);
+    if fb.offset != first_start + 8 { return 33; }
+
+    usize offset = fb.offset;
+    Result([] u8, AllocError) empty_r = handle.allocate(0, 8);
+    if empty_r.is_err() { return 34; }
+    [] u8 empty = empty_r.unwrap();
+    if empty.len != 0 || empty.ptr != null { return 35; }
+    if fb.offset != offset { return 36; }
+
+    if handle.allocate(8, 3).unwrap_err() != AllocError::InvalidAlignment { return 37; }
+    if handle.allocate(8, 0).unwrap_err() != AllocError::InvalidAlignment { return 38; }
+    if fb.offset != offset { return 39; }
+
+    Result([] u8, AllocError) huge_r = handle.allocate(4096, 1);
+    if huge_r.is_ok() { return 40; }
+    if huge_r.unwrap_err() != AllocError::OutOfMemory { return 41; }
+    if fb.offset != offset { return 42; }
+
+    Result([] u8, AllocError) second_r = handle.allocate(4, 1);
+    if second_r.is_err() { return 43; }
+    [] u8 second = second_r.unwrap();
+    if second.len != 4 { return 44; }
+    if (second.ptr as usize) < ((first.ptr as usize) + 8) { return 45; }
+    if fb.offset != offset + 4 { return 46; }
+
+    FixedHandle alias_handle = handle;
+    require_allocator(&alias_handle);
+    Result([] u8, AllocError) third_r = alias_handle.allocate(4, 1);
+    if third_r.is_err() { return 47; }
+    if fb.offset != offset + 8 { return 48; }
+
+    FixedBuffer other = new_fixed_buffer(backing[0..128]);
+    FixedHandle other_handle = borrow(&other);
+    Result([] u8, AllocError) other_r = other_handle.allocate(8, 1);
+    if other_r.is_err() { return 49; }
+    if other.offset != 8 { return 50; }
+    if fb.offset != offset + 8 { return 51; }
+    return 0;
+}
+
+i32 resize_checks() {
+    u8[128] backing = {};
+    FixedBuffer fb = new_fixed_buffer(backing[0..128]);
+    FixedHandle handle = borrow(&fb);
+
+    Result([] u8, AllocError) a_r = handle.allocate(16, 1);
+    if a_r.is_err() { return 50; }
+    [] u8 a = a_r.unwrap();
+    if fb.offset != 16 { return 51; }
+
+    Result([] u8, AllocError) b_r = handle.allocate(16, 1);
+    if b_r.is_err() { return 52; }
+    [] u8 b = b_r.unwrap();
+    if fb.offset != 32 { return 53; }
+
+    if !handle.resize_in_place(b, 24, 1) { return 54; }
+    if fb.offset != 40 { return 55; }
+    if !handle.resize_in_place(b, 8, 1) { return 56; }
+    if fb.offset != 24 { return 57; }
+
+    if !handle.resize_in_place(a, 8, 1) { return 58; }
+    if fb.offset != 24 { return 59; }
+    if handle.resize_in_place(a, 17, 1) { return 60; }
+    if fb.offset != 24 { return 61; }
+
+    if handle.resize_in_place(core::slice::from_raw(null as u8*, 0), 8, 1) { return 62; }
+    if !handle.resize_in_place(a, 0, 1) { return 63; }
+    if fb.offset != 24 { return 64; }
+
+    handle.free(b, 1);
+    if fb.offset != 16 { return 65; }
+    handle.free(a, 1);
+    if fb.offset != 16 { return 66; }
+    handle.free(core::slice::from_raw(null as u8*, 1), 1);
+    if fb.offset != 16 { return 67; }
+
+    Result([] u8, AllocError) reused_r = handle.allocate(8, 1);
+    if reused_r.is_err() { return 68; }
+    [] u8 reused = reused_r.unwrap();
+    if reused.ptr != b.ptr { return 69; }
+    if fb.offset != 24 { return 70; }
+
+    fb.reset();
+    if fb.offset != 0 || fb.last_offset != 0 { return 71; }
+    Result([] u8, AllocError) after_reset_r = handle.allocate(8, 1);
+    if after_reset_r.is_err() { return 72; }
+    if after_reset_r.unwrap().ptr != fb.buffer.ptr { return 73; }
+    return 0;
+}
+
+i32 typed_checks() {
+    u8[512] backing = {};
+    FixedBuffer fb = new_fixed_buffer(backing[0..512]);
+    FixedHandle handle = borrow(&fb);
+
+    Result([] u32, AllocError) words_r = handle.allocate_slice(4);
+    if words_r.is_err() { return 70; }
+    [] u32 words = words_r.unwrap();
+    if words.len != 4 { return 71; }
+    if (((words.ptr as usize) & (alignof(u32) - 1)) != 0) { return 72; }
+    words[0] = 7;
+    words[3] = 9;
+    if words[0] != 7 || words[3] != 9 { return 73; }
+    handle.free_slice(words);
+    if fb.offset != ((words.ptr as usize) - (fb.buffer.ptr as usize)) { return 74; }
+
+    Result([] u32, AllocError) zero_r = handle.allocate_zeroed_slice(4);
+    if zero_r.is_err() { return 75; }
+    [] u32 zeroed = zero_r.unwrap();
+    if zeroed.len != 4 { return 76; }
+    for usize i = 0; i < zeroed.len; i++ {
+        if zeroed[i] != 0 { return 77; }
+    }
+    zeroed[0] = 5;
+    handle.free_slice(zeroed);
+    Result([] u32, AllocError) again_r = handle.allocate_zeroed_slice(4);
+    if again_r.is_err() { return 78; }
+    [] u32 again = again_r.unwrap();
+    if again[0] != 0 || again[3] != 0 { return 79; }
+    handle.free_slice(again);
+
+    Result(u32*, AllocError) item_r = handle.create_item();
+    if item_r.is_err() { return 80; }
+    u32* item = item_r.unwrap();
+    *item = 42;
+    if *item != 42 { return 81; }
+    handle.destroy_item(item);
+
+    u32[3] seed = {4, 5, 6};
+    Result([] u32, AllocError) copied_r = handle.duplicate_slice(seed[0..3]);
+    if copied_r.is_err() { return 82; }
+    [] u32 copied = copied_r.unwrap();
+    if copied.len != 3 { return 83; }
+    if copied[0] != 4 || copied[2] != 6 { return 84; }
+    copied[1] = 50;
+    if seed[1] != 5 { return 85; }
+    handle.free_slice(copied);
+
+    usize saved = fb.offset;
+    Result([] Empty, AllocError) empties_r = handle.allocate_slice(3);
+    if empties_r.is_err() { return 86; }
+    [] Empty empties = empties_r.unwrap();
+    if empties.len != 3 { return 87; }
+    if empties.ptr != null { return 88; }
+    if fb.offset != saved { return 89; }
+    handle.free_slice(empties);
+    if fb.offset != saved { return 90; }
+
+    Result([] Empty, AllocError) empty_copy_r = handle.duplicate_slice(empties);
+    if empty_copy_r.is_err() { return 200; }
+    [] Empty empty_copy = empty_copy_r.unwrap();
+    if empty_copy.len != 3 || empty_copy.ptr != null { return 201; }
+    if fb.offset != saved { return 202; }
+    handle.free_slice(empty_copy);
+    if fb.offset != saved { return 203; }
+
+    usize max = ~(0 as usize);
+    Result([] u16, AllocError) overflow_r = handle.allocate_slice(max / 2 + 1);
+    if overflow_r.is_ok() { return 91; }
+    if overflow_r.unwrap_err() != AllocError::OutOfMemory { return 92; }
+    if bytes_for!u16(max / 2 + 1).unwrap_err() != AllocError::OutOfMemory { return 93; }
+
+    u8[64] raw_backing = {};
+    FixedBuffer raw_fb = new_fixed_buffer(raw_backing[0..64]);
+    FixedHandle raw = borrow(&raw_fb);
+    Result([] u8, AllocError) block_r = raw.allocate(8, 1);
+    if block_r.is_err() { return 94; }
+    [] u8 block = block_r.unwrap();
+    for usize i = 0; i < block.len; i++ {
+        block[i] = (i + 1) as u8;
+    }
+
+    Result([] u8, AllocError) grown_r = raw.reallocate(block, 16, 1);
+    if grown_r.is_err() { return 95; }
+    [] u8 grown = grown_r.unwrap();
+    if grown.len != 16 { return 96; }
+    if grown[0] != 1 || grown[7] != 8 { return 97; }
+
+    usize grown_offset = raw_fb.offset;
+    Result([] u8, AllocError) fail_r = raw.reallocate(grown, 1024, 1);
+    if fail_r.is_ok() { return 98; }
+    if grown[0] != 1 || grown[7] != 8 { return 99; }
+    if raw_fb.offset != grown_offset { return 100; }
+    return 0;
+}
+
+i32 policy_checks() {
+    NullPolicy policy = {};
+    require_allocator(&policy);
+
+    Result([] u32, AllocError) typed_r = policy.allocate_slice(4);
+    if typed_r.is_ok() { return 101; }
+    if typed_r.unwrap_err() != AllocError::OutOfMemory { return 102; }
+    if policy.allocations != 1 { return 103; }
+    if policy.frees != 0 { return 104; }
+
+    Result(u32*, AllocError) item_r = policy.create_item();
+    if item_r.is_ok() { return 105; }
+    if policy.allocations != 2 { return 106; }
+
+    Result([] u8, AllocError) raw_r = policy.allocate(8, 1);
+    if raw_r.is_ok() { return 107; }
+    if policy.allocations != 3 { return 108; }
+    return 0;
+}
+
+@nomangle public i32 dcc_main() {
+    i32 status = static_checks();
+    if status != 0 { return status; }
+
+    status = helper_checks();
+    if status != 0 { return status; }
+
+    status = contract_checks();
+    if status != 0 { return status; }
+
+    status = resize_checks();
+    if status != 0 { return status; }
+
+    status = typed_checks();
+    if status != 0 { return status; }
+
+    status = policy_checks();
+    if status != 0 { return status; }
+
+    return 0;
+}
+
+public i32 main() { return dcc_main(); }

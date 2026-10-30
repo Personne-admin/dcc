@@ -1,0 +1,201 @@
+module std::alloc;
+
+public import std::result;
+
+import core::slice;
+import std::debug;
+
+using result::{ Result, Status, Optional };
+
+//!
+//! Static allocator contract
+//!
+//! A concrete allocator type `A` exposes its whole contract as ordinary methods
+//! on `A*`: `allocate`, `resize_in_place` and `free`. Policies are resolved at
+//! compile time; there is no runtime function table or provider hook.
+//!
+
+public enum AllocError : u8 {
+    OutOfMemory,
+    InvalidAlignment,
+}
+
+/// `A` satisfies the concrete allocator contract.
+public using AllocatorPolicy(A) = compiles (A* self, [] u8 block) {
+    Result([] u8, AllocError) allocated = self.allocate(1, 1);
+    bool resized = self.resize_in_place(block, 2, 1);
+    self.free(block, 1);
+};
+
+//!
+//! Checked allocation arithmetic
+//!
+
+using usize ALLOC_MAX = ~(0 as usize);
+
+/// `left + right`, or None on overflow.
+public Optional(usize) checked_add(usize left, usize right) {
+    if right > ALLOC_MAX - left { return Optional::None; }
+    return Optional::Some(left + right);
+}
+
+/// `left * right`, or None on overflow.
+public Optional(usize) checked_mul(usize left, usize right) {
+    if left != 0 && right > ALLOC_MAX / left { return Optional::None; }
+    return Optional::Some(left * right);
+}
+
+/// rounds `value` up to a multiple of `align`, or None on overflow.
+public Optional(usize) checked_align_up(usize value, usize align) {
+    usize padding = (0 as usize - value) & (align - 1);
+    return checked_add(value, padding);
+}
+
+/// true when `align` is a nonzero power of two.
+public bool valid_alignment(usize align) {
+    return align != 0 && (align & (align - 1)) == 0;
+}
+
+/// bytes needed for `count` values of `T`.
+public Result(usize, AllocError) bytes_for(T)(usize count) {
+    Optional(usize) bytes = checked_mul(sizeof(T), count);
+    if bytes.is_none() { return AllocError::OutOfMemory; }
+    return Result::Ok(bytes.unwrap_some());
+}
+
+/// start offset of an aligned `len`-byte block at or after `offset` in `buffer`.
+public Result(usize, AllocError) allocation_start(
+    [] u8 buffer,
+    usize offset,
+    usize len,
+    usize align
+) {
+    if !valid_alignment(align) { return AllocError::InvalidAlignment; }
+
+    Optional(usize) address = checked_add(buffer.ptr as usize, offset);
+    if address.is_none() { return AllocError::OutOfMemory; }
+
+    Optional(usize) aligned = checked_align_up(address.unwrap_some(), align);
+    if aligned.is_none() { return AllocError::OutOfMemory; }
+
+    usize start = aligned.unwrap_some() - (buffer.ptr as usize);
+    Optional(usize) end = checked_add(start, len);
+    if end.is_none() { return AllocError::OutOfMemory; }
+    if end.unwrap_some() > buffer.len { return AllocError::OutOfMemory; }
+
+    return Result::Ok(start);
+}
+
+//!
+//! Views
+//!
+
+usize byte_length(T)(usize count) {
+    Optional(usize) bytes = checked_mul(count, sizeof(T));
+    if bytes.is_none() { debug::panic("std::alloc: byte length overflow"); }
+    return bytes.unwrap_some();
+}
+
+/// raw bytes of `items`. the result borrows the same storage.
+public [] u8 as_bytes(T)([] T items) {
+    return core::slice::from_raw(items.ptr as u8*, byte_length!T(items.len));
+}
+
+/// views a raw block as `count` values of `T`. a zero-size `T` keeps `count`.
+public [] T as_typed(T)([] u8 raw, usize count) {
+    static if sizeof(T) == 0 {
+        return core::slice::from_raw(raw.ptr as T*, count);
+    } else {
+        return (raw as [] T)[0..count];
+    }
+}
+
+void zero_bytes([] u8 raw) {
+    for usize i = 0; i < raw.len; i++ {
+        raw[i] = 0;
+    }
+}
+
+//!
+//! Typed allocation
+//!
+
+/// allocates uninitialized storage for `count` values of `T`.
+public Result([] T, AllocError) allocate_slice(T, A)(A* self, usize count) {
+    static if sizeof(T) == 0 {
+        return Result::Ok(core::slice::from_raw(null as T*, count));
+    } else {
+        Result(usize, AllocError) bytes = bytes_for!T(count);
+        if bytes.is_err() { return bytes.unwrap_err(); }
+
+        Result([] u8, AllocError) raw = self.allocate(bytes.unwrap(), alignof(T));
+        if raw.is_err() { return raw.unwrap_err(); }
+
+        return Result::Ok(as_typed!T(raw.unwrap(), count));
+    }
+}
+
+/// allocates zeroed storage for `count` values of `T`.
+public Result([] T, AllocError) allocate_zeroed_slice(T, A)(A* self, usize count) {
+    Result([] T, AllocError) out = self.allocate_slice(count);
+    if out.is_err() { return out; }
+
+    [] T items = out.unwrap();
+    zero_bytes(as_bytes(items));
+    return Result::Ok(items);
+}
+
+/// frees storage obtained from `allocate_slice`, `allocate_zeroed_slice`,
+/// `duplicate_slice` or `create_item`.
+public void free_slice(T, A)(A* self, [] T items) {
+    static if sizeof(T) != 0 {
+        self.free(as_bytes(items), alignof(T));
+    }
+}
+
+/// allocates one uninitialized `T`.
+public Result(T*, AllocError) create_item(T, A)(A* self) {
+    Result([] T, AllocError) one = self.allocate_slice(1);
+    if one.is_err() { return one.unwrap_err(); }
+
+    return Result::Ok(one.unwrap().ptr);
+}
+
+/// frees a value obtained from `create_item`.
+public void destroy_item(T, A)(A* self, T* value) {
+    self.free_slice(core::slice::from_raw(value, 1));
+}
+
+/// copies `source` into freshly allocated storage.
+public Result([] T, AllocError) duplicate_slice(T, A)(A* self, [] const T source) {
+    Result([] T, AllocError) out = self.allocate_slice(source.len);
+    if out.is_err() { return out; }
+
+    [] T items = out.unwrap();
+    for usize i = 0; i < items.len; i++ {
+        items[i] = source[i];
+    }
+
+    return Result::Ok(items);
+}
+
+/// moving reallocation: allocate, copy the common prefix, then free `old`.
+/// a failure leaves `old` untouched.
+public Result([] u8, AllocError) reallocate(A)(A* self, [] u8 old, usize new_bytes, usize align) {
+    Result([] u8, AllocError) fresh = self.allocate(new_bytes, align);
+    if fresh.is_err() { return fresh; }
+
+    [] u8 block = fresh.unwrap();
+    usize n = if old.len < new_bytes {
+        old.len
+    } else {
+        new_bytes
+    };
+
+    for usize i = 0; i < n; i++ {
+        block[i] = old[i];
+    }
+
+    self.free(old, align);
+    return Result::Ok(block);
+}

@@ -1,0 +1,126 @@
+module std::alloc::fixed;
+
+public import std::result;
+
+import std::alloc;
+import core::slice;
+
+using result::{ Result, Optional };
+
+//!
+//! Fixed-buffer allocator policy
+//!
+//! `FixedBuffer` owns no backing memory: it carves aligned blocks out of a
+//! borrowed `[] u8` and never grows. `FixedHandle` borrows one buffer state;
+//! handles may be copied, but a copy neither copies nor extends the state
+//! lifetime. Fixed-buffer operations are thread-confined unless the caller
+//! serializes them.
+//!
+
+public struct FixedBuffer {
+    [] u8 buffer;
+    usize offset;
+    usize last_offset;
+}
+
+public struct FixedHandle {
+    FixedBuffer* state;
+}
+
+public FixedBuffer new_fixed_buffer([] u8 backing) {
+    return FixedBuffer {buffer = backing, offset = 0, last_offset = 0};
+}
+
+public using FixedBuffer::new = new_fixed_buffer;
+
+/// borrows `state`. the handle does not own it.
+public FixedHandle borrow(FixedBuffer* state) {
+    return FixedHandle {state = state};
+}
+
+public using FixedHandle::borrow = borrow;
+
+/// discards every allocation made from this buffer.
+public void reset(FixedBuffer* self) {
+    self.offset = 0;
+    self.last_offset = 0;
+}
+
+//!
+//! Allocator contract
+//!
+
+public Result([] u8, AllocError) allocate(
+    const FixedHandle* self,
+    usize len,
+    usize align
+) {
+    if !valid_alignment(align) {
+        return AllocError::InvalidAlignment;
+    }
+
+    if len == 0 {
+        return Result::Ok(core::slice::from_raw(null as u8*, 0));
+    }
+
+    FixedBuffer* state = self.state;
+    Result(usize, AllocError) start_r = allocation_start(
+        state.buffer,
+        state.offset,
+        len,
+        align
+    );
+
+    if start_r.is_err() {
+        return start_r.unwrap_err();
+    }
+
+    usize start = start_r.unwrap();
+    state.last_offset = start;
+    state.offset = start + len;
+    return Result::Ok(core::slice::from_raw(state.buffer.ptr + start, len));
+}
+
+public bool resize_in_place(
+    const FixedHandle* self,
+    [] u8 block,
+    usize new_bytes,
+    usize align
+) {
+    if block.len == 0 {
+        return false;
+    }
+
+    if new_bytes == 0 {
+        self.free(block, align);
+        return true;
+    }
+
+    FixedBuffer* state = self.state;
+    usize start = block.ptr as usize - state.buffer.ptr as usize;
+
+    if start != state.last_offset {
+        return new_bytes <= block.len;
+    }
+
+    Optional(usize) end = checked_add(start, new_bytes);
+    if end.is_none() || end.unwrap_some() > state.buffer.len {
+        return false;
+    }
+
+    state.offset = end.unwrap_some();
+    return true;
+}
+
+public void free(const FixedHandle* self, [] u8 block, usize align) {
+    if block.len == 0 {
+        return;
+    }
+
+    FixedBuffer* state = self.state;
+    usize start = block.ptr as usize - state.buffer.ptr as usize;
+
+    if start == state.last_offset {
+        state.offset = start;
+    }
+}
