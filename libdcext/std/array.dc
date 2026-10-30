@@ -27,11 +27,7 @@ using usize MIN_CAPACITY = 8;
 //!
 
 public Array(T) new_array(T)() {
-    return {
-        alloc = DefaultAllocator{},
-        storage = slice::from_raw(null as T*, 0),
-        count = 0,
-    };
+    return {};
 }
 
 public Array(T, A) new_array(T, A)(A alloc) if AllocatorPolicy(A) {

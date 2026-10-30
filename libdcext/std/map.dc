@@ -44,20 +44,7 @@ public struct Entry(K, V) {
 //!
 
 public Map(K, V) new_map(K, V)() {
-    return {
-        alloc = DefaultAllocator{},
-        control = slice::from_raw(null as u8*, 0),
-        keys = slice::from_raw(
-            null as K*,
-            0
-        ),
-        values = slice::from_raw(
-            null as V*,
-            0
-        ),
-        count = 0,
-        tombstones = 0,
-    };
+    return {};
 }
 
 public Map(K, V, A) new_map(K, V, A)(A alloc) if AllocatorPolicy(A) {
