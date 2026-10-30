@@ -1,0 +1,6 @@
+=== FILE: project.dcon ===
+{ name = "a", version = "1.0.0", settings = { optimize = Optimize::Fast } }
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:1:58: unknown path `Optimize::Fast`

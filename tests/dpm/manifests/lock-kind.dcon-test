@@ -1,0 +1,8 @@
+=== KIND: Lock ===
+=== FILE: project.dcon ===
+dpm::v1::Lock { manifest = "sha256:00", packages = {} }
+=== EXPECT-TREE ===
+{
+  manifest = "sha256:00",
+  packages = [],
+}

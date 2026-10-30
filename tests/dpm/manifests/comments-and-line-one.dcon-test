@@ -1,0 +1,4 @@
+=== FILE: project.dcon ===
+{ name = "a", /* inline */ version = 5 }
+=== EXPECT-ERRORS ===
+project.dcon:1:28: field `version` type mismatch: expected `[]const char`, got `i32`

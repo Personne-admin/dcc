@@ -1,0 +1,6 @@
+=== FILE: project.dcon ===
+{ bogus = 1 }
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:1:3: unknown field `bogus` in brace literal

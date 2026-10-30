@@ -1,0 +1,7 @@
+=== FILE: project.dcon ===
+const i32 X = 1;
+
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:2:1: expected an initializer

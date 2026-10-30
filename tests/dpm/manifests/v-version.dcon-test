@@ -1,0 +1,6 @@
+=== FILE: project.dcon ===
+{ name = "a", version = "1.0" }
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:1:25: '1.0' is not a valid version

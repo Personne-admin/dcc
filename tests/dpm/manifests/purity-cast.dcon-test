@@ -1,0 +1,6 @@
+=== FILE: project.dcon ===
+{ name = "a", version = "1.0.0", settings = { arch = 5 as []const char } }
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:1:1: initializer for global `__manifest` is not a constant expression

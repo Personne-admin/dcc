@@ -1,0 +1,13 @@
+=== FILE: project.dcon ===
+{
+    name = "a",
+    version = "1.0.0",
+    products = {
+        { name = "x" },
+        { name = "x" },
+    },
+}
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:6:18: duplicate product 'x'

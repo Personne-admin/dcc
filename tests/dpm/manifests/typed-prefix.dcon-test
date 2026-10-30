@@ -1,0 +1,14 @@
+=== FILE: project.dcon ===
+dpm::v1::Project {
+    name = "hello",
+    version = "0.1.0",
+    settings = { optimize = dpm::v1::Optimize::Size },
+}
+=== EXPECT-TREE ===
+{
+  name = "hello",
+  version = "0.1.0",
+  settings = {
+    optimize = Optimize::Size,
+  },
+}

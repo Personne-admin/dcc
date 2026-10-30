@@ -1,0 +1,6 @@
+=== FILE: project.dcon ===
+{ name = "abc"[0], version = "1.0.0" }
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:1:3: field `name` type mismatch: expected `[]const char`, got `char`

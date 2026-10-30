@@ -1,0 +1,6 @@
+=== FILE: project.dcon ===
+{ name = "a", version = "1.0.0" } extra
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:1:35: unexpected tokens after the initializer

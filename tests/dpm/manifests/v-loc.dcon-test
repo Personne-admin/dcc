@@ -1,0 +1,6 @@
+=== FILE: project.dcon ===
+{ name = "a", version = "1.0.0", dependencies = { { location = "foo.bar/x", version = "1.0.0" } } }
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:1:64: unknown git host; use git+https://host/path.git for other servers

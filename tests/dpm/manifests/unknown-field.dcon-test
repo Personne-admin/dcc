@@ -1,0 +1,9 @@
+=== FILE: project.dcon ===
+{
+    name = "a",
+    versoin = "1.0.0",
+}
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:3:5: unknown field `versoin` in brace literal

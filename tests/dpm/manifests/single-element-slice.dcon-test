@@ -1,0 +1,13 @@
+=== FILE: project.dcon ===
+{ name = "a", version = "1.0.0", dependencies = { { location = "github.com/x/y", version = "1.0.0" } } }
+=== EXPECT-TREE ===
+{
+  name = "a",
+  version = "1.0.0",
+  dependencies = [
+    {
+      location = "github.com/x/y",
+      version = "1.0.0",
+    },
+  ],
+}

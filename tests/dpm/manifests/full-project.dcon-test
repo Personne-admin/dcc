@@ -1,0 +1,82 @@
+=== FILE: project.dcon ===
+dpm::v1::Project {
+    name = "app",
+    version = "1.2.3-rc1+build.5",
+    description = "an app",
+    requires_dcc = "0.7.0",
+    dependencies = {
+        { location = "json5", version = "1.2.0" },
+        { location = "path:../util" },
+        { location = "git+https://example.org/a/b.git#sub", version = "0.3.1" },
+    },
+    dev_dependencies = { { location = "github.com/u/check", version = "0.4.1" } },
+    products = {
+        { name = "app", settings = { optimize = Optimize::Size, whole_program = Tri::On } },
+        { name = "boot", entry = "src/boot.dc", kind = Kind::SharedLibrary, link = { "m" } },
+    },
+    settings = { target = Target::I8086Mz, model = Model::Small, extra_flags = { "-Wall" } },
+    profiles = { { name = "fast", settings = { optimize = Optimize::O2, debug_info = Tri::Off } } },
+}
+=== FILE: src/main.dc ===
+module main;
+=== FILE: src/boot.dc ===
+module boot;
+=== EXPECT-TREE ===
+{
+  name = "app",
+  version = "1.2.3-rc1+build.5",
+  description = "an app",
+  requires_dcc = "0.7.0",
+  dependencies = [
+    {
+      location = "json5",
+      version = "1.2.0",
+    },
+    {
+      location = "path:../util",
+    },
+    {
+      location = "git+https://example.org/a/b.git#sub",
+      version = "0.3.1",
+    },
+  ],
+  dev_dependencies = [
+    {
+      location = "github.com/u/check",
+      version = "0.4.1",
+    },
+  ],
+  products = [
+    {
+      name = "app",
+      settings = {
+        optimize = Optimize::Size,
+        whole_program = Tri::On,
+      },
+    },
+    {
+      name = "boot",
+      kind = Kind::SharedLibrary,
+      entry = "src/boot.dc",
+      link = [
+        "m",
+      ],
+    },
+  ],
+  settings = {
+    target = Target::I8086Mz,
+    model = Model::Small,
+    extra_flags = [
+      "-Wall",
+    ],
+  },
+  profiles = [
+    {
+      name = "fast",
+      settings = {
+        optimize = Optimize::O2,
+        debug_info = Tri::Off,
+      },
+    },
+  ],
+}

@@ -1,0 +1,8 @@
+=== FILE: project.dcon ===
+const []const char N = make();
+{ name = N, version = "1.0.0" }
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:1:24: unknown name `make`
+project.dcon:2:1: initializer for global `__manifest` is not a constant expression

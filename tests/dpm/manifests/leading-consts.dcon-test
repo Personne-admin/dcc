@@ -1,0 +1,18 @@
+=== FILE: project.dcon ===
+const []const char V = "2.0.0";
+const Dependency D = { location = "json5", version = V };
+{ name = "a", version = V, dependencies = { D, { location = "path:../u" } } }
+=== EXPECT-TREE ===
+{
+  name = "a",
+  version = "2.0.0",
+  dependencies = [
+    {
+      location = "json5",
+      version = "2.0.0",
+    },
+    {
+      location = "path:../u",
+    },
+  ],
+}

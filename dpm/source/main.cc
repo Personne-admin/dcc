@@ -1,31 +1,61 @@
 import std;
+import dcc.config;
 import dpm.manifest;
 
 namespace
 {
-    int run_spike(std::filesystem::path const& file, std::filesystem::path const& schema_root)
+    constexpr int k_exit_usage = 2;
+    constexpr int k_exit_manifest = 3;
+
+    std::filesystem::path schema_root(char** argv)
     {
+        if (char const* env = std::getenv("DPM_SCHEMA_ROOT"))
+            return env;
+        return dcc::config::current_prefix(argv).path / "include";
+    }
+
+    int run_check(char** argv, std::span<char const* const> args)
+    {
+        bool tree = false;
+        std::filesystem::path file{"project.dcon"};
+        for (auto arg : args)
+        {
+            if (std::string_view{arg} == "--tree")
+                tree = true;
+            else if (std::string_view{arg}.starts_with("-"))
+            {
+                std::println(std::cerr, "dpm check: unknown option {}", arg);
+                return k_exit_usage;
+            }
+            else
+                file = arg;
+        }
         std::ifstream in{file, std::ios::binary};
         if (!in)
         {
             std::println(std::cerr, "dpm: cannot read {}", file.string());
-            return 3;
+            return k_exit_manifest;
         }
         std::string text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
-        auto result = dpm::manifest::spike_evaluate(text, schema_root);
-        for (auto const& error : result.errors)
-            std::println(std::cerr, "{}:{}", file.string(), error);
+        dpm::manifest::LoadOptions options;
+        options.file_name = file.string();
+        options.schema_root = schema_root(argv);
+        options.project_root = file.has_parent_path() ? file.parent_path() : std::filesystem::path{"."};
+        auto result = dpm::manifest::load(text, options);
+        for (auto const& diagnostic : result.diagnostics)
+            std::println(std::cerr, "{}", diagnostic.format());
         if (!result.ok)
-            return 3;
-        std::print("{}", result.tree);
+            return k_exit_manifest;
+        if (tree)
+            std::print("{}", result.tree.dump(true));
         return 0;
     }
 } // namespace
 
 auto main(int argc, char** argv) -> int
 {
-    if (argc == 4 && std::string_view{argv[1]} == "--spike")
-        return run_spike(argv[2], argv[3]);
-    std::println(std::cerr, "usage: dpm --spike <project.dcon> <schema-root>");
-    return 2;
+    if (argc >= 2 && std::string_view{argv[1]} == "check")
+        return run_check(argv, std::span<char const* const>{argv + 2, static_cast<std::size_t>(argc - 2)});
+    std::println(std::cerr, "usage: dpm check [--tree] [project.dcon]");
+    return k_exit_usage;
 }

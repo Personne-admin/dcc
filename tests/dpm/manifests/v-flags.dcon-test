@@ -1,0 +1,7 @@
+=== FILE: project.dcon ===
+{ name = "a", version = "1.0.0", settings = { extra_flags = { "-Wall", "-o", "-Ifoo" } } }
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:1:72: '-o' is set by dpm and cannot be passed in extra_flags
+project.dcon:1:78: '-Ifoo' is set by dpm and cannot be passed in extra_flags
