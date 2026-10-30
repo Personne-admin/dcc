@@ -9,6 +9,22 @@ using std::{mem, math, array, map, slice};
 using std::result::{Result, Optional};
 struct Calls { usize allocations; usize resizes; usize frees; }
 struct Empty {}
+
+struct ArrayPolicy {
+    mem::Allocator* alloc;
+}
+
+Result([]u8, mem::AllocError) allocate(ArrayPolicy* self, usize len, usize align) {
+    return self.alloc.raw_alloc(len, align);
+}
+
+bool resize_in_place(ArrayPolicy* self, []u8 block, usize new_bytes, usize align) {
+    return self.alloc.raw_resize(block, new_bytes, align);
+}
+
+void free(ArrayPolicy* self, []u8 block, usize align) {
+    self.alloc.raw_free(block, align);
+}
 Result([]u8, mem::AllocError) reject(void* ctx, usize n, usize alignment) {
     Calls* c = ctx as Calls*;
     c.allocations = c.allocations + 1;
@@ -49,7 +65,8 @@ void release(void* ctx, []u8 old, usize alignment) {
     if arena.head != null || arena.next_chunk_size != mem::ARENA_MIN_CHUNK || c.allocations != 0 { return 16; }
     arena.next_chunk_size = max / 2 + 1;
     if arena.allocator().raw_alloc(1, 1).unwrap_err() != mem::AllocError::OutOfMemory || arena.head != null || c.allocations != 0 { return 17; }
-    array::Array(u16) arr = array::new_array(a);
+    ArrayPolicy ap = {alloc = &a};
+    array::Array(u16, ArrayPolicy) arr = array::new_array(ap);
     if arr.reserve(max).unwrap_err() != mem::AllocError::OutOfMemory || c.allocations != 0 { return 18; }
     if arr.count != 0 || arr.storage.ptr != null || arr.storage.len != 0 { return 19; }
     if arr.reserve(8).unwrap_err() != mem::AllocError::OutOfMemory || c.allocations != 1 { return 20; }

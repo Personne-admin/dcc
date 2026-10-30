@@ -15,7 +15,8 @@ import assert;
     u8[16384] backing;
     std::mem::FixedBuffer buffer = std::mem::new_fixed_buffer(backing[0..16384]);
     std::mem::Allocator allocator = buffer.allocator();
-    std::array::Array(u64) values = std::array::new_array(allocator);
+    std::mem::FixedHandle handle = std::mem::borrow(&buffer);
+    std::array::Array(u64, std::mem::FixedHandle) values = std::array::new_array(handle);
     if !values.push(7).is_ok() { return 1; }
     std::map::Map(u64, u64) mapping = std::map::new_map(allocator);
     if mapping.put(3, 7).is_err() { return 2; }

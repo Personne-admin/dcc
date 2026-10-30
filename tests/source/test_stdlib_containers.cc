@@ -49,12 +49,26 @@ import std::array;
 import std::mem;
 import std::result;
 
+struct BackingPolicy {}
+
+std::result::Result([] u8, std::mem::AllocError) allocate(BackingPolicy* self, usize len, usize align) {
+    return std::mem::AllocError::OutOfMemory;
+}
+
+bool resize_in_place(BackingPolicy* self, [] u8 block, usize new_bytes, usize align) {
+    return false;
+}
+
+void free(BackingPolicy* self, [] u8 block, usize align) {}
+
 public i32 main() {
     u8[512] backing;
     std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..512]);
-    std::mem::Allocator a = fb.allocator();
+    std::mem::FixedHandle a = std::mem::borrow(&fb);
 
-    std::array::Array(i32) arr = std::array::new_array(a);
+    if sizeof(std::array::Array(i32, std::mem::FixedHandle)) != 4 * sizeof(usize) { return 30; }
+    if sizeof(std::array::Array(i32, BackingPolicy)) != 3 * sizeof(usize) { return 31; }
+    std::array::Array(i32, std::mem::FixedHandle) arr = std::array::new_array(a);
     if !arr.is_empty() || arr.len() != 0 { return 1; }
     if arr.at(0).is_some() || arr.last().is_some() || arr.pop().is_some() { return 2; }
 
@@ -102,16 +116,16 @@ public i32 main() {
     arr.clear();
     if !arr.is_empty() { return 22; }
 
-    std::result::Result(std::array::Array(i32), std::mem::AllocError) cap_r = std::array::with_capacity(a, 16);
+    std::result::Result(std::array::Array(i32, std::mem::FixedHandle), std::mem::AllocError) cap_r = std::array::with_capacity(a, 16);
     if cap_r.is_err() { return 23; }
-    std::array::Array(i32) cap = cap_r.unwrap();
+    std::array::Array(i32, std::mem::FixedHandle) cap = cap_r.unwrap();
     if cap.capacity() < 16 { cap.deinit(); return 24; }
     cap.deinit();
 
     i32[4] seed = {4, 3, 2, 1};
-    std::result::Result(std::array::Array(i32), std::mem::AllocError) cp_r = std::array::from_slice(a, seed[0..4]);
+    std::result::Result(std::array::Array(i32, std::mem::FixedHandle), std::mem::AllocError) cp_r = std::array::from_slice(a, seed[0..4]);
     if cp_r.is_err() { return 25; }
-    std::array::Array(i32) cp = cp_r.unwrap();
+    std::array::Array(i32, std::mem::FixedHandle) cp = cp_r.unwrap();
     [] i32 cpe = cp.items();
     if cp.len() != 4 || cpe[0] != 4 { cp.deinit(); return 26; }
     std::result::Result([] i32, std::mem::AllocError) own_r = cp.to_owned_slice();

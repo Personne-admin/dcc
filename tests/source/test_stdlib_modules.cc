@@ -2108,8 +2108,8 @@ import std::tuple;
 public i32 main() {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
-    std::mem::Allocator a = fb.allocator();
-    std::array::Array(std::tuple::Tuple(usize, usize)) heros = std::array::new_array(a);
+    std::mem::FixedHandle a = std::mem::borrow(&fb);
+    std::array::Array(std::tuple::Tuple(usize, usize), std::mem::FixedHandle) heros = std::array::new_array(a);
     heros.reserve(4);
     std::tuple::Tuple(usize, usize) t1 = {10, 20};
     std::tuple::Tuple(usize, usize) t2 = {30, 40};

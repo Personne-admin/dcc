@@ -33,6 +33,22 @@ static if core::target::OS == core::target::Os::Windows {
     );
 }
 
+struct HeapPolicy {
+    mem::Allocator* alloc;
+}
+
+std::result::Result([] u8, mem::AllocError) allocate(HeapPolicy* self, usize len, usize align) {
+    return self.alloc.raw_alloc(len, align);
+}
+
+bool resize_in_place(HeapPolicy* self, [] u8 block, usize new_bytes, usize align) {
+    return self.alloc.raw_resize(block, new_bytes, align);
+}
+
+void free(HeapPolicy* self, [] u8 block, usize align) {
+    self.alloc.raw_free(block, align);
+}
+
 // scratch working directory is private to each harness invocation and removed
 // even after a failed assertion or child timeout.
 struct DirTally {
@@ -513,6 +529,7 @@ i32 test_files() {
 
 i32 test_heap() {
     mem::Allocator a = heap::allocator();
+    HeapPolicy policy = {alloc = &a};
     usize page = heap::page_size();
     bool platform_pages_ok = true;
     static if core::target::OS == core::target::Os::Windows {
@@ -617,7 +634,7 @@ i32 test_heap() {
     a.raw_free(relocated, 1);
     a.raw_free(guarded, 1);
 
-    array::Array(i32) arr = array::new_array(a);
+    array::Array(i32, HeapPolicy) arr = array::new_array(policy);
     map::Map(i32, i32) table = map::new_map(a);
     i32 i = 0;
     while i < 5000 {

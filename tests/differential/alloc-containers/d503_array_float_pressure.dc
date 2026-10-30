@@ -80,8 +80,9 @@ public i32 main() {
     u8[16384] backing;
     std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..16384]);
     std::mem::Allocator alloc = fb.allocator();
+    std::mem::FixedHandle handle = std::mem::borrow(&fb);
     std::os::file::File out = std::os::file::stdout();
-    std::array::Array(Envelope) envelopes = std::array::new_array(alloc);
+    std::array::Array(Envelope, std::mem::FixedHandle) envelopes = std::array::new_array(handle);
 
     usize i = 0;
     while i < 24 {
