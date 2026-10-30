@@ -588,17 +588,44 @@ export namespace dcc::sema
             }
         }
 
-        [[nodiscard]] detail::TemplateEnv make_env(std::pmr::vector<ast::TemplateParam>& params)
+        [[nodiscard]] detail::TemplateEnv make_env(std::span<ast::TemplateParam const> params)
         {
             detail::TemplateEnv env;
             for (std::size_t i = 0; i < params.size(); ++i)
             {
-                auto& tp = params[i];
+                auto const& tp = params[i];
                 if (!tp.value_type)
                     env.types.emplace(tp.name,
                                       m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i)));
             }
             return env;
+        }
+
+        [[nodiscard]] ModuleInfo const* module_with_file(sm::FileId id) const
+        {
+            for (auto const& m : m_modules)
+                if (m->tu && m->tu->range.begin.fileId == id)
+                    return m.get();
+            return nullptr;
+        }
+
+        [[nodiscard]] types::TypePtr resolve_default_argument(ast::TemplateParam const& tp, std::span<ast::TemplateParam const> params, bool quiet_unknown)
+        {
+            if (!tp.default_type)
+                return nullptr;
+
+            if (auto* canonical = get_canonical(tp.default_type->sema))
+                return canonical;
+
+            auto const* decl_mod = module_with_file(tp.default_type->range.begin.fileId);
+            if (!decl_mod)
+                return nullptr;
+
+            auto resolved = resolve_type_expr(tp.default_type, *decl_mod, make_env(params), quiet_unknown);
+            if (!resolved.type || resolved.type->kind == types::TypeKind::Error)
+                return nullptr;
+
+            return resolved.type;
         }
 
         [[nodiscard]] detail::ResolvedType resolve_type_expr(ast::TypeExpr* node, ModuleInfo const& mod, detail::TemplateEnv const& env,
@@ -951,13 +978,14 @@ export namespace dcc::sema
                 for (std::size_t i = resolved_args.size(); i < fixed_count; ++i)
                 {
                     auto const& tp = template_params[i];
-                    if (!tp.default_type || !tp.default_type->sema.canonical)
+                    auto resolved_default = resolve_default_argument(tp, template_params, quiet_unknown);
+                    if (!resolved_default)
                     {
                         if (!quiet_unknown)
                             m_diag.error(range, "missing required template argument for `{}`", detail::decl_name(decl));
                         return {m_types.m_errort(), types::Qual::None};
                     }
-                    auto actual = bindings.substitute(get_canonical(tp.default_type->sema));
+                    auto actual = bindings.substitute(resolved_default);
                     resolved_args.push_back(actual);
                     auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
                     std::ignore = bindings.deduce(key, actual);
@@ -1068,6 +1096,7 @@ export namespace dcc::sema
                 return {m_types.m_errort(), types::Qual::None};
             }
 
+
             detail::ResolvedType out{m_types.m_errort(), types::Qual::None};
             auto inst_env = env;
             infer::TemplateBindings bindings{m_types};
@@ -1120,8 +1149,10 @@ export namespace dcc::sema
                         }
                         actual = resolve_type_expr(arg.type, mod, env, quiet_unknown).type;
                     }
-                    else if (tp.default_type && tp.default_type->sema.canonical)
-                        actual = bindings.substitute(get_canonical(tp.default_type->sema));
+                    else if (auto resolved_default = resolve_default_argument(tp, u.template_params, quiet_unknown))
+                    {
+                        actual = bindings.substitute(resolved_default);
+                    }
                     else
                         continue;
                     std::ignore = bindings.deduce(key, actual);

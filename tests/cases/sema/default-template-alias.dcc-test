@@ -1,0 +1,26 @@
+=== FILE: a.dc ===
+module a;
+
+public struct Fallback {
+}
+
+public struct Array(T, A = Fallback) {
+    A allocator;
+    T* data;
+    usize len;
+}
+
+=== ENTRY: main.dc ===
+
+=== FILE: main.dc ===
+module main;
+
+import a;
+
+using MyArray = a::Array(u8);
+
+i32 main() {
+    MyArray array = {};
+    a::Fallback* pointer = &array.allocator;
+    return sizeof(MyArray) as i32;
+}
