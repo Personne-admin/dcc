@@ -127,6 +127,104 @@ public i32 main() {
 '''
 
 
+ZERO_POLICY = '''module zero;
+public import std::result;
+public import std::alloc;
+using std::result::Result;
+using std::alloc::AllocError;
+
+public struct Z {
+}
+
+public u8[65536] pool;
+public usize used;
+
+public Result([] u8, AllocError) allocate(Z* self, usize len, usize align) {
+    if used + len > 65536 {
+        return AllocError::OutOfMemory;
+    }
+    [] u8 out = pool[used..used + len];
+    used = used + len;
+    return Result::Ok(out);
+}
+
+public bool resize_in_place(Z* self, [] u8 block, usize new_bytes, usize align) {
+    return false;
+}
+
+public void free(Z* self, [] u8 block, usize align) {
+}
+'''
+
+GENERIC_LIBRARY = '''module lib;
+public import std::array;
+
+public i32 take(T)(std::array::Array(T)* a) {
+    return a.len() as i32;
+}
+
+public std::array::Array(T) make(T)() {
+    return std::array::new_array();
+}
+'''
+
+GENERIC_PROGRAM = '''module main;
+import std::array;
+import lib;
+
+public i32 main() {
+    std::array::Array(i32) a = lib::make();
+    if !a.push(5).is_ok() {
+        return 1;
+    }
+    if lib::take(&a) != 1 {
+        return 2;
+    }
+    a.deinit();
+    return 0;
+}
+'''
+
+
+def generic_signature_defaults(dcc, scratch):
+    (scratch / 'zero.dc').write_text(ZERO_POLICY)
+    (scratch / 'lib.dc').write_text(GENERIC_LIBRARY)
+    (scratch / 'prog.dc').write_text(GENERIC_PROGRAM)
+
+    include = ['-I', scratch, '-I', ROOT / 'libdcext']
+    library_obj = scratch / 'lib.o'
+    policy_obj = scratch / 'zero.o'
+    run([dcc, *include, '-flibdcext', 'freestanding', '-target', 'x86_64-elf', '-fbackend', 'llvm', '-O0',
+         '-c', scratch / 'lib.dc', '-o', library_obj])
+    run([dcc, *include, '-flibdcext', 'freestanding', '-target', 'x86_64-elf', '-fbackend', 'llvm', '-O0',
+         '-c', scratch / 'zero.dc', '-o', policy_obj])
+    archive = scratch / 'lib.a'
+    run(['ar', 'rcs', archive, library_obj, policy_obj])
+
+    for backend in ('llvm', 'custom'):
+        for opt in ('O0', 'O2'):
+            exe = scratch / 'generic-exe'
+            select = '-fdefault-allocator=zero::Z'
+            run([dcc, *include, '-flibdcext', 'linux', '-target', 'x86_64-elf', '-fbackend', backend, '-' + opt,
+                 '-fwhole-program', select, scratch / 'prog.dc', '-o', exe])
+            run([exe])
+
+            program_obj = scratch / 'prog.o'
+            run([dcc, *include, '-flibdcext', 'linux', '-target', 'x86_64-elf', '-fbackend', backend, '-' + opt,
+                 select, '-c', scratch / 'prog.dc', '-o', program_obj])
+            run([dcc, '-flibdcext', 'linux', '-target', 'x86_64-elf', '-fbackend', backend,
+                 program_obj, archive, '-o', exe])
+            run([exe])
+
+    result = subprocess.run(['timeout', '60', str(dcc), *map(str, include), '-flibdcext', 'linux', '-target', 'x86_64-elf',
+                             '-fbackend', 'llvm', '-O0', '-fwhole-program', scratch / 'prog.dc', '-o', scratch / 'no-selection'],
+                            capture_output=True, text=True, timeout=65)
+    text = ANSI.sub('', result.stderr)
+    assert result.returncode == 1, text
+    assert 'no default allocator selected' in text, text
+    print('  PASS static allocators generic signature default selection', flush=True)
+
+
 def negative(dcc, scratch):
     source = scratch / 'negative.dc'
     source.write_text(NEGATIVE)
@@ -164,6 +262,7 @@ def main():
         if not args.windows:
             compiles = portable(dcc, scratch)
             negative(dcc, scratch)
+            generic_signature_defaults(dcc, scratch)
             print('  RESULT static allocator executions, ' + str(compiles) + ' narrow compiles and contract diagnostics passed', flush=True)
         else:
             print('  RESULT static allocator executions passed', flush=True)

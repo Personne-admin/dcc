@@ -966,6 +966,7 @@ export namespace dcc::sema
                 return {m_types.m_errort(), types::Qual::None};
             }
 
+            bool deferred_default = false;
             if (resolved_args.size() < fixed_count)
             {
                 infer::TemplateBindings bindings{m_types};
@@ -986,11 +987,49 @@ export namespace dcc::sema
                         return {m_types.m_errort(), types::Qual::None};
                     }
                     auto actual = bindings.substitute(resolved_default);
-                    std::ignore = diagnose_unselected_default_allocator(m_types, m_diag, actual, range);
+                    if (is_unselected_default_allocator(m_types, actual))
+                        deferred_default = true;
+                    else
+                        std::ignore = diagnose_unselected_default_allocator(m_types, m_diag, actual, range);
                     resolved_args.push_back(actual);
                     auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
                     std::ignore = bindings.deduce(key, actual);
                 }
+            }
+
+            if (deferred_default && !env.types.empty())
+            {
+                auto kind = nominal_kind(*decl);
+                if (kind == types::TypeKind::Error)
+                    return {m_types.m_errort(), types::Qual::None};
+
+                std::vector<types::TypePtr> gate_args = resolved_args;
+                for (auto const& [name, gate_type] : env.types)
+                {
+                    (void)name;
+                    gate_args.push_back(gate_type);
+                }
+
+                auto* type_ctx = &m_types;
+                auto* diag = &m_diag;
+                auto* decl_ptr = const_cast<ast::Decl*>(decl);
+                auto const arg_count = resolved_args.size();
+                auto const decl_range = range;
+                bool const report = !quiet_unknown;
+                auto deferred = m_types.deferred_t(decl_ptr, gate_args,
+                                                   [type_ctx, diag, decl_ptr, kind, arg_count, decl_range, report](std::span<types::TypePtr const> arguments) {
+                                                       std::vector<types::TypePtr> args;
+                                                       args.reserve(arg_count);
+                                                       for (std::size_t i = 0; i < arg_count && i < arguments.size(); ++i)
+                                                       {
+                                                           args.push_back(arguments[i]);
+                                                           if (report)
+                                                               std::ignore = diagnose_unselected_default_allocator(*type_ctx, *diag, arguments[i], decl_range);
+                                                       }
+                                                       return types::TypeResolution{
+                                                           type_ctx->nominal_t(kind, decl_ptr, args, kind == types::TypeKind::Struct), types::Qual::None};
+                                                   });
+                return {deferred, types::Qual::None};
             }
 
             if (!resolved_args.empty() || is_variadic_struct)

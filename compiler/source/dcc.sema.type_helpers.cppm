@@ -8,13 +8,18 @@ import dcc.types;
 
 export namespace dcc::sema
 {
-    [[nodiscard]] bool diagnose_unselected_default_allocator(types::TypeContext& types, diag::DiagnosticEngine& diag, types::TypePtr type, sm::SourceRange range)
+    [[nodiscard]] bool is_unselected_default_allocator(types::TypeContext& types, types::TypePtr type)
     {
         if (!types.unselected_default_allocator_decl || !type)
             return false;
 
         auto const* struct_type = types::type_cast<types::StructType>(type);
-        if (!struct_type || static_cast<void const*>(struct_type->decl) != types.unselected_default_allocator_decl)
+        return struct_type && static_cast<void const*>(struct_type->decl) == types.unselected_default_allocator_decl;
+    }
+
+    [[nodiscard]] bool diagnose_unselected_default_allocator(types::TypeContext& types, diag::DiagnosticEngine& diag, types::TypePtr type, sm::SourceRange range)
+    {
+        if (!is_unselected_default_allocator(types, type))
             return false;
 
         diag.error(range, "no default allocator selected; pass -fdefault-allocator=<module>::<type> or give the allocator argument explicitly");
