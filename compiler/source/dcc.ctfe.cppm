@@ -10,6 +10,7 @@ import dcc.comptime;
 import dcc.const_eval;
 import dcc.ctfe.memory;
 import dcc.lex.tokens;
+import dcc.sema.infer;
 import dcc.sm;
 import dcc.types;
 
@@ -476,6 +477,16 @@ export namespace dcc::ctfe
             return var && volatile_type(var->type);
         }
 
+        types::TypePtr field_type(types::TypePtr record, ast::FieldDecl const& field)
+        {
+            auto* ft = type_of(field.type);
+            if (!ft || !record || !m_context.types)
+                return ft;
+            if (auto bindings = infer::make_bindings(*m_context.types, record))
+                return bindings->substitute(ft);
+            return ft;
+        }
+
         comptime::Value zero_object(types::TypePtr type)
         {
             if (m_cells >= m_context.memory_limit)
@@ -513,7 +524,7 @@ export namespace dcc::ctfe
                     std::vector<comptime::Value> elements;
                     elements.reserve(fields.size());
                     for (auto const& field : fields)
-                        elements.push_back(zero_object(type_of(field.type)));
+                        elements.push_back(zero_object(field_type(type, field)));
                     return comptime::Value::make_aggregate(std::move(elements), type);
                 }
                 default:
@@ -541,7 +552,7 @@ export namespace dcc::ctfe
                 std::vector<comptime::Value> elements;
                 elements.reserve(fields.size());
                 for (auto const& field : fields)
-                    elements.push_back(default_object(type_of(field.type)));
+                    elements.push_back(default_object(field_type(type, field)));
                 return comptime::Value::make_aggregate(std::move(elements), type);
             }
             return {};
@@ -728,7 +739,7 @@ export namespace dcc::ctfe
             return v;
         }
 
-        static ast::FieldDecl const* bitfield_store_field(ast::Expr const& target, types::TypePtr& field_ty)
+        ast::FieldDecl const* bitfield_store_field(ast::Expr const& target, types::TypePtr& field_ty)
         {
             field_ty = nullptr;
             if (target.kind != ast::ExprKind::FieldAccess)
@@ -741,14 +752,14 @@ export namespace dcc::ctfe
             {
                 if (f.name == fa.field && f.is_bitfield && f.bit_width != 0 && f.bit_width != 0xFFFFFFFFu)
                 {
-                    field_ty = f.type ? type_of(f.type) : nullptr;
+                    field_ty = f.type ? field_type(obj_ty, f) : nullptr;
                     return &f;
                 }
             }
             return nullptr;
         }
 
-        static comptime::Value truncate_bitfield_store(ast::Expr const& target, comptime::Value value)
+        comptime::Value truncate_bitfield_store(ast::Expr const& target, comptime::Value value)
         {
             types::TypePtr field_ty = nullptr;
             auto const* fd = bitfield_store_field(target, field_ty);
@@ -1228,22 +1239,23 @@ export namespace dcc::ctfe
                     {
                         if (field.resolved_field_index >= elements.size())
                             return failure("aggregate field index is unresolved");
-                        auto r = convert(*field.value, type_of(fields[field.resolved_field_index].type));
+                        auto r = convert(*field.value, field_type(type, fields[field.resolved_field_index]));
                         if (r.flow != Flow::Normal || !r.value)
                             return r;
                         auto const& fd = fields[field.resolved_field_index];
                         if (fd.is_bitfield && fd.bit_width != 0 && fd.bit_width != 0xFFFFFFFFu)
                         {
-                            if (auto restricted = check_restricted_bitfield_value(*r.value, fd, type_of(fd.type)))
+                            auto* ft = field_type(type, fd);
+                            if (auto restricted = check_restricted_bitfield_value(*r.value, fd, ft))
                                 return *restricted;
-                            *r.value = truncate_bitfield_value_ctfe(std::move(*r.value), fd, type_of(fd.type));
+                            *r.value = truncate_bitfield_value_ctfe(std::move(*r.value), fd, ft);
                         }
                         elements[field.resolved_field_index] = std::move(*r.value);
                     }
                     for (std::size_t i = 0; i < fields.size(); ++i)
                     {
                         if (fields[i].name.empty() && fields[i].is_bitfield)
-                            elements[i] = comptime::Value::make_int(0, type_of(fields[i].type));
+                            elements[i] = comptime::Value::make_int(0, field_type(type, fields[i]));
                     }
                     return folded(comptime::Value::make_aggregate(std::move(elements), type));
                 }

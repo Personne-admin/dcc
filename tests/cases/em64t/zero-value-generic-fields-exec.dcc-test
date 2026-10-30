@@ -1,0 +1,104 @@
+=== TARGET: linux-em64t ===
+=== FILE: main.dc ===
+module test;
+
+struct PointerBox(T) {
+    T* ptr;
+}
+
+struct SliceBox(T) {
+    [] T storage;
+    usize count;
+}
+
+struct PointerArray(T) {
+    T*[2] items;
+}
+
+struct Inner(T) {
+    T* ptr;
+    usize tag;
+}
+
+struct Outer(T) {
+    Inner(T) inner;
+    T value;
+}
+
+struct Tagged {
+    i32 tag = 7;
+}
+
+struct GenericWithDefaultField(T) {
+    Tagged tagged;
+    T* ptr;
+}
+
+struct Holder {
+    PointerBox(i32) box = {};
+}
+
+PointerBox(i32) make_pointer_box() {
+    return {};
+}
+
+SliceBox(T) make_slice_box(T)() {
+    return {};
+}
+
+i32 takes_pointer_box(PointerBox(i32) box) {
+    if box.ptr == null {
+        return 1;
+    }
+    return 0;
+}
+
+@nomangle
+public i32 dcc_main() {
+    PointerBox(i32) by_return = make_pointer_box();
+    if by_return.ptr != null { return 1; }
+
+    PointerBox(i32) by_local = {};
+    if by_local.ptr != null { return 2; }
+
+    PointerBox(i32) by_assignment;
+    by_assignment = {};
+    if by_assignment.ptr != null { return 3; }
+
+    if takes_pointer_box({}) != 1 { return 4; }
+
+    SliceBox(i32) slice_return = make_slice_box();
+    if slice_return.storage.len != 0 { return 5; }
+    if slice_return.count != 0 { return 6; }
+
+    SliceBox(i32) slice_local = {};
+    if slice_local.storage.len != 0 { return 7; }
+    if slice_local.count != 0 { return 8; }
+
+    PointerArray(i32) array_local = {};
+    if array_local.items[0] != null { return 9; }
+    if array_local.items[1] != null { return 10; }
+
+    Outer(i32) nested = {};
+    if nested.inner.ptr != null { return 11; }
+    if nested.inner.tag != 0 { return 12; }
+    if nested.value != 0 { return 13; }
+
+    Outer(i32) nested_literal = { inner = {}, value = 0 };
+    if nested_literal.inner.ptr != null { return 14; }
+
+    GenericWithDefaultField(i32) with_default = {};
+    if with_default.tagged.tag != 7 { return 15; }
+    if with_default.ptr != null { return 16; }
+
+    Holder holder = {};
+    if holder.box.ptr != null { return 17; }
+
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0

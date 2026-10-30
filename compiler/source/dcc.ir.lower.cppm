@@ -1629,9 +1629,7 @@ export namespace dcc::ir::lower
             if (type->kind == dcc::types::TypeKind::TemplateParam)
             {
                 auto* tp = static_cast<dcc::types::TemplateParamType const*>(type);
-                std::string msg =
-                    std::format("TemplateParam '{}' (index {}) reached lower_type: sema failed to substitute (see enum construction)", tp->name, tp->index);
-                lower_panic(msg);
+                throw LowerDiagnostic{std::format("cannot lower a type that still contains template parameter '{}'{}", tp->name, fmt_loc(m_active_range))};
             }
 
             std::string reason = std::format("unsupported type kind: {}", static_cast<int>(type->kind));

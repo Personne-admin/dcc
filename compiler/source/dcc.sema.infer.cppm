@@ -1108,4 +1108,74 @@ export namespace dcc::infer
         }
     };
 
+    [[nodiscard]] inline std::optional<TemplateBindings> make_bindings(types::TypeContext& types, types::TypePtr ty)
+    {
+        if (!ty)
+            return std::nullopt;
+
+        std::vector<types::TypePtr> args;
+        std::vector<ast::TemplateParam const*> template_params;
+
+        if (ty->kind == types::TypeKind::Nominal)
+            ty = static_cast<types::NominalType const*>(ty)->underlying;
+
+        switch (ty->kind)
+        {
+            case types::TypeKind::Struct: {
+                auto const* st = static_cast<types::StructType const*>(ty);
+                auto const* decl = reinterpret_cast<ast::StructDecl const*>(st->decl);
+                template_params.reserve(decl->template_params.size());
+                for (auto const& tp : decl->template_params)
+                    template_params.push_back(&tp);
+
+                args.assign(st->template_args.begin(), st->template_args.end());
+                break;
+            }
+            case types::TypeKind::Enum: {
+                auto const* et = static_cast<types::EnumType const*>(ty);
+                auto const* decl = reinterpret_cast<ast::EnumDecl const*>(et->decl);
+                template_params.reserve(decl->template_params.size());
+                for (auto const& tp : decl->template_params)
+                    template_params.push_back(&tp);
+
+                args.assign(et->template_args.begin(), et->template_args.end());
+                break;
+            }
+            default:
+                return std::nullopt;
+        }
+
+        if (template_params.empty())
+            return std::nullopt;
+
+        bool has_pack = ty->kind == types::TypeKind::Struct && template_params.back()->is_pack;
+        std::size_t fixed_count = has_pack ? template_params.size() - 1 : template_params.size();
+        if ((!has_pack && template_params.size() != args.size()) || (has_pack && args.size() < fixed_count))
+            return std::nullopt;
+
+        std::optional<TemplateBindings> bindings;
+        bindings.emplace(types);
+        for (std::size_t i = 0; i < fixed_count; ++i)
+        {
+            auto const& tp = *template_params[i];
+            auto param_ty = types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+            if (auto r = bindings->deduce(param_ty, args[i]); !r)
+                return std::nullopt;
+        }
+        if (has_pack)
+        {
+            auto const& tp = *template_params.back();
+            auto param_ty = static_cast<types::TemplateParamType const*>(
+                types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(fixed_count)));
+            std::vector<types::TypePtr> pack_elements;
+            pack_elements.reserve(args.size() - fixed_count);
+            for (std::size_t i = fixed_count; i < args.size(); ++i)
+                pack_elements.push_back(args[i]);
+            if (!bindings->bind_pack(param_ty, std::move(pack_elements)))
+                return std::nullopt;
+        }
+
+        return bindings;
+    }
+
 } // namespace dcc::infer

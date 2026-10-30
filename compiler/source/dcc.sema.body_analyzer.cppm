@@ -1334,7 +1334,7 @@ export namespace dcc::sema
         {
             auto const* decl = nominal_decl(type);
             auto const* sd = decl ? ast::node_cast<ast::StructDecl>(decl) : nullptr;
-            if (!sd || !sd->template_params.empty())
+            if (!sd)
                 return false;
             return std::ranges::any_of(sd->fields, [](ast::FieldDecl const& f) { return f.default_value != nullptr; });
         }
@@ -1352,7 +1352,7 @@ export namespace dcc::sema
 
             auto const* decl = nominal_decl(type);
             auto const* sd = decl ? ast::node_cast<ast::StructDecl>(decl) : nullptr;
-            if (!sd || !sd->template_params.empty())
+            if (!sd)
                 return false;
             if (!visiting.insert(sd).second)
                 return false;
@@ -1386,7 +1386,7 @@ export namespace dcc::sema
                 type = nominal->underlying;
             auto const* decl = nominal_decl(type);
             auto const* sd = decl ? ast::node_cast<ast::StructDecl>(decl) : nullptr;
-            if (!sd || !sd->template_params.empty())
+            if (!sd)
                 return false;
             std::unordered_set<ast::Decl const*> visiting;
             return type_contains_field_defaults(type, visiting);
@@ -2126,6 +2126,8 @@ export namespace dcc::sema
                     return true;
                 case types::TypeKind::Pointer:
                     return contains_template_param(static_cast<types::PointerType const*>(ty)->pointee);
+                case types::TypeKind::Nominal:
+                    return contains_template_param(static_cast<types::NominalType const*>(ty)->underlying);
                 case types::TypeKind::Array:
                     return contains_template_param(static_cast<types::ArrayType const*>(ty)->element);
                 case types::TypeKind::RuntimeArray:
@@ -2287,7 +2289,8 @@ export namespace dcc::sema
                 }
                 case types::TypeKind::Struct:
                 case types::TypeKind::Union: {
-                    auto fields = record_fields(ty, nullptr);
+                    auto bindings = make_bindings(ty);
+                    auto fields = record_fields(ty, bindings ? &*bindings : nullptr);
                     std::vector<comptime::Value> elements;
                     elements.reserve(fields.size());
                     for (auto const& field : fields)
@@ -13591,6 +13594,14 @@ export namespace dcc::sema
         detail::ExprResult analyze_block_expr(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::BlockExpr& b, int loop_depth, std::uint32_t& next_off,
                                               types::TypePtr expected_type, ConstEnv const* const_env, bool result_discarded = false)
         {
+            if (b.body.stmts.empty() && !b.body.tail && expected_type && expected_type != m_types.m_voidt() && contains_template_param(expected_type))
+            {
+                b.sema.construction_kind = ConstructionKind::Zero;
+                set_resolved_type(b.sema, expected_type);
+                detail::ExprResult out{};
+                out.type = expected_type;
+                return out;
+            }
             if (b.body.stmts.empty() && !b.body.tail && expected_type && expected_type != m_types.m_voidt() && !has_error(expected_type))
             {
                 if (struct_needs_default_init(expected_type))
@@ -13634,14 +13645,6 @@ export namespace dcc::sema
             }
             if (b.body.stmts.empty() && !b.body.tail && expected_type && expected_type != m_types.m_voidt())
             {
-                if (contains_template_param(expected_type))
-                {
-                    b.sema.construction_kind = ConstructionKind::Zero;
-                    set_resolved_type(b.sema, expected_type);
-                    detail::ExprResult out{};
-                    out.type = expected_type;
-                    return out;
-                }
                 std::string why;
                 auto zero = zero_constant(expected_type, why);
                 if (!zero)
@@ -19259,75 +19262,7 @@ export namespace dcc::sema
         return {bindings.substitute(ty)};
     }
 
-    [[nodiscard]] std::optional<infer::TemplateBindings> make_bindings(types::TypeContext& types, types::TypePtr ty)
-    {
-        if (!ty)
-            return std::nullopt;
-
-        std::vector<types::TypePtr> args;
-        std::vector<ast::TemplateParam const*> template_params;
-
-        if (ty->kind == types::TypeKind::Nominal)
-            ty = static_cast<types::NominalType const*>(ty)->underlying;
-
-        switch (ty->kind)
-        {
-            case types::TypeKind::Struct: {
-                auto const* st = static_cast<types::StructType const*>(ty);
-                auto const* decl = reinterpret_cast<ast::StructDecl const*>(st->decl);
-                template_params.reserve(decl->template_params.size());
-                for (auto const& tp : decl->template_params)
-                    template_params.push_back(&tp);
-
-                args.assign(st->template_args.begin(), st->template_args.end());
-                break;
-            }
-            case types::TypeKind::Enum: {
-                auto const* et = static_cast<types::EnumType const*>(ty);
-                auto const* decl = reinterpret_cast<ast::EnumDecl const*>(et->decl);
-                template_params.reserve(decl->template_params.size());
-                for (auto const& tp : decl->template_params)
-                    template_params.push_back(&tp);
-
-                args.assign(et->template_args.begin(), et->template_args.end());
-                break;
-            }
-            default:
-                return std::nullopt;
-        }
-
-        if (template_params.empty())
-            return std::nullopt;
-
-        bool has_pack = ty->kind == types::TypeKind::Struct && template_params.back()->is_pack;
-        std::size_t fixed_count = has_pack ? template_params.size() - 1 : template_params.size();
-        if ((!has_pack && template_params.size() != args.size()) || (has_pack && args.size() < fixed_count))
-            return std::nullopt;
-
-        std::optional<infer::TemplateBindings> bindings;
-        bindings.emplace(types);
-        for (std::size_t i = 0; i < fixed_count; ++i)
-        {
-            auto const& tp = *template_params[i];
-            auto param_ty = types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
-            if (auto r = bindings->deduce(param_ty, args[i]); !r)
-                return std::nullopt;
-        }
-        if (has_pack)
-        {
-            auto const& tp = *template_params.back();
-            auto param_ty = static_cast<types::TemplateParamType const*>(
-                types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(fixed_count)));
-            std::vector<types::TypePtr> pack_elements;
-            pack_elements.reserve(args.size() - fixed_count);
-            for (std::size_t i = fixed_count; i < args.size(); ++i)
-                pack_elements.push_back(args[i]);
-            if (!bindings->bind_pack(param_ty, std::move(pack_elements)))
-                return std::nullopt;
-        }
-
-        return bindings;
-    }
+    [[nodiscard]] std::optional<infer::TemplateBindings> make_bindings(types::TypeContext& types, types::TypePtr ty) { return infer::make_bindings(types, ty); }
 
     [[nodiscard]] types::TypePtr substitute_in_nominal_context(types::TypeContext& types, types::TypePtr ty, types::TypePtr context)
     {
