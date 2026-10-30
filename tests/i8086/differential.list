@@ -66,3 +66,4 @@ em64t/nested-slice-fields-exec.dcc-test
 em64t/bitfield-layout-exec.dcc-test
 em64t/bitfield-ops-exec.dcc-test
 em64t/match-struct-fields-exec.dcc-test
+em64t/phi-global-ref-exec.dcc-test

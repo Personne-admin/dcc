@@ -2384,6 +2384,19 @@ namespace dcc::backend::i8086
                         }
                         else if (auto found = values.find(incoming.value); found != values.end())
                             input = found->second;
+                        else if (auto* ref = ir_cast<IrGlobalRef>(incoming.value); ref && (ref->global || ref->function))
+                        {
+                            auto name = ref->global ? ref->global->name : ref->function->name;
+                            if (name.empty())
+                                return unsupported("an unnamed global phi input");
+                            input = mfunc.new_vreg();
+                            MMem mem{};
+                            mem.symbol = name;
+                            mem.disp = static_cast<std::int32_t>(ref->addend);
+                            mem.address_bits = target.pointer_bits;
+                            auto width = op_width(bits);
+                            insert_before_branches(via, make_instr(width == 16 ? MOpc::LEA16rm : MOpc::LEA32rm, {MOp::from_reg(input), MOp::from_mem(mem)}, 1));
+                        }
                         else
                             return unsupported(std::format("a phi input of IR {}", kind_name(incoming.value ? incoming.value->kind : IrNodeKind::Local)));
                         inputs.push_back(MOp::from_reg(input));

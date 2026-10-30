@@ -1,0 +1,31 @@
+=== FILE: test.dc ===
+module test;
+
+[] const char pick(bool flag) {
+    [] const char text = "a";
+    if flag {
+        text = "bc";
+    }
+    return text;
+}
+
+@nomangle
+public i32 dcc_main() {
+    [] const char one = pick(false);
+    [] const char two = pick(true);
+    if one.len != 1 || one[0] != 'a' {
+        return 1;
+    }
+    if two.len != 2 || two[0] != 'b' || two[1] != 'c' {
+        return 2;
+    }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+LINK-STD: true
+RUN-EXIT: 0
