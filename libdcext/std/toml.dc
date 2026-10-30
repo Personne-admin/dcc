@@ -1,18 +1,21 @@
 //!!
 //!! TOML 1.0
 //!!
-//!! Two layers. `Scanner` is a pull parser that allocates nothing and
-//!! hands back slices of the input.
+//!! Three layers. `Scanner` is a pull parser that allocates nothing and
+//!! hands back slices of the input. `Document` is an owned tree that
+//!! stores its allocator by value, so `deinit` can release it. `parse`
+//!! returns a document and copies every key and string; `parse_borrowed`
+//!! returns the bare `Table` and borrows the input wherever it can.
 //!!
-//!! The `Table` tree is what most callers want, because assembling
-//!! `[a.b.c]` and `[[products]]` into a document, and rejecting the
-//!! redefinitions the format forbids, is fiddly enough that every caller
-//!! would get it subtly wrong.
+//!! Assembling `[a.b.c]` and `[[products]]` into a document, and
+//!! rejecting the redefinitions the format forbids, is what the tree
+//!! layer is for.
 //!!
 
 module std::toml;
 
 import core;
+import core::allocator_config;
 import core::target;
 import std::alloc;
 import std::mem;
@@ -1405,6 +1408,19 @@ static if core::target::FLOAT_AVAILABLE {
 }
 
 //!
+//! Owned document
+//!
+//! stores the allocator by value, so a zero-size policy adds nothing.
+//! every key and string in `root` is owned, which is what makes `deinit`
+//! and `clone` well defined.
+//!
+
+public struct Document(A = DefaultAllocator) if AllocatorPolicy(A) {
+    A alloc;
+    Table root;
+}
+
+//!
 //! Building
 //!
 //! Header tables and the intermediates a dotted key creates have to stay
@@ -1531,26 +1547,34 @@ Status(TomlError) push_element(A)(
 }
 
 /// copies a key segment into `alloc`, decoding it when it was quoted.
+/// `copy_all` also copies a bare or unescaped key, which an owning
+/// document needs.
 Result([] const char, TomlError) key_text(A)(
     A* alloc,
-    const Str* self
+    const Str* self,
+    bool copy_all
 ) if AllocatorPolicy(A) {
-    if self.kind == StrKind::Bare {
+    if self.needs_unescape {
+        Result([] char, mem::AllocError) slot = alloc.allocate_slice(self.raw.len);
+        if slot.is_err() {
+            return TomlError::OutOfMemory;
+        }
+
+        [] char buffer = slot.unwrap();
+        usize n = unescape(self, buffer) ?;
+        return Result::Ok(buffer[0..n] as [] const char);
+    }
+
+    if !copy_all {
         return Result::Ok(self.raw);
     }
 
-    if !self.needs_unescape {
-        return Result::Ok(self.raw);
-    }
-
-    Result([] char, mem::AllocError) slot = alloc.allocate_slice(self.raw.len);
-    if slot.is_err() {
+    Result([] char, mem::AllocError) copied = alloc.duplicate_slice(self.raw);
+    if copied.is_err() {
         return TomlError::OutOfMemory;
     }
 
-    [] char buffer = slot.unwrap();
-    usize n = unescape(self, buffer) ?;
-    return Result::Ok(buffer[0..n] as [] const char);
+    return Result::Ok(copied.unwrap() as [] const char);
 }
 
 /// walks into `key`, creating tables as it goes. `dotted` marks the
@@ -1560,12 +1584,13 @@ Result(BTable*, TomlError) descend(A)(
     BTable* from,
     const KeyPath* key,
     usize count,
-    bool dotted
+    bool dotted,
+    bool copy_all
 ) if AllocatorPolicy(A) {
     BTable* current = from;
 
     for usize i = 0; i < count; i++ {
-        [] const char name = key_text(alloc, &key.parts[i]) ?;
+        [] const char name = key_text(alloc, &key.parts[i], copy_all) ?;
         BEntry* found = find_entry(current, name);
 
         if found == null {
@@ -1602,10 +1627,11 @@ Result(BTable*, TomlError) descend(A)(
 Result(BTable*, TomlError) open_table(A)(
     A* alloc,
     BTable* root,
-    const TablePath* path
+    const TablePath* path,
+    bool copy_all
 ) if AllocatorPolicy(A) {
-    BTable* parent = descend(alloc, root, &path.key, path.key.count - 1, false) ?;
-    [] const char name = key_text(alloc, &path.key.parts[path.key.count - 1]) ?;
+    BTable* parent = descend(alloc, root, &path.key, path.key.count - 1, false, copy_all) ?;
+    [] const char name = key_text(alloc, &path.key.parts[path.key.count - 1], copy_all) ?;
 
     BEntry* found = find_entry(parent, name);
 
@@ -1658,10 +1684,11 @@ Status(TomlError) set_key(A)(
     A* alloc,
     BTable* current,
     const KeyPath* key,
-    Value value
+    Value value,
+    bool copy_all
 ) if AllocatorPolicy(A) {
-    BTable* target = descend(alloc, current, key, key.count - 1, true) ?;
-    [] const char name = key_text(alloc, &key.parts[key.count - 1]) ?;
+    BTable* target = descend(alloc, current, key, key.count - 1, true, copy_all) ?;
+    [] const char name = key_text(alloc, &key.parts[key.count - 1], copy_all) ?;
 
     if find_entry(target, name) != null {
         return TomlError::DuplicateKey;
@@ -1760,12 +1787,13 @@ Status(TomlError) push_value(A)(
 
 Result(Value, TomlError) scalar_value(A)(
     A* alloc,
-    Scalar item
+    Scalar item,
+    bool copy_all
 ) if AllocatorPolicy(A) {
     static if core::target::FLOAT_AVAILABLE {
         return match item {
             Scalar::String(text) => {
-                Result([] const char, TomlError) decoded = string_text(alloc, &text);
+                Result([] const char, TomlError) decoded = string_text(alloc, &text, copy_all);
                 if decoded.is_err() {
                     return decoded.unwrap_err();
                 }
@@ -1782,7 +1810,7 @@ Result(Value, TomlError) scalar_value(A)(
     } else {
         return match item {
             Scalar::String(text) => {
-                Result([] const char, TomlError) decoded = string_text(alloc, &text);
+                Result([] const char, TomlError) decoded = string_text(alloc, &text, copy_all);
                 if decoded.is_err() {
                     return decoded.unwrap_err();
                 }
@@ -1798,29 +1826,40 @@ Result(Value, TomlError) scalar_value(A)(
     }
 }
 
-/// borrows the source when the string carried no escape, and decodes
-/// into `alloc` when it did.
+/// decodes an escaped string into `alloc` and copies an unescaped one
+/// when `copy_all` is set.
 Result([] const char, TomlError) string_text(A)(
     A* alloc,
-    const Str* self
+    const Str* self,
+    bool copy_all
 ) if AllocatorPolicy(A) {
-    if !self.needs_unescape {
+    if self.needs_unescape {
+        Result([] char, mem::AllocError) slot = alloc.allocate_slice(self.raw.len);
+        if slot.is_err() {
+            return TomlError::OutOfMemory;
+        }
+
+        [] char buffer = slot.unwrap();
+        usize n = unescape(self, buffer) ?;
+        return Result::Ok(buffer[0..n] as [] const char);
+    }
+
+    if !copy_all {
         return Result::Ok(self.raw);
     }
 
-    Result([] char, mem::AllocError) slot = alloc.allocate_slice(self.raw.len);
-    if slot.is_err() {
+    Result([] char, mem::AllocError) copied = alloc.duplicate_slice(self.raw);
+    if copied.is_err() {
         return TomlError::OutOfMemory;
     }
 
-    [] char buffer = slot.unwrap();
-    usize n = unescape(self, buffer) ?;
-    return Result::Ok(buffer[0..n] as [] const char);
+    return Result::Ok(copied.unwrap() as [] const char);
 }
 
 Result(Value, TomlError) build_array(A)(
     A* alloc,
-    Scanner* self
+    Scanner* self,
+    bool copy_all
 ) if AllocatorPolicy(A) {
     ValueVec items = {items = slice::from_raw(null as Value*, 0), len = 0};
 
@@ -1834,14 +1873,15 @@ Result(Value, TomlError) build_array(A)(
             _ => {},
         }
 
-        Value element = build_value(alloc, self, step.event) ?;
+        Value element = build_value(alloc, self, step.event, copy_all) ?;
         push_value(alloc, &items, element) ?;
     }
 }
 
 Result(Value, TomlError) build_inline(A)(
     A* alloc,
-    Scanner* self
+    Scanner* self,
+    bool copy_all
 ) if AllocatorPolicy(A) {
     BTable* table = new_table(alloc) ?;
 
@@ -1857,32 +1897,32 @@ Result(Value, TomlError) build_inline(A)(
         };
 
         Located(Event) value_event = next(self) ?;
-        Value value = build_value(alloc, self, value_event.event) ?;
-        set_key(alloc, table, &key, value) ?;
+        Value value = build_value(alloc, self, value_event.event, copy_all) ?;
+        set_key(alloc, table, &key, value, copy_all) ?;
     }
 }
 
 Result(Value, TomlError) build_value(A)(
     A* alloc,
     Scanner* self,
-    Event event
+    Event event,
+    bool copy_all
 ) if AllocatorPolicy(A) {
     return match event {
-        Event::Scalar(item) => scalar_value(alloc, item),
-        Event::ArrayBegin => build_array(alloc, self),
-        Event::InlineTableBegin => build_inline(alloc, self),
+        Event::Scalar(item) => scalar_value(alloc, item, copy_all),
+        Event::ArrayBegin => build_array(alloc, self, copy_all),
+        Event::InlineTableBegin => build_inline(alloc, self, copy_all),
         _ => Result::Err(TomlError::UnexpectedByte),
     };
 }
 
-/// parses a document. strings borrow `input` unless they carried an
-/// escape, so the result outlives neither `alloc` nor `input`.
-public Result(Table, TomlError) parse(A)(
+Result(Table, TomlError) fill(A)(
     A* alloc,
-    [] const char input
+    BTable* root,
+    [] const char input,
+    bool copy_all
 ) if AllocatorPolicy(A) {
     Scanner self = scan(input);
-    BTable* root = new_table(alloc) ?;
     BTable* current = root;
 
     while true {
@@ -1894,7 +1934,8 @@ public Result(Table, TomlError) parse(A)(
                 Result(BTable*, TomlError) opened = open_table(
                     alloc,
                     root,
-                    &path
+                    &path,
+                    copy_all
                 );
                 if opened.is_err() {
                     return opened.unwrap_err();
@@ -1903,12 +1944,235 @@ public Result(Table, TomlError) parse(A)(
             },
             Event::Key(key) => {
                 Located(Event) value_event = next(&self) ?;
-                Value value = build_value(alloc, &self, value_event.event) ?;
-                set_key(alloc, current, &key, value) ?;
+                Value value = build_value(alloc, &self, value_event.event, copy_all) ?;
+                set_key(alloc, current, &key, value, copy_all) ?;
             },
             _ => return TomlError::UnexpectedByte,
         }
     }
+}
+
+Result(Table, TomlError) parse_value(A)(
+    A* alloc,
+    [] const char input,
+    bool copy_all
+) if AllocatorPolicy(A) {
+    Result(BTable*, TomlError) root = new_table(alloc);
+    if root.is_err() {
+        return root.unwrap_err();
+    }
+
+    BTable* tree = root.unwrap();
+    Result(Table, TomlError) built = fill(alloc, tree, input, copy_all);
+    if built.is_err() {
+        if copy_all {
+            destroy_nodes(alloc, tree, true);
+        }
+
+        return built.unwrap_err();
+    }
+
+    Table document = built.unwrap();
+    destroy_nodes(alloc, tree, false);
+    return Result::Ok(document);
+}
+
+/// parses a document and copies every key and string into `alloc`, so the
+/// result depends on the allocator alone. the document stores `alloc` by
+/// value and `deinit` releases the whole tree.
+public Result(Document(A), TomlError) parse(A)(
+    A alloc,
+    [] const char input
+) if AllocatorPolicy(A) {
+    Result(Table, TomlError) root = parse_value(&alloc, input, true);
+    if root.is_err() {
+        return root.unwrap_err();
+    }
+
+    Document(A) document = {alloc = alloc, root = root.unwrap()};
+    return Result::Ok(document);
+}
+
+/// parses with the selected default allocator.
+public Result(Document(A), TomlError) parse(A = DefaultAllocator)(
+    [] const char input
+) if AllocatorPolicy(A) {
+    A alloc = {};
+    return parse(alloc, input);
+}
+
+/// parses a document into a `Table` whose keys and strings borrow `input`
+/// unless they carried an escape. nothing records the allocator.
+public Result(Table, TomlError) parse_borrowed(A)(
+    A alloc,
+    [] const char input
+) if AllocatorPolicy(A) {
+    return parse_value(&alloc, input, false);
+}
+
+//!
+//! Document ownership
+//!
+
+/// releases the tree and empties the document. safe on the empty state and
+/// safe to call twice.
+public void deinit(A)(Document(A)* self) if AllocatorPolicy(A) {
+    A alloc = self.alloc;
+    free_table(&alloc, &self.root);
+    self.root = Table {entries = slice::from_raw(null as Entry*, 0)};
+}
+
+/// moves the tree out and leaves the document empty.
+public Document(A) take(A)(Document(A)* self) if AllocatorPolicy(A) {
+    Document(A) moved = *self;
+    self.root = Table {entries = slice::from_raw(null as Entry*, 0)};
+    return moved;
+}
+
+/// copies the tree into freshly allocated storage of the same policy.
+public Result(Document(A), TomlError) clone(A)(
+    const Document(A)* self
+) if AllocatorPolicy(A) {
+    A alloc = self.alloc;
+    Result(Table, TomlError) copied = copy_table(&alloc, &self.root);
+    if copied.is_err() {
+        return copied.unwrap_err();
+    }
+
+    Document(A) out = {alloc = alloc, root = copied.unwrap()};
+    return Result::Ok(out);
+}
+
+void free_table(A)(A* alloc, const Table* self) if AllocatorPolicy(A) {
+    for usize i = 0; i < self.entries.len; i++ {
+        alloc.free_slice(self.entries[i].key as [] char);
+        free_value(alloc, &self.entries[i].value);
+    }
+
+    alloc.free_slice(self.entries);
+}
+
+void free_value(A)(A* alloc, const Value* self) if AllocatorPolicy(A) {
+    match *self {
+        Value::String(text) => {
+            alloc.free_slice(text as [] char);
+        },
+        Value::Array(items) => {
+            for usize i = 0; i < items.len; i++ {
+                free_value(alloc, &items[i]);
+            }
+
+            alloc.free_slice(items);
+        },
+        Value::Table(table) => {
+            free_table(alloc, &table);
+        },
+        _ => {},
+    };
+}
+
+/// releases the intermediate tables a build created. with `own_values` it
+/// also frees the keys and values, which is what a failed owned parse
+/// needs; a successful one has copied them into the frozen tree.
+void destroy_nodes(A)(
+    A* alloc,
+    BTable* self,
+    bool own_values
+) if AllocatorPolicy(A) {
+    for usize i = 0; i < self.len; i++ {
+        BEntry* entry = &self.entries[i];
+
+        if entry.kind == KIND_TABLE {
+            destroy_nodes(alloc, entry.table, own_values);
+        } else if entry.kind == KIND_ARRAY {
+            for usize k = 0; k < entry.element_count; k++ {
+                destroy_nodes(alloc, entry.elements[k], own_values);
+            }
+
+            alloc.free_slice(entry.elements);
+        } else if own_values {
+            free_value(alloc, &entry.value);
+        }
+
+        if own_values {
+            alloc.free_slice(entry.key as [] char);
+        }
+    }
+
+    alloc.free_slice(self.entries);
+    alloc.destroy_item(self);
+}
+
+Result(Table, TomlError) copy_table(A)(
+    A* alloc,
+    const Table* self
+) if AllocatorPolicy(A) {
+    Result([] Entry, mem::AllocError) slot = alloc.allocate_slice(self.entries.len);
+    if slot.is_err() {
+        return TomlError::OutOfMemory;
+    }
+
+    [] Entry out = slot.unwrap();
+
+    for usize i = 0; i < self.entries.len; i++ {
+        Result([] char, mem::AllocError) key = alloc.duplicate_slice(self.entries[i].key);
+        if key.is_err() {
+            return TomlError::OutOfMemory;
+        }
+
+        Result(Value, TomlError) value = copy_value(alloc, &self.entries[i].value);
+        if value.is_err() {
+            return value.unwrap_err();
+        }
+
+        out[i].key = key.unwrap() as [] const char;
+        out[i].value = value.unwrap();
+    }
+
+    return Result::Ok(Table {entries = out});
+}
+
+Result(Value, TomlError) copy_value(A)(
+    A* alloc,
+    const Value* self
+) if AllocatorPolicy(A) {
+    return match *self {
+        Value::String(text) => {
+            Result([] char, mem::AllocError) slot = alloc.duplicate_slice(text);
+            if slot.is_err() {
+                return TomlError::OutOfMemory;
+            }
+
+            Result::Ok(Value::String(slot.unwrap() as [] const char))
+        },
+        Value::Array(items) => {
+            Result([] Value, mem::AllocError) slot = alloc.allocate_slice(items.len);
+            if slot.is_err() {
+                return TomlError::OutOfMemory;
+            }
+
+            [] Value copied = slot.unwrap();
+            for usize i = 0; i < items.len; i++ {
+                Result(Value, TomlError) element = copy_value(alloc, &items[i]);
+                if element.is_err() {
+                    return element.unwrap_err();
+                }
+
+                copied[i] = element.unwrap();
+            }
+
+            Result::Ok(Value::Array(copied))
+        },
+        Value::Table(table) => {
+            Result(Table, TomlError) copied = copy_table(alloc, &table);
+            if copied.is_err() {
+                return copied.unwrap_err();
+            }
+
+            Result::Ok(Value::Table(copied.unwrap()))
+        },
+        _ => Result::Ok(*self),
+    };
 }
 
 //!

@@ -1,20 +1,17 @@
 //!!
 //!! JSON
 //!!
-//!! Two layers. `Scanner` is a pull parser that allocates nothing and
-//!! hands back slices of the input. The `Value` tree above it needs
-//!! an allocator and is what most callers want.
-//!!
-//!! Strings borrow the input wherever they can. A string containing no
-//!! escape is handed back as a slice of the bytes you passed in; only an
-//!! escaped one is copied. A parsed `Value` therefore outlives neither
-//!! its arena nor its input, and `own` exists for callers who need it to
-//!! outlive the input alone.
+//!! Three layers. `Scanner` is a pull parser that allocates nothing and
+//!! hands back slices of the input. `Document` is an owned tree that
+//!! stores its allocator by value, so `deinit` can release it. `parse`
+//!! returns a document and copies every string; `parse_borrowed` returns
+//!! the bare `Value` and borrows the input wherever it can.
 //!!
 
 module std::json;
 
 import core;
+import core::allocator_config;
 import core::target;
 import std::alloc;
 import std::fmt;
@@ -789,6 +786,19 @@ static if core::target::FLOAT_AVAILABLE {
 }
 
 //!
+//! Owned document
+//!
+//! stores the allocator by value, so a zero-size policy adds nothing.
+//! every string in `root` is owned, which is what makes `deinit` and
+//! `clone` well defined.
+//!
+
+public struct Document(A = DefaultAllocator) if AllocatorPolicy(A) {
+    A alloc;
+    Value root;
+}
+
+//!
 //! Growable storage
 //!
 //! Two concrete vectors rather than one template: the element types are
@@ -876,31 +886,42 @@ Status(JsonError) push_member(A)(
 //! Building
 //!
 
-/// borrows `raw` when it holds no escape, and decodes into `alloc` when
-/// it does. must be called before the next `next`, which overwrites the
-/// scanner's `needs_unescape`.
+/// decodes an escaped string into `alloc` and copies an unescaped one
+/// when `copy_all` is set. must be called before the next `next`, which
+/// overwrites the scanner's `needs_unescape`.
 Result([] const char, JsonError) materialize(A)(
     A* alloc,
     const Scanner* self,
-    [] const char raw
+    [] const char raw,
+    bool copy_all
 ) if AllocatorPolicy(A) {
-    if !self.needs_unescape {
+    if self.needs_unescape {
+        Result([] char, mem::AllocError) slot = alloc.allocate_slice(raw.len);
+        if slot.is_err() {
+            return JsonError::OutOfMemory;
+        }
+
+        [] char buffer = slot.unwrap();
+        usize n = unescape(raw, buffer) ?;
+        return Result::Ok(buffer[0..n] as [] const char);
+    }
+
+    if !copy_all {
         return Result::Ok(raw);
     }
 
-    Result([] char, mem::AllocError) slot = alloc.allocate_slice(raw.len);
-    if slot.is_err() {
+    Result([] char, mem::AllocError) copied = alloc.duplicate_slice(raw);
+    if copied.is_err() {
         return JsonError::OutOfMemory;
     }
 
-    [] char buffer = slot.unwrap();
-    usize n = unescape(raw, buffer) ?;
-    return Result::Ok(buffer[0..n] as [] const char);
+    return Result::Ok(copied.unwrap() as [] const char);
 }
 
 Result(Value, JsonError) build_array(A)(
     A* alloc,
-    Scanner* self
+    Scanner* self,
+    bool copy_all
 ) if AllocatorPolicy(A) {
     ValueVec items = {items = slice::from_raw(null as Value*, 0), len = 0};
 
@@ -914,14 +935,15 @@ Result(Value, JsonError) build_array(A)(
             _ => {},
         }
 
-        Value element = build(alloc, self, step.event) ?;
+        Value element = build(alloc, self, step.event, copy_all) ?;
         push_value(alloc, &items, element) ?;
     }
 }
 
 Result(Value, JsonError) build_object(A)(
     A* alloc,
-    Scanner* self
+    Scanner* self,
+    bool copy_all
 ) if AllocatorPolicy(A) {
     MemberVec members = {items = slice::from_raw(null as Member*, 0), len = 0};
 
@@ -936,10 +958,10 @@ Result(Value, JsonError) build_object(A)(
             _ => return JsonError::UnexpectedByte,
         };
 
-        [] const char key = materialize(alloc, self, raw) ?;
+        [] const char key = materialize(alloc, self, raw, copy_all) ?;
 
         Located(Event) value_event = next(self) ?;
-        Value value = build(alloc, self, value_event.event) ?;
+        Value value = build(alloc, self, value_event.event, copy_all) ?;
 
         push_member(alloc, &members, Member {key = key, value = value}) ?;
     }
@@ -948,7 +970,8 @@ Result(Value, JsonError) build_object(A)(
 Result(Value, JsonError) build(A)(
     A* alloc,
     Scanner* self,
-    Event event
+    Event event,
+    bool copy_all
 ) if AllocatorPolicy(A) {
     static if core::target::FLOAT_AVAILABLE {
         return match event {
@@ -957,14 +980,14 @@ Result(Value, JsonError) build(A)(
             Event::Integer(v) => Result::Ok(Value::Integer(v)),
             Event::Float(v) => Result::Ok(Value::Float(v)),
             Event::String(raw) => {
-                Result([] const char, JsonError) text = materialize(alloc, self, raw);
+                Result([] const char, JsonError) text = materialize(alloc, self, raw, copy_all);
                 if text.is_err() {
                     return text.unwrap_err();
                 }
                 Result::Ok(Value::String(text.unwrap()))
             },
-            Event::ArrayBegin => build_array(alloc, self),
-            Event::ObjectBegin => build_object(alloc, self),
+            Event::ArrayBegin => build_array(alloc, self, copy_all),
+            Event::ObjectBegin => build_object(alloc, self, copy_all),
             _ => Result::Err(JsonError::UnexpectedByte),
         };
     } else {
@@ -973,29 +996,28 @@ Result(Value, JsonError) build(A)(
             Event::Bool(b) => Result::Ok(Value::Bool(b)),
             Event::Integer(v) => Result::Ok(Value::Integer(v)),
             Event::String(raw) => {
-                Result([] const char, JsonError) text = materialize(alloc, self, raw);
+                Result([] const char, JsonError) text = materialize(alloc, self, raw, copy_all);
                 if text.is_err() {
                     return text.unwrap_err();
                 }
                 Result::Ok(Value::String(text.unwrap()))
             },
-            Event::ArrayBegin => build_array(alloc, self),
-            Event::ObjectBegin => build_object(alloc, self),
+            Event::ArrayBegin => build_array(alloc, self, copy_all),
+            Event::ObjectBegin => build_object(alloc, self, copy_all),
             _ => Result::Err(JsonError::UnexpectedByte),
         };
     }
 }
 
-/// parses one document. strings borrow `input` unless they carried an
-/// escape, so the result outlives neither `alloc` nor `input`.
-public Result(Value, JsonError) parse(A)(
+Result(Value, JsonError) parse_value(A)(
     A* alloc,
-    [] const char input
+    [] const char input,
+    bool copy_all
 ) if AllocatorPolicy(A) {
     Scanner self = scan(input);
 
     Located(Event) first = next(&self) ?;
-    Value root = build(alloc, &self, first.event) ?;
+    Value root = build(alloc, &self, first.event, copy_all) ?;
 
     Located(Event) tail = next(&self) ?;
     match tail.event {
@@ -1004,6 +1026,40 @@ public Result(Value, JsonError) parse(A)(
     }
 
     return Result::Ok(root);
+}
+
+/// parses one document and copies every string into `alloc`, so the
+/// result depends on the allocator alone. the document stores `alloc` by
+/// value and `deinit` releases the whole tree.
+public Result(Document(A), JsonError) parse(A)(
+    A alloc,
+    [] const char input
+) if AllocatorPolicy(A) {
+    Result(Value, JsonError) root = parse_value(&alloc, input, true);
+    if root.is_err() {
+        return root.unwrap_err();
+    }
+
+    Document(A) document = {alloc = alloc, root = root.unwrap()};
+    return Result::Ok(document);
+}
+
+/// parses with the selected default allocator.
+public Result(Document(A), JsonError) parse(A = DefaultAllocator)(
+    [] const char input
+) if AllocatorPolicy(A) {
+    A alloc = {};
+    return parse(alloc, input);
+}
+
+/// parses one document into a `Value` whose strings borrow `input` unless
+/// they carried an escape. nothing records the allocator, so the caller
+/// keeps it alive for the escaped strings and for `own`.
+public Result(Value, JsonError) parse_borrowed(A)(
+    A alloc,
+    [] const char input
+) if AllocatorPolicy(A) {
+    return parse_value(&alloc, input, false);
 }
 
 /// copies every borrowed string into `alloc`, so the result depends on
@@ -1058,6 +1114,61 @@ public Result(Value, JsonError) own(A)(
             Result::Ok(Value::Object(copied))
         },
         _ => Result::Ok(*self),
+    };
+}
+
+//!
+//! Document ownership
+//!
+
+/// releases the tree and empties the document. safe on the empty state and
+/// safe to call twice.
+public void deinit(A)(Document(A)* self) if AllocatorPolicy(A) {
+    A alloc = self.alloc;
+    free_value(&alloc, &self.root);
+    self.root = Value::Null;
+}
+
+/// moves the tree out and leaves the document empty.
+public Document(A) take(A)(Document(A)* self) if AllocatorPolicy(A) {
+    Document(A) moved = *self;
+    self.root = Value::Null;
+    return moved;
+}
+
+/// copies the tree into freshly allocated storage of the same policy.
+public Result(Document(A), JsonError) clone(A)(
+    const Document(A)* self
+) if AllocatorPolicy(A) {
+    A alloc = self.alloc;
+    Result(Value, JsonError) copied = own(&alloc, &self.root);
+    if copied.is_err() {
+        return copied.unwrap_err();
+    }
+
+    Document(A) out = {alloc = alloc, root = copied.unwrap()};
+    return Result::Ok(out);
+}
+
+void free_value(A)(A* alloc, const Value* self) if AllocatorPolicy(A) {
+    match *self {
+        Value::String(text) => {
+            alloc.free_slice(text as [] char);
+        },
+        Value::Array(items) => {
+            for usize i = 0; i < items.len; i++ {
+                free_value(alloc, &items[i]);
+            }
+            alloc.free_slice(items);
+        },
+        Value::Object(members) => {
+            for usize i = 0; i < members.len; i++ {
+                alloc.free_slice(members[i].key as [] char);
+                free_value(alloc, &members[i].value);
+            }
+            alloc.free_slice(members);
+        },
+        _ => {},
     };
 }
 

@@ -1891,26 +1891,40 @@ TEST_CASE("json number boundaries round-trip through documents")
     static constexpr std::string_view source = (R"DCC(module main;
 
 import std::json;
+import std::alloc;
 import std::mem;
 import std::result;
+
+struct BackingPolicy {}
+
+std::result::Result([] u8, std::alloc::AllocError) allocate(const BackingPolicy* self, usize len, usize align) {
+    return std::alloc::AllocError::OutOfMemory;
+}
+
+bool resize_in_place(const BackingPolicy* self, [] u8 block, usize new_bytes, usize align) {
+    return false;
+}
+
+void free(const BackingPolicy* self, [] u8 block, usize align) {}
 
 bool check_int([] const char input, i64 want) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::FixedHandle alloc = std::mem::borrow(&fb);
-    std::result::Result(std::json::Value, std::json::JsonError) r = std::json::parse(&alloc, input);
+    std::result::Result(std::json::Document(std::mem::FixedHandle), std::json::JsonError) r = std::json::parse(alloc, input);
     if r.is_err() { return false; }
-    std::json::Value v = r.unwrap();
-    std::result::Optional(i64) got = std::json::as_integer(&v);
-    if got.is_none() { return false; }
-    return got.unwrap_some() == want;
+    std::json::Document(std::mem::FixedHandle) doc = r.unwrap();
+    std::result::Optional(i64) got = std::json::as_integer(&doc.root);
+    bool ok = got.is_some() && got.unwrap_some() == want;
+    doc.deinit();
+    return ok;
 }
 
 bool check_int_err([] const char input, std::json::JsonError want) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::FixedHandle alloc = std::mem::borrow(&fb);
-    std::result::Result(std::json::Value, std::json::JsonError) r = std::json::parse(&alloc, input);
+    std::result::Result(std::json::Document(std::mem::FixedHandle), std::json::JsonError) r = std::json::parse(alloc, input);
     if r.is_ok() { return false; }
     return r.unwrap_err() == want;
 }
@@ -1919,16 +1933,58 @@ bool check_float([] const char input, f64 lo, f64 hi) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::FixedHandle alloc = std::mem::borrow(&fb);
-    std::result::Result(std::json::Value, std::json::JsonError) r = std::json::parse(&alloc, input);
+    std::result::Result(std::json::Document(std::mem::FixedHandle), std::json::JsonError) r = std::json::parse(alloc, input);
     if r.is_err() { return false; }
-    std::json::Value v = r.unwrap();
-    std::result::Optional(f64) got = std::json::as_float(&v);
-    if got.is_none() { return false; }
-    f64 f = got.unwrap_some();
-    return f >= lo && f <= hi;
+    std::json::Document(std::mem::FixedHandle) doc = r.unwrap();
+    std::result::Optional(f64) got = std::json::as_float(&doc.root);
+    bool ok = got.is_some() && got.unwrap_some() >= lo && got.unwrap_some() <= hi;
+    doc.deinit();
+    return ok;
+}
+
+bool check_document() {
+    if sizeof(std::json::Document(std::mem::FixedHandle)) != 4 * sizeof(usize) { return false; }
+    if sizeof(std::json::Document(BackingPolicy)) != 3 * sizeof(usize) { return false; }
+
+    u8[4096] backing;
+    std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..4096]);
+    std::mem::FixedHandle alloc = std::mem::borrow(&fb);
+
+    char[16] source = {'{', '"', 't', 'e', 'x', 't', '"', ':', '"', 'h', 'i', '"', '}', ' ', ' ', ' '};
+    std::json::Document(std::mem::FixedHandle) doc = std::json::parse(alloc, source[0..13]).unwrap();
+    source[9] = 'X';
+    std::result::Optional(std::json::Value) field = std::json::get(&doc.root, "text");
+    if field.is_none() { return false; }
+    std::json::Value field_value = field.unwrap_some();
+    std::result::Optional([] const char) text = std::json::as_string(&field_value);
+    if text.is_none() || text.unwrap_some().len != 2 || text.unwrap_some()[0] != 'h' { return false; }
+
+    std::json::Document(std::mem::FixedHandle) copy = doc.clone().unwrap();
+    std::json::Document(std::mem::FixedHandle) moved = doc.take();
+    match doc.root {
+        std::json::Value::Null => {},
+        _ => return false,
+    }
+    doc.deinit();
+    if std::json::get(&copy.root, "text").is_none() { return false; }
+    if std::json::get(&moved.root, "text").is_none() { return false; }
+
+    moved.deinit();
+    usize after_first = fb.offset;
+    moved.deinit();
+    if fb.offset != after_first { return false; }
+    copy.deinit();
+
+    std::json::Value borrowed = std::json::parse_borrowed(alloc, "[3]").unwrap();
+    if std::json::len(&borrowed) != 1 { return false; }
+
+    std::json::Document(std::mem::FixedHandle) escaped = std::json::parse(alloc, "[\"a\"]").unwrap();
+    escaped.deinit();
+    return true;
 }
 
 public i32 main() {
+    if !check_document() { return 20; }
     char[3] t123 = {'1' as char, '2' as char, '3' as char};
     if !check_int(t123[0..3], 123) { return 1; }
     char[4] tn123 = {'-' as char, '1' as char, '2' as char, '3' as char};
@@ -1970,30 +2026,45 @@ TEST_CASE("toml number boundaries round-trip through documents")
     static constexpr std::string_view source = (R"DCC(module main;
 
 import std::toml;
+import std::alloc;
 import std::mem;
 import std::result;
+
+struct BackingPolicy {}
+
+std::result::Result([] u8, std::alloc::AllocError) allocate(const BackingPolicy* self, usize len, usize align) {
+    return std::alloc::AllocError::OutOfMemory;
+}
+
+bool resize_in_place(const BackingPolicy* self, [] u8 block, usize new_bytes, usize align) {
+    return false;
+}
+
+void free(const BackingPolicy* self, [] u8 block, usize align) {}
 
 bool check_int([] const char input, i64 want) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::FixedHandle alloc = std::mem::borrow(&fb);
-    std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
+    std::result::Result(std::toml::Document(std::mem::FixedHandle), std::toml::TomlError) r = std::toml::parse(alloc, input);
     if r.is_err() { return false; }
-    std::toml::Table t = r.unwrap();
+    std::toml::Document(std::mem::FixedHandle) doc = r.unwrap();
     char[1] key = {'k' as char};
-    std::result::Optional(std::toml::Value) found = std::toml::get(&t, key[0..1]);
-    if found.is_none() { return false; }
+    std::result::Optional(std::toml::Value) found = std::toml::get(&doc.root, key[0..1]);
+    if found.is_none() { doc.deinit(); return false; }
     std::toml::Value v = found.unwrap_some();
     std::result::Optional(i64) got = std::toml::as_integer(&v);
-    if got.is_none() { return false; }
-    return got.unwrap_some() == want;
+    if got.is_none() { doc.deinit(); return false; }
+    bool ok = got.unwrap_some() == want;
+    doc.deinit();
+    return ok;
 }
 
 bool check_int_err([] const char input, std::toml::TomlError want) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::FixedHandle alloc = std::mem::borrow(&fb);
-    std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
+    std::result::Result(std::toml::Document(std::mem::FixedHandle), std::toml::TomlError) r = std::toml::parse(alloc, input);
     if r.is_ok() { return false; }
     return r.unwrap_err() == want;
 }
@@ -2002,52 +2073,95 @@ bool check_float([] const char input, f64 lo, f64 hi) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::FixedHandle alloc = std::mem::borrow(&fb);
-    std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
+    std::result::Result(std::toml::Document(std::mem::FixedHandle), std::toml::TomlError) r = std::toml::parse(alloc, input);
     if r.is_err() { return false; }
-    std::toml::Table t = r.unwrap();
+    std::toml::Document(std::mem::FixedHandle) doc = r.unwrap();
     char[1] key = {'k' as char};
-    std::result::Optional(std::toml::Value) found = std::toml::get(&t, key[0..1]);
-    if found.is_none() { return false; }
+    std::result::Optional(std::toml::Value) found = std::toml::get(&doc.root, key[0..1]);
+    if found.is_none() { doc.deinit(); return false; }
     std::toml::Value v = found.unwrap_some();
     std::result::Optional(f64) got = std::toml::as_float(&v);
-    if got.is_none() { return false; }
+    if got.is_none() { doc.deinit(); return false; }
     f64 f = got.unwrap_some();
-    return f >= lo && f <= hi;
+    bool ok = f >= lo && f <= hi;
+    doc.deinit();
+    return ok;
 }
 
 bool check_float_above([] const char input, f64 lo) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::FixedHandle alloc = std::mem::borrow(&fb);
-    std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
+    std::result::Result(std::toml::Document(std::mem::FixedHandle), std::toml::TomlError) r = std::toml::parse(alloc, input);
     if r.is_err() { return false; }
-    std::toml::Table t = r.unwrap();
+    std::toml::Document(std::mem::FixedHandle) doc = r.unwrap();
     char[1] key = {'k' as char};
-    std::result::Optional(std::toml::Value) found = std::toml::get(&t, key[0..1]);
-    if found.is_none() { return false; }
+    std::result::Optional(std::toml::Value) found = std::toml::get(&doc.root, key[0..1]);
+    if found.is_none() { doc.deinit(); return false; }
     std::toml::Value v = found.unwrap_some();
     std::result::Optional(f64) got = std::toml::as_float(&v);
-    if got.is_none() { return false; }
-    return got.unwrap_some() > lo;
+    if got.is_none() { doc.deinit(); return false; }
+    bool ok = got.unwrap_some() > lo;
+    doc.deinit();
+    return ok;
 }
 
 bool check_float_below([] const char input, f64 hi) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::FixedHandle alloc = std::mem::borrow(&fb);
-    std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
+    std::result::Result(std::toml::Document(std::mem::FixedHandle), std::toml::TomlError) r = std::toml::parse(alloc, input);
     if r.is_err() { return false; }
-    std::toml::Table t = r.unwrap();
+    std::toml::Document(std::mem::FixedHandle) doc = r.unwrap();
     char[1] key = {'k' as char};
-    std::result::Optional(std::toml::Value) found = std::toml::get(&t, key[0..1]);
-    if found.is_none() { return false; }
+    std::result::Optional(std::toml::Value) found = std::toml::get(&doc.root, key[0..1]);
+    if found.is_none() { doc.deinit(); return false; }
     std::toml::Value v = found.unwrap_some();
     std::result::Optional(f64) got = std::toml::as_float(&v);
-    if got.is_none() { return false; }
-    return got.unwrap_some() < hi;
+    if got.is_none() { doc.deinit(); return false; }
+    bool ok = got.unwrap_some() < hi;
+    doc.deinit();
+    return ok;
+}
+
+bool check_document() {
+    if sizeof(std::toml::Document(std::mem::FixedHandle)) != 3 * sizeof(usize) { return false; }
+    if sizeof(std::toml::Document(BackingPolicy)) != 2 * sizeof(usize) { return false; }
+
+    u8[4096] backing;
+    std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..4096]);
+    std::mem::FixedHandle alloc = std::mem::borrow(&fb);
+
+    char[16] source = {'k', ' ', '=', ' ', '"', 'h', 'i', '"', '\n', ' ', ' ', ' ', ' ', ' ', ' ', ' '};
+    std::toml::Document(std::mem::FixedHandle) doc = std::toml::parse(alloc, source[0..9]).unwrap();
+    source[6] = 'X';
+    char[1] key = {'k' as char};
+    std::result::Optional(std::toml::Value) found = std::toml::get(&doc.root, key[0..1]);
+    if found.is_none() { return false; }
+    std::toml::Value value = found.unwrap_some();
+    std::result::Optional([] const char) text = std::toml::as_string(&value);
+    if text.is_none() || text.unwrap_some().len != 2 || text.unwrap_some()[1] != 'i' { return false; }
+
+    std::toml::Document(std::mem::FixedHandle) copy = doc.clone().unwrap();
+    std::toml::Document(std::mem::FixedHandle) moved = doc.take();
+    if doc.root.entries.len != 0 { return false; }
+    doc.deinit();
+    if std::toml::get(&copy.root, key[0..1]).is_none() { return false; }
+    if std::toml::get(&moved.root, key[0..1]).is_none() { return false; }
+
+    moved.deinit();
+    usize after_first = fb.offset;
+    moved.deinit();
+    if fb.offset != after_first { return false; }
+    copy.deinit();
+
+    std::toml::Table borrowed = std::toml::parse_borrowed(alloc, source[0..9]).unwrap();
+    if std::toml::get(&borrowed, key[0..1]).is_none() { return false; }
+    return true;
 }
 
 public i32 main() {
+    if !check_document() { return 22; }
     char[5] t1 = {'k' as char, ' ' as char, '=' as char, ' ' as char, '1' as char};
     if !check_int(t1[0..5], 1) { return 1; }
     char[6] tn1 = {'k' as char, ' ' as char, '=' as char, ' ' as char, '-' as char, '1' as char};
