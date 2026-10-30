@@ -896,6 +896,35 @@ def scenario_publish_subdirectory():
     check(r.returncode == 41, "the subdirectory package runs", detail(r))
 
 
+def scenario_registry_init():
+    target = os.path.join(ROOT, "fresh-registry")
+    r = dpm(ROOT, "registry", "init", target)
+    check(r.returncode == 0 and os.path.isfile(os.path.join(target, "registry.dcon")), "registry init", detail(r))
+    check('name = "fresh-registry"' in read(os.path.join(target, "registry.dcon")), "the name defaults to the directory name")
+    r = dpm(ROOT, "registry", "check", target)
+    check(r.returncode == 0 and "0 aliases" in r.stdout, "registry check accepts a fresh registry", detail(r))
+    r = dpm(ROOT, "registry", "init", target)
+    check(r.returncode == 1 and "not empty" in r.stderr, "init refuses an existing registry", detail(r))
+    github = os.path.join(ROOT, "github-registry")
+    os.makedirs(os.path.join(github, ".git"))
+    write(os.path.join(github, "README.md"), "# dc-registry\n")
+    write(os.path.join(github, "LICENSE"), "licence\n")
+    r = dpm(ROOT, "registry", "init", github, "--name", "dc-registry")
+    check(r.returncode == 0 and 'name = "dc-registry"' in read(os.path.join(github, "registry.dcon")), "init works in a fresh GitHub clone", detail(r))
+    check(read(os.path.join(github, "README.md")) == "# dc-registry\n", "init keeps the README")
+    shutil.rmtree(os.path.join(github, "aliases"))
+    shutil.rmtree(os.path.join(github, "locations"))
+    check(dpm(ROOT, "registry", "check", github).returncode == 0, "check passes without the empty directories")
+    r = dpm(ROOT, "registry", "alias", "git+file://" + github, "freshalias", "--registry-dir", github)
+    check(r.returncode == 0 and os.path.isfile(os.path.join(github, "aliases", "fr", "freshalias.dcon")), "the directories appear with the first alias", detail(r))
+    r = dpm(ROOT, "registry", "init")
+    check(r.returncode == 2, "init needs a directory", detail(r))
+    busy = os.path.join(ROOT, "busy-registry")
+    write(os.path.join(busy, "something.txt"), "x")
+    r = dpm(ROOT, "registry", "init", busy)
+    check(r.returncode == 1 and "something.txt" in r.stderr and not os.path.exists(os.path.join(busy, "registry.dcon")), "init refuses a busy directory", detail(r))
+
+
 try:
     scenario_basic()
     scenario_run_args()
@@ -911,6 +940,7 @@ try:
     scenario_registry_commands()
     scenario_registry_verify_sources()
     scenario_publish_subdirectory()
+    scenario_registry_init()
     scenario_tests()
     scenario_formatting_and_determinism()
     scenario_misc()

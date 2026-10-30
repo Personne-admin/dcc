@@ -835,6 +835,65 @@ export namespace dpm::publish
         return written;
     }
 
+    [[nodiscard]] inline std::optional<Written> init_registry(std::filesystem::path const& dir, std::string name, Context const& ctx, std::string& error)
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        auto root = fs::absolute(dir, ec).lexically_normal();
+        if (name.empty())
+        {
+            name = root.filename().string();
+            if (name.empty())
+                name = root.parent_path().filename().string();
+        }
+        if (name.empty() || name.size() > 64 || std::ranges::any_of(name, [](char c) { return static_cast<unsigned char>(c) < 0x20 || static_cast<unsigned char>(c) == 0x7f; }))
+        {
+            error = "the registry name must be 1 to 64 printable characters; pass --name";
+            return std::nullopt;
+        }
+        if (fs::exists(fs::symlink_status(root, ec)))
+        {
+            if (!detail::is_plain_dir(root))
+            {
+                error = std::format("{} is not a directory", dir.string());
+                return std::nullopt;
+            }
+            for (auto const& entry : detail::sorted_names(root))
+            {
+                auto upper = entry;
+                for (auto& c : upper)
+                    c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+                bool const allowed = entry == ".git" || entry == ".gitignore" || upper.starts_with("README") || upper.starts_with("LICENSE");
+                if (!allowed)
+                {
+                    error = std::format("{} is not empty ('{}' is in the way); only .git, .gitignore, README* and LICENSE* may exist already", dir.string(), entry);
+                    return std::nullopt;
+                }
+            }
+        }
+        auto text = std::format("dpm::v1::RegistryConfig {{\n    format = 1,\n    name = {},\n}}\n", lock::detail::quote(name));
+        auto loaded = manifest::load(text, detail::options_for(ctx, manifest::FileKind::RegistryConfig, "registry.dcon"));
+        if (!loaded.ok || !loaded.registry_config || loaded.registry_config->name != name)
+        {
+            error = "the registry name cannot be written: " + (loaded.ok ? std::string{"it does not round-trip"} : detail::first_diagnostic(loaded));
+            return std::nullopt;
+        }
+        fs::create_directories(root / "aliases", ec);
+        fs::create_directories(root / "locations", ec);
+        if (ec)
+        {
+            error = "cannot create " + root.string();
+            return std::nullopt;
+        }
+        if (!edit::write_atomic(root / "registry.dcon", text, error))
+            return std::nullopt;
+        Written written;
+        written.changed = true;
+        written.alias_rel = "registry.dcon";
+        written.files.push_back("registry.dcon");
+        return written;
+    }
+
     [[nodiscard]] inline std::optional<Written> create_alias(std::filesystem::path const& dir, std::string const& location, std::string const& name,
                                                              std::string const& description, Context const& ctx, bool dry_run, std::string& error)
     {

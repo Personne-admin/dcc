@@ -1422,7 +1422,7 @@ namespace
 
     int cmd_registry(std::span<char const* const> args)
     {
-        constexpr auto usage = "usage: dpm registry {alias LOC NAME | check [DIR] [--verify-sources] [--base REV] | yank ALIAS VERSION [--undo]} [--registry-dir DIR]";
+        constexpr auto usage = "usage: dpm registry {init DIR [--name NAME] | alias LOC NAME | check [DIR] [--verify-sources] [--base REV] | yank ALIAS VERSION [--undo]} [--registry-dir DIR]";
         if (args.empty())
         {
             std::println(std::cerr, "{}", usage);
@@ -1437,6 +1437,23 @@ namespace
             return *code;
         }
         auto ctx = publish_context();
+        if (sub == "init")
+        {
+            if (common.positional.size() != 1)
+            {
+                std::println(std::cerr, "usage: dpm registry init DIR [--name NAME]");
+                return k_exit_usage;
+            }
+            auto initialized = dpm::publish::init_registry(common.positional[0], common.name, ctx, error);
+            if (!initialized)
+            {
+                std::println(std::cerr, "error: {}", error);
+                return k_exit_failure;
+            }
+            std::println("initialized the registry in {}", common.positional[0]);
+            std::println("wrote {}/registry.dcon (aliases/ and locations/ appear when the first alias is added; git does not track empty directories)", common.positional[0]);
+            return 0;
+        }
         auto dir = pick_registry_dir(common);
         if (sub == "alias" || sub == "yank")
         {
@@ -1527,7 +1544,7 @@ namespace
                      "  run [PRODUCT] [-- ARGS]            build and run an executable\n"
                      "  test [NAME...]                     build and run tests\n"
                      "  publish [--registry-dir D] [--location L]   write the registry entry for this version\n"
-                     "  registry {{alias LOC NAME | check [DIR] | yank ALIAS VERSION}}\n"
+                     "  registry {{init DIR | alias LOC NAME | check [DIR] | yank ALIAS VERSION}}\n"
                      "  tree | why LOC | clean | cache {{path|verify|clean [--all]}}\n"
                      "options: --manifest-path P --profile NAME --target TRIPLE -O {{0,1,2,s}} --offline --refresh --locked -v -j N --timeout S --runner CMD");
     }

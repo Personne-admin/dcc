@@ -335,3 +335,74 @@ TEST_CASE("printed git commands quote every argument and are never run")
     CHECK_EQ(commands[3], std::string{"git commit -m 'add json5 1.0.0'"});
     CHECK_EQ(commands[4], std::string{"gh pr create --fill"});
 }
+
+TEST_CASE("init creates a registry that passes the check and grows its directories lazily")
+{
+    if (schema_root().empty())
+        return;
+    TempDir td;
+    std::string error;
+    auto dir = td.path / "my-registry";
+    auto written = pub::init_registry(dir, {}, context(), error);
+    REQUIRE(written.has_value());
+    CHECK(written->changed);
+    CHECK_EQ(td.read("my-registry/registry.dcon"), std::string{"dpm::v1::RegistryConfig {\n    format = 1,\n    name = \"my-registry\",\n}\n"});
+    CHECK(fs::is_directory(dir / "aliases"));
+    CHECK(fs::is_directory(dir / "locations"));
+    auto scan = pub::scan_registry(dir, context());
+    CHECK(scan.problems.empty());
+    CHECK(scan.aliases.empty());
+
+    fs::remove(dir / "aliases");
+    fs::remove(dir / "locations");
+    CHECK(pub::scan_registry(dir, context()).problems.empty());
+    auto alias = pub::create_alias(dir, "github.com/u/json5", "json5", {}, context(), false, error);
+    REQUIRE(alias.has_value());
+    CHECK(fs::exists(dir / "aliases/js/json5.dcon"));
+    CHECK(fs::exists(dir / "locations/github.com/u/json5.dcon"));
+    CHECK(pub::scan_registry(dir, context()).problems.empty());
+
+    auto named = pub::init_registry(td.path / "other", "dc \"registry\"", context(), error);
+    REQUIRE(named.has_value());
+    CHECK(contains(td.read("other/registry.dcon"), "name = \"dc \\\"registry\\\"\""));
+    CHECK(pub::scan_registry(td.path / "other", context()).problems.empty());
+    auto trailing = pub::init_registry(td.path / "third" / "", {}, context(), error);
+    REQUIRE(trailing.has_value());
+    CHECK(contains(td.read("third/registry.dcon"), "name = \"third\""));
+}
+
+TEST_CASE("init accepts what a fresh GitHub repository contains and nothing else")
+{
+    if (schema_root().empty())
+        return;
+    TempDir td;
+    std::string error;
+    td.write("fresh/README.md", "# registry\n");
+    td.write("fresh/LICENSE", "text\n");
+    td.write("fresh/.gitignore", "x\n");
+    td.write("fresh/.git/HEAD", "ref: refs/heads/main\n");
+    auto ok = pub::init_registry(td.path / "fresh", "dc-registry", context(), error);
+    REQUIRE(ok.has_value());
+    CHECK_EQ(td.read("fresh/README.md"), std::string{"# registry\n"});
+    CHECK(fs::exists(td.path / "fresh/.git/HEAD"));
+    CHECK(pub::scan_registry(td.path / "fresh", context()).problems.empty());
+
+    td.write("busy/notes.txt", "x");
+    CHECK(!pub::init_registry(td.path / "busy", {}, context(), error).has_value());
+    CHECK(contains(error, "notes.txt"));
+    CHECK(!fs::exists(td.path / "busy/registry.dcon"));
+
+    td.write("again/registry.dcon", "dpm::v1::RegistryConfig { name = \"x\" }\n");
+    CHECK(!pub::init_registry(td.path / "again", {}, context(), error).has_value());
+    td.write("file", "x");
+    CHECK(!pub::init_registry(td.path / "file", {}, context(), error).has_value());
+    CHECK(contains(error, "not a directory"));
+    CHECK(!pub::init_registry(td.path / "named", std::string(65, 'x'), context(), error).has_value());
+    CHECK(!pub::init_registry(td.path / "named", "bad\nname", context(), error).has_value());
+    CHECK(!fs::exists(td.path / "named"));
+    td.write("link/real", "x");
+    std::error_code ec;
+    fs::create_directories(td.path / "linked");
+    fs::create_symlink("/etc", td.path / "linked/etc", ec);
+    CHECK(!pub::init_registry(td.path / "linked", {}, context(), error).has_value());
+}
