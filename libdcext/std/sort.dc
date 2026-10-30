@@ -1,10 +1,12 @@
 module std::sort;
 
 import std::slice;
+import std::alloc;
 public import std::mem;
 public import std::result;
 
 using result::{ Optional, Result };
+using alloc::AllocatorPolicy;
 
 //!
 //! Ordering
@@ -259,23 +261,23 @@ void merge_run(T)(
     }
 }
 
-public result::Status(mem::AllocError) sort_stable_alloc(T)(
-    const mem::Allocator* allocator,
+public result::Status(mem::AllocError) sort_stable_alloc(T, A)(
+    A* allocator,
     [] T items,
     i32(*)(const T*, const T*) cmp
-) {
+) if AllocatorPolicy(A) {
     if items.len < 2 {
         return result::Status::Ok;
     }
 
-    result::Result([] T, mem::AllocError) scratch_r = allocator.alloc(items.len);
+    result::Result([] T, mem::AllocError) scratch_r = allocator.allocate_slice(items.len);
     if scratch_r.is_err() {
         return scratch_r.unwrap_err();
     }
     [] T scratch = scratch_r.unwrap();
 
     sort_stable_by(items, scratch, cmp);
-    allocator.free(scratch);
+    allocator.free_slice(scratch);
     return result::Status::Ok;
 }
 

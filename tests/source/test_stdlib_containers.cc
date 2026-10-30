@@ -332,7 +332,7 @@ i32 descending(const i32* a, const i32* b) {
 public i32 main() {
     u8[1024] backing;
     std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..1024]);
-    std::mem::Allocator a = fb.allocator();
+    std::mem::FixedHandle a = std::mem::borrow(&fb);
 
     i32[8] values = {5, 1, 4, 1, 3, 2, 8, 0};
     if !std::sort::sort_stable_alloc(&a, values[0..8], descending).is_ok() { return 1; }
