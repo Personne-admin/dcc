@@ -1,0 +1,36 @@
+=== FILE: lib.dc ===
+module lib;
+
+public struct Rec {
+    i32 v;
+}
+
+public const i32 k = 5;
+public enum Mode : u8 { A = 1, B = 2 }
+
+public i32 apply(T)(T x) {
+    Rec r = {v = 3};
+    Mode m = Mode::B;
+    return r.v + (m as i32) + k + (x as i32);
+}
+
+=== FILE: main.dc ===
+module m;
+
+import lib;
+
+struct Rec {
+    u64 bytes;
+}
+
+const i32 k = 100;
+enum Mode : u8 { A = 10, B = 20 }
+
+void check() {
+    const i32 result = lib::apply(1);
+    static if result != 11 {
+        wrong_result();
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

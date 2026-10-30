@@ -21,7 +21,7 @@ u64 helper() {
 }
 
 void check() {
-    S s;
+    S s = {};
     const u64 result = lib::apply(s, 1);
     static if result != 2 {
         wrong_result();

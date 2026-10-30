@@ -1560,7 +1560,7 @@ export namespace dcc::sema
             return std::construct_at(p, parent, m_alloc);
         }
 
-        [[nodiscard]] comptime::Value const* lookup_constant(ConstEnv const* env, std::string_view name) const
+        [[nodiscard]] comptime::Value const* lookup_constant(ConstEnv const* env, std::string_view name, ast::Decl const* resolved = nullptr) const
         {
             for (auto const* e = env; e; e = e->parent)
             {
@@ -1575,6 +1575,8 @@ export namespace dcc::sema
                 if (!syms.empty())
                 {
                     auto const* sym = &syms.front();
+                    if (resolved && sym->decl != resolved)
+                        return nullptr;
                     if (sym->kind == SymbolKind::ValueAlias)
                     {
                         auto const* ud = ast::node_cast<ast::UsingDecl>(sym->decl);
@@ -4446,13 +4448,11 @@ export namespace dcc::sema
 
         [[nodiscard]] std::span<Symbol const> resolve_value_overloads_with_fallback(Scope const& primary, ast::Path const& path) const
         {
-            if (auto syms = resolve_value_overloads(primary, path); !syms.empty())
-                return syms;
-
             if (m_specialization_defining_module && m_specialization_defining_module->own_scope)
-                return resolve_value_overloads(*m_specialization_defining_module->own_scope, path);
+                if (auto syms = resolve_value_overloads(*m_specialization_defining_module->own_scope, path); !syms.empty())
+                    return syms;
 
-            return {};
+            return resolve_value_overloads(primary, path);
         }
 
         [[nodiscard]] Symbol const* resolve_value_path_with_fallback(Scope& primary, ast::Path const& path) const
@@ -4463,13 +4463,11 @@ export namespace dcc::sema
 
         [[nodiscard]] Symbol const* resolve_type_path_with_fallback(Scope& primary, ast::Path const& path) const
         {
-            if (auto const* sym = resolve_type_path(primary, path))
-                return sym;
-
             if (m_specialization_defining_module && m_specialization_defining_module->own_scope)
-                return resolve_type_path(*m_specialization_defining_module->own_scope, path);
+                if (auto const* sym = resolve_type_path(*m_specialization_defining_module->own_scope, path))
+                    return sym;
 
-            return nullptr;
+            return resolve_type_path(primary, path);
         }
 
         [[nodiscard]] detail::CommittedSpecialization commit_specialization(ModuleInfo& mod, ast::FuncDecl const& f, infer::TemplateBindings const& bindings,
@@ -10418,11 +10416,11 @@ export namespace dcc::sema
         {
             if (auto vs = local_scope.lookup_values(name); !vs.empty())
                 return &vs.front();
-            if (mod.own_scope)
-                if (auto vs = mod.own_scope->lookup_values(name); !vs.empty())
-                    return &vs.front();
             if (m_specialization_defining_module && m_specialization_defining_module->own_scope)
                 if (auto vs = m_specialization_defining_module->own_scope->lookup_values(name); !vs.empty())
+                    return &vs.front();
+            if (mod.own_scope)
+                if (auto vs = mod.own_scope->lookup_values(name); !vs.empty())
                     return &vs.front();
             return nullptr;
         }
@@ -11601,7 +11599,8 @@ export namespace dcc::sema
             }
             else if (out.is_lvalue)
             {
-                if (auto const* c = const_eval::lookup_identifier(name, [&](std::string_view n) { return lookup_constant(const_env, n); }))
+                if (auto const* c = const_eval::lookup_identifier(
+                        name, [&](std::string_view n) { return lookup_constant(const_env, n, sym->decl); }))
                 {
                     out.constant = c;
                     out.is_constant = true;
@@ -18905,21 +18904,21 @@ export namespace dcc::sema
                         if (auto const* sym = scope.lookup_type(nt->path.simple_name()))
                             return {.type = instantiate(sym->decl), .quals = ast_to_type_qual(t->sema.resolved_quals)};
 
-                        if (mod.own_scope)
-                            if (auto const* sym = mod.own_scope->lookup_type(nt->path.simple_name()))
-                                return {.type = instantiate(sym->decl), .quals = ast_to_type_qual(t->sema.resolved_quals)};
-
                         if (m_specialization_defining_module && m_specialization_defining_module->own_scope)
                             if (auto const* sym = m_specialization_defining_module->own_scope->lookup_type(nt->path.simple_name()))
                                 return {.type = instantiate(sym->decl), .quals = ast_to_type_qual(t->sema.resolved_quals)};
-                    }
 
-                    if (mod.own_scope)
-                        if (auto const* sym = resolve_type_path(*mod.own_scope, nt->path))
-                            return {.type = instantiate(sym->decl), .quals = ast_to_type_qual(t->sema.resolved_quals)};
+                        if (mod.own_scope)
+                            if (auto const* sym = mod.own_scope->lookup_type(nt->path.simple_name()))
+                                return {.type = instantiate(sym->decl), .quals = ast_to_type_qual(t->sema.resolved_quals)};
+                    }
 
                     if (m_specialization_defining_module && m_specialization_defining_module->own_scope)
                         if (auto const* sym = resolve_type_path(*m_specialization_defining_module->own_scope, nt->path))
+                            return {.type = instantiate(sym->decl), .quals = ast_to_type_qual(t->sema.resolved_quals)};
+
+                    if (mod.own_scope)
+                        if (auto const* sym = resolve_type_path(*mod.own_scope, nt->path))
                             return {.type = instantiate(sym->decl), .quals = ast_to_type_qual(t->sema.resolved_quals)};
 
                     if (!m_had_prior_errors)
