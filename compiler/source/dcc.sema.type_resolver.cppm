@@ -986,6 +986,7 @@ export namespace dcc::sema
                         return {m_types.m_errort(), types::Qual::None};
                     }
                     auto actual = bindings.substitute(resolved_default);
+                    std::ignore = diagnose_unselected_default_allocator(m_types, m_diag, actual, range);
                     resolved_args.push_back(actual);
                     auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
                     std::ignore = bindings.deduce(key, actual);
@@ -1152,6 +1153,7 @@ export namespace dcc::sema
                     else if (auto resolved_default = resolve_default_argument(tp, u.template_params, quiet_unknown))
                     {
                         actual = bindings.substitute(resolved_default);
+                        std::ignore = diagnose_unselected_default_allocator(m_types, m_diag, actual, range);
                     }
                     else
                         continue;

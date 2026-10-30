@@ -28,6 +28,7 @@ export namespace dccd
         bool bounds_check{false};
         bool partial_eval{false};
         bool far_check{false};
+        std::string default_allocator;
     };
 
     class CompilationDatabase
@@ -305,6 +306,7 @@ namespace dccd
         analysis.bounds_check = opts.bounds_check;
         analysis.partial_eval = opts.partial_eval;
         analysis.far_check = opts.far_check;
+        analysis.default_allocator = opts.default_allocator;
 
         for (auto const& path : opts.import_paths)
             detail::add_unique_path(analysis.import_roots, detail::normalize_path(path, command.directory));

@@ -1,0 +1,57 @@
+=== FILE: app/memory.dc ===
+module app::memory;
+
+public struct MyAlloc {
+}
+
+=== FILE: app/container.dc ===
+module app::container;
+
+import core::allocator_config;
+
+public struct Box(T, A = DefaultAllocator) {
+    A allocator;
+    T value;
+}
+
+=== ENTRY: main.dc ===
+
+=== FILE: main.dc ===
+module main;
+
+import core;
+import app::container;
+import app::memory;
+import core::allocator_config;
+
+void takes_my_alloc(app::memory::MyAlloc* alloc) {
+}
+
+bool default_is_my_alloc(A = DefaultAllocator)() {
+    static if A == app::memory::MyAlloc {
+        return true;
+    }
+    return false;
+}
+
+A make_alloc(A = DefaultAllocator)() {
+    A value = {};
+    takes_my_alloc(&value);
+    return value;
+}
+
+i32 main() {
+    static if sizeof(app::container::Box(u8)) != 1 {
+        core::compile_error("selected allocator did not fold into a zero-size field");
+    }
+    app::container::Box(u8) box = {};
+    app::memory::MyAlloc* pointer = &box.allocator;
+    takes_my_alloc(&box.allocator);
+    make_alloc();
+    if !default_is_my_alloc() {
+        return 1;
+    }
+    return 0;
+}
+
+=== FLAGS: -fdefault-allocator=app::memory::MyAlloc ===

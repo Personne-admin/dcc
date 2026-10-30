@@ -1,0 +1,54 @@
+=== FILE: app/memory.dc ===
+module app::memory;
+
+public struct MyAlloc {
+}
+
+=== FILE: app/container.dc ===
+module app::container;
+
+import core::allocator_config;
+
+public struct Box(T, A = DefaultAllocator) {
+    A allocator;
+    T value;
+}
+
+=== ENTRY: test.dc ===
+
+=== FILE: test.dc ===
+module test;
+
+import app::container;
+public import app::memory;
+import core::allocator_config;
+
+public void takes_my_alloc(app::memory::MyAlloc* alloc) {
+}
+
+public i32 test() {
+    app::container::Box(u8) box = {};
+    takes_my_alloc(&box.allocator);
+    return box.value as i32;
+}
+
+=== FLAGS: -fdefault-allocator=app::memory::MyAlloc ===
+
+=== EXPECT-IR ===
+module "test"
+void@_DC0F1.4.test14.takes_my_alloc1PqD2.3.app6.memory7.MyAlloc0.v(ptr<{}>) {
+%entry(ptr<{}> %alloc):
+  ret void
+}
+
+i32@_DC0F1.4.test4.test0i32s() {
+%entry:
+  %0 = alloca {@0 {}, @0 u8}
+  store {@0 {}, @0 u8} aggregate {@0 {}, @0 u8}, aggregate {}, #0, ptr<{@0 {}, @0 u8}> %0
+  %1 = gep ptr<{@0 {}, @0 u8}> %0, field #0
+  call fn(@_DC0F1.4.test14.takes_my_alloc1PqD2.3.app6.memory7.MyAlloc0.v)(ptr<{}> %1)
+  %2 = gep ptr<{@0 {}, @0 u8}> %0, field #1
+  %3 = load u8, ptr<u8> %2
+  %4 = zext u8 %3 to i32
+  ret i32 %4
+}

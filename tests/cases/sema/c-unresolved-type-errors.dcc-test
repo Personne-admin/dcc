@@ -11,4 +11,4 @@ using Alias = Missing;
 === EXPECT-ERRORS ===
 m.dc:5: unknown type `Missing`
 m.dc:6: unknown type `make`
-m.dc:8: could not resolve using declaration
+m.dc:8: could not resolve `Missing`

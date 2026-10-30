@@ -61,8 +61,9 @@ export namespace dcc::sema
     {
     public:
         Importer(ModuleGraph& graph, sm::SourceManager& sm, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx, ParseFn parse,
-                 si::string_interner* interner = nullptr, dcc::target::TargetConfig const* target = nullptr)
-            : m_graph{graph}, m_sm{sm}, m_diag{diag}, m_ast_ctx{ast_ctx}, m_parse{std::move(parse)}, m_interner{interner}, m_target{target}
+                 si::string_interner* interner = nullptr, dcc::target::TargetConfig const* target = nullptr, std::string default_allocator = {})
+            : m_graph{graph}, m_sm{sm}, m_diag{diag}, m_ast_ctx{ast_ctx}, m_parse{std::move(parse)}, m_interner{interner}, m_target{target},
+              m_default_allocator{std::move(default_allocator)}
         {
         }
 
@@ -119,6 +120,7 @@ export namespace dcc::sema
         ParseFn m_parse;
         si::string_interner* m_interner{nullptr};
         dcc::target::TargetConfig const* m_target{nullptr};
+        std::string m_default_allocator;
 
         std::unordered_set<std::filesystem::path::string_type> in_flight_;
 
@@ -176,7 +178,7 @@ export namespace dcc::sema
                     return hit;
 
                 auto target = m_target ? *m_target : dcc::target::TargetConfig::host_default();
-                return register_virtual_tu(path, entry->uri, dcc::vfs::materialize_dynamic(*entry, target, m_sm));
+                return register_virtual_tu(path, entry->uri, dcc::vfs::materialize_dynamic(*entry, target, m_sm, m_default_allocator));
             }
 
             return nullptr;

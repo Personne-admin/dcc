@@ -1823,6 +1823,7 @@ auto main(int argc, char** argv) -> int
     compile_opts.injected_decls = std::move(opts.injected_decls);
 
     compile_opts.target = resolve_target_or_exit(opts);
+    compile_opts.default_allocator = opts.default_allocator;
     bool const whole_program_sections = opts.whole_program && compile_opts.target.arch == dcc::target::Arch::X86_64;
     compile_opts.target.function_sections = opts.function_sections_explicit ? opts.function_sections : whole_program_sections;
     compile_opts.target.data_sections = opts.data_sections_explicit ? opts.data_sections : whole_program_sections;

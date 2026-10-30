@@ -2,10 +2,25 @@ export module dcc.sema.type_helpers;
 
 import std;
 import dcc.ast;
+import dcc.diag;
+import dcc.sm;
 import dcc.types;
 
 export namespace dcc::sema
 {
+    [[nodiscard]] bool diagnose_unselected_default_allocator(types::TypeContext& types, diag::DiagnosticEngine& diag, types::TypePtr type, sm::SourceRange range)
+    {
+        if (!types.unselected_default_allocator_decl || !type)
+            return false;
+
+        auto const* struct_type = types::type_cast<types::StructType>(type);
+        if (!struct_type || static_cast<void const*>(struct_type->decl) != types.unselected_default_allocator_decl)
+            return false;
+
+        diag.error(range, "no default allocator selected; pass -fdefault-allocator=<module>::<type> or give the allocator argument explicitly");
+        return true;
+    }
+
     [[nodiscard]] types::TypePtr get_canonical(ast::TypeSema const& ts) noexcept
     {
         return reinterpret_cast<types::TypePtr>(ts.canonical);

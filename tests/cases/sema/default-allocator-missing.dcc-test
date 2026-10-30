@@ -1,0 +1,25 @@
+=== FILE: app/container.dc ===
+module app::container;
+
+import core::allocator_config;
+
+public struct Box(T, A = DefaultAllocator) {
+    A allocator;
+    T value;
+}
+
+=== ENTRY: main.dc ===
+
+=== FILE: main.dc ===
+module main;
+
+import app::container;
+import core::allocator_config;
+
+i32 main() {
+    app::container::Box(u8) box = {};
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:7: no default allocator selected; pass -fdefault-allocator=<module>::<type> or give the allocator argument explicitly

@@ -281,6 +281,9 @@ namespace
         std::vector<ExpectEm64tAsm> em64t_asm_blocks;
         std::vector<ExpectI8086Run> i8086_run_blocks;
         std::vector<std::string> injected_decls;
+        std::string default_allocator;
+        std::string flags_error;
+        std::size_t flags_line{};
         bool errors_block_present{};
         bool exact_errors{};
         std::optional<std::size_t> expected_error_count;
@@ -441,6 +444,19 @@ namespace
                 fx.interactive_mode = true;
             else if (starts_with(h, "INJECT:"))
                 fx.injected_decls.push_back(trim(std::string_view{h}.substr(7)));
+            else if (starts_with(h, "FLAGS:"))
+            {
+                fx.flags_line = sec.body_start_line - 1;
+                std::istringstream options(trim(std::string_view{h}.substr(6)));
+                std::string option;
+                while (options >> option)
+                {
+                    if (option.starts_with("-fdefault-allocator="))
+                        fx.default_allocator = option.substr(20);
+                    else
+                        fx.flags_error = std::format("unsupported fixture flag '{}'", option);
+                }
+            }
             else if (starts_with(h, "EXPECT-AST FOR:"))
             {
                 ExpectAst e;
@@ -1842,6 +1858,13 @@ namespace
                 return false;
             }
 
+        if (!fx.flags_error.empty())
+        {
+            ++stats.failed;
+            std::println(std::cerr, "    FAIL  {}  ({}:{})", fx.flags_error, path.string(), fx.flags_line);
+            return false;
+        }
+
         auto sb = materialize(fx, path);
         if (!sb)
         {
@@ -1882,6 +1905,7 @@ namespace
         if (fixture_target)
             opts.target = *fixture_target;
         opts.restricted_check = fx.target_restricted_check;
+        opts.default_allocator = fx.default_allocator;
         opts.import_roots.push_back(sb->root);
         opts.interner = &interner;
         opts.injected_decls = fx.injected_decls;

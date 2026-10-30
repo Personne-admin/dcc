@@ -4778,6 +4778,7 @@ export namespace dcc::sema
                 if (tp.default_type && tp.default_type->sema.canonical)
                 {
                     auto actual = bindings.substitute(get_canonical(tp.default_type->sema));
+                    std::ignore = diagnose_unselected_default_allocator(m_types, m_diag, actual, tp.default_type->range);
                     if (!actual || !bindings.deduce(param_ty, actual))
                     {
                         if (failure)
@@ -5667,6 +5668,7 @@ export namespace dcc::sema
                     if (!tp.default_type->sema.canonical)
                         return false;
                     auto actual = bindings.substitute(get_canonical(tp.default_type->sema));
+                    std::ignore = diagnose_unselected_default_allocator(m_types, m_diag, actual, tp.default_type->range);
                     if (!actual || !bindings.deduce(key, actual))
                         return false;
                 }
@@ -18791,6 +18793,7 @@ export namespace dcc::sema
                                         return false;
                                     }
                                     auto actual = bindings.substitute(get_canonical(tp.default_type->sema));
+                                    std::ignore = diagnose_unselected_default_allocator(m_types, m_diag, actual, nt->range);
                                     resolved_args.push_back(actual);
                                     auto* key =
                                         m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));

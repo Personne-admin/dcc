@@ -1078,6 +1078,8 @@ export namespace dcc::sema
             }
             else if (!u.target_list.empty())
                 m_diag.error(u.range, "could not resolve all paths in using-list");
+            else if (auto const* named = ast::node_cast<ast::NamedType>(u.target_type); named && !named->path.is_empty())
+                m_diag.error(named->path.range.valid() ? named->path.range : u.range, "could not resolve `{}`", path_str(named->path));
             else
                 m_diag.error(u.range, "could not resolve using declaration");
         }

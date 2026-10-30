@@ -320,6 +320,10 @@ public using type_argument(T, usize index) = T;
             .module_path = "core::slice",
             .uri = "dcc-core:/core/slice.dc",
         },
+        {
+            .module_path = "core::allocator_config",
+            .uri = "dcc-core:/core/allocator_config.dc",
+        },
     };
 
     [[nodiscard]] DynamicModuleEntry const* lookup_dynamic_by_module_path(std::string_view module_path) noexcept
@@ -403,6 +407,43 @@ public [] const T from_raw_const(T)(const T* ptr, usize len) {
 }
 
 )dc";
+    }
+
+    [[nodiscard]] std::string generate_core_allocator_config_source(std::string_view default_allocator)
+    {
+        if (default_allocator.empty())
+        {
+            return R"dc(module core::allocator_config;
+
+public struct NoDefaultAllocatorSelected {
+}
+
+using public DefaultAllocator = NoDefaultAllocatorSelected;
+
+)dc";
+        }
+
+        auto separator = default_allocator.rfind("::");
+        auto module_path = default_allocator.substr(0, separator);
+        auto type_name = default_allocator.substr(separator + 2);
+
+        std::string_view visible = module_path;
+        if (visible == "core")
+            visible = {};
+        else if (visible.starts_with("core::"))
+            visible = visible.substr(6);
+
+        std::string out = "module core::allocator_config;\n\npublic import ";
+        out += module_path;
+        out += ";\n\nusing public DefaultAllocator = ";
+        if (!visible.empty())
+        {
+            out += visible;
+            out += "::";
+        }
+        out += type_name;
+        out += ";\n\n";
+        return out;
     }
 
     [[nodiscard]] std::string generate_core_seg_source(dcc::target::TargetConfig const& target)
@@ -502,7 +543,8 @@ public struct DivResult { u64 quotient; u64 remainder; }
 )dc";
     }
 
-    [[nodiscard]] sm::FileId materialize_dynamic(DynamicModuleEntry const& entry, dcc::target::TargetConfig const& target, sm::SourceManager& smgr)
+    [[nodiscard]] sm::FileId materialize_dynamic(DynamicModuleEntry const& entry, dcc::target::TargetConfig const& target, sm::SourceManager& smgr,
+                                                 std::string_view default_allocator = {})
     {
         auto rest = entry.uri.substr(kDccCoreScheme.size());
         if (!rest.empty() && rest[0] == '/')
@@ -513,10 +555,11 @@ public struct DivResult { u64 quotient; u64 remainder; }
         syn_path += kDccCorePathPrefix;
         syn_path += rest;
 
-        std::string source = entry.module_path == "core::i8086_arith" ? generate_i8086_arithmetic_source()
-                             : entry.module_path == "core::seg"       ? generate_core_seg_source(target)
-                             : entry.module_path == "core::slice"     ? generate_core_slice_source()
-                                                                      : generate_core_target_source(target);
+        std::string source = entry.module_path == "core::i8086_arith"         ? generate_i8086_arithmetic_source()
+                             : entry.module_path == "core::seg"           ? generate_core_seg_source(target)
+                             : entry.module_path == "core::slice"         ? generate_core_slice_source()
+                             : entry.module_path == "core::allocator_config" ? generate_core_allocator_config_source(default_allocator)
+                                                                          : generate_core_target_source(target);
         return smgr.open_virtual_in_memory(std::string{entry.uri}, std::move(source), std::move(syn_path));
     }
 

@@ -1,0 +1,27 @@
+=== FILE: app/container.dc ===
+module app::container;
+
+import core::allocator_config;
+
+public struct Box(T, A = DefaultAllocator) {
+    A allocator;
+    T value;
+}
+
+=== ENTRY: main.dc ===
+
+=== FILE: main.dc ===
+module main;
+
+import app::container;
+import core::allocator_config;
+
+struct FixedAlloc {
+}
+
+i32 main() {
+    app::container::Box(u8, FixedAlloc) box = {};
+    FixedAlloc* pointer = &box.allocator;
+    app::container::Box(i32, FixedAlloc) other = {};
+    return sizeof(app::container::Box(u8, FixedAlloc)) as i32;
+}

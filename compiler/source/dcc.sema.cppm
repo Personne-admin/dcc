@@ -18,6 +18,7 @@ import dcc.sm;
 import dcc.si;
 import dcc.diag;
 import dcc.target;
+import dcc.sema.type_helpers;
 
 export namespace dcc::sema
 {
@@ -31,6 +32,7 @@ export namespace dcc::sema
         std::vector<std::string> injected_decls;
         bool enable_doc_comments{false};
         bool restricted_check{false};
+        std::string default_allocator;
     };
 
     class SemaContext
@@ -38,7 +40,8 @@ export namespace dcc::sema
     public:
         SemaContext(sm::SourceManager& sm, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx, ParseFn parse, SemaOptions opts)
             : m_sm{sm}, m_diag{diag}, m_ast_ctx{ast_ctx}, m_opts{std::move(opts)}, m_buffer{m_opts.arena_initial_size}, m_alloc{&m_buffer},
-              m_types{256 * 1024, &m_opts.target}, m_graph{}, m_importer{m_graph, m_sm, diag, m_ast_ctx, std::move(parse), m_opts.interner, &m_opts.target}
+              m_types{256 * 1024, &m_opts.target}, m_graph{},
+              m_importer{m_graph, m_sm, diag, m_ast_ctx, std::move(parse), m_opts.interner, &m_opts.target, m_opts.default_allocator}
         {
             for (auto const& root : m_opts.import_roots)
                 m_graph.add_root(root);
@@ -84,8 +87,13 @@ export namespace dcc::sema
                                                   module->tu->parser_recovery_ranges.end());
             m_diag.set_parser_recovery_ranges(parser_recovery_ranges);
 
+            if (!prepare_allocator_config())
+                return root;
+
             collect_all(m_graph.all(), m_diag, m_types, m_alloc);
             resolve_usings(m_graph.all(), m_diag, m_alloc);
+            if (!validate_allocator_selection())
+                return root;
             m_diag.set_parser_recovery_suppression(true);
             resolve_signature_types(m_graph.all(), m_diag, m_types, m_alloc, m_ast_ctx, m_spec_registry);
             validate_attributes(m_graph.all(), m_diag, m_alloc);
@@ -95,6 +103,7 @@ export namespace dcc::sema
 
             complete_all_templated_tagged_enums(m_types, m_alloc);
             complete_all_templated_structs(m_types, m_alloc);
+            check_allocator_layout();
 
             if (!m_diag.has_errors() && std::ranges::any_of(m_graph.all(), [](auto const& mod) { return mod->needs_i8086_arithmetic; }))
                 analyze_i8086_arithmetic(*root);
@@ -160,6 +169,219 @@ export namespace dcc::sema
             validate_attributes(modules, m_diag, m_alloc);
             validate_public_signatures(modules, m_diag);
             analyze_bodies(modules, m_diag, m_ast_ctx, m_types, m_alloc, m_spec_registry, &m_opts.target, m_opts.restricted_check);
+        }
+
+        struct AllocatorSpelling
+        {
+            std::string_view module_path;
+            std::string_view type_name;
+        };
+
+        [[nodiscard]] static AllocatorSpelling split_allocator_spelling(std::string_view spelling)
+        {
+            auto separator = spelling.rfind("::");
+            if (separator == std::string_view::npos)
+                return {};
+            return {spelling.substr(0, separator), spelling.substr(separator + 2)};
+        }
+
+        [[nodiscard]] ModuleInfo* module_with_path(std::string_view path) const
+        {
+            for (auto const& module : m_graph.all())
+                if (module->canonical_path.str() == path)
+                    return module.get();
+            return nullptr;
+        }
+
+        [[nodiscard]] ModuleInfo* allocator_config_module() const { return module_with_path("core::allocator_config"); }
+
+        void record_unselected_allocator_decl(ModuleInfo& config)
+        {
+            if (!config.tu)
+                return;
+
+            for (auto* decl : config.tu->decls)
+                if (auto* struct_decl = ast::node_cast<ast::StructDecl>(decl); struct_decl && struct_decl->name == "NoDefaultAllocatorSelected")
+                {
+                    m_types.unselected_default_allocator_decl = static_cast<void const*>(struct_decl);
+                    return;
+                }
+        }
+
+        [[nodiscard]] bool report_allocator_cycle(ModuleInfo const& start, ModuleInfo const& target)
+        {
+            std::vector<ModuleInfo const*> queue{&start};
+            std::unordered_map<ModuleInfo const*, ModuleInfo const*> parent;
+            parent.emplace(&start, nullptr);
+            bool found = false;
+            for (std::size_t head = 0; head < queue.size() && !found; ++head)
+            {
+                auto const* current = queue[head];
+                for (auto const& import : current->imports)
+                {
+                    auto const* next = import.target;
+                    if (!next || parent.contains(next))
+                        continue;
+                    parent.emplace(next, current);
+                    if (next == &target)
+                    {
+                        found = true;
+                        break;
+                    }
+                    queue.push_back(next);
+                }
+            }
+
+            if (!found)
+                return false;
+
+            std::vector<ModuleInfo const*> chain;
+            for (auto const* node = &target; node; node = parent[node])
+                chain.push_back(node);
+            std::ranges::reverse(chain);
+
+            std::string message = "default allocator configuration cycle: `core::allocator_config` imports `";
+            message += start.canonical_path.str();
+            message += "`";
+            for (std::size_t i = 1; i + 1 < chain.size(); ++i)
+                message += std::format(", which imports `{}`", chain[i]->canonical_path.str());
+            message += ", which imports `core::allocator_config`";
+            m_diag.error("{}", message);
+            return true;
+        }
+
+        [[nodiscard]] bool prepare_allocator_config()
+        {
+            auto* config = allocator_config_module();
+            if (!config)
+                return true;
+
+            record_unselected_allocator_decl(*config);
+
+            if (m_opts.default_allocator.empty())
+                return true;
+
+            auto spelling = split_allocator_spelling(m_opts.default_allocator);
+            if (spelling.module_path == "core::allocator_config")
+            {
+                m_diag.error("default allocator `{}` must not be declared in `core::allocator_config`", m_opts.default_allocator);
+                return false;
+            }
+
+            auto* selected_module = module_with_path(spelling.module_path);
+            if (!selected_module)
+                return false;
+
+            return !report_allocator_cycle(*selected_module, *config);
+        }
+
+        [[nodiscard]] Symbol const* find_scope_type(Scope const& scope, std::string_view name) const
+        {
+            if (m_opts.interner)
+                if (auto const* binding = scope.find_binding_local(m_opts.interner->intern(name)); binding && binding->has_type)
+                    return &binding->type_sym;
+
+            for (auto const& [binding_name, binding] : scope.bindings())
+                if (binding_name == name && binding.has_type)
+                    return &binding.type_sym;
+
+            return nullptr;
+        }
+
+        [[nodiscard]] bool validate_allocator_selection()
+        {
+            if (m_opts.default_allocator.empty() || !allocator_config_module())
+                return true;
+
+            auto spelling = split_allocator_spelling(m_opts.default_allocator);
+            auto* selected_module = module_with_path(spelling.module_path);
+            if (!selected_module)
+                return true;
+
+            Symbol const* selected_symbol = nullptr;
+            bool is_public = false;
+            if (selected_module->export_scope)
+                if (auto const* symbol = find_scope_type(*selected_module->export_scope, spelling.type_name))
+                {
+                    selected_symbol = symbol;
+                    is_public = true;
+                }
+            if (!selected_symbol && selected_module->own_scope)
+                selected_symbol = find_scope_type(*selected_module->own_scope, spelling.type_name);
+
+            if (!selected_symbol)
+            {
+                m_diag.error("module `{}` has no type `{}`; -fdefault-allocator requires a public type", spelling.module_path, spelling.type_name);
+                return false;
+            }
+
+            if (!is_public)
+            {
+                m_diag.error("type `{}` is not public in module `{}`; -fdefault-allocator requires a public type", spelling.type_name,
+                             spelling.module_path);
+                return false;
+            }
+
+            auto const* selected_decl = selected_symbol->decl;
+            std::size_t template_params = 0;
+            switch (selected_decl->kind)
+            {
+                case ast::DeclKind::Struct:
+                    template_params = static_cast<ast::StructDecl const*>(selected_decl)->template_params.size();
+                    break;
+                case ast::DeclKind::Enum:
+                    template_params = static_cast<ast::EnumDecl const*>(selected_decl)->template_params.size();
+                    break;
+                case ast::DeclKind::Using:
+                    template_params = static_cast<ast::UsingDecl const*>(selected_decl)->template_params.size();
+                    break;
+                default:
+                    break;
+            }
+
+            if (template_params != 0)
+            {
+                m_diag.error("type `{}::{}` is generic; -fdefault-allocator requires a concrete type", spelling.module_path, spelling.type_name);
+                return false;
+            }
+
+            return true;
+        }
+
+        void check_allocator_layout()
+        {
+            if (m_opts.default_allocator.empty())
+                return;
+
+            auto* config = allocator_config_module();
+            if (!config || !config->tu)
+                return;
+
+            ast::UsingDecl const* alias = nullptr;
+            for (auto* decl : config->tu->decls)
+                if (auto* using_decl = ast::node_cast<ast::UsingDecl>(decl);
+                    using_decl && using_decl->using_kind == ast::UsingKind::Alias && using_decl->alias_path.segments.size() == 1 &&
+                    using_decl->alias_path.segments.front().name == "DefaultAllocator")
+                {
+                    alias = using_decl;
+                    break;
+                }
+
+            if (!alias || !alias->target_type)
+                return;
+
+            auto* selected = get_canonical(alias->target_type->sema);
+            if (!selected || selected->kind == types::TypeKind::Error)
+                return;
+
+            if (!selected->is_complete)
+            {
+                m_diag.error("default allocator `{}` is not a complete type", m_opts.default_allocator);
+                return;
+            }
+
+            if (selected->byte_size != 0)
+                m_diag.error("default allocator `{}` is not zero-size: it occupies {} bytes", m_opts.default_allocator, selected->byte_size);
         }
 
         void prepare_injected_sources()

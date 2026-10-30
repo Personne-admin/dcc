@@ -485,6 +485,7 @@ export namespace dcc::types
     {
     public:
         std::function<bool(bool)> type_query_suppression;
+        void const* unselected_default_allocator_decl{};
 
         explicit TypeContext(std::size_t initial = 32 * 1024, target::TargetConfig const* target = nullptr) : m_buffer(initial), m_arena(&m_buffer)
         {

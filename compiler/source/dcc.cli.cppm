@@ -73,6 +73,7 @@ export namespace dcc::cli
         bool omit_frame_pointer{true};
         dcc::ir::AutoVarInit auto_var_init{dcc::ir::AutoVarInit::None};
         std::vector<std::string> injected_decls;
+        std::string default_allocator;
         std::string backend_name = "llvm";
         dcc::ir::pass::OptLevel opt_level{dcc::ir::pass::OptLevel::O0};
         std::vector<std::string> compile_only_flags;
@@ -122,6 +123,42 @@ export namespace dcc::cli
     };
 
     [[noreturn]] void fail_option(std::string const& message) { throw CliError{message}; }
+
+    [[nodiscard]] bool is_identifier(std::string_view text) noexcept
+    {
+        if (text.empty())
+            return false;
+
+        auto is_start = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
+        if (!is_start(text.front()))
+            return false;
+
+        for (char c : text.substr(1))
+            if (!is_start(c) && !(c >= '0' && c <= '9'))
+                return false;
+
+        return true;
+    }
+
+    [[nodiscard]] bool is_qualified_type_name(std::string_view text) noexcept
+    {
+        std::size_t segments = 0;
+        std::size_t start = 0;
+        for (;;)
+        {
+            auto separator = text.find("::", start);
+            auto segment = text.substr(start, separator == std::string_view::npos ? std::string_view::npos : separator - start);
+            if (!is_identifier(segment))
+                return false;
+
+            ++segments;
+            if (separator == std::string_view::npos)
+                break;
+            start = separator + 2;
+        }
+
+        return segments >= 2;
+    }
 
     constexpr OptionSpec k_options[] = {
         {"-I",
@@ -318,6 +355,21 @@ export namespace dcc::cli
          "call-site partial evaluation",
          "off",
          [](Options& o, bool on, std::string_view, char**) { o.partial_eval = on; }},
+
+        {"-fdefault-allocator",
+         "",
+         {},
+         Arg::Required,
+         "<module>::<type>",
+         {},
+         Phase::Compile,
+         "allocator used by containers that omit the allocator argument",
+         "none",
+         [](Options& o, bool, std::string_view v, char**) {
+             if (!is_qualified_type_name(v))
+                 fail_option(std::format("option -fdefault-allocator requires a module-qualified type name, as MODULE::TYPE, got '{}'", v));
+             o.default_allocator = v;
+         }},
 
         {"-fwhole-program",
          "-fno-whole-program",

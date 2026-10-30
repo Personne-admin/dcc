@@ -31,6 +31,7 @@ export namespace dcc::session
         std::vector<std::string> injected_decls;
         bool enable_doc_comments{false};
         bool restricted_check{false};
+        std::string default_allocator;
     };
 
     struct CompileResult
@@ -159,6 +160,7 @@ export namespace dcc::session
             sopts.injected_decls = opts.injected_decls;
             sopts.enable_doc_comments = opts.enable_doc_comments;
             sopts.restricted_check = opts.restricted_check;
+            sopts.default_allocator = opts.default_allocator;
 
             auto parse = [this](sm::FileId fid, ast::AstContext& ast, diag::DiagnosticEngine& d) -> ast::TranslationUnit* { return parse_file(fid, ast, d); };
 
@@ -203,6 +205,7 @@ export namespace dcc::session
             auto parse = [this](sm::FileId fid, ast::AstContext& ast, diag::DiagnosticEngine& d) -> ast::TranslationUnit* { return parse_file(fid, ast, d); };
 
             sopts.restricted_check = opts.restricted_check;
+            sopts.default_allocator = opts.default_allocator;
             m_sema = std::make_unique<sema::SemaContext>(m_sm, m_diag, *m_ast_ctx, std::move(parse), std::move(sopts));
 
             auto entries = m_sema->analyze_resolve_only_files(entry_paths);
