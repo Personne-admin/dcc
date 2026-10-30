@@ -951,6 +951,110 @@ def scenario_help():
     check(r.returncode == 2 and "usage: dpm add <location>[@version]" in r.stderr, "a missing argument", detail(r))
 
 
+def scenario_stamps():
+    app = new_app("stamped", "return 5;")
+    write(os.path.join(app, "src", "stamped", "util.dc"), "module stamped::util;\n\npublic i32 base()\n{\n    return 10;\n}\n")
+    main = os.path.join(app, "src", "main.dc")
+    write(main, "module main;\nimport stamped::util;\n\npublic i32 main()\n{\n    return stamped::util::base() + 5;\n}\n")
+    util = os.path.join(app, "src", "stamped", "util.dc")
+    binary = os.path.join(app, ".dpm/out/debug/host/stamped")
+    stamp = binary + ".stamp"
+
+    def build(*args, env=None):
+        return dpm(app, "build", *args, env=env)
+
+    def fresh(r):
+        return r.returncode == 0 and "Fresh stamped" in r.stdout and "Building" not in r.stdout
+
+    def rebuilt(r):
+        return r.returncode == 0 and "Building stamped" in r.stdout and "Fresh" not in r.stdout
+
+    r = build()
+    check(rebuilt(r) and os.path.isfile(stamp), "the first build compiles and writes a stamp", detail(r))
+    first = os.stat(binary).st_mtime_ns
+    r = build()
+    check(fresh(r) and os.stat(binary).st_mtime_ns == first, "an unchanged build is skipped", detail(r))
+    r = dpm(app, "run")
+    check(r.returncode == 15 and "Fresh stamped" in r.stdout, "run uses the fresh build", detail(r))
+    os.remove(os.path.join(app, "compile_commands.json"))
+    r = build()
+    check(fresh(r) and os.path.isfile(os.path.join(app, "compile_commands.json")), "a skipped product is still merged into compile_commands.json", detail(r))
+
+    os.utime(util, None)
+    check(fresh(build()), "touching an input without changing it does not rebuild")
+    write(util, read(util).replace("return 10;", "return 11;"))
+    r = build("-v")
+    check(rebuilt(r) and "rebuilding stamped" in r.stderr and "util.dc" in r.stderr, "changing an input rebuilds and says why", detail(r))
+    check(dpm(app, "run").returncode == 16, "the rebuilt program is the new one")
+    check(fresh(build()), "and it is fresh afterwards")
+
+    future = (os.stat(util).st_atime + 3600, os.stat(util).st_mtime + 3600)
+    os.utime(util, future)
+    r = build()
+    check(fresh(r), "a moved mtime with unchanged content is not a change", detail(r))
+    mtime = os.stat(util).st_mtime_ns
+    write(util, read(util).replace("return 11;", "return 12;"))
+    os.utime(util, ns=(mtime, mtime))
+    r = build()
+    check(rebuilt(r), "an input written around the build is compared by content even when size and mtime match", detail(r))
+    check(dpm(app, "run").returncode == 17, "and the program reflects it")
+
+    r = build("-O", "2")
+    check(rebuilt(r), "other options rebuild", detail(r))
+    check(fresh(build("-O", "2")), "the same options are fresh")
+    check(rebuilt(build()), "returning to the earlier options rebuilds once")
+    check(fresh(build()), "and is fresh again")
+    r = build("--profile", "release")
+    check(rebuilt(r), "another profile has its own output", detail(r))
+    check(fresh(build("--profile", "release")) and fresh(build()), "and its own stamp")
+
+    os.remove(binary)
+    check(rebuilt(build()), "a deleted output is rebuilt")
+    os.remove(stamp)
+    check(rebuilt(build()) and os.path.isfile(stamp), "a missing stamp is rebuilt and rewritten")
+    write(stamp, "garbage")
+    check(rebuilt(build()), "a damaged stamp is ignored")
+    text = read(stamp)
+    write(stamp, text[: len(text) // 2])
+    check(rebuilt(build()), "a truncated stamp is ignored")
+    with open(binary, "ab") as f:
+        f.write(b"x")
+    check(rebuilt(build()), "a modified output is rebuilt")
+
+    write(util, "module stamped::util;\n\npublic i32 base()\n{\n    return missing;\n}\n")
+    r = build()
+    check(r.returncode == 1 and not os.path.exists(stamp), "a failed build leaves no stamp", detail(r))
+    write(util, "module stamped::util;\n\npublic i32 base()\n{\n    return 10;\n}\n")
+    check(rebuilt(build()) and dpm(app, "run").returncode == 15, "the next build compiles again")
+
+    check(dpm(app, "clean").returncode == 0 and not os.path.exists(stamp), "clean removes the stamps")
+    check(rebuilt(build()), "and the next build compiles")
+
+    compiler = os.path.join(ROOT, "dcc-copy")
+    shutil.copy(DCC, compiler)
+    env = {"DCC": compiler}
+    check(rebuilt(build(env=env)), "a different compiler path rebuilds")
+    check(fresh(build(env=env)), "the same compiler is fresh")
+    os.utime(compiler, (1_000_000_000, 1_000_000_000))
+    r = build(env=env)
+    check(rebuilt(r), "a replaced compiler binary rebuilds", detail(r))
+
+    parent = os.path.join(ROOT, "stampdeps")
+    os.makedirs(parent)
+    lib = os.path.join(parent, "dep")
+    check(dpm(parent, "init", "dep", "--lib").returncode == 0, "init a path dependency")
+    consumer = os.path.join(parent, "user")
+    check(dpm(parent, "init", "user").returncode == 0, "init the consumer")
+    write(os.path.join(consumer, "src", "main.dc"), "module main;\nimport dep::lib;\n\npublic i32 main()\n{\n    return dep::lib::answer();\n}\n")
+    check(dpm(consumer, "add", "path:../dep").returncode == 0, "add the path dependency")
+    r = dpm(consumer, "build")
+    check("Building user" in r.stdout, "build with a path dependency", detail(r))
+    check("Fresh user" in dpm(consumer, "build").stdout, "and it is fresh")
+    write(os.path.join(lib, "src", "dep", "lib.dc"), "module dep::lib;\n\npublic i32 answer()\n{\n    return 7;\n}\n")
+    r = dpm(consumer, "build")
+    check("Building user" in r.stdout and dpm(consumer, "run").returncode == 7, "a change in a path dependency rebuilds", detail(r))
+
+
 try:
     scenario_basic()
     scenario_run_args()
@@ -968,6 +1072,7 @@ try:
     scenario_publish_subdirectory()
     scenario_registry_init()
     scenario_help()
+    scenario_stamps()
     scenario_tests()
     scenario_formatting_and_determinism()
     scenario_misc()

@@ -14,6 +14,7 @@ import dpm.registry;
 import dpm.resolve;
 import dpm.semver;
 import dpm.settings;
+import dpm.stamp;
 
 namespace
 {
@@ -549,6 +550,62 @@ namespace
         return found;
     }
 
+    std::string const& compiler_identity()
+    {
+        static std::string identity = []
+        {
+            std::string text;
+            dpm::process::Command cmd;
+            cmd.argv = {dcc_path().string(), "--version"};
+            cmd.timeout = std::chrono::seconds(10);
+            auto r = dpm::process::run(cmd);
+            if (r.ok())
+                text = r.out;
+            std::error_code ec;
+            auto size = fs::file_size(dcc_path(), ec);
+            auto mtime = ec ? fs::file_time_type{} : fs::last_write_time(dcc_path(), ec);
+            return std::format("{}|{}|{}", text, ec ? 0 : size, dpm::stamp::to_ns(mtime));
+        }();
+        return identity;
+    }
+
+    bool up_to_date(dpm::build::Plan const& plan, fs::path const& stamp_path, std::string const& key, std::string& reason)
+    {
+        auto stamp = dpm::stamp::read(stamp_path);
+        if (!stamp)
+        {
+            reason = "no valid stamp";
+            return false;
+        }
+        std::error_code ec;
+        if (!fs::is_regular_file(plan.compdb_entry, ec))
+        {
+            reason = "the compilation database entry is missing";
+            return false;
+        }
+        auto verdict = dpm::stamp::verify(*stamp, key, plan.output, fs::file_time_type::clock::now());
+        if (verdict.state != dpm::stamp::State::Fresh)
+        {
+            reason = verdict.detail;
+            return false;
+        }
+        if (verdict.refreshed)
+            (void)dpm::stamp::write(stamp_path, *stamp);
+        return true;
+    }
+
+    void record_stamp(dpm::build::Plan const& plan, fs::path const& stamp_path, std::string key, fs::file_time_type built_at)
+    {
+        auto depfile = read_file(plan.depfile);
+        if (!depfile)
+            return;
+        auto inputs = dpm::stamp::parse_depfile(*depfile);
+        if (inputs.empty())
+            return;
+        if (auto stamp = dpm::stamp::record(std::move(key), plan.output, inputs, built_at))
+            (void)dpm::stamp::write(stamp_path, *stamp);
+    }
+
     std::optional<std::vector<dpm::build::Plan>> build_products(Session& s, Prepared const& p, std::vector<m::Product const*> const& products, int& code)
     {
         std::vector<dpm::build::Plan> plans;
@@ -556,13 +613,29 @@ namespace
         for (auto const* product : products)
         {
             auto plan = dpm::build::plan_product(make_request(s, p, false), *product);
+            auto stamp_path = plan.output;
+            stamp_path += ".stamp";
+            auto key = dpm::stamp::make_key(plan.argv, compiler_identity(), dpm::lock::fingerprint(s.project));
+            std::string reason;
+            if (up_to_date(plan, stamp_path, key, reason))
+            {
+                std::println("    Fresh {} ({}, {})", product->name, s.common.profile, dpm::build::target_dir(plan.settings.target));
+                entries.push_back(plan.compdb_entry);
+                plans.push_back(std::move(plan));
+                continue;
+            }
             std::println("    Building {} ({}, {})", product->name, s.common.profile, dpm::build::target_dir(plan.settings.target));
+            if (s.common.verbose)
+                std::println(std::cerr, "dpm: rebuilding {}: {}", product->name, reason);
             std::fflush(nullptr);
+            dpm::stamp::remove(stamp_path);
+            auto built_at = fs::file_time_type::clock::now();
             if (run_dcc(plan, s.common.verbose, false) != 0)
             {
                 code = k_exit_failure;
                 return std::nullopt;
             }
+            record_stamp(plan, stamp_path, std::move(key), built_at);
             entries.push_back(plan.compdb_entry);
             plans.push_back(std::move(plan));
         }
