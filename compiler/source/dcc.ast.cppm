@@ -62,6 +62,7 @@ export namespace dcc::ast
     {
         None,
         Exact,
+        Qualified,
         AutoRef,
         AutoRefConst,
         AutoRefQualMismatch,

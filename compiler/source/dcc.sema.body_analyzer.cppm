@@ -2370,34 +2370,35 @@ export namespace dcc::sema
         enum class CallRank : std::uint8_t
         {
             ReceiverExact = 0,
-            ReceiverAutoRef = 1,
-            ReceiverAutoRefConst = 2,
-            ReceiverAutoRefQualMismatch = 3,
-            ReceiverAutoDeref = 4,
-            ReceiverArrayToSlice = 5,
-            ArrayToSliceExact = 6,
-            ArrayToPointerExact = 7,
-            ConcreteExact = 8,
-            StringLiteralCharSliceConst = 9,
-            StringLiteralCharSliceMutable = 10,
-            StringLiteralU8SliceConst = 11,
-            StringLiteralU8SliceMutable = 12,
-            StringLiteralCharPointerConst = 13,
-            StringLiteralCharPointerMutable = 14,
-            StringLiteralU8PointerConst = 15,
-            StringLiteralU8PointerMutable = 16,
-            U16StringLiteralSliceConst = 17,
-            U16StringLiteralSliceMutable = 18,
-            U16StringLiteralPointerConst = 19,
-            U16StringLiteralPointerMutable = 20,
-            StructContextualExact = 21,
-            ArrayContextualExact = 22,
-            SliceContextualExact = 23,
-            EnumContextualExact = 24,
-            LiteralContextualExact = 25,
-            TemplateExact = 26,
-            TemplateQualificationConversion = 27,
-            QualificationConversion = 28,
+            ReceiverQualified = 1,
+            ReceiverAutoRef = 2,
+            ReceiverAutoRefConst = 3,
+            ReceiverAutoRefQualMismatch = 4,
+            ReceiverAutoDeref = 5,
+            ReceiverArrayToSlice = 6,
+            ArrayToSliceExact = 7,
+            ArrayToPointerExact = 8,
+            ConcreteExact = 9,
+            StringLiteralCharSliceConst = 10,
+            StringLiteralCharSliceMutable = 11,
+            StringLiteralU8SliceConst = 12,
+            StringLiteralU8SliceMutable = 13,
+            StringLiteralCharPointerConst = 14,
+            StringLiteralCharPointerMutable = 15,
+            StringLiteralU8PointerConst = 16,
+            StringLiteralU8PointerMutable = 17,
+            U16StringLiteralSliceConst = 18,
+            U16StringLiteralSliceMutable = 19,
+            U16StringLiteralPointerConst = 20,
+            U16StringLiteralPointerMutable = 21,
+            StructContextualExact = 22,
+            ArrayContextualExact = 23,
+            SliceContextualExact = 24,
+            EnumContextualExact = 25,
+            LiteralContextualExact = 26,
+            TemplateExact = 27,
+            TemplateQualificationConversion = 28,
+            QualificationConversion = 29,
         };
 
         using UfcsReceiverMatch = ast::UfcsReceiverAdjust;
@@ -5550,12 +5551,13 @@ export namespace dcc::sema
                     if (probe_b.deduce(param, analyzed.type))
                         return std::pair{UfcsReceiverMatch::Exact, analyzed.type};
 
-                    if (receiver_ptr && qualification_conversion_allowed(receiver_ptr->pointee_quals, param_ptr->pointee_quals))
+                    if (receiver_ptr && receiver_ptr->flavor == types::PointerFlavor::Near && param_ptr->flavor == types::PointerFlavor::Near &&
+                        qualification_conversion_allowed(receiver_ptr->pointee_quals, param_ptr->pointee_quals))
                     {
                         auto* qualified = m_types.pointer_to(receiver_ptr->pointee, param_ptr->pointee_quals);
                         infer::TemplateBindings qualified_b{m_types};
                         if (qualified_b.deduce(param, qualified))
-                            return std::pair{UfcsReceiverMatch::Exact, qualified};
+                            return std::pair{UfcsReceiverMatch::Qualified, qualified};
                     }
                 }
 
@@ -6524,6 +6526,9 @@ export namespace dcc::sema
                 case UfcsReceiverMatch::Exact:
                     out.ranks.push_back(CallRank::ReceiverExact);
                     break;
+                case UfcsReceiverMatch::Qualified:
+                    out.ranks.push_back(CallRank::ReceiverQualified);
+                    break;
                 case UfcsReceiverMatch::AutoRef:
                     out.ranks.push_back(CallRank::ReceiverAutoRef);
                     break;
@@ -6911,6 +6916,7 @@ export namespace dcc::sema
                 switch (match->first)
                 {
                     case UfcsReceiverMatch::Exact:
+                    case UfcsReceiverMatch::Qualified:
                         break;
                     case UfcsReceiverMatch::ArrayToSlice:
                         warn_implicit_array_copy(&object, receiver.type, param0);

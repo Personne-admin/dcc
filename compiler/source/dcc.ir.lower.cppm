@@ -4747,6 +4747,7 @@ export namespace dcc::ir::lower
             switch (adjust)
             {
                 case ast::UfcsReceiverAdjust::Exact:
+                case ast::UfcsReceiverAdjust::Qualified:
                     return loaded_value;
 
                 case ast::UfcsReceiverAdjust::ArrayToSlice:
