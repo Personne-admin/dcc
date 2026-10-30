@@ -94,6 +94,15 @@ export namespace dpm::fetch
             env["LC_ALL"] = "C";
             return env;
         }
+
+        inline std::map<std::string, std::string> curl_env()
+        {
+            auto env = base_env();
+            for (char const* name : {"https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE"})
+                if (char const* v = std::getenv(name))
+                    env[name] = v;
+            return env;
+        }
     } // namespace detail
 
     [[nodiscard]] inline std::optional<GitSpec> parse_git_location(std::string_view location, Policy const& policy, std::string& error)
@@ -214,10 +223,7 @@ export namespace dpm::fetch
         cmd.argv = {policy.curl, "-q", "--fail", "--silent", "--show-error", "--location", "--proto", policy.allow_file ? "=https,file" : "=https", "--proto-redir", "=https",
                     "--max-redirs", "5", "--max-filesize", std::to_string(policy.max_download), "--connect-timeout",
                     std::to_string(policy.connect_timeout.count() / 1000), "--max-time", std::to_string(policy.download_timeout.count() / 1000), "-o", part.string(), "--", url};
-        cmd.env = detail::base_env();
-        for (char const* name : {"https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE"})
-            if (char const* v = std::getenv(name))
-                cmd.env[name] = v;
+        cmd.env = detail::curl_env();
         cmd.max_file_size = policy.max_download + 1;
         cmd.timeout = policy.download_timeout + std::chrono::seconds(5);
         auto r = process::run(cmd);
@@ -849,9 +855,67 @@ export namespace dpm::fetch
         std::vector<std::string> errors;
         std::size_t fetched{};
         std::size_t present{};
+        std::map<std::string, std::string> names;
     };
 
-    [[nodiscard]] inline FetchAllResult fetch_locked(cache::Cache const& cache, manifest::Lock const& lock, Policy const& policy)
+    namespace detail
+    {
+        inline bool is_alias_location(std::string_view loc)
+        {
+            return loc.find('/') == std::string_view::npos && loc.find('.') == std::string_view::npos && loc.find(':') == std::string_view::npos;
+        }
+
+        [[nodiscard]] inline std::optional<std::string> verify_manifest(Fetched const& f, manifest::LockedPackage const& p, Policy const& policy,
+                                                                        std::filesystem::path const& schema_root, std::string& name)
+        {
+            std::ifstream in{f.path / "project.dcon", std::ios::binary};
+            if (!in)
+                return "the package has no project.dcon";
+            std::string text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+            manifest::LoadOptions options;
+            options.file_name = std::format("{}@{}/project.dcon", p.location, p.version);
+            options.schema_root = schema_root;
+            options.project_root = f.path;
+            options.allow_file_urls = policy.allow_file;
+            auto loaded = manifest::load(text, options);
+            if (!loaded.ok || !loaded.project)
+                return loaded.diagnostics.empty() ? "invalid package manifest" : loaded.diagnostics.front().format();
+            auto const& project = *loaded.project;
+            auto actual = semver::parse(project.version);
+            auto wanted = semver::parse(p.version);
+            if (!actual || !wanted || semver::compare(*actual, *wanted) != 0)
+                return std::format("the package contains version {}, the lock says {}", project.version, p.version);
+            std::set<std::string> explicit_deps;
+            std::set<std::string> aliases;
+            for (auto const& d : project.dependencies)
+            {
+                if (is_alias_location(d.location))
+                    aliases.insert(d.location);
+                else
+                    explicit_deps.insert(d.location);
+            }
+            std::set<std::string> locked(p.dependencies.begin(), p.dependencies.end());
+            std::size_t matched = 0;
+            for (auto const& d : explicit_deps)
+                if (locked.contains(d))
+                    ++matched;
+            if (matched != explicit_deps.size() || locked.size() - matched != aliases.size())
+                return "the dependencies in its manifest differ from the lock (a registry summary that does not match the package)";
+            name = project.name;
+            return std::nullopt;
+        }
+
+        [[nodiscard]] inline std::filesystem::path verified_stamp(cache::Cache const& cache, manifest::LockedPackage const& p)
+        {
+            std::string key = p.hash + "\n" + p.version + "\n" + p.location + "\n";
+            for (auto const& d : p.dependencies)
+                key += d + "\n";
+            return cache.root() / "verified" / hash::sha256_hex(key);
+        }
+    } // namespace detail
+
+    [[nodiscard]] inline FetchAllResult fetch_locked(cache::Cache const& cache, manifest::Lock const& lock, Policy const& policy,
+                                                     std::filesystem::path const& schema_root = {})
     {
         FetchAllResult all;
         for (auto const& p : lock.packages)
@@ -861,7 +925,7 @@ export namespace dpm::fetch
             Fetched f;
             if (p.source.starts_with("registry:"))
             {
-                all.errors.push_back(std::format("{}@{}: registry sources are not supported yet", p.location, p.version));
+                all.errors.push_back(std::format("{}@{}: the source '{}' is reserved; the lock records the real source URL", p.location, p.version, p.source));
                 all.ok = false;
                 continue;
             }
@@ -892,11 +956,33 @@ export namespace dpm::fetch
             {
                 all.errors.push_back(std::format("{}@{}: {}", p.location, p.version, f.error));
                 all.ok = false;
+                continue;
             }
-            else if (f.existed)
+            if (f.existed)
                 ++all.present;
             else
                 ++all.fetched;
+            if (schema_root.empty())
+                continue;
+            auto stamp = detail::verified_stamp(cache, p);
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(stamp, ec))
+            {
+                std::ifstream in{stamp, std::ios::binary};
+                all.names[p.location] = std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+                continue;
+            }
+            std::string name;
+            if (auto problem = detail::verify_manifest(f, p, policy, schema_root, name))
+            {
+                all.errors.push_back(std::format("{}@{}: {}", p.location, p.version, *problem));
+                all.ok = false;
+                continue;
+            }
+            all.names[p.location] = name;
+            std::filesystem::create_directories(stamp.parent_path(), ec);
+            std::ofstream out{stamp, std::ios::binary | std::ios::trunc};
+            out << name;
         }
         return all;
     }

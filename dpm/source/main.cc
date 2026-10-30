@@ -7,6 +7,7 @@ import dpm.fetch;
 import dpm.lock;
 import dpm.manifest;
 import dpm.process;
+import dpm.registry;
 import dpm.resolve;
 import dpm.semver;
 import dpm.settings;
@@ -66,6 +67,7 @@ namespace
         std::optional<m::Target> target;
         std::optional<m::Optimize> optimize;
         bool offline{};
+        bool refresh{};
         bool locked{};
         bool verbose{};
         bool dev{};
@@ -156,6 +158,8 @@ namespace
             }
             else if (arg == "--offline")
                 c.offline = true;
+            else if (arg == "--refresh")
+                c.refresh = true;
             else if (arg == "--locked")
                 c.locked = true;
             else if (arg == "-v")
@@ -236,7 +240,9 @@ namespace
 
     int resolution_exit(std::string const& message)
     {
-        return message.find("not in cache") != std::string::npos || message.find("offline") != std::string::npos ? k_exit_network : k_exit_resolution;
+        return message.find("not in cache") != std::string::npos || message.find("offline") != std::string::npos || message.find("cannot fetch ") != std::string::npos
+                   ? k_exit_network
+                   : k_exit_resolution;
     }
 
     struct Session
@@ -249,7 +255,74 @@ namespace
         std::optional<m::Lock> previous;
         dpm::cache::Cache cache{dpm::cache::default_root()};
         std::optional<dpm::cache::FileLock> cache_lock;
+        m::UserConfig user;
+        std::unique_ptr<dpm::registry::Client> registry;
     };
+
+    fs::path user_config_path()
+    {
+        if (char const* env = std::getenv("DPM_CONFIG"); env && *env)
+            return env;
+        if (char const* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
+            return fs::path{xdg} / "dpm" / "config.dcon";
+        if (char const* home = std::getenv("HOME"); home && *home)
+            return fs::path{home} / ".config" / "dpm" / "config.dcon";
+        return {};
+    }
+
+    std::optional<int> load_user_config(Session& s)
+    {
+        auto path = user_config_path();
+        std::error_code ec;
+        if (path.empty() || !fs::is_regular_file(path, ec))
+            return std::nullopt;
+        auto text = read_file(path);
+        if (!text)
+        {
+            std::println(std::cerr, "dpm: cannot read {}", path.string());
+            return k_exit_manifest;
+        }
+        auto options = s.options;
+        options.kind = m::FileKind::UserConfig;
+        options.file_name = path.string();
+        options.project_root.clear();
+        auto loaded = m::load(*text, options);
+        print_diagnostics(loaded.diagnostics);
+        if (!loaded.ok || !loaded.user_config)
+            return k_exit_manifest;
+        s.user = std::move(*loaded.user_config);
+        return std::nullopt;
+    }
+
+    dpm::registry::Client* registry_client(Session& s, std::string& error)
+    {
+        if (s.registry)
+            return s.registry.get();
+        dpm::registry::Config config;
+        config.schema_root = s.options.schema_root;
+        config.allow_file = s.policy.allow_file;
+        config.allow_loopback = env_flag("DPM_ALLOW_INSECURE_LOOPBACK");
+        config.offline = s.policy.offline;
+        config.refresh = s.common.refresh;
+        std::optional<std::string> env;
+        if (char const* value = std::getenv("DPM_REGISTRY"))
+            env = std::string{value};
+        auto choice = dpm::registry::choose_registries(env, s.project.registry, s.user.registries, config.allow_file, config.allow_loopback);
+        if (!choice.error.empty())
+        {
+            error = choice.error;
+            return nullptr;
+        }
+        config.urls = std::move(choice.urls);
+        s.registry = std::make_unique<dpm::registry::Client>(s.cache, std::move(config));
+        return s.registry.get();
+    }
+
+    void print_warnings(std::vector<std::string> const& warnings)
+    {
+        for (auto const& w : warnings)
+            std::println(std::cerr, "warning: {}", w);
+    }
 
     std::optional<m::Project> load_project_text(Session& s, std::string const& text, bool quiet = false)
     {
@@ -269,6 +342,10 @@ namespace
         s.options.schema_root = schema_root();
         s.options.project_root = ".";
         s.options.allow_file_urls = s.policy.allow_file;
+        if (auto code = load_user_config(s))
+            return code;
+        if (s.user.offline)
+            s.policy.offline = true;
         auto text = read_file(k_project_file);
         if (!text)
         {
@@ -289,7 +366,10 @@ namespace
             if (lock_loaded.ok)
                 s.previous = std::move(lock_loaded.lock);
         }
-        s.cache = dpm::cache::Cache{fs::absolute(dpm::cache::default_root())};
+        auto cache_root = dpm::cache::default_root();
+        if (!s.user.cache_dir.empty() && !(std::getenv("DPM_HOME") && *std::getenv("DPM_HOME")))
+            cache_root = s.user.cache_dir;
+        s.cache = dpm::cache::Cache{fs::absolute(cache_root)};
         s.cache_lock = s.cache.lock();
         return std::nullopt;
     }
@@ -301,20 +381,62 @@ namespace
         bool resolved{};
     };
 
-    std::optional<Resolved> resolve_project(Session& s, m::Project const& project, int& code)
+    bool report_fetch_errors(dpm::fetch::FetchAllResult const& fetched, int& code)
+    {
+        if (fetched.ok)
+            return true;
+        code = k_exit_resolution;
+        for (auto const& e : fetched.errors)
+        {
+            std::println(std::cerr, "error: {}", e);
+            code = std::max(code, resolution_exit(e));
+        }
+        return false;
+    }
+
+    bool check_namespaces(Session const& s, dpm::fetch::FetchAllResult const& fetched, int& code)
+    {
+        std::map<std::string, std::string> owners;
+        owners[s.project.name] = s.project.name;
+        bool ok = true;
+        for (auto const& [location, name] : fetched.names)
+        {
+            auto [it, inserted] = owners.emplace(name, location);
+            if (!inserted)
+            {
+                std::println(std::cerr, "error: {} and {} both provide the namespace '{}'", it->second, location, name);
+                ok = false;
+            }
+        }
+        if (!ok)
+            code = k_exit_resolution;
+        return ok;
+    }
+
+    std::optional<Resolved> resolve_project(Session& s, m::Project const& project, int& code, bool fetch_sources = true)
     {
         dpm::resolve::Options options;
         options.root_name = project.name;
         if (s.previous)
             options.previous = &*s.previous;
-        dpm::fetch::FetchSource source{s.cache, s.policy, ".", s.options.schema_root, s.previous ? &*s.previous : nullptr};
+        dpm::fetch::FetchSource fetch_source{s.cache, s.policy, ".", s.options.schema_root, s.previous ? &*s.previous : nullptr};
+        std::string registry_error;
+        auto* client = registry_client(s, registry_error);
+        if (!client)
+        {
+            std::println(std::cerr, "error: {}", registry_error);
+            code = k_exit_manifest;
+            return std::nullopt;
+        }
+        dpm::registry::RegistrySource registry_source{*client, fetch_source, s.previous ? &*s.previous : nullptr};
+        dpm::resolve::RequirementSource& source = client->enabled() ? static_cast<dpm::resolve::RequirementSource&>(registry_source) : fetch_source;
         Resolved r;
         r.resolution = dpm::resolve::resolve(project, source, options);
         r.resolved = true;
-        for (auto const& w : source.warnings)
-            std::println(std::cerr, "warning: {}", w);
-        for (auto const& w : r.resolution.warnings)
-            std::println(std::cerr, "warning: {}", w);
+        print_warnings(fetch_source.warnings);
+        print_warnings(registry_source.warnings);
+        print_warnings(client->take_warnings());
+        print_warnings(r.resolution.warnings);
         if (!r.resolution.ok)
         {
             code = k_exit_resolution;
@@ -326,6 +448,12 @@ namespace
             return std::nullopt;
         }
         r.lock = r.resolution.lock;
+        if (fetch_sources)
+        {
+            auto fetched = dpm::fetch::fetch_locked(s.cache, r.lock, s.policy, s.options.schema_root);
+            if (!report_fetch_errors(fetched, code) || !check_namespaces(s, fetched, code))
+                return std::nullopt;
+        }
         return r;
     }
 
@@ -369,17 +497,9 @@ namespace
             }
             p.lock = std::move(r->lock);
         }
-        auto fetched = dpm::fetch::fetch_locked(s.cache, p.lock, s.policy);
-        if (!fetched.ok)
-        {
-            code = k_exit_resolution;
-            for (auto const& e : fetched.errors)
-            {
-                std::println(std::cerr, "error: {}", e);
-                code = std::max(code, resolution_exit(e));
-            }
+        auto fetched = dpm::fetch::fetch_locked(s.cache, p.lock, s.policy, s.options.schema_root);
+        if (!report_fetch_errors(fetched, code) || !check_namespaces(s, fetched, code))
             return std::nullopt;
-        }
         std::string error;
         auto roots = dpm::build::package_roots(p.lock, s.cache, ".", s.options.schema_root, s.policy.allow_file, error);
         if (!roots)
@@ -851,7 +971,7 @@ namespace
         if (auto code = open_session(s, std::move(common)))
             return *code;
         int code = 0;
-        auto r = resolve_project(s, s.project, code);
+        auto r = resolve_project(s, s.project, code, false);
         if (!r)
             return code;
         std::print("{}", dpm::resolve::render_tree(r->resolution, s.project.version));
@@ -870,7 +990,7 @@ namespace
         if (auto code = open_session(s, std::move(common)))
             return *code;
         int code = 0;
-        auto r = resolve_project(s, s.project, code);
+        auto r = resolve_project(s, s.project, code, false);
         if (!r)
             return code;
         auto text = dpm::resolve::why(r->resolution, location);
@@ -893,13 +1013,11 @@ namespace
             std::println(std::cerr, "dpm: cannot read {} (run dpm lock)", dpm::lock::k_lock_file);
             return k_exit_manifest;
         }
-        auto result = dpm::fetch::fetch_locked(s.cache, *s.previous, s.policy);
-        int code = result.ok ? 0 : k_exit_resolution;
-        for (auto const& e : result.errors)
-        {
-            std::println(std::cerr, "error: {}", e);
-            code = std::max(code, resolution_exit(e));
-        }
+        auto result = dpm::fetch::fetch_locked(s.cache, *s.previous, s.policy, s.options.schema_root);
+        int code = 0;
+        report_fetch_errors(result, code);
+        if (result.ok)
+            check_namespaces(s, result, code);
         std::println("{} fetched, {} already in the cache", result.fetched, result.present);
         return code;
     }
@@ -930,6 +1048,26 @@ namespace
         return 0;
     }
 
+    std::optional<std::string> alias_latest(Session& s, std::string const& alias, std::optional<dpm::semver::Series> within, std::string& error)
+    {
+        auto* client = registry_client(s, error);
+        if (!client)
+            return std::nullopt;
+        if (!client->enabled())
+        {
+            error = "no registry is configured, so the alias cannot be resolved";
+            return std::nullopt;
+        }
+        auto hit = client->alias(alias, error);
+        print_warnings(client->take_warnings());
+        if (!hit)
+            return std::nullopt;
+        auto latest = dpm::registry::latest_version(hit->record, within);
+        if (!latest)
+            error = std::format("alias '{}' has no release to install", alias);
+        return latest;
+    }
+
     int cmd_add(Common common)
     {
         if (common.positional.size() != 1)
@@ -949,10 +1087,24 @@ namespace
             location = spec.substr(0, at);
             version = spec.substr(at + 1);
         }
+        bool const alias = location.find('/') == std::string::npos && location.find('.') == std::string::npos && location.find(':') == std::string::npos;
+        if (alias)
+        {
+            std::string registry_error;
+            if (!registry_client(s, registry_error))
+            {
+                std::println(std::cerr, "error: {}", registry_error);
+                return k_exit_manifest;
+            }
+        }
         if (!location.starts_with("path:") && version.empty())
         {
             std::string error;
-            auto latest = dpm::fetch::latest_version(s.cache, location, s.policy, std::nullopt, error);
+            std::optional<std::string> latest;
+            if (alias)
+                latest = alias_latest(s, location, std::nullopt, error);
+            else
+                latest = dpm::fetch::latest_version(s.cache, location, s.policy, std::nullopt, error);
             if (!latest)
             {
                 std::println(std::cerr, "error: cannot find a version of {}: {}", location, error);
@@ -1023,7 +1175,9 @@ namespace
                 if (!current)
                     continue;
                 std::string error;
-                auto latest = dpm::fetch::latest_version(s.cache, d.location, s.policy, dpm::semver::series_of(*current), error);
+                bool const alias = d.location.find('/') == std::string::npos && d.location.find('.') == std::string::npos && d.location.find(':') == std::string::npos;
+                auto latest = alias ? alias_latest(s, d.location, dpm::semver::series_of(*current), error)
+                                    : dpm::fetch::latest_version(s.cache, d.location, s.policy, dpm::semver::series_of(*current), error);
                 if (!latest)
                 {
                     std::println(std::cerr, "warning: {}: {}", d.location, error);
@@ -1150,7 +1304,7 @@ namespace
                      "  run [PRODUCT] [-- ARGS]            build and run an executable\n"
                      "  test [NAME...]                     build and run tests\n"
                      "  tree | why LOC | clean | cache {{path|verify|clean [--all]}}\n"
-                     "options: --manifest-path P --profile NAME --target TRIPLE -O {{0,1,2,s}} --offline --locked -v -j N --timeout S --runner CMD");
+                     "options: --manifest-path P --profile NAME --target TRIPLE -O {{0,1,2,s}} --offline --refresh --locked -v -j N --timeout S --runner CMD");
     }
 } // namespace
 

@@ -283,7 +283,7 @@ export namespace dpm::cache
         [[nodiscard]] CleanResult clean(bool all) const
         {
             CleanResult result;
-            std::vector<std::string> names{"dl", "git", "tmp"};
+            std::vector<std::string> names{"dl", "git", "tmp", "verified"};
             if (all)
             {
                 names.push_back("registry");
