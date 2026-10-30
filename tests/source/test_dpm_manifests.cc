@@ -101,6 +101,7 @@ namespace
         options.project_root = td.path;
         std::string manifest;
         bool have_manifest = false;
+        bool explicit_kind = false;
         std::optional<std::string> expect_tree;
         std::optional<std::string> expect_full;
         std::optional<std::string> expect_errors;
@@ -109,7 +110,7 @@ namespace
             if (s.header.starts_with("FILE: "))
             {
                 auto file = s.header.substr(6);
-                if (file == "project.dcon" || file == "other.dcon")
+                if (file == "project.dcon" || file == "other.dcon" || file == "project.lock.dcon")
                 {
                     manifest = s.body;
                     have_manifest = true;
@@ -121,7 +122,10 @@ namespace
             else if (s.header.starts_with("KIND: "))
             {
                 if (auto kind = kind_from(s.header.substr(6)))
+                {
                     options.kind = *kind;
+                    explicit_kind = true;
+                }
                 else
                     test::check(false, name + ": unknown KIND");
             }
@@ -140,6 +144,8 @@ namespace
             return;
         }
 
+        if (!explicit_kind)
+            options.kind = dpm::manifest::detect_kind(manifest, options.file_name);
         auto result = dpm::manifest::load(manifest, options);
         std::string actual_errors;
         for (auto const& d : result.diagnostics)
@@ -190,6 +196,23 @@ TEST_CASE("every manifest fixture produces its expected tree or diagnostics")
     REQUIRE(!fixtures.empty());
     for (auto const& fixture : fixtures)
         run_fixture(fixture, schema_root);
+}
+
+TEST_CASE("file kinds come from the typed prefix, then from the file name")
+{
+    using K = dpm::manifest::FileKind;
+    CHECK(dpm::manifest::detect_kind("dpm::v1::Lock { }", "project.dcon") == K::Lock);
+    CHECK(dpm::manifest::detect_kind("dpm::v1::Project { }", "project.lock.dcon") == K::Project);
+    CHECK(dpm::manifest::detect_kind("const []const char n = \"a\"; dpm::v1::RegistryAlias { }", "x.dcon") == K::RegistryAlias);
+    CHECK(dpm::manifest::detect_kind("{ }", "project.lock.dcon") == K::Lock);
+    CHECK(dpm::manifest::detect_kind("{ }", "dir/sub/project.lock.dcon") == K::Lock);
+    CHECK(dpm::manifest::detect_kind("{ }", "project.dcon") == K::Project);
+    CHECK(dpm::manifest::detect_kind("{ }", "registry.dcon") == K::RegistryConfig);
+    CHECK(dpm::manifest::detect_kind("{ }", "config.dcon") == K::UserConfig);
+    CHECK(dpm::manifest::detect_kind("{ }", "other.txt") == K::Project);
+    CHECK(dpm::manifest::detect_kind("dpm::v1::Nope { }", "project.lock.dcon") == K::Lock);
+    CHECK(dpm::manifest::detect_kind("dpm::v1 { }", "project.lock.dcon") == K::Lock);
+    CHECK(dpm::manifest::detect_kind("", "project.dcon") == K::Project);
 }
 
 TEST_CASE("decoding fills the project structure")

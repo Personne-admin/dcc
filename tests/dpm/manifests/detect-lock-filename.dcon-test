@@ -1,0 +1,7 @@
+=== FILE: project.lock.dcon ===
+{ manifest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", packages = {} }
+=== EXPECT-TREE ===
+{
+  manifest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  packages = [],
+}

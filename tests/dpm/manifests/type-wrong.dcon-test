@@ -1,3 +1,4 @@
+=== KIND: Project ===
 === FILE: project.dcon ===
 dpm::v1::Lock { manifest = "a" }
 === FILE: src/main.dc ===

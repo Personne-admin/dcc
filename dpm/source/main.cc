@@ -46,6 +46,7 @@ namespace
         options.file_name = file.string();
         options.schema_root = schema_root(argv);
         options.project_root = file.has_parent_path() ? file.parent_path() : std::filesystem::path{"."};
+        options.kind = dpm::manifest::detect_kind(text, file.string());
         auto result = dpm::manifest::load(text, options);
         for (auto const& diagnostic : result.diagnostics)
             std::println(std::cerr, "{}", diagnostic.format());

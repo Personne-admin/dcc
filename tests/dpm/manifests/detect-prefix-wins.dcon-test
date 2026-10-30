@@ -1,0 +1,7 @@
+=== FILE: project.lock.dcon ===
+dpm::v1::Project { name = "a", version = "1.0.0" }
+=== EXPECT-TREE ===
+{
+  name = "a",
+  version = "1.0.0",
+}

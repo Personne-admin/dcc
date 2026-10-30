@@ -1262,6 +1262,61 @@ export namespace dpm::manifest
         };
     } // namespace detail
 
+    [[nodiscard]] inline FileKind kind_from_file_name(std::string_view file_name)
+    {
+        auto slash = file_name.find_last_of("/\\");
+        auto leaf = slash == std::string_view::npos ? file_name : file_name.substr(slash + 1);
+        if (leaf == "project.lock.dcon")
+            return FileKind::Lock;
+        if (leaf == "registry.dcon")
+            return FileKind::RegistryConfig;
+        if (leaf == "config.dcon")
+            return FileKind::UserConfig;
+        return FileKind::Project;
+    }
+
+    [[nodiscard]] inline FileKind detect_kind(std::string_view text, std::string_view file_name)
+    {
+        auto fallback = kind_from_file_name(file_name);
+        if (text.size() > k_max_file_size || text.find('\0') != std::string_view::npos)
+            return fallback;
+        detail::Source src;
+        src.text = std::string{text};
+        auto id = src.session.open_in_memory(std::string{"file://"} + std::string{k_split_path}, src.text);
+        src.file = src.session.source_manager().get(id);
+        if (!src.file)
+            return fallback;
+        auto tokens = detail::lex_tokens(src.session, *src.file);
+        int depth = 0;
+        std::size_t start = 0;
+        for (std::size_t i = 0; i < tokens.size(); ++i)
+        {
+            if (detail::is_open(tokens[i].kind))
+                ++depth;
+            else if (detail::is_close(tokens[i].kind))
+                --depth;
+            else if (tokens[i].kind == detail::TokenKind::Semicolon && depth == 0)
+                start = i + 1;
+        }
+        std::vector<std::string_view> segments;
+        std::size_t i = start;
+        while (i < tokens.size() && tokens[i].kind == detail::TokenKind::Identifier)
+        {
+            segments.push_back(std::string_view{src.text}.substr(tokens[i].begin, tokens[i].end - tokens[i].begin));
+            ++i;
+            if (i < tokens.size() && tokens[i].kind == detail::TokenKind::ColonColon)
+                ++i;
+            else
+                break;
+        }
+        if (segments.size() != 3 || segments[0] != "dpm" || i >= tokens.size() || tokens[i].kind != detail::TokenKind::LBrace)
+            return fallback;
+        for (auto kind : {FileKind::Project, FileKind::Lock, FileKind::RegistryAlias, FileKind::RegistryLocation, FileKind::RegistryConfig, FileKind::UserConfig})
+            if (segments[2] == type_name(kind))
+                return kind;
+        return fallback;
+    }
+
     inline LoadResult load(std::string_view text, LoadOptions const& options)
     {
         LoadResult result;

@@ -1,0 +1,4 @@
+=== FILE: project.lock.dcon ===
+dpm::v1::Nope { name = "a", version = "1.0.0" }
+=== EXPECT-ERRORS ===
+project.lock.dcon:1:1: expected 'dpm::vN::Lock'
