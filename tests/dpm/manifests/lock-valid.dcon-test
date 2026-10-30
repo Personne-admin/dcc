@@ -1,0 +1,32 @@
+=== KIND: Lock ===
+=== FILE: project.dcon ===
+dpm::v1::Lock {
+    manifest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    packages = {
+        { location = "github.com/u/a", version = "1.2.3", source = "git+https://github.com/u/a.git", commit = "cccccccccccccccccccccccccccccccccccccccc", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dependencies = { "path:../b" } },
+        { location = "path:../b", version = "0.1.0", source = "path:../b", hash = "", dev = Tri::On },
+    },
+}
+=== EXPECT-TREE ===
+{
+  manifest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  packages = [
+    {
+      location = "github.com/u/a",
+      version = "1.2.3",
+      source = "git+https://github.com/u/a.git",
+      commit = "cccccccccccccccccccccccccccccccccccccccc",
+      hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      dependencies = [
+        "path:../b",
+      ],
+    },
+    {
+      location = "path:../b",
+      version = "0.1.0",
+      source = "path:../b",
+      hash = "",
+      dev = Tri::On,
+    },
+  ],
+}

@@ -1,0 +1,5 @@
+=== KIND: Lock ===
+=== FILE: project.dcon ===
+dpm::v1::Lock { manifest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", packages = { { location = "github.com/u/a", version = "1.0.0", source = "git+https://github.com/u/a.git", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:116: a git source needs a full commit

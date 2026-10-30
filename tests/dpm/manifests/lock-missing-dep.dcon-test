@@ -1,0 +1,5 @@
+=== KIND: Lock ===
+=== FILE: project.dcon ===
+dpm::v1::Lock { manifest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", packages = { { location = "github.com/u/a", version = "1.0.0", source = "git+https://github.com/u/a.git", commit = "cccccccccccccccccccccccccccccccccccccccc", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dependencies = { "github.com/u/zz" } } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:361: dependency 'github.com/u/zz' has no lock entry

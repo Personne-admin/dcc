@@ -1,0 +1,5 @@
+=== KIND: Lock ===
+=== FILE: project.dcon ===
+dpm::v1::Lock { manifest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", packages = { { location = "json5", version = "1.0.0", source = "registry:main", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:129: lock locations are canonical; a registry alias is not allowed

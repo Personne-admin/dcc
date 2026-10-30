@@ -1,0 +1,5 @@
+=== KIND: Lock ===
+=== FILE: project.dcon ===
+dpm::v1::Lock { manifest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", packages = { { location = "github.com/u/a", version = "1.0.0", source = "git+https://github.com/u/a.git", commit = "cccccccccccccccccccccccccccccccccccccccc", hash = "sha256:zz" } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:269: hash must be 'sha256:' followed by 64 lowercase hex digits

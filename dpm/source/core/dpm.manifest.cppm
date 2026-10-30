@@ -295,6 +295,25 @@ export namespace dpm::manifest
         std::string registry;
     };
 
+    struct LockedPackage
+    {
+        std::string location;
+        std::string version;
+        std::string source;
+        std::string commit;
+        std::string hash;
+        std::vector<std::string> dependencies;
+        bool dev{false};
+        Range range;
+    };
+
+    struct Lock
+    {
+        std::string manifest;
+        std::string dcc;
+        std::vector<LockedPackage> packages;
+    };
+
     struct LoadOptions
     {
         std::string file_name{"project.dcon"};
@@ -309,6 +328,7 @@ export namespace dpm::manifest
         std::vector<Diagnostic> diagnostics;
         Node tree;
         std::optional<Project> project;
+        std::optional<Lock> lock;
     };
 
     namespace detail
@@ -1035,6 +1055,125 @@ export namespace dpm::manifest
                 return out;
             }
 
+            static bool is_hex40(std::string_view s)
+            {
+                return s.size() == 40 && std::ranges::all_of(s, [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
+            }
+
+            Lock lock(Node const& root)
+            {
+                Lock l;
+                l.manifest = str(root, "manifest");
+                l.dcc = str(root, "dcc");
+                if (auto const* n = root.find("manifest"); n && !is_sha256(l.manifest))
+                    error(*n, "manifest fingerprint must be 'sha256:' followed by 64 lowercase hex digits");
+                if (auto const* n = root.find("dcc"); n && !l.dcc.empty() && !dpm::semver::is_valid(l.dcc))
+                    error(*n, std::format("'{}' is not a valid version", l.dcc));
+                auto const* list = field(root, "packages");
+                if (!list)
+                    return l;
+                std::set<std::string> seen;
+                for (auto const& item : list->items)
+                    if (auto const* loc = item.find("location"); loc && loc->kind == Node::Kind::String)
+                        seen.insert(loc->text);
+                std::string previous;
+                bool have_previous = false;
+                for (auto const& item : list->items)
+                {
+                    LockedPackage pk;
+                    pk.range = item.range;
+                    pk.location = str(item, "location");
+                    pk.version = str(item, "version");
+                    pk.source = str(item, "source");
+                    pk.commit = str(item, "commit");
+                    pk.hash = str(item, "hash");
+                    pk.dependencies = strs(item, "dependencies");
+                    static constexpr std::array<std::string_view, 3> names{"Default", "On", "Off"};
+                    auto dev = enumerator<Tri>(item, "dev", names);
+                    pk.dev = dev == Tri::On;
+                    auto const* loc = item.find("location");
+                    auto const* ver = item.find("version");
+                    auto const* src = item.find("source");
+                    auto const* com = item.find("commit");
+                    auto const* hsh = item.find("hash");
+                    if (loc)
+                    {
+                        if (auto message = location_error(pk.location))
+                            error(*loc, *message);
+                        else if (is_alias(pk.location))
+                            error(*loc, "lock locations are canonical; a registry alias is not allowed");
+                        else if (have_previous && pk.location <= previous)
+                            error(*loc, pk.location == previous ? std::format("duplicate package '{}'", pk.location)
+                                                                : std::format("packages must be sorted by location; '{}' comes after '{}'", pk.location, previous));
+                        previous = pk.location;
+                        have_previous = true;
+                    }
+                    if (ver && (!dpm::semver::is_valid(pk.version)))
+                        error(*ver, std::format("'{}' is not a valid version", pk.version));
+                    bool const is_path = pk.location.starts_with("path:");
+                    if (src)
+                    {
+                        bool const known = pk.source.starts_with("git+https://") || pk.source.starts_with("https://") || pk.source.starts_with("path:") ||
+                                           pk.source.starts_with("registry:");
+                        if (!known)
+                            error(*src, "source must start with git+https://, https://, path: or registry:");
+                        else if (is_path && pk.source != pk.location)
+                            error(*src, "a path package's source must equal its location");
+                        else if (!is_path && pk.source.starts_with("path:"))
+                            error(*src, "only path packages use a path: source");
+                    }
+                    if (com)
+                    {
+                        if (!pk.commit.empty() && !is_hex40(pk.commit))
+                            error(*com, "commit must be 40 lowercase hex digits");
+                        else if (pk.commit.empty() && pk.source.starts_with("git+https://"))
+                            error(*com, "a git source needs a full commit");
+                        else if (!pk.commit.empty() && (pk.source.starts_with("https://") || is_path))
+                            error(*com, "only git sources have a commit");
+                    }
+                    if (hsh)
+                    {
+                        if (is_path)
+                        {
+                            if (!pk.hash.empty())
+                                error(*hsh, "a path package has no hash");
+                        }
+                        else if (!is_sha256(pk.hash))
+                            error(*hsh, "hash must be 'sha256:' followed by 64 lowercase hex digits");
+                    }
+                    if (dev == Tri::Off)
+                        if (auto const* n = item.find("dev"))
+                            error(*n, "dev must be Tri::On or omitted");
+                    if (auto const* deps = item.find("dependencies"))
+                    {
+                        std::string last;
+                        bool first = true;
+                        for (auto const& d : deps->items)
+                        {
+                            if (!first && d.text <= last)
+                                error(d, d.text == last ? std::format("duplicate dependency '{}'", d.text) : "dependencies must be sorted");
+                            else if (!seen.contains(d.text))
+                                error(d, std::format("dependency '{}' has no lock entry", d.text));
+                            last = d.text;
+                            first = false;
+                        }
+                    }
+                    l.packages.push_back(std::move(pk));
+                }
+                return l;
+            }
+
+            static bool is_sha256(std::string_view s)
+            {
+                return s.size() == 71 && s.starts_with("sha256:") &&
+                       std::ranges::all_of(s.substr(7), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
+            }
+
+            static bool is_alias(std::string_view loc)
+            {
+                return loc.find('/') == std::string_view::npos && loc.find('.') == std::string_view::npos && loc.find(':') == std::string_view::npos;
+            }
+
             Project project(Node const& root)
             {
                 Project p;
@@ -1274,6 +1413,16 @@ export namespace dpm::manifest
             if (!decoder.ok)
                 return result;
             result.project = std::move(project);
+        }
+        else if (options.kind == FileKind::Lock)
+        {
+            detail::Decoder decoder;
+            decoder.report = &report;
+            decoder.project_root = options.project_root;
+            auto lock = decoder.lock(result.tree);
+            if (!decoder.ok)
+                return result;
+            result.lock = std::move(lock);
         }
         result.ok = true;
         return result;

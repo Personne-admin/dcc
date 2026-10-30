@@ -1,0 +1,5 @@
+=== KIND: Lock ===
+=== FILE: project.dcon ===
+dpm::v1::Lock { manifest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", packages = { { location = "path:../a", version = "1.0.0", source = "path:../a", hash = "", dev = Tri::Off } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:200: dev must be Tri::On or omitted
