@@ -12,6 +12,7 @@ module std::os::process;
 import core;
 import core::target;
 import core::source_location;
+import std::alloc;
 import std::fmt;
 import std::mem;
 import std::slice;
@@ -30,6 +31,7 @@ using sys::linux;
 using sys::win;
 using core::source_location::SourceLocation;
 using result::{ Result, Status, Optional };
+using alloc::AllocatorPolicy;
 using error::Error;
 
 //!
@@ -647,10 +649,10 @@ static if core::target::OS != core::target::Os::Freestanding {
     ///
     /// `alloc` backs the argument vector only, and everything taken from it
     /// is released before this returns.
-    public Result(Child, Error) spawn(
-        const mem::Allocator* alloc,
+    public Result(Child, Error) spawn(A)(
+        A* alloc,
         const Command* cmd
-    ) {
+    ) if AllocatorPolicy(A) {
         if cmd.program.len == 0 || has_nul(cmd.program) {
             return Result::Err(Error::InvalidArgument);
         }
@@ -677,13 +679,13 @@ static if core::target::OS != core::target::Os::Freestanding {
             Optional(usize) max_units = process_checked_add(bound, 1);
             if max_units.is_none() || process_checked_mul(max_units.unwrap_some(), 2).is_none() { return Error::OutOfMemory; }
 
-            Result([] u8, mem::AllocError) narrow_slot = alloc.raw_alloc(bound, 1);
+            Result([] u8, mem::AllocError) narrow_slot = alloc.allocate(bound, 1);
             if narrow_slot.is_err() {
                 return if narrow_slot.unwrap_err() == mem::AllocError::OutOfMemory { Error::OutOfMemory } else { Error::OutOfMemory };
             }
 
             [] char narrow = narrow_slot.unwrap() as [] char;
-            defer alloc.raw_free(narrow as [] u8, 1);
+            defer alloc.free(narrow as [] u8, 1);
 
             usize n = push_quoted(narrow, 0, cmd.program);
             for usize i = 0; i < cmd.args.len; i++ {
@@ -697,7 +699,7 @@ static if core::target::OS != core::target::Os::Freestanding {
             if units.is_none() { return Error::OutOfMemory; }
             Optional(usize) wide_size = process_checked_mul(units.unwrap_some(), 2);
             if wide_size.is_none() { return Error::OutOfMemory; }
-            Result([] u8, mem::AllocError) wide_slot = alloc.raw_alloc(
+            Result([] u8, mem::AllocError) wide_slot = alloc.allocate(
                 wide_size.unwrap_some(),
                 alignof (u16)
             );
@@ -706,7 +708,7 @@ static if core::target::OS != core::target::Os::Freestanding {
             }
 
             [] u8 wide_bytes = wide_slot.unwrap();
-            defer alloc.raw_free(wide_bytes, alignof (u16));
+            defer alloc.free(wide_bytes, alignof (u16));
 
             [] u16 wide = slice::from_raw(wide_bytes.ptr as u16*, n + 1);
             path::to_wide(narrow[0..n], wide) ?;
@@ -795,15 +797,15 @@ static if core::target::OS != core::target::Os::Freestanding {
             Optional(usize) vector_bytes = process_checked_mul(count.unwrap_some(), sizeof(void*));
             if vector_bytes.is_none() { return Error::OutOfMemory; }
 
-            Result([] u8, mem::AllocError) blob_slot = alloc.raw_alloc(blob_len, 1);
+            Result([] u8, mem::AllocError) blob_slot = alloc.allocate(blob_len, 1);
             if blob_slot.is_err() {
                 return if blob_slot.unwrap_err() == mem::AllocError::OutOfMemory { Error::OutOfMemory } else { Error::OutOfMemory };
             }
 
             [] char blob = blob_slot.unwrap() as [] char;
-            defer alloc.raw_free(blob as [] u8, 1);
+            defer alloc.free(blob as [] u8, 1);
 
-            Result([] u8, mem::AllocError) vec_slot = alloc.raw_alloc(
+            Result([] u8, mem::AllocError) vec_slot = alloc.allocate(
                 vector_bytes.unwrap_some(),
                 alignof (void*)
             );
@@ -812,7 +814,7 @@ static if core::target::OS != core::target::Os::Freestanding {
             }
 
             [] u8 vec_bytes = vec_slot.unwrap();
-            defer alloc.raw_free(vec_bytes, alignof (void*));
+            defer alloc.free(vec_bytes, alignof (void*));
 
             const char** vec = vec_bytes.ptr as const char**;
 

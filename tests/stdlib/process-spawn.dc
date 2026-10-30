@@ -14,45 +14,68 @@ using std::os::{ process, pipe, file, heap, error };
 using std::{ mem, slice, result };
 using error::Error;
 
-bool same([]const char a, []const char b) {
-    return std::mem::equal(a, b);
+struct HeapPolicy {
+    mem::Allocator parent;
 }
 
-bool same([] const u8 a, [] const u8 b) {
-    return mem::equal(a, b);
+Result([] u8, mem::AllocError) allocate(HeapPolicy* self, usize len, usize align) {
+    return self.parent.raw_alloc(len, align);
 }
 
-struct CountState {
+bool resize_in_place(HeapPolicy* self, [] u8 block, usize new_bytes, usize align) {
+    return self.parent.raw_resize(block, new_bytes, align);
+}
+
+void free(HeapPolicy* self, [] u8 block, usize align) {
+    self.parent.raw_free(block, align);
+}
+
+struct FailingPolicy {}
+
+Result([] u8, mem::AllocError) allocate(FailingPolicy* self, usize len, usize align) {
+    return mem::AllocError::OutOfMemory;
+}
+
+bool resize_in_place(FailingPolicy* self, [] u8 block, usize new_bytes, usize align) {
+    return false;
+}
+
+void free(FailingPolicy* self, [] u8 block, usize align) {}
+
+struct CountingPolicy {
     mem::Allocator parent;
     usize live;
     usize peak;
 }
 
-CountState g_count;
-
-Result([] u8, mem::AllocError) count_alloc(void* ctx, usize len, usize align) {
-    CountState* s = ctx as CountState*;
-    Result([] u8, mem::AllocError) r = s.parent.raw_alloc(len, align);
+Result([] u8, mem::AllocError) allocate(CountingPolicy* self, usize len, usize align) {
+    Result([] u8, mem::AllocError) r = self.parent.raw_alloc(len, align);
     if r.is_ok() {
         [] u8 b = r.unwrap();
-        s.live = s.live + b.len;
-        if s.live > s.peak {
-            s.peak = s.live;
+        self.live = self.live + b.len;
+        if self.live > self.peak {
+            self.peak = self.live;
         }
         return Result::Ok(b);
     }
     return r.unwrap_err();
 }
 
-bool count_resize(void* ctx, [] u8 buf, usize new_len, usize align) {
-    CountState* s = ctx as CountState*;
-    return s.parent.raw_resize(buf, new_len, align);
+bool resize_in_place(CountingPolicy* self, [] u8 block, usize new_bytes, usize align) {
+    return self.parent.raw_resize(block, new_bytes, align);
 }
 
-void count_free(void* ctx, [] u8 buf, usize align) {
-    CountState* s = ctx as CountState*;
-    s.live = s.live - buf.len;
-    s.parent.raw_free(buf, align);
+void free(CountingPolicy* self, [] u8 block, usize align) {
+    self.live = self.live - block.len;
+    self.parent.raw_free(block, align);
+}
+
+bool same([]const char a, []const char b) {
+    return std::mem::equal(a, b);
+}
+
+bool same([] const u8 a, [] const u8 b) {
+    return mem::equal(a, b);
 }
 
 i32 child_echo() {
@@ -107,7 +130,7 @@ i32 test_echo_64() {
             return 100;
         }
         [] const char prog = self.unwrap_some();
-        mem::Allocator ha = heap::allocator();
+        HeapPolicy ha = {parent = heap::allocator()};
         pipe::Pipe p = pipe::create_inheritable().unwrap();
         process::Command cmd = process::new_command(prog);
         process::Arg[65] argv;
@@ -185,7 +208,7 @@ i32 test_echo_spaces() {
         result::Optional([] const char) self = process::arg(0);
         if self.is_none() { return 110; }
         [] const char prog = self.unwrap_some();
-        mem::Allocator ha = heap::allocator();
+        HeapPolicy ha = {parent = heap::allocator()};
         pipe::Pipe p = pipe::create_inheritable().unwrap();
         process::Command cmd = process::new_command(prog);
         process::Arg[3] argv;
@@ -224,7 +247,7 @@ i32 test_echo_quote_backslash() {
         result::Optional([] const char) self = process::arg(0);
         if self.is_none() { return 120; }
         [] const char prog = self.unwrap_some();
-        mem::Allocator ha = heap::allocator();
+        HeapPolicy ha = {parent = heap::allocator()};
         pipe::Pipe p = pipe::create_inheritable().unwrap();
         process::Command cmd = process::new_command(prog);
         // exact bytes: a " b \ c  (a, quote, b, backslash, c)
@@ -257,7 +280,7 @@ i32 test_zero_arg() {
         // Windows arg() is empty; use fixed program name that fails fast?
         // An empty-args spawn of a missing program still exercises the
         // zero-arg vector path (argv[0] + NULL) without needing self.
-        mem::Allocator ha = heap::allocator();
+        HeapPolicy ha = {parent = heap::allocator()};
         process::Command cmd = process::new_command("___dcc_missing_zero_arg___");
         Result(process::Child, Error) cr = process::spawn(&ha, &cmd);
         if cr.is_err() {
@@ -271,7 +294,7 @@ i32 test_zero_arg() {
         [] const char prog = self.unwrap_some();
         file::File s = file::create("spawn_zero_sentinel").unwrap();
         s.close();
-        mem::Allocator ha = heap::allocator();
+        HeapPolicy ha = {parent = heap::allocator()};
         process::Command cmd = process::new_command(prog);
         // args stays empty
         Result(process::Child, Error) cr = process::spawn(&ha, &cmd);
@@ -289,7 +312,7 @@ i32 test_zero_arg() {
 }
 
 i32 test_invalid_args() {
-    mem::Allocator ha = heap::allocator();
+    HeapPolicy ha = {parent = heap::allocator()};
     // empty program
     process::Command empty = process::new_command("");
     if process::spawn(&ha, &empty).unwrap_err() != Error::InvalidArgument {
@@ -335,9 +358,7 @@ i32 test_allocator_oom() {
     } else {
         if self.is_none() { return 150; }
         [] const char prog = self.unwrap_some();
-        u8[32] backing;
-        mem::FixedBuffer fb = mem::new_fixed_buffer(backing[0..32]);
-        mem::Allocator fa = fb.allocator();
+        FailingPolicy fa = {};
         process::Command cmd = process::new_command(prog);
         process::Arg[1] argv;
         argv[0] = "--echo-child";
@@ -356,10 +377,7 @@ i32 test_allocator_reuse() {
         result::Optional([] const char) self = process::arg(0);
         if self.is_none() { return 160; }
         [] const char prog = self.unwrap_some();
-        g_count.parent = heap::allocator();
-        g_count.live = 0;
-        g_count.peak = 0;
-        mem::Allocator ca = {ctx = &g_count as void*, alloc_fn = count_alloc, resize_fn = count_resize, free_fn = count_free};
+        CountingPolicy ca = {parent = heap::allocator(), live = 0, peak = 0};
         for usize i = 0; i < 200; i++ {
             process::Command cmd = process::new_command(prog);
             process::Arg[1] argv;
@@ -392,12 +410,12 @@ i32 test_allocator_reuse() {
             if wr.is_err() || !wr.unwrap().success() {
                 return 163;
             }
-            if g_count.live != 0 {
+            if ca.live != 0 {
                 return 164;
             }
         }
         // peak should be bounded: two pages per spawn, not 200 pages
-        if g_count.peak > 65536 {
+        if ca.peak > 65536 {
             return 165;
         }
         return 0;
