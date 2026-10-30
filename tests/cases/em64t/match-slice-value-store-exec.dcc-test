@@ -1,0 +1,59 @@
+=== FILE: test.dc ===
+module test;
+
+public struct Position {
+    usize offset;
+}
+
+public enum Event {
+    End,
+    Key([] const char),
+}
+
+public struct Located {
+    Event event;
+    Position at;
+}
+
+@runtime Located next_event(i32 which) {
+    Located step = { event = Event::End, at = {} };
+    if which == 0 {
+        step.event = Event::End;
+    } else {
+        step.event = Event::Key("text");
+    }
+    return step;
+}
+
+@runtime [] const char pick(i32 which) {
+    Located step = next_event(which);
+    [] const char raw = match step.event {
+        Event::End => return "end" as [] const char,
+        Event::Key(k) => k,
+    };
+    return raw;
+}
+
+@nomangle
+public i32 dcc_main() {
+    [] const char text = pick(1);
+    if text.len != 4 {
+        return 1;
+    }
+    if text[0] != 't' || text[3] != 't' {
+        return 2;
+    }
+    [] const char other = pick(0);
+    if other.len != 3 || other[0] != 'e' {
+        return 3;
+    }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+LINK-STD: true
+RUN-EXIT: 0
