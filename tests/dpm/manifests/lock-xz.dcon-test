@@ -1,0 +1,5 @@
+=== FILE: project.lock.dcon ===
+dpm::v1::Lock { manifest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", packages = { { location = "https://example.org/p.tar.xz", version = "1.0.0", source = "https://example.org/p.tar.xz", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } } }
+=== EXPECT-ERRORS ===
+project.lock.dcon:1:129: only .tar.gz and .tgz tarballs are supported
+project.lock.dcon:1:189: only .tar.gz and .tgz tarballs are supported

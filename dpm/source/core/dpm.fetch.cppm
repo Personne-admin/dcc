@@ -12,6 +12,7 @@ import dpm.cache;
 import dpm.extract;
 import dpm.git;
 import dpm.hash;
+import dpm.inflate;
 import dpm.manifest;
 import dpm.process;
 import dpm.resolve;
@@ -26,10 +27,9 @@ export namespace dpm::fetch
         bool offline{};
         std::string git{"git"};
         std::string curl{"curl"};
-        std::string gzip{"gzip"};
-        std::string xz{"xz"};
         extract::Limits limits;
         std::uint64_t max_download = 128ull << 20;
+        std::uint64_t max_inflate_ratio = 200;
         std::chrono::milliseconds download_timeout{300000};
         std::chrono::milliseconds connect_timeout{15000};
     };
@@ -68,7 +68,7 @@ export namespace dpm::fetch
 
         inline bool ends_with_archive_suffix(std::string_view s)
         {
-            return s.ends_with(".tar.gz") || s.ends_with(".tgz") || s.ends_with(".tar.xz");
+            return s.ends_with(".tar.gz") || s.ends_with(".tgz");
         }
 
         inline std::string trim_newlines(std::string s)
@@ -192,7 +192,7 @@ export namespace dpm::fetch
             error = "only https URLs can be downloaded";
             return std::nullopt;
         }
-        std::string ext = url.ends_with(".tar.xz") ? ".tar.xz" : ".tar.gz";
+        std::string ext = ".tar.gz";
         auto dir = cache.download_dir() / hash::sha256_hex(url);
         auto file = dir / ("archive" + ext);
         std::error_code ec;
@@ -256,21 +256,34 @@ export namespace dpm::fetch
     [[nodiscard]] inline Extracted extract_tarball(std::filesystem::path const& archive, std::filesystem::path const& staging, Policy const& policy)
     {
         Extracted result;
-        auto name = archive.filename().string();
-        std::string program = name.ends_with(".tar.xz") ? policy.xz : policy.gzip;
+        std::error_code size_ec;
+        auto archive_size = std::filesystem::file_size(archive, size_ec);
+        if (size_ec || archive_size > policy.max_download)
+        {
+            result.error = "cannot read the archive or it exceeds the size limit";
+            return result;
+        }
+        std::string compressed(archive_size, '\0');
+        {
+            std::ifstream in{archive, std::ios::binary};
+            in.read(compressed.data(), static_cast<std::streamsize>(compressed.size()));
+            if (!in)
+            {
+                result.error = "cannot read the archive";
+                return result;
+            }
+        }
         auto decompress = [&](std::function<bool(std::string_view)> sink, std::string& error)
         {
-            process::Command cmd;
-            cmd.argv = {program, "-dc", "--", archive.string()};
-            cmd.env = detail::base_env();
-            cmd.on_stdout = std::move(sink);
-            cmd.timeout = policy.download_timeout;
-            auto r = process::run(cmd);
+            inflate::Limits inflate_limits;
+            inflate_limits.max_output = policy.limits.max_bytes + (static_cast<std::uint64_t>(policy.limits.max_files) * 3 + 16) * 1024;
+            inflate_limits.max_ratio = policy.max_inflate_ratio;
+            auto r = inflate::gunzip(compressed, inflate_limits, sink);
             if (r.aborted)
                 return true;
-            if (!r.ok())
+            if (!r.ok)
             {
-                error = "cannot decompress the archive: " + (r.error.empty() ? detail::last_line(r.err) : r.error);
+                error = "cannot decompress the archive: " + r.error;
                 return false;
             }
             return true;
@@ -654,6 +667,11 @@ export namespace dpm::fetch
             Fetched fetched;
             std::string source;
             std::string commit;
+            if ((location.starts_with("https://") || location.starts_with("file://")) && (location.ends_with(".tar.xz") || location.ends_with(".txz")))
+            {
+                error = "only .tar.gz and .tgz tarballs are supported";
+                return std::nullopt;
+            }
             if (is_tarball_location(location, policy_))
             {
                 fetched = fetch_tarball(cache_, std::string{location}, pinned ? pinned->hash : std::string{}, policy_);

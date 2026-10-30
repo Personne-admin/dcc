@@ -1,0 +1,4 @@
+=== FILE: project.dcon ===
+{ name = "a", version = "1.0.0", dependencies = { { location = "https://example.org/p.zip", version = "1.0.0" } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:64: tarball location must end in .tar.gz or .tgz

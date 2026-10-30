@@ -858,18 +858,22 @@ export namespace dpm::manifest
                 return loc.size() == 11 ? std::optional<std::string>{"git location needs a path"} : std::nullopt;
             if (allow_file && loc.starts_with("file://"))
             {
-                if (loc.ends_with(".tar.gz") || loc.ends_with(".tgz") || loc.ends_with(".tar.xz"))
+                if (loc.ends_with(".tar.gz") || loc.ends_with(".tgz"))
                     return std::nullopt;
-                return "tarball location must end in .tar.gz, .tgz or .tar.xz";
+                if (loc.ends_with(".tar.xz") || loc.ends_with(".txz"))
+                    return "only .tar.gz and .tgz tarballs are supported";
+                return "tarball location must end in .tar.gz or .tgz";
             }
             if (loc.starts_with("git+https://"))
                 return loc.size() == 12 || loc.find('/', 12) == std::string_view::npos ? std::optional<std::string>{"git location needs a host and a path"}
                                                                                        : std::nullopt;
             if (loc.starts_with("https://"))
             {
-                if (loc.ends_with(".tar.gz") || loc.ends_with(".tgz") || loc.ends_with(".tar.xz"))
+                if (loc.ends_with(".tar.gz") || loc.ends_with(".tgz"))
                     return std::nullopt;
-                return "tarball location must end in .tar.gz, .tgz or .tar.xz";
+                if (loc.ends_with(".tar.xz") || loc.ends_with(".txz"))
+                    return "only .tar.gz and .tgz tarballs are supported";
+                return "tarball location must end in .tar.gz or .tgz";
             }
             if (loc.find(':') != std::string_view::npos)
                 return "unrecognized location scheme";
@@ -1127,6 +1131,8 @@ export namespace dpm::manifest
                                            pk.source.starts_with("registry:") || (allow_file && (pk.source.starts_with("git+file://") || pk.source.starts_with("file://")));
                         if (!known)
                             error(*src, "source must start with git+https://, https://, path: or registry:");
+                        else if (pk.source.ends_with(".tar.xz") || pk.source.ends_with(".txz"))
+                            error(*src, "only .tar.gz and .tgz tarballs are supported");
                         else if (is_path && pk.source != pk.location)
                             error(*src, "a path package's source must equal its location");
                         else if (!is_path && pk.source.starts_with("path:"))

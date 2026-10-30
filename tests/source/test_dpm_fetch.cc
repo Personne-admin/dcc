@@ -174,7 +174,8 @@ namespace
     {
         auto raw = td.path / (name + ".tar");
         write_binary(raw, tar_bytes);
-        return xz ? compress(raw, "xz", ".xz", level) : compress(raw, "gzip", ".gz", level);
+        (void)xz;
+        return compress(raw, "gzip", ".gz", level);
     }
 
     dpm::fetch::Policy test_policy()
@@ -374,12 +375,11 @@ SECTION("dpm tarball safety");
 
 TEST_CASE("a valid archive extracts with its single top directory stripped")
 {
-    for (bool xz : {false, true})
     {
         TempDir td;
         TarBuilder b;
         b.dir("pkg-1.0/").file("pkg-1.0/project.dcon", project_text("pkg", "1.0.0")).file("pkg-1.0/bin/run", "#!/bin/sh\n", 0755).dir("pkg-1.0/empty/");
-        auto archive = make_archive(td, "ok", b.finish(), xz);
+        auto archive = make_archive(td, "ok", b.finish());
         auto staging = td.path / "staging";
         auto r = extract_to(archive, staging);
         if (!r.ok)
@@ -642,6 +642,29 @@ TEST_CASE("a malicious file tarball is rejected through the full fetch path")
     CHECK_EQ(count_entries(outside), std::size_t{0});
     CHECK_EQ(count_entries(env.cache.src_dir()), std::size_t{0});
     CHECK_EQ(count_entries(env.cache.tmp_dir()), std::size_t{0});
+}
+
+TEST_CASE("tar.xz and txz tarballs are refused with a clear error")
+{
+    auto schema_root = env_path("DCC_TEST_DPM_SCHEMA");
+    if (schema_root.empty())
+        return;
+    Env env;
+    for (std::string url : {"https://example.invalid/p.tar.xz", "https://example.invalid/p.txz", "file:///tmp/p.tar.xz"})
+    {
+        CHECK(!dpm::fetch::is_tarball_location(url, test_policy()));
+        dpm::manifest::Project project;
+        project.name = "app";
+        project.version = "1.0.0";
+        dpm::manifest::Dependency d;
+        d.location = url;
+        d.version = "1.0.0";
+        project.dependencies.push_back(d);
+        dpm::fetch::FetchSource source{env.cache, test_policy(), env.home.path, schema_root, nullptr};
+        auto r = dpm::resolve::resolve(project, source, {});
+        CHECK(!r.ok);
+        CHECK(r.ok || contains(r.errors[0], "only .tar.gz and .tgz tarballs are supported"));
+    }
 }
 
 SECTION("dpm git safety");
