@@ -314,6 +314,45 @@ export namespace dpm::manifest
         std::vector<LockedPackage> packages;
     };
 
+    struct RegistryVersion
+    {
+        std::string version;
+        std::string source;
+        std::string commit;
+        std::string hash;
+        std::vector<Dependency> dependencies;
+        std::string requires_dcc;
+        bool yanked{false};
+        Range range;
+    };
+
+    struct RegistryAlias
+    {
+        std::string alias;
+        std::string location;
+        std::string description;
+        std::vector<RegistryVersion> versions;
+    };
+
+    struct RegistryLocation
+    {
+        std::string alias;
+    };
+
+    struct RegistryConfig
+    {
+        std::int64_t format{1};
+        std::string name;
+        std::string description;
+    };
+
+    struct UserConfig
+    {
+        std::vector<std::string> registries;
+        std::string cache_dir;
+        bool offline{false};
+    };
+
     struct LoadOptions
     {
         std::string file_name{"project.dcon"};
@@ -330,6 +369,10 @@ export namespace dpm::manifest
         Node tree;
         std::optional<Project> project;
         std::optional<Lock> lock;
+        std::optional<RegistryAlias> registry_alias;
+        std::optional<RegistryLocation> registry_location;
+        std::optional<RegistryConfig> registry_config;
+        std::optional<UserConfig> user_config;
     };
 
     namespace detail
@@ -1179,6 +1222,147 @@ export namespace dpm::manifest
                 return l;
             }
 
+            static bool is_alias_name(std::string_view s)
+            {
+                if (s.size() < 2 || s.size() > 32 || !(s[0] >= 'a' && s[0] <= 'z'))
+                    return false;
+                return std::ranges::all_of(s, [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
+            }
+
+            std::optional<std::string> alias_name_error(std::string const& name)
+            {
+                if (!is_alias_name(name))
+                    return std::format("'{}' is not a valid alias; use 2 to 32 characters from [a-z][a-z0-9_]", name);
+                static constexpr std::array<std::string_view, 5> reserved{"std", "core", "assert", "dcext", "dpm"};
+                if (std::ranges::find(reserved, name) != reserved.end() || is_reserved_word(name))
+                    return std::format("'{}' is a reserved name", name);
+                return std::nullopt;
+            }
+
+            RegistryVersion registry_version(Node const& item)
+            {
+                RegistryVersion v;
+                v.range = item.range;
+                v.version = str(item, "version");
+                v.source = str(item, "source");
+                v.commit = str(item, "commit");
+                v.hash = str(item, "hash");
+                v.requires_dcc = str(item, "requires_dcc");
+                v.dependencies = dependencies(item, "dependencies");
+                if (auto const* y = field(item, "yanked"); y && y->kind == Node::Kind::Bool)
+                    v.yanked = y->boolean;
+                auto const* ver = item.find("version");
+                auto const* src = item.find("source");
+                auto const* com = item.find("commit");
+                auto const* hsh = item.find("hash");
+                if (ver && !dpm::semver::is_valid(v.version))
+                    error(*ver, std::format("'{}' is not a valid version", v.version));
+                if (auto const* n = item.find("requires_dcc"); n && !v.requires_dcc.empty() && !dpm::semver::is_valid(v.requires_dcc))
+                    error(*n, std::format("'{}' is not a valid version", v.requires_dcc));
+                bool git = false;
+                bool tarball = false;
+                if (src)
+                {
+                    git = v.source.starts_with("git+https://") || (allow_file && v.source.starts_with("git+file://"));
+                    tarball = v.source.starts_with("https://") || (allow_file && v.source.starts_with("file://"));
+                    if (!git && !tarball)
+                        error(*src, "source must start with git+https:// or https://");
+                    else if (auto message = location_error(v.source, allow_file))
+                        error(*src, *message);
+                }
+                if (com)
+                {
+                    if (git && !is_hex40(v.commit))
+                        error(*com, "a git source needs a full commit of 40 lowercase hex digits");
+                    else if (tarball && !v.commit.empty())
+                        error(*com, "only git sources have a commit");
+                }
+                if (hsh && !is_sha256(v.hash))
+                    error(*hsh, "hash must be 'sha256:' followed by 64 lowercase hex digits");
+                if (auto const* deps = item.find("dependencies"))
+                    for (std::size_t i = 0; i < v.dependencies.size() && i < deps->items.size(); ++i)
+                        if (v.dependencies[i].location.starts_with("path:"))
+                            error(deps->items[i], "a registry version cannot depend on a path: package");
+                return v;
+            }
+
+            RegistryAlias registry_alias(Node const& root)
+            {
+                RegistryAlias a;
+                a.alias = str(root, "alias");
+                a.location = str(root, "location");
+                a.description = str(root, "description");
+                if (auto const* n = root.find("alias"))
+                    if (auto message = alias_name_error(a.alias))
+                        error(*n, *message);
+                if (auto const* n = root.find("location"))
+                {
+                    if (auto message = location_error(a.location, allow_file))
+                        error(*n, *message);
+                    else if (is_alias(a.location) || a.location.starts_with("path:"))
+                        error(*n, "the location of an alias must be a canonical location");
+                }
+                if (auto const* list = field(root, "versions"))
+                {
+                    std::optional<dpm::semver::Version> previous;
+                    for (auto const& item : list->items)
+                    {
+                        auto v = registry_version(item);
+                        auto parsed = dpm::semver::parse(v.version);
+                        if (parsed && previous && dpm::semver::compare(*parsed, *previous) <= 0)
+                            if (auto const* n = item.find("version"))
+                                error(*n, "versions must be unique and ascending");
+                        if (parsed)
+                            previous = parsed;
+                        a.versions.push_back(std::move(v));
+                    }
+                }
+                return a;
+            }
+
+            RegistryLocation registry_location(Node const& root)
+            {
+                RegistryLocation l;
+                l.alias = str(root, "alias");
+                if (auto const* n = root.find("alias"))
+                    if (auto message = alias_name_error(l.alias))
+                        error(*n, *message);
+                return l;
+            }
+
+            RegistryConfig registry_config(Node const& root)
+            {
+                RegistryConfig c;
+                c.name = str(root, "name");
+                c.description = str(root, "description");
+                if (auto const* f = field(root, "format"); f && f->kind == Node::Kind::Int)
+                {
+                    c.format = f->integer;
+                    if (c.format != 1)
+                        error(*f, std::format("unsupported registry format {}", c.format));
+                }
+                if (auto const* n = root.find("name"); n && c.name.empty())
+                    error(*n, "registry name is empty");
+                return c;
+            }
+
+            UserConfig user_config(Node const& root)
+            {
+                UserConfig c;
+                c.registries = strs(root, "registries");
+                c.cache_dir = str(root, "cache_dir");
+                if (auto const* f = field(root, "offline"); f && f->kind == Node::Kind::Bool)
+                    c.offline = f->boolean;
+                if (auto const* list = root.find("registries"))
+                    for (std::size_t i = 0; i < c.registries.size() && i < list->items.size(); ++i)
+                    {
+                        auto const& url = c.registries[i];
+                        if (!url.starts_with("https://") && !(allow_file && url.starts_with("file://")))
+                            error(list->items[i], allow_file ? "a registry must be an https:// or file:// URL" : "a registry must be an https:// URL");
+                    }
+                return c;
+            }
+
             static bool is_sha256(std::string_view s)
             {
                 return s.size() == 71 && s.starts_with("sha256:") &&
@@ -1213,8 +1397,8 @@ export namespace dpm::manifest
                 if (auto const* n = root.find("test_dir"))
                     check_entry_path(*n, p.test_dir, "test_dir");
                 if (auto const* n = root.find("registry");
-                    n && !p.registry.empty() && !p.registry.starts_with("https://") && !p.registry.starts_with("file://"))
-                    error(*n, "registry must be an https:// or file:// URL");
+                    n && !p.registry.empty() && !p.registry.starts_with("https://") && !(allow_file && p.registry.starts_with("file://")))
+                    error(*n, allow_file ? "registry must be an https:// or file:// URL" : "registry must be an https:// URL");
                 p.dependencies = dependencies(root, "dependencies");
                 p.dev_dependencies = dependencies(root, "dev_dependencies");
                 if (auto const* s = field(root, "settings"))
@@ -1496,6 +1680,32 @@ export namespace dpm::manifest
             if (!decoder.ok)
                 return result;
             result.lock = std::move(lock);
+        }
+        else
+        {
+            detail::Decoder decoder;
+            decoder.report = &report;
+            decoder.project_root = options.project_root;
+            decoder.allow_file = options.allow_file_urls;
+            switch (options.kind)
+            {
+                case FileKind::RegistryAlias:
+                    result.registry_alias = decoder.registry_alias(result.tree);
+                    break;
+                case FileKind::RegistryLocation:
+                    result.registry_location = decoder.registry_location(result.tree);
+                    break;
+                case FileKind::RegistryConfig:
+                    result.registry_config = decoder.registry_config(result.tree);
+                    break;
+                case FileKind::UserConfig:
+                    result.user_config = decoder.user_config(result.tree);
+                    break;
+                default:
+                    break;
+            }
+            if (!decoder.ok)
+                return result;
         }
         result.ok = true;
         return result;

@@ -1,0 +1,5 @@
+=== KIND: UserConfig ===
+=== FILE: project.dcon ===
+dpm::v1::UserConfig { registries = { "http://example.com/reg" } }
+=== EXPECT-ERRORS ===
+project.dcon:1:38: a registry must be an https:// URL

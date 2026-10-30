@@ -1,0 +1,5 @@
+=== KIND: RegistryConfig ===
+=== FILE: project.dcon ===
+dpm::v1::RegistryConfig { name = "" }
+=== EXPECT-ERRORS ===
+project.dcon:1:34: registry name is empty

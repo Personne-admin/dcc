@@ -1,0 +1,5 @@
+=== KIND: RegistryAlias ===
+=== FILE: project.dcon ===
+dpm::v1::RegistryAlias { alias = "json5", location = "github.com/u/json5", versions = { { version = "1.0.0", source = "https://x.org/a.tar.xz", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:119: only .tar.gz and .tgz tarballs are supported

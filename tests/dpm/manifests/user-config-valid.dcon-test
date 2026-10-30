@@ -1,0 +1,3 @@
+=== KIND: UserConfig ===
+=== FILE: project.dcon ===
+dpm::v1::UserConfig { registries = { "https://example.com/reg" }, offline = true }

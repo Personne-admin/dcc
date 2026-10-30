@@ -1,0 +1,5 @@
+=== KIND: RegistryAlias ===
+=== FILE: project.dcon ===
+dpm::v1::RegistryAlias { alias = "json5", location = "github.com/u/json5", versions = { { version = "1.0.0", source = "git+https://github.com/u/json5.git", commit = "cccccccccccccccccccccccccccccccccccccccc", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dependencies = { { location = "path:../x" } } } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:309: a registry version cannot depend on a path: package

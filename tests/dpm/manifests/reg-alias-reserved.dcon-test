@@ -1,0 +1,5 @@
+=== KIND: RegistryAlias ===
+=== FILE: project.dcon ===
+dpm::v1::RegistryAlias { alias = "std", location = "github.com/u/json5", versions = { { version = "1.0.0", source = "git+https://github.com/u/json5.git", commit = "cccccccccccccccccccccccccccccccccccccccc", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:34: 'std' is a reserved name

@@ -1,0 +1,3 @@
+=== KIND: RegistryLocation ===
+=== FILE: project.dcon ===
+dpm::v1::RegistryLocation { alias = "json5" }

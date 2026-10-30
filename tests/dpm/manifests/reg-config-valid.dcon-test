@@ -1,0 +1,3 @@
+=== KIND: RegistryConfig ===
+=== FILE: project.dcon ===
+dpm::v1::RegistryConfig { format = 1, name = "dc-registry" }

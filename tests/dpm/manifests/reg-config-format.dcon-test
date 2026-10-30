@@ -1,0 +1,5 @@
+=== KIND: RegistryConfig ===
+=== FILE: project.dcon ===
+dpm::v1::RegistryConfig { format = 2, name = "dc-registry" }
+=== EXPECT-ERRORS ===
+project.dcon:1:36: unsupported registry format 2
