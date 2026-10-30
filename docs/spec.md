@@ -620,6 +620,8 @@ hierarchies.
 - And the target module is `b` at `project/f1/f2/f3/b.dc` (Namespace: `f1::f2::f3::b`).
 - An import statement import `f1::f2::f3::b;` (or shorthand `import f3::b;`) inside `a.dc` will result in `b` being accessible as `f3::b`.
 
+When the target is an ancestor of the current module, the whole target path is the common prefix and is stripped, so importing `std::alloc` inside `std::alloc::fixed` exposes its declarations unqualified (`AllocError`) and neither `std::alloc::AllocError` nor `alloc::AllocError` is valid.
+
 ### 7.2 Circular imports
 
 Modules can import each other.
