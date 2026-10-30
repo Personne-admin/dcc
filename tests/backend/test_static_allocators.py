@@ -105,9 +105,33 @@ public i32 main() {
 '''
 
 
+ARENA_NEGATIVE = '''module main;
+
+public import std::alloc;
+public import std::alloc::arena;
+public import std::result;
+
+using std::result::{ Result, Optional };
+using std::alloc::AllocError;
+using std::alloc::arena::new_arena;
+
+public struct BadParent {
+    usize x;
+}
+
+public i32 main() {
+    BadParent bad = {};
+    new_arena(&bad);
+    return 0;
+}
+'''
+
+
 def negative(dcc, scratch):
     source = scratch / 'negative.dc'
     source.write_text(NEGATIVE)
+    arena_source = scratch / 'negative-arena.dc'
+    arena_source.write_text(ARENA_NEGATIVE)
     for backend in ('llvm', 'custom'):
         for opt in ('O0', 'O2'):
             result = subprocess.run(['timeout', '60', str(dcc), '-target', 'x86_64-elf', '-fbackend', backend, '-' + opt,
@@ -117,6 +141,14 @@ def negative(dcc, scratch):
             assert result.returncode == 1, (backend, opt, text)
             errors = [line for line in text.splitlines() if line.startswith('error:')]
             assert errors == ['error: template constraint not satisfied for `require_allocator`'], (backend, opt, errors)
+
+            result = subprocess.run(['timeout', '60', str(dcc), '-target', 'x86_64-elf', '-fbackend', backend, '-' + opt,
+                                     '-I', ROOT / 'libdcext', '-c', arena_source, '-o', scratch / 'negative-arena.o'],
+                                    capture_output=True, text=True, timeout=65)
+            text = ANSI.sub('', result.stderr)
+            assert result.returncode == 1, (backend, opt, text)
+            errors = [line for line in text.splitlines() if line.startswith('error:')]
+            assert errors == ['error: template constraint not satisfied for `new_arena`'], (backend, opt, errors)
     print('  PASS static allocators allocator-contract diagnostics', flush=True)
 
 

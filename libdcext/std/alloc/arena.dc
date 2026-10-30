@@ -26,17 +26,17 @@ public struct ArenaChunk {
 
 public using usize ARENA_MIN_CHUNK = 4096;
 
-public struct Arena(P) {
+public struct Arena(P) if AllocatorPolicy(P) {
     P* parent;
     ArenaChunk* head;
     usize next_chunk_size;
 }
 
-public struct ArenaHandle(P) {
+public struct ArenaHandle(P) if AllocatorPolicy(P) {
     Arena(P)* state;
 }
 
-public Arena(P) new_arena(P)(P* parent) {
+public Arena(P) new_arena(P)(P* parent) if AllocatorPolicy(P) {
     return {parent = parent, head = null, next_chunk_size = ARENA_MIN_CHUNK};
 }
 
