@@ -1055,6 +1055,7 @@ export namespace dcc::sema
         };
 
         infer::TemplateBindings const* m_concept_bindings{};
+        sm::SourceRange m_concept_body_range{};
         std::pmr::vector<CanonicalGuard>* m_concept_canon_guards{};
 
         std::unordered_set<ast::UsingDecl const*> m_concept_evaluation_stack{};
@@ -3123,6 +3124,16 @@ export namespace dcc::sema
                 ConceptBindingsGuard& operator=(ConceptBindingsGuard const&) = delete;
             } bindings_guard{m_concept_bindings, &bindings};
 
+            struct ConceptBodyRangeGuard
+            {
+                sm::SourceRange& slot;
+                sm::SourceRange saved;
+                ~ConceptBodyRangeGuard() { slot = saved; }
+                ConceptBodyRangeGuard(sm::SourceRange& s, sm::SourceRange v) : slot(s), saved(s) { s = v; }
+                ConceptBodyRangeGuard(ConceptBodyRangeGuard const&) = delete;
+                ConceptBodyRangeGuard& operator=(ConceptBodyRangeGuard const&) = delete;
+            } body_range_guard{m_concept_body_range, compiles.body.range};
+
             for (std::size_t i = 0; i < env_params.size(); ++i)
             {
                 auto const& tp = env_params[i];
@@ -4512,6 +4523,11 @@ export namespace dcc::sema
                     bool spec_failed = (post_count > pre_count);
                     if (!spec_failed)
                         spec_failed = report_unresolved_spec_lambdas(*spec.decl, body_lambda_mark);
+                    if (!spec_failed && m_concept_bindings && specialization_has_unresolved_local(*spec.decl))
+                    {
+                        error(range, "cannot analyze specialization of `{}`: a local declaration type could not be resolved", f.name);
+                        spec_failed = true;
+                    }
 
                     if (spec_failed)
                         m_spec_registry.mark_failed(spec.decl);
@@ -8509,6 +8525,24 @@ export namespace dcc::sema
                     error(u->target_expr->range, "initializer for value alias `{}` is not a compile-time constant", name);
                 }
             }
+        }
+
+        [[nodiscard]] static bool specialization_has_unresolved_local(ast::FuncDecl const& fn)
+        {
+            struct Finder : ast::RecursiveAstVisitor
+            {
+                bool found{};
+                void visitVarDecl(ast::VarDecl const* v) override
+                {
+                    if (v && v->type && !v->type->sema.canonical)
+                        found = true;
+                    ast::RecursiveAstVisitor::visitVarDecl(v);
+                }
+            };
+            Finder finder;
+            if (fn.body)
+                finder.visitBlock(*fn.body);
+            return finder.found;
         }
 
         [[nodiscard]] static bool is_template_specialization_body(ast::FuncDecl const& fn)
@@ -18432,12 +18466,19 @@ export namespace dcc::sema
             return nullptr;
         }
 
+        [[nodiscard]] bool in_concept_body_range(sm::SourceRange range) const
+        {
+            return m_concept_body_range.begin.fileId == range.begin.fileId && range.begin.offset >= m_concept_body_range.begin.offset &&
+                   range.end.offset <= m_concept_body_range.end.offset && m_concept_body_range.begin.offset <= m_concept_body_range.end.offset;
+        }
+
         [[nodiscard]] types::TypePtr resolve_and_substitute_type_expr(ModuleInfo& mod, Scope const& scope, ast::TypeExpr const* t, ast::FuncDecl* fn = nullptr,
                                                                       std::uint32_t* next_off_ptr = nullptr, ConstEnv const* const_env = nullptr)
         {
             auto saved = sema::get_canonical(t->sema);
             auto resolved = resolve_type_node(mod, scope, t, fn, next_off_ptr, const_env);
-            if (m_concept_bindings && resolved)
+            bool const concept_body_type = m_concept_bindings && m_concept_canon_guards && in_concept_body_range(t->range);
+            if (concept_body_type && resolved)
             {
                 auto sub = m_concept_bindings->substitute(resolved);
                 if (sub && sub != resolved)
@@ -18445,7 +18486,7 @@ export namespace dcc::sema
             }
             sema::set_canonical(const_cast<ast::TypeSema&>(t->sema), resolved);
 
-            if (m_concept_canon_guards && (resolved != saved))
+            if (concept_body_type && (resolved != saved))
             {
                 auto& g = m_concept_canon_guards->emplace_back();
                 g.sema = const_cast<ast::TypeSema*>(std::addressof(t->sema));

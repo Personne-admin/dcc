@@ -1,0 +1,46 @@
+=== FILE: lib.dc ===
+module lib;
+
+public struct Pair(P) {
+    P* value;
+    i32 tag;
+}
+
+public using Inspect(A) = compiles (A* self) {
+    i32 value = self.tag_of();
+};
+
+public struct Holder(P) {
+    Pair(P)* pair;
+}
+
+public i32 tag_of(P)(const Holder(P)* self) {
+    Pair(P) local = {value = null, tag = 7};
+    return local.tag;
+}
+
+=== FILE: main.dc ===
+module m;
+
+import lib;
+
+public struct Device {
+    i32 id;
+}
+
+public i32 tag_of(Device* self) {
+    return 3;
+}
+
+void require_inspect(A)(A* self) if lib::Inspect(A) {}
+
+i32 check() {
+    Device device = {};
+    lib::Holder(Device) holder = {pair = null};
+    require_inspect(&holder);
+    return holder.tag_of();
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===
+
+=== ENTRY: main.dc ===
