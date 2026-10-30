@@ -79,7 +79,7 @@ Module m
       Return
         Call [type=i32 const=<none> decl=take_c spec=take_c ufcs=take_c]
           FieldAccess take_c [type=<unresolved> const=<none> decl=take_c ufcs=take_c]
-            Ident s [type=S* const=<none> lvalue addr_of decl=s]
+            Ident s [type=S* const=<none> lvalue decl=s]
 
 === EXPECT-ERRORS ===
 main.dc:28: no matching UFCS function for `take` on receiver type `const S*`
