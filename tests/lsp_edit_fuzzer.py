@@ -18,6 +18,7 @@ class Client:
                                         stdout=subprocess.PIPE, stderr=self.log)
         self.transport = RpcTransport(self.process)
         self.identifier = 0
+        self.published = {}
         result = self.request("initialize", {})
         capabilities = result["capabilities"]
         assert capabilities["positionEncoding"] == "utf-16", capabilities
@@ -37,14 +38,16 @@ class Client:
             message, error = self.transport.read_message(max(0, deadline - time.monotonic()))
             if error:
                 raise RuntimeError(error)
+            if message and message.get("method") == "textDocument/publishDiagnostics":
+                self.published[message["params"]["uri"]] = message["params"]["diagnostics"]
             if message and message.get("id") == self.identifier:
                 assert "error" not in message, message
                 return message["result"]
         raise TimeoutError(f"{method} exceeded five seconds")
 
-    def open(self, uri, text):
+    def open(self, uri, text, language="dc"):
         self.notify("textDocument/didOpen", {"textDocument": {
-            "uri": uri, "languageId": "dc", "version": 1, "text": text}})
+            "uri": uri, "languageId": language, "version": 1, "text": text}})
 
     def tokens(self, uri):
         return self.request("textDocument/semanticTokens/full", {"textDocument": {"uri": uri}})["data"]
@@ -123,6 +126,63 @@ def run(executable, iterations, seeds):
         print(f"PASS edit wire seed={seed} edits={iterations}", flush=True)
 
 
+def run_dcon(executable, iterations, seeds):
+    root = Path(__file__).resolve().parent.parent
+    os.environ.setdefault("DPM_SCHEMA_ROOT", str(root / "dpm/schema"))
+    sources = [
+        'dpm::v1::Project {\n    name = "caf\u00e9",\n    version = "1.0.0",\n    settings = {\n        optimize = Optimize::O2,\n    },\n'
+        '    dependencies = {\n        { location = "github.com/u/a", version = "1.0.0" },\n    },\n}\n',
+        'const MIN = "1.0.0";\n{ name = "x\U0001F600y", version = MIN, products = { { name = "tool" } } }\n',
+        '{ name = "a", version = "1.0.0", description = "// not a comment" } // trailing\n',
+    ]
+    sources += [text.replace("\n", "\r\n") for text in sources]
+    fragments = ["{", "}", ",", "=", "::", '"', "Optimize::", "name", "\n", "\r\n", "\u00e9", "\U0001F600", "", " ", "//", "/*", "*/", "1.0.0", "bogus = 1,"]
+    for seed in seeds:
+        rng = random.Random(seed)
+        client = Client(executable)
+        uri = "file:///tmp/dccd_edit_wire/project.dcon"
+        text = sources[seed % len(sources)]
+        client.open(uri, text, "dcon")
+        try:
+            for iteration in range(iterations):
+                changes = []
+                for _ in range(rng.randrange(1, 4)):
+                    boundaries = [i for i in range(len(text) + 1)
+                                  if not (0 < i < len(text) and text[i - 1:i + 1] == "\r\n")]
+                    start = rng.choice(boundaries)
+                    end = rng.choice([i for i in boundaries if start <= i <= start + 6])
+                    replacement = rng.choice(fragments)
+                    if iteration % 29 == 0:
+                        start, end = 0, len(text)
+                        replacement = sources[(iteration // 29) % len(sources)]
+                    changes.append({"range": {"start": position(text, start), "end": position(text, end)},
+                                    "text": replacement})
+                    text = text[:start] + replacement + text[end:]
+                client.notify("textDocument/didChange", {
+                    "textDocument": {"uri": uri, "version": iteration + 2}, "contentChanges": changes})
+                cursor = position(text, rng.randrange(len(text) + 1))
+                answers = {method: client.request(f"textDocument/{method}", {"textDocument": {"uri": uri}, "position": cursor})
+                           for method in ("hover", "completion", "definition")}
+                fresh = Client(executable)
+                try:
+                    fresh.open(uri, text, "dcon")
+                    expected = {method: fresh.request(f"textDocument/{method}", {"textDocument": {"uri": uri}, "position": cursor})
+                                for method in ("hover", "completion", "definition")}
+                    assert answers == expected, (answers, expected)
+                    assert client.published[uri] == fresh.published[uri], (client.published[uri], fresh.published[uri])
+                finally:
+                    fresh.close()
+        except BaseException:
+            failure = Path(tempfile.gettempdir(), f"dccd-dcon-edit-failure-{os.getpid()}.json")
+            failure.write_text(json.dumps({
+                "seed": seed, "iteration": iteration, "text": text, "changes": changes}, ensure_ascii=False, indent=2))
+            print(f"FAIL dcon seed={seed} iteration={iteration}; {failure}", flush=True)
+            raise
+        finally:
+            client.close()
+        print(f"PASS dcon edit wire seed={seed} edits={iterations}", flush=True)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("server")
@@ -130,3 +190,4 @@ if __name__ == "__main__":
     parser.add_argument("--seeds", type=int, nargs="+", default=[42, 8086, 20261018])
     args = parser.parse_args()
     run(args.server, args.iterations, args.seeds)
+    run_dcon(args.server, args.iterations, args.seeds)

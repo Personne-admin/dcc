@@ -8,6 +8,7 @@ import dccd.protocol;
 import dccd.transport;
 import dccd.semantic_tokens;
 import dccd.completion;
+import dccd.dcon;
 import dccd.inlay_hints;
 import dccd.workspace_index;
 import dccd.format;
@@ -65,6 +66,8 @@ export namespace dccd
 
                 try
                 {
+                    if (method.starts_with("textDocument/") && is_dcon_request(rpc))
+                        return handle_dcon_request(method, rpc);
                     if (method == "initialize")
                         return handle_initialize(rpc);
                     if (method == "initialized")
@@ -208,6 +211,8 @@ export namespace dccd
         std::optional<std::string> m_lsp_compilation_database;
         std::map<std::string, std::string, std::less<>> m_project_compilation_database;
         std::optional<std::filesystem::path> m_prefix_override;
+        std::optional<dccd::dcon::Analyzer> m_dcon;
+        std::set<std::string> m_open_dcon_uris;
 
         struct WorkspaceCompilationDatabase
         {
@@ -542,6 +547,8 @@ export namespace dccd
             auto fid = m_session->open_in_memory(params.textDocument.uri, params.textDocument.text, params.textDocument.version);
 
             clear_stale_marker(params.textDocument.uri);
+            if (dccd::dcon::is_dcon_uri(params.textDocument.uri))
+                m_open_dcon_uris.insert(params.textDocument.uri);
 
             auto const* sf = m_session->source_manager().get(fid);
             if (sf)
@@ -647,6 +654,7 @@ export namespace dccd
 
             publish_empty_diagnostics(params.uri, known_version, "document closed");
             m_published_uris.erase(params.uri);
+            m_open_dcon_uris.erase(params.uri);
             auto graph = m_diagnostic_graphs.extract(params.uri);
             if (!graph.empty())
                 for (auto const& uri : graph.mapped())
@@ -2442,6 +2450,102 @@ export namespace dccd
             return protocol::build_response(rpc.id.value(), std::move(result));
         }
 
+        [[nodiscard]] bool is_dcon_request(protocol::RpcInfo const& rpc) const
+        {
+            if (!rpc.params)
+                return false;
+            auto const* document = rpc.params->find_member("textDocument");
+            if (!document)
+                return false;
+            auto uri = document->get_string("uri");
+            return uri && dccd::dcon::is_dcon_uri(*uri);
+        }
+
+        [[nodiscard]] dccd::dcon::Analyzer& dcon_analyzer()
+        {
+            std::filesystem::path root = active_prefix() / "include";
+            if (char const* env = std::getenv("DPM_SCHEMA_ROOT"); env && env[0] != '\0')
+                root = env;
+            if (!m_dcon)
+                m_dcon.emplace(root);
+            else
+                m_dcon->set_schema_root(root);
+            return *m_dcon;
+        }
+
+        [[nodiscard]] std::optional<std::pair<std::string, std::filesystem::path>> dcon_document(std::string const& uri)
+        {
+            auto fid = m_session->source_manager().find_by_uri(uri);
+            if (!fid)
+                return std::nullopt;
+            auto const* sf = m_session->source_manager().get(*fid);
+            if (!sf || sf->is_closed())
+                return std::nullopt;
+            std::filesystem::path path = dcc::sm::SourceManager::parse_file_uri(uri).value_or(std::filesystem::path{});
+            return std::pair{std::string{sf->text()}, std::move(path)};
+        }
+
+        void refresh_dcon_documents(protocol::DidChangeWatchedFilesParams const& params)
+        {
+            if (m_open_dcon_uris.empty())
+                return;
+            bool changed = false;
+            for (auto const& change : params.changes)
+                if (auto path = dcc::sm::SourceManager::parse_file_uri(change.uri))
+                    if (path->filename() == "project.lock.dcon" || path->filename() == "project.dcon")
+                        changed = true;
+            if (!changed)
+                return;
+            for (auto const& uri : std::vector<std::string>(m_open_dcon_uris.begin(), m_open_dcon_uris.end()))
+                analyze_dcon_document(uri, true);
+        }
+
+        void analyze_dcon_document(std::string const& uri, bool publish)
+        {
+            auto document = dcon_document(uri);
+            if (!document)
+            {
+                std::println(m_log, "[dccd] dcon: document is not open: {}", uri);
+                return;
+            }
+            auto params = dcon_analyzer().diagnostics(uri, version_for_uri(uri), document->first, document->second);
+            std::println(m_log, "[dccd] dcon analysis: uri={} diagnostics={} publish={}", uri, params.diagnostics.size(), publish);
+            if (publish)
+                publish_lsp_diagnostics(params);
+        }
+
+        [[nodiscard]] std::optional<protocol::JsonValue> handle_dcon_request(std::string_view method, protocol::RpcInfo const& rpc)
+        {
+            auto null_response = [&] { return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val()); };
+            if (method == "textDocument/hover")
+            {
+                auto params = protocol::HoverParams::from_json(rpc.params.value());
+                auto document = dcon_document(params.textDocument.uri);
+                if (!document)
+                    return null_response();
+                auto hover = dcon_analyzer().hover(document->first, document->second, params.position);
+                return hover ? protocol::build_response(rpc.id.value(), hover->to_json()) : null_response();
+            }
+            if (method == "textDocument/completion")
+            {
+                auto params = protocol::CompletionParams::from_json(rpc.params.value());
+                auto document = dcon_document(params.textDocument.uri);
+                if (!document)
+                    return null_response();
+                return protocol::build_response(rpc.id.value(), dcon_analyzer().completion(document->first, document->second, params.position).to_json());
+            }
+            if (method == "textDocument/definition")
+            {
+                auto params = protocol::DefinitionParams::from_json(rpc.params.value());
+                auto document = dcon_document(params.textDocument.uri);
+                if (!document)
+                    return null_response();
+                auto location = dcon_analyzer().definition(document->first, document->second, params.position);
+                return location ? protocol::build_response(rpc.id.value(), location->to_json()) : null_response();
+            }
+            return null_response();
+        }
+
         void recompile_document(std::string const& uri, bool publish = false, std::string_view trigger = "query")
         {
             ++m_analysis_id;
@@ -2452,6 +2556,12 @@ export namespace dccd
             if (dcc::vfs::is_dcc_core_uri(uri))
             {
                 std::println(m_log, "[dccd] recompile_document: skipping read-only dcc-core: URI {}", uri);
+                return;
+            }
+
+            if (dccd::dcon::is_dcon_uri(uri))
+            {
+                analyze_dcon_document(uri, publish);
                 return;
             }
 
@@ -3136,6 +3246,8 @@ export namespace dccd
         {
             std::println(m_log, "[dccd] workspace/didChangeWatchedFiles received");
             auto params = protocol::DidChangeWatchedFilesParams::from_json(rpc.params.value());
+
+            refresh_dcon_documents(params);
 
             bool reload = false;
             auto global_cfg = global_config_path();

@@ -1,6 +1,8 @@
 # DC Language Support
 
-Syntax highlighting for DC source (`.dc`), compiler test fixtures (`.dcc-test`), and IR dumps (`.dir`), with language server support powered by `dccd`.
+Syntax highlighting for DC source (`.dc`), dpm manifests (`.dcon`), compiler test fixtures (`.dcc-test`), and IR dumps (`.dir`), with language server support powered by `dccd`.
+
+For `project.dcon`, `project.lock.dcon` and other `.dcon` files, `dccd` reports manifest errors and lock mismatches, and offers hover, completion and go to definition into the dpm schema. It never builds, fetches or runs anything for a manifest; it reads the file, the neighbouring lock file and the local dpm cache directory.
 
 Install DCC separately and put `dccd` on your PATH, or set `dcc.serverPath` to its executable path. Language server features require a desktop or remote VS Code extension host; this extension does not run in the browser.
 

@@ -91,6 +91,7 @@ DCCD_SERVER_OBJS := \
 	$(OBJ_DIR)/dccd.protocol.pcm.o \
 	$(OBJ_DIR)/dccd.compilation_database.pcm.o \
 	$(OBJ_DIR)/dccd.completion.pcm.o \
+	$(OBJ_DIR)/dccd.dcon.pcm.o \
 	$(OBJ_DIR)/dccd.inlay_hints.pcm.o \
 	$(OBJ_DIR)/dccd.semantic_tokens.pcm.o \
 	$(OBJ_DIR)/dccd.workspace_index.pcm.o \
@@ -121,6 +122,7 @@ test-i8086:
 
 test-lsp-diagnostics: $(BUILD_DIR)/bin/dccd
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_diagnostics.py $(BUILD_DIR)/bin/dccd
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_dcon.py $(BUILD_DIR)/bin/dccd $(TOPLEVEL)/dpm/schema
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_edit_fuzzer.py $(BUILD_DIR)/bin/dccd
 
 test: $(ALL_TEST_BINS) test-lsp-diagnostics
@@ -205,7 +207,7 @@ $(BUILD_DIR)/bin/tests/test_workspace_index: $(OBJ_DIR)/tests/source/test_worksp
 $(BUILD_DIR)/bin/tests/test_transport: $(OBJ_DIR)/tests/source/test_transport.cc.o $(DCCD_TRANSPORT_OBJS) $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
 
-$(BUILD_DIR)/bin/tests/test_lsp: $(OBJ_DIR)/tests/source/test_lsp.cc.o $(DCCD_SERVER_OBJS) $(COMPILER_LIB)
+$(BUILD_DIR)/bin/tests/test_lsp: $(OBJ_DIR)/tests/source/test_lsp.cc.o $(DCCD_SERVER_OBJS) $(DPM_CORE_LIB) $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
 
 $(BUILD_DIR)/bin/tests/test_compilation_database: $(OBJ_DIR)/tests/source/test_compilation_database.cc.o $(DCCD_COMPDB_OBJS) $(COMPILER_LIB)

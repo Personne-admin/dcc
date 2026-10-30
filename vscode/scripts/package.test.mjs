@@ -14,7 +14,7 @@ test('VSIX includes only runtime files and documentation', () => {
         'LICENSE', 'readme.md',
         'language-configuration-dcc-dir.json', 'language-configuration-dcc-test.json', 'language-configuration.json',
         'out/THIRD_PARTY_NOTICES.txt', 'out/extension.js', 'out/terminateProcess.sh', 'package.json',
-        'syntaxes/dcc-dir.tmLanguage.json', 'syntaxes/dcc-test.tmLanguage.json', 'syntaxes/dcc.tmLanguage.json',
+        'syntaxes/dcc-dir.tmLanguage.json', 'syntaxes/dcc-test.tmLanguage.json', 'syntaxes/dcc.tmLanguage.json', 'syntaxes/dcon.tmLanguage.json',
     ].sort());
     assert.equal(readFileSync('out/terminateProcess.sh', 'utf8'), readFileSync('node_modules/vscode-languageclient/lib/node/terminateProcess.sh', 'utf8'));
     if (process.platform !== 'win32')

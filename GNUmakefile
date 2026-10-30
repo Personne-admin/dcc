@@ -57,7 +57,7 @@ compiler:
 driver: compiler
 	@$(MAKE) -C driver
 
-dccd: compiler
+dccd: compiler dpm
 	@$(MAKE) -C dccd
 
 dcdoc: compiler
@@ -73,7 +73,7 @@ ifneq ($(ENABLE_LLVM),0)
 endif
 	@$(MAKE) -C libdcext TARGET=x86_64-freestanding BACKEND=custom
 
-test-bin: compiler
+test-bin: compiler dpm
 	@if [ -z "$(strip $(NAMES))" ]; then \
 		echo 'usage: make test-bin NAMES="test_name ..."' >&2; \
 		exit 2; \

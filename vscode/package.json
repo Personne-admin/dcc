@@ -22,6 +22,7 @@
     ],
     "activationEvents": [
         "onLanguage:dc",
+        "onLanguage:dcon",
         "onLanguage:dcc-dir",
         "onLanguage:dcc-test",
         "onFileSystem:dcc-core"
@@ -47,6 +48,17 @@
                 "aliases": [
                     "DCC",
                     "dc"
+                ],
+                "configuration": "./language-configuration.json"
+            },
+            {
+                "id": "dcon",
+                "extensions": [
+                    ".dcon"
+                ],
+                "aliases": [
+                    "DC Manifest",
+                    "dcon"
                 ],
                 "configuration": "./language-configuration.json"
             },
@@ -78,6 +90,11 @@
                 "language": "dc",
                 "scopeName": "source.dc",
                 "path": "./syntaxes/dcc.tmLanguage.json"
+            },
+            {
+                "language": "dcon",
+                "scopeName": "source.dcon",
+                "path": "./syntaxes/dcon.tmLanguage.json"
             },
             {
                 "language": "dcc-dir",

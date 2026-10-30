@@ -43,6 +43,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const watchers: vscode.FileSystemWatcher[] = [
         vscode.workspace.createFileSystemWatcher('**/dcc.json'),
         vscode.workspace.createFileSystemWatcher('**/compile_commands.json'),
+        vscode.workspace.createFileSystemWatcher('**/project.lock.dcon'),
     ];
     context.subscriptions.push(...watchers);
 
@@ -50,6 +51,7 @@ export function activate(context: vscode.ExtensionContext): void {
         outputChannelName: 'DCC Language Server',
         documentSelector: [
             { scheme: 'file', language: 'dc' },
+            { scheme: 'file', language: 'dcon' },
         ],
         synchronize: {
             configurationSection: 'dcc',

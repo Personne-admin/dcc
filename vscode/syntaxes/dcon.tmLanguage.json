@@ -1,0 +1,13 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "DC Manifest",
+    "scopeName": "source.dcon",
+    "fileTypes": [
+        "dcon"
+    ],
+    "patterns": [
+        {
+            "include": "source.dc"
+        }
+    ]
+}
