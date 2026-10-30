@@ -16,7 +16,6 @@ public struct Task {
 }
 
 public struct ThreadPool {
-    mem::Allocator alloc;
     [] thread::Thread workers;
     [] Task queue;
     usize worker_count;
@@ -62,17 +61,17 @@ static if core::target::OS != core::target::Os::Freestanding {
 }
 
 static if core::target::OS != core::target::Os::Freestanding {
-    public Result(ThreadPool*, Error) create(mem::Allocator alloc, usize worker_count) {
+    public Result(ThreadPool*, Error) create(usize worker_count) {
         if worker_count == 0 {
             return Error::InvalidArgument;
         }
 
+        mem::Allocator alloc = heap::allocator();
         Result([] ThreadPool, mem::AllocError) pool_r = alloc.alloc_zeroed(1);
         if pool_r.is_err() {
             return Error::OutOfMemory;
         }
         ThreadPool* self = pool_r.unwrap().ptr;
-        self.alloc = alloc;
 
         Result([] thread::Thread, mem::AllocError) workers_r = alloc.alloc(worker_count);
         if workers_r.is_err() {
@@ -98,12 +97,6 @@ static if core::target::OS != core::target::Os::Freestanding {
 }
 
 static if core::target::OS != core::target::Os::Freestanding {
-    public Result(ThreadPool*, Error) create(usize worker_count) {
-        return create(heap::allocator(), worker_count);
-    }
-}
-
-static if core::target::OS != core::target::Os::Freestanding {
     public Status(Error) submit(ThreadPool* self, void(*)(void*) entry, void* context) {
         self.guard.lock();
         if self.stopping {
@@ -112,6 +105,7 @@ static if core::target::OS != core::target::Os::Freestanding {
         }
 
         if self.queue_count == self.queue.len {
+            mem::Allocator alloc = heap::allocator();
             usize old_capacity = self.queue.len;
             result::Optional(usize) capacity = thread_pool_checked_mul(old_capacity, 2);
             if capacity.is_none() {
@@ -119,7 +113,7 @@ static if core::target::OS != core::target::Os::Freestanding {
                 return Error::OutOfMemory;
             }
             usize new_capacity = if old_capacity == 0 { 64 } else { capacity.unwrap_some() };
-            Result([] Task, mem::AllocError) grown_r = self.alloc.alloc(new_capacity);
+            Result([] Task, mem::AllocError) grown_r = alloc.alloc(new_capacity);
             if grown_r.is_err() {
                 self.guard.unlock();
                 return if grown_r.unwrap_err() == mem::AllocError::OutOfMemory { Error::OutOfMemory } else { Error::OutOfMemory };
@@ -130,7 +124,7 @@ static if core::target::OS != core::target::Os::Freestanding {
                 grown[i] = self.queue[if i >= old_capacity - self.queue_head { i - (old_capacity - self.queue_head) } else { self.queue_head + i }];
             }
             if old_capacity != 0 {
-                self.alloc.free(self.queue);
+                alloc.free(self.queue);
             }
             self.queue = grown;
             self.queue_head = 0;
@@ -172,10 +166,11 @@ static if core::target::OS != core::target::Os::Freestanding {
         for usize i = 0; i < self.worker_count; i++ {
             self.workers[i].join().unwrap();
         }
+        mem::Allocator alloc = heap::allocator();
         if self.queue.len != 0 {
-            self.alloc.free(self.queue);
+            alloc.free(self.queue);
         }
-        self.alloc.free(self.workers);
+        alloc.free(self.workers);
 
         self.guard.lock();
         self.joined = true;
@@ -187,7 +182,7 @@ static if core::target::OS != core::target::Os::Freestanding {
 static if core::target::OS != core::target::Os::Freestanding {
     public void destroy(ThreadPool* self) {
         self.shutdown();
-        mem::Allocator alloc = self.alloc;
+        mem::Allocator alloc = heap::allocator();
         alloc.destroy(self);
     }
 }
