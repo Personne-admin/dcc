@@ -62,8 +62,10 @@ export namespace dpm::manifest
     {
         Pos begin;
         Pos end;
+        std::uint32_t begin_offset{};
+        std::uint32_t end_offset{};
 
-        [[nodiscard]] bool operator==(Range const&) const noexcept = default;
+        [[nodiscard]] bool operator==(Range const& other) const noexcept { return begin == other.begin && end == other.end; }
     };
 
     struct Diagnostic
@@ -403,7 +405,7 @@ export namespace dpm::manifest
 
         inline Range range_at(dcc::sm::SourceFile const& file, std::uint32_t begin, std::uint32_t end)
         {
-            return {pos_at(file, begin), pos_at(file, std::max(begin, end))};
+            return {pos_at(file, begin), pos_at(file, std::max(begin, end)), begin, std::max(begin, end)};
         }
 
         inline std::vector<Tok> lex_tokens(dcc::session::CompilerSession& session, dcc::sm::SourceFile const& file)
