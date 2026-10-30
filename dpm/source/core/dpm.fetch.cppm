@@ -462,10 +462,11 @@ export namespace dpm::fetch
         return result;
     }
 
-    [[nodiscard]] inline Fetched fetch_tarball(cache::Cache const& cache, std::string const& url, std::string_view expected_hash, Policy const& policy)
+    [[nodiscard]] inline Fetched fetch_tarball(cache::Cache const& cache, std::string const& url, std::string_view expected_hash, Policy const& policy,
+                                                 bool allow_cached = false)
     {
         Fetched out;
-        if (!expected_hash.empty())
+        if (!expected_hash.empty() && allow_cached)
         {
             auto path = cache.src_path(expected_hash);
             std::error_code ec;
@@ -517,12 +518,13 @@ export namespace dpm::fetch
         std::vector<std::string> tags;
         std::string commit;
         std::string hash;
+        bool allow_cached{};
     };
 
     [[nodiscard]] inline Fetched fetch_git(cache::Cache const& cache, GitRequest const& request, Policy const& policy)
     {
         Fetched out;
-        if (!request.hash.empty())
+        if (!request.hash.empty() && request.allow_cached)
         {
             auto path = cache.src_path(request.hash);
             std::error_code ec;
@@ -737,7 +739,7 @@ export namespace dpm::fetch
             }
             if (is_tarball_location(location, policy_))
             {
-                fetched = fetch_tarball(cache_, std::string{location}, pinned ? pinned->hash : std::string{}, policy_);
+                fetched = fetch_tarball(cache_, std::string{location}, pinned ? pinned->hash : std::string{}, policy_, pinned != nullptr);
                 source = std::string{location};
             }
             else
@@ -757,6 +759,7 @@ export namespace dpm::fetch
                 {
                     request.commit = pinned->commit;
                     request.hash = pinned->hash;
+                    request.allow_cached = true;
                 }
                 fetched = fetch_git(cache_, request, policy_);
                 source = "git+" + spec->url + (spec->subdir.empty() ? "" : "#" + spec->subdir);
@@ -915,13 +918,18 @@ export namespace dpm::fetch
     } // namespace detail
 
     [[nodiscard]] inline FetchAllResult fetch_locked(cache::Cache const& cache, manifest::Lock const& lock, Policy const& policy,
-                                                     std::filesystem::path const& schema_root = {})
+                                                     std::filesystem::path const& schema_root = {}, manifest::Lock const* pinned = nullptr)
     {
         FetchAllResult all;
         for (auto const& p : lock.packages)
         {
             if (p.location.starts_with("path:"))
                 continue;
+            bool already_pinned = false;
+            if (pinned)
+                for (auto const& q : pinned->packages)
+                    if (q.location == p.location && q.version == p.version && q.source == p.source && q.commit == p.commit && q.hash == p.hash)
+                        already_pinned = true;
             Fetched f;
             if (p.source.starts_with("registry:"))
             {
@@ -930,7 +938,7 @@ export namespace dpm::fetch
                 continue;
             }
             if (is_tarball_location(p.source, policy))
-                f = fetch_tarball(cache, p.source, p.hash, policy);
+                f = fetch_tarball(cache, p.source, p.hash, policy, already_pinned);
             else
             {
                 std::string error;
@@ -945,6 +953,7 @@ export namespace dpm::fetch
                 request.spec = *spec;
                 request.commit = p.commit;
                 request.hash = p.hash;
+                request.allow_cached = already_pinned;
                 std::string v = p.version;
                 if (!spec->subdir.empty())
                     request.tags.push_back(spec->subdir + "/v" + v);

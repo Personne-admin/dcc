@@ -409,6 +409,15 @@ def scenario_registry_file():
     write(entry, original)
     check(dpm(app, "lock", env=env).returncode == 0, "the corrected registry resolves again")
 
+    wrong = git(repo, "rev-parse", "v1.0.0^{commit}")
+    write(entry, original.replace(git(repo, "rev-parse", "v1.2.0^{commit}"), wrong))
+    os.remove(os.path.join(app, "project.lock.dcon"))
+    r = dpm(app, "lock", env=env)
+    check(r.returncode == 4 and "mismatch" in r.stderr, "a registry commit paired with a cached hash is verified, not trusted", detail(r))
+    check(not os.path.exists(os.path.join(app, "project.lock.dcon")), "no lock is written for a commit that does not produce the hash")
+    write(entry, original)
+    check(dpm(app, "lock", env=env).returncode == 0, "the corrected registry resolves again after a wrong commit")
+
     app2 = new_app("regyank")
     write(os.path.join(app2, "src", "main.dc"), import_main("regpkg"))
     r = dpm(app2, "add", "regpkg@1.1.0", env=env)

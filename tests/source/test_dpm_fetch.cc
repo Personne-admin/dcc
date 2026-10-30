@@ -1130,3 +1130,96 @@ TEST_CASE("the runner enforces timeouts, capture limits and file size limits")
     CHECK(s.aborted);
     CHECK(seen < 5000000);
 }
+
+TEST_CASE("a cached hash is only trusted for an exact pair the lock already pins")
+{
+    TempDir repo;
+    init_repo(repo);
+    repo.write("project.dcon", project_text("lib", "1.0.0"));
+    auto first = commit_all(repo, "one");
+    REQUIRE(git(repo.path, {"tag", "v1.0.0"}).ok());
+    repo.write("project.dcon", project_text("lib", "1.1.0"));
+    auto second = commit_all(repo, "two");
+    REQUIRE(git(repo.path, {"tag", "v1.1.0"}).ok());
+    CHECK_NE(first, second);
+
+    Env env;
+    auto a = dpm::fetch::fetch_git(env.cache, request_for(repo, {"v1.1.0"}), test_policy());
+    REQUIRE(a.ok);
+    CHECK_EQ(a.commit, second);
+
+    auto wrong = request_for(repo, {"v1.0.0"}, first, a.hash);
+    auto refused = dpm::fetch::fetch_git(env.cache, wrong, test_policy());
+    CHECK(!refused.ok);
+    CHECK(contains(refused.error, "hash mismatch"));
+
+    wrong.allow_cached = true;
+    auto trusted = dpm::fetch::fetch_git(env.cache, wrong, test_policy());
+    CHECK(trusted.ok);
+
+    auto right = request_for(repo, {"v1.1.0"}, second, a.hash);
+    auto verified = dpm::fetch::fetch_git(env.cache, right, test_policy());
+    REQUIRE(verified.ok);
+    CHECK_EQ(verified.commit, second);
+}
+
+TEST_CASE("fetch_locked verifies a new commit and hash pair even when the hash is cached")
+{
+    TempDir repo;
+    init_repo(repo);
+    repo.write("project.dcon", project_text("lib", "1.0.0"));
+    auto first = commit_all(repo, "one");
+    REQUIRE(git(repo.path, {"tag", "v1.0.0"}).ok());
+    repo.write("project.dcon", project_text("lib", "1.1.0"));
+    auto second = commit_all(repo, "two");
+    REQUIRE(git(repo.path, {"tag", "v1.1.0"}).ok());
+
+    Env env;
+    auto a = dpm::fetch::fetch_git(env.cache, request_for(repo, {"v1.1.0"}), test_policy());
+    REQUIRE(a.ok);
+
+    dpm::manifest::Lock lock;
+    dpm::manifest::LockedPackage p;
+    p.location = "git+" + url_of(repo);
+    p.version = "1.1.0";
+    p.source = p.location;
+    p.commit = first;
+    p.hash = a.hash;
+    lock.packages.push_back(p);
+
+    auto unpinned = dpm::fetch::fetch_locked(env.cache, lock, test_policy());
+    CHECK(!unpinned.ok);
+    REQUIRE(!unpinned.errors.empty());
+    CHECK(contains(unpinned.errors[0], "hash mismatch"));
+
+    dpm::manifest::Lock other = lock;
+    other.packages[0].commit = second;
+    auto different = dpm::fetch::fetch_locked(env.cache, lock, test_policy(), {}, &other);
+    CHECK(!different.ok);
+
+    auto pinned = dpm::fetch::fetch_locked(env.cache, lock, test_policy(), {}, &lock);
+    CHECK(pinned.ok);
+    CHECK_EQ(pinned.present, std::size_t{1});
+
+    lock.packages[0].commit = second;
+    auto correct = dpm::fetch::fetch_locked(env.cache, lock, test_policy());
+    CHECK(correct.ok);
+}
+
+TEST_CASE("a tarball hash that is already cached is verified against the downloaded archive unless the lock pins it")
+{
+    Env env;
+    TarBuilder one;
+    one.dir("pkg-1/").file("pkg-1/project.dcon", project_text("pkg", "1.0.0")).file("pkg-1/src/pkg/x.dc", "module pkg::x;\n");
+    auto url_one = "file://" + make_archive(env.home, "one", one.finish()).string();
+    TarBuilder two;
+    two.dir("pkg-2/").file("pkg-2/project.dcon", project_text("pkg", "2.0.0")).file("pkg-2/src/pkg/x.dc", "module pkg::x;\n");
+    auto url_two = "file://" + make_archive(env.home, "two", two.finish()).string();
+    auto a = dpm::fetch::fetch_tarball(env.cache, url_one, {}, test_policy());
+    REQUIRE(a.ok);
+    auto refused = dpm::fetch::fetch_tarball(env.cache, url_two, a.hash, test_policy());
+    CHECK(!refused.ok);
+    CHECK(contains(refused.error, "hash mismatch"));
+    auto trusted = dpm::fetch::fetch_tarball(env.cache, url_two, a.hash, test_policy(), true);
+    CHECK(trusted.ok);
+}
