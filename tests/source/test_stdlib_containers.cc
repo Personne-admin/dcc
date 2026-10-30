@@ -150,7 +150,7 @@ import std::result;
 public i32 main() {
     u8[1024] backing;
     std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..1024]);
-    std::mem::Allocator a = fb.allocator();
+    std::mem::FixedHandle a = std::mem::borrow(&fb);
 
     std::list::List(i32) l = std::list::new_list();
     if !l.is_empty() || l.len() != 0 { return 1; }
@@ -234,12 +234,26 @@ import std::map;
 import std::mem;
 import std::result;
 
+struct BackingPolicy {}
+
+std::result::Result([] u8, std::mem::AllocError) allocate(BackingPolicy* self, usize len, usize align) {
+    return std::mem::AllocError::OutOfMemory;
+}
+
+bool resize_in_place(BackingPolicy* self, [] u8 block, usize new_bytes, usize align) {
+    return false;
+}
+
+void free(BackingPolicy* self, [] u8 block, usize align) {}
+
 public i32 main() {
     u8[8192] backing;
     std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..8192]);
-    std::mem::Allocator a = fb.allocator();
+    std::mem::FixedHandle a = std::mem::borrow(&fb);
 
-    std::map::Map(u64, u64) m = std::map::new_map(a);
+    if sizeof(std::map::Map(u64, u64, std::mem::FixedHandle)) != 9 * sizeof(usize) { return 20; }
+    if sizeof(std::map::Map(u64, u64, BackingPolicy)) != 8 * sizeof(usize) { return 21; }
+    std::map::Map(u64, u64, std::mem::FixedHandle) m = std::map::new_map(a);
     if !m.is_empty() || m.len() != 0 { return 1; }
     if m.get(1).is_some() || m.contains(1) { return 2; }
     if m.remove(1).is_some() { return 3; }
@@ -271,7 +285,7 @@ public i32 main() {
     std::result::Optional(u64) g3 = m.get(51);
     if g3.is_none() || g3.unwrap_some() != 511 { return 14; }
 
-    std::map::Iterator(u64, u64) it = m.iterate();
+    std::map::Iterator(u64, u64, std::mem::FixedHandle) it = m.iterate();
     u64 sum = 0;
     usize seen = 0;
     while true {

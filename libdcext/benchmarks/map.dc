@@ -7,8 +7,9 @@ i32 workload() {
     u8[8192] backing;
     std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..8192]);
     std::mem::Allocator a = fb.allocator();
+    std::mem::FixedHandle handle = std::mem::borrow(&fb);
 
-    std::map::Map(u64, u64) m = std::map::new_map(a);
+    std::map::Map(u64, u64, std::mem::FixedHandle) m = std::map::new_map(handle);
     if !m.is_empty() || m.len() != 0 { return 1; }
     if m.get(1).is_some() || m.contains(1) { return 2; }
     if m.remove(1).is_some() { return 3; }
@@ -40,7 +41,7 @@ i32 workload() {
     std::result::Optional(u64) g3 = m.get(51);
     if g3.is_none() || g3.unwrap_some() != 511 { return 14; }
 
-    std::map::Iterator(u64, u64) it = m.iterate();
+    std::map::Iterator(u64, u64, std::mem::FixedHandle) it = m.iterate();
     u64 sum = 0;
     usize seen = 0;
     while true {

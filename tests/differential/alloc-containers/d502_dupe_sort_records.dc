@@ -68,6 +68,7 @@ public i32 main() {
     u8[8192] backing;
     std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..8192]);
     std::mem::Allocator alloc = fb.allocator();
+    std::mem::FixedHandle handle = std::mem::borrow(&fb);
     std::os::file::File out = std::os::file::stdout();
     Record[12] source = {
         {key = 41, weight = 4.5, flags = 11, score = 0.5},
@@ -94,7 +95,7 @@ public i32 main() {
 
     [] Record records = records_result.unwrap();
     std::sort::sort_by(records, compare_records);
-    std::map::Map(u64, Record) entries = std::map::new_map(alloc);
+    std::map::Map(u64, Record, std::mem::FixedHandle) entries = std::map::new_map(handle);
     usize i = 0;
     while i < records.len {
         Record record = records[i];

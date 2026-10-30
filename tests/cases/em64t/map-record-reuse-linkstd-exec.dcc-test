@@ -22,7 +22,8 @@ public i32 dcc_main() {
     u8[16384] backing;
     std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..16384]);
     std::mem::Allocator alloc = fb.allocator();
-    std::map::Map(u64, Record) entries = std::map::new_map(alloc);
+    std::mem::FixedHandle handle = std::mem::borrow(&fb);
+    std::map::Map(u64, Record, std::mem::FixedHandle) entries = std::map::new_map(handle);
     usize i = 1;
     while i <= 48 {
         Record record = make_record((i * 7 + 3) as u64);
@@ -41,7 +42,7 @@ public i32 dcc_main() {
     if entries.remove(66).is_none() {
         return 6;
     }
-    std::map::Iterator(u64, Record) cursor = entries.iterate();
+    std::map::Iterator(u64, Record, std::mem::FixedHandle) cursor = entries.iterate();
     u64 iterated = 0;
     u64 key_total = 0;
     while true {

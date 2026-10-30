@@ -1,10 +1,12 @@
 module std::list;
 
+import std::alloc;
 public import std::mem;
 public import std::result;
 
 using result::{ Result, Status, Optional };
-using mem::{ Allocator, AllocError };
+using mem::AllocError;
+using alloc::AllocatorPolicy;
 
 //!
 //! Intrusive doubly-linked list
@@ -300,12 +302,12 @@ public Optional(Node(T)*) previous(T)(Iterator(T)* self) {
 //! Allocating helpers
 //!
 
-public Status(AllocError) push_back_alloc(T)(
+public Status(AllocError) push_back_alloc(T, A)(
     List(T)* self,
-    const Allocator* alloc,
+    A* alloc,
     T value
-) {
-    Result(Node(T)*, AllocError) node_r = alloc.create();
+) if AllocatorPolicy(A) {
+    Result(Node(T)*, AllocError) node_r = alloc.create_item();
     if node_r.is_err() {
         return node_r.unwrap_err();
     }
@@ -315,12 +317,12 @@ public Status(AllocError) push_back_alloc(T)(
     return Status::Ok;
 }
 
-public Status(AllocError) push_front_alloc(T)(
+public Status(AllocError) push_front_alloc(T, A)(
     List(T)* self,
-    const Allocator* alloc,
+    A* alloc,
     T value
-) {
-    Result(Node(T)*, AllocError) node_r = alloc.create();
+) if AllocatorPolicy(A) {
+    Result(Node(T)*, AllocError) node_r = alloc.create_item();
     if node_r.is_err() {
         return node_r.unwrap_err();
     }
@@ -330,20 +332,20 @@ public Status(AllocError) push_front_alloc(T)(
     return Status::Ok;
 }
 
-public void destroy_node(T)(const Allocator* alloc, Node(T)* node) {
-    alloc.destroy(node);
+public void destroy_node(T, A)(A* alloc, Node(T)* node) if AllocatorPolicy(A) {
+    alloc.destroy_item(node);
 }
 
 /// unlinks and frees every node. only valid when all nodes came from
 /// `alloc` through the helpers above.
-public void deinit(T)(List(T)* self, const Allocator* alloc) {
+public void deinit(T, A)(List(T)* self, A* alloc) if AllocatorPolicy(A) {
     List(T) b = *self;
     Node(T)* current = b.head;
 
     while current != null {
         Node(T) cur = *current;
         Node(T)* next = cur.next;
-        alloc.destroy(current);
+        alloc.destroy_item(current);
         current = next;
     }
 

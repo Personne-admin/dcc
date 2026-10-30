@@ -2,11 +2,29 @@ module size_collections;
 import std::array;
 import std::map;
 import std::mem;
+import std::result;
 import std::os::heap;
+struct HeapPolicy {
+    std::mem::Allocator* alloc;
+}
+
+std::result::Result([] u8, std::mem::AllocError) allocate(HeapPolicy* self, usize len, usize align) {
+    return self.alloc.raw_alloc(len, align);
+}
+
+bool resize_in_place(HeapPolicy* self, [] u8 block, usize new_bytes, usize align) {
+    return self.alloc.raw_resize(block, new_bytes, align);
+}
+
+void free(HeapPolicy* self, [] u8 block, usize align) {
+    self.alloc.raw_free(block, align);
+}
+
 public i32 main() {
     std::mem::Allocator alloc = std::os::heap::allocator();
-    std::array::Array(u32) values = std::array::new_array(alloc);
-    std::map::Map(u32, u32) lookup = std::map::new_map(alloc);
+    HeapPolicy policy = {alloc = &alloc};
+    std::array::Array(u32, HeapPolicy) values = std::array::new_array(policy);
+    std::map::Map(u32, u32, HeapPolicy) lookup = std::map::new_map(policy);
     for u32 i = 0; i < 20; i++ {
         if !values.push(i).is_ok() { return 1; }
         if lookup.put(i, i * 3).is_err() { return 2; }

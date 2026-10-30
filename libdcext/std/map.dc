@@ -1,13 +1,15 @@
 module std::map;
 
+import core::allocator_config;
 import std::hash;
 import std::slice;
+import std::alloc;
 public import std::mem;
 public import std::math;
 public import std::result;
 
 using result::{ Result, Status, Optional };
-using mem::{ Allocator, AllocError };
+using alloc::{ AllocError, AllocatorPolicy };
 using hash::{ Hashable, KeyEq };
 
 //!
@@ -23,8 +25,8 @@ using usize MIN_CAPACITY = 16;
 using usize LOAD_NUM = 3;
 using usize LOAD_DEN = 4;
 
-public struct Map(K, V) if MapKey(K) {
-    Allocator alloc;
+public struct Map(K, V, A = DefaultAllocator) if MapKey(K) & AllocatorPolicy(A) {
+    A alloc;
     [] u8 control;
     [] K keys;
     [] V values;
@@ -41,7 +43,24 @@ public struct Entry(K, V) {
 //! Construction
 //!
 
-public Map(K, V) new_map(K, V)(Allocator alloc) {
+public Map(K, V) new_map(K, V)() {
+    return {
+        alloc = DefaultAllocator{},
+        control = slice::from_raw(null as u8*, 0),
+        keys = slice::from_raw(
+            null as K*,
+            0
+        ),
+        values = slice::from_raw(
+            null as V*,
+            0
+        ),
+        count = 0,
+        tombstones = 0,
+    };
+}
+
+public Map(K, V, A) new_map(K, V, A)(A alloc) if AllocatorPolicy(A) {
     return {
         alloc = alloc,
         control = slice::from_raw(null as u8*, 0),
@@ -59,22 +78,30 @@ public Map(K, V) new_map(K, V)(Allocator alloc) {
 }
 
 public Result(Map(K, V), AllocError) with_capacity(K, V)(
-    Allocator alloc,
     usize capacity
 ) {
-    Map(K, V) self = new_map(alloc);
+    Map(K, V) self = new_map();
+    self.ensure_capacity(capacity) ?;
+    return Result::Ok(self);
+}
+
+public Result(Map(K, V, A), AllocError) with_capacity(K, V, A)(
+    A alloc,
+    usize capacity
+) if AllocatorPolicy(A) {
+    Map(K, V, A) self = new_map(alloc);
     self.ensure_capacity(capacity) ?;
     return Result::Ok(self);
 }
 
 /// releases the table. keys and values holding resources must be drained
 /// through `iterate` first.
-public void deinit(K, V)(Map(K, V)* self) if MapKey(K) {
-    Map(K, V) b = *self;
+public void deinit(K, V, A)(Map(K, V, A)* self) if MapKey(K) {
+    Map(K, V, A) b = *self;
     if b.control.len > 0 {
-        b.alloc.free(b.control);
-        b.alloc.free(b.keys);
-        b.alloc.free(b.values);
+        b.alloc.free_slice(b.control);
+        b.alloc.free_slice(b.keys);
+        b.alloc.free_slice(b.values);
     }
 
     b.control = slice::from_raw(null as u8*, 0);
@@ -89,18 +116,18 @@ public void deinit(K, V)(Map(K, V)* self) if MapKey(K) {
 //! Queries
 //!
 
-public usize len(K, V)(const Map(K, V)* self) {
-    Map(K, V) b = *self;
+public usize len(K, V, A)(const Map(K, V, A)* self) {
+    Map(K, V, A) b = *self;
     return b.count;
 }
 
-public bool is_empty(K, V)(const Map(K, V)* self) {
-    Map(K, V) b = *self;
+public bool is_empty(K, V, A)(const Map(K, V, A)* self) {
+    Map(K, V, A) b = *self;
     return b.count == 0;
 }
 
-public usize capacity(K, V)(const Map(K, V)* self) {
-    Map(K, V) b = *self;
+public usize capacity(K, V, A)(const Map(K, V, A)* self) {
+    Map(K, V, A) b = *self;
     return b.control.len;
 }
 
@@ -113,8 +140,8 @@ u8 control_byte(u64 hash) {
 }
 
 /// index of `key` in the table, or None.
-Optional(usize) find_slot(K, V)(const Map(K, V)* self, const K* key, u64 hash) {
-    Map(K, V) b = *self;
+Optional(usize) find_slot(K, V, A)(const Map(K, V, A)* self, const K* key, u64 hash) {
+    Map(K, V, A) b = *self;
     usize mask = b.control.len - 1;
     usize index = (hash as usize) & mask;
     u8 tag = control_byte(hash);
@@ -140,13 +167,13 @@ Optional(usize) find_slot(K, V)(const Map(K, V)* self, const K* key, u64 hash) {
 
 /// slot an insertion should occupy: the existing entry when present, else
 /// the first empty or tombstoned slot on the probe chain.
-usize find_insert_slot(K, V)(
-    const Map(K, V)* self,
+usize find_insert_slot(K, V, A)(
+    const Map(K, V, A)* self,
     const K* key,
     u64 hash,
     bool* replacing
 ) {
-    Map(K, V) b = *self;
+    Map(K, V, A) b = *self;
     usize mask = b.control.len - 1;
     usize index = (hash as usize) & mask;
     u8 tag = control_byte(hash);
@@ -183,8 +210,8 @@ usize find_insert_slot(K, V)(
 //! Capacity
 //!
 
-public Status(AllocError) ensure_capacity(K, V)(Map(K, V)* self, usize wanted) {
-    Map(K, V) b = *self;
+public Status(AllocError) ensure_capacity(K, V, A)(Map(K, V, A)* self, usize wanted) {
+    Map(K, V, A) b = *self;
     usize needed = math::max(wanted, MIN_CAPACITY);
     Optional(usize) extra = map_checked_add(needed / LOAD_NUM, 1);
     if extra.is_none() { return AllocError::OutOfMemory; }
@@ -206,28 +233,28 @@ public Status(AllocError) ensure_capacity(K, V)(Map(K, V)* self, usize wanted) {
     return Status::Ok;
 }
 
-Status(AllocError) rehash_into(K, V)(Map(K, V)* self, usize new_capacity) {
-    Map(K, V) b = *self;
+Status(AllocError) rehash_into(K, V, A)(Map(K, V, A)* self, usize new_capacity) {
+    Map(K, V, A) b = *self;
     if map_checked_mul(new_capacity, sizeof(K)).is_none()
         || map_checked_mul(new_capacity, sizeof(V)).is_none() { return AllocError::OutOfMemory; }
     [] u8 old_control = b.control;
     [] K old_keys = b.keys;
     [] V old_values = b.values;
-    Allocator alloc = b.alloc;
+    A alloc = b.alloc;
 
-    Result([] u8, AllocError) control_r = alloc.alloc_zeroed(new_capacity);
+    Result([] u8, AllocError) control_r = alloc.allocate_zeroed_slice(new_capacity);
     if control_r.is_err() {
         return control_r.unwrap_err();
     }
-    Result([] K, AllocError) keys_r = alloc.alloc(new_capacity);
+    Result([] K, AllocError) keys_r = alloc.allocate_slice(new_capacity);
     if keys_r.is_err() {
-        alloc.free(control_r.unwrap());
+        alloc.free_slice(control_r.unwrap());
         return keys_r.unwrap_err();
     }
-    Result([] V, AllocError) values_r = alloc.alloc(new_capacity);
+    Result([] V, AllocError) values_r = alloc.allocate_slice(new_capacity);
     if values_r.is_err() {
-        alloc.free(keys_r.unwrap());
-        alloc.free(control_r.unwrap());
+        alloc.free_slice(keys_r.unwrap());
+        alloc.free_slice(control_r.unwrap());
         return values_r.unwrap_err();
     }
 
@@ -247,17 +274,17 @@ Status(AllocError) rehash_into(K, V)(Map(K, V)* self, usize new_capacity) {
     }
 
     if old_control.len > 0 {
-        alloc.free(old_control);
-        alloc.free(old_keys);
-        alloc.free(old_values);
+        alloc.free_slice(old_control);
+        alloc.free_slice(old_keys);
+        alloc.free_slice(old_values);
     }
 
     return Status::Ok;
 }
 
 /// Places an entry known to be absent into a table known to have room.
-void insert_unchecked(K, V)(Map(K, V)* self, K key, V value) {
-    Map(K, V) b = *self;
+void insert_unchecked(K, V, A)(Map(K, V, A)* self, K key, V value) {
+    Map(K, V, A) b = *self;
     u64 hash = key.hash_of();
     usize mask = b.control.len - 1;
     usize index = (hash as usize) & mask;
@@ -273,8 +300,8 @@ void insert_unchecked(K, V)(Map(K, V)* self, K key, V value) {
     *self = b;
 }
 
-bool needs_growth(K, V)(const Map(K, V)* self) {
-    Map(K, V) b = *self;
+bool needs_growth(K, V, A)(const Map(K, V, A)* self) {
+    Map(K, V, A) b = *self;
     if b.control.len == 0 {
         return true;
     }
@@ -288,12 +315,12 @@ bool needs_growth(K, V)(const Map(K, V)* self) {
 //!
 
 /// inserts or replaces.
-public Result(Optional(V), AllocError) put(K, V)(
-    Map(K, V)* self,
+public Result(Optional(V), AllocError) put(K, V, A)(
+    Map(K, V, A)* self,
     K key,
     V value
 ) {
-    Map(K, V) b = *self;
+    Map(K, V, A) b = *self;
     if needs_growth(&b) {
         Optional(usize) grown_capacity = map_checked_mul(b.control.len, 2);
         if grown_capacity.is_none() { return AllocError::OutOfMemory; }
@@ -303,7 +330,7 @@ public Result(Optional(V), AllocError) put(K, V)(
         if !rh_st.is_ok() {
             return rh_st.unwrap_err();
         }
-        Map(K, V) grown = *self;
+        Map(K, V, A) grown = *self;
         Result(Optional(V), AllocError) again = put(&grown, key, value);
         *self = grown;
         return again;
@@ -333,8 +360,8 @@ public Result(Optional(V), AllocError) put(K, V)(
     return Result::Ok(Optional::None);
 }
 
-public Optional(V) get(K, V)(const Map(K, V)* self, K key) {
-    Map(K, V) b = *self;
+public Optional(V) get(K, V, A)(const Map(K, V, A)* self, K key) {
+    Map(K, V, A) b = *self;
     if b.control.len == 0 {
         return Optional::None;
     }
@@ -348,8 +375,8 @@ public Optional(V) get(K, V)(const Map(K, V)* self, K key) {
 
 /// pointer to the stored value. invalidated by any insertion that grows
 /// the table.
-public Optional(V*) get_ptr(K, V)(Map(K, V)* self, K key) {
-    Map(K, V) b = *self;
+public Optional(V*) get_ptr(K, V, A)(Map(K, V, A)* self, K key) {
+    Map(K, V, A) b = *self;
     if b.control.len == 0 {
         return Optional::None;
     }
@@ -361,14 +388,14 @@ public Optional(V*) get_ptr(K, V)(Map(K, V)* self, K key) {
     };
 }
 
-public bool contains(K, V)(const Map(K, V)* self, K key) {
+public bool contains(K, V, A)(const Map(K, V, A)* self, K key) {
     return self.get(key).is_some();
 }
 
 /// returns a pointer to the value for `key`, inserting `fallback` when
 /// absent.
-public Result(V*, AllocError) get_or_put(K, V)(
-    Map(K, V)* self,
+public Result(V*, AllocError) get_or_put(K, V, A)(
+    Map(K, V, A)* self,
     K key,
     V fallback
 ) {
@@ -385,8 +412,8 @@ public Result(V*, AllocError) get_or_put(K, V)(
     return Result::Ok(q.unwrap_some());
 }
 
-public Optional(V) remove(K, V)(Map(K, V)* self, K key) {
-    Map(K, V) b = *self;
+public Optional(V) remove(K, V, A)(Map(K, V, A)* self, K key) {
+    Map(K, V, A) b = *self;
     if b.control.len == 0 {
         return Optional::None;
     }
@@ -406,8 +433,8 @@ public Optional(V) remove(K, V)(Map(K, V)* self, K key) {
 }
 
 /// empties the map without releasing its storage.
-public void clear(K, V)(Map(K, V)* self) {
-    Map(K, V) b = *self;
+public void clear(K, V, A)(Map(K, V, A)* self) {
+    Map(K, V, A) b = *self;
     mem::set(b.control, CTRL_EMPTY);
     b.count = 0;
     b.tombstones = 0;
@@ -418,18 +445,18 @@ public void clear(K, V)(Map(K, V)* self) {
 //! Iteration
 //!
 
-public struct Iterator(K, V) {
-    Map(K, V)* map;
+public struct Iterator(K, V, A) {
+    Map(K, V, A)* map;
     usize index;
 }
 
-public Iterator(K, V) iterate(K, V)(Map(K, V)* self) {
+public Iterator(K, V, A) iterate(K, V, A)(Map(K, V, A)* self) {
     return {map = self, index = 0};
 }
 
-public Optional(Entry(K, V)) next(K, V)(Iterator(K, V)* self) {
-    Iterator(K, V) it = *self;
-    Map(K, V) m = *it.map;
+public Optional(Entry(K, V)) next(K, V, A)(Iterator(K, V, A)* self) {
+    Iterator(K, V, A) it = *self;
+    Map(K, V, A) m = *it.map;
     while it.index < m.control.len {
         usize i = it.index;
         it.index++;

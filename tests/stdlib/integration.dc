@@ -635,7 +635,7 @@ i32 test_heap() {
     a.raw_free(guarded, 1);
 
     array::Array(i32, HeapPolicy) arr = array::new_array(policy);
-    map::Map(i32, i32) table = map::new_map(a);
+    map::Map(i32, i32, HeapPolicy) table = map::new_map(policy);
     i32 i = 0;
     while i < 5000 {
         if !arr.push(i).is_ok() || table.put(i, i * 3).is_err() {

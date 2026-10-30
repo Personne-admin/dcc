@@ -10,19 +10,19 @@ using std::result::{Result, Optional};
 struct Calls { usize allocations; usize resizes; usize frees; }
 struct Empty {}
 
-struct ArrayPolicy {
+struct LegacyPolicy {
     mem::Allocator* alloc;
 }
 
-Result([]u8, mem::AllocError) allocate(ArrayPolicy* self, usize len, usize align) {
+Result([]u8, mem::AllocError) allocate(LegacyPolicy* self, usize len, usize align) {
     return self.alloc.raw_alloc(len, align);
 }
 
-bool resize_in_place(ArrayPolicy* self, []u8 block, usize new_bytes, usize align) {
+bool resize_in_place(LegacyPolicy* self, []u8 block, usize new_bytes, usize align) {
     return self.alloc.raw_resize(block, new_bytes, align);
 }
 
-void free(ArrayPolicy* self, []u8 block, usize align) {
+void free(LegacyPolicy* self, []u8 block, usize align) {
     self.alloc.raw_free(block, align);
 }
 Result([]u8, mem::AllocError) reject(void* ctx, usize n, usize alignment) {
@@ -65,8 +65,8 @@ void release(void* ctx, []u8 old, usize alignment) {
     if arena.head != null || arena.next_chunk_size != mem::ARENA_MIN_CHUNK || c.allocations != 0 { return 16; }
     arena.next_chunk_size = max / 2 + 1;
     if arena.allocator().raw_alloc(1, 1).unwrap_err() != mem::AllocError::OutOfMemory || arena.head != null || c.allocations != 0 { return 17; }
-    ArrayPolicy ap = {alloc = &a};
-    array::Array(u16, ArrayPolicy) arr = array::new_array(ap);
+    LegacyPolicy policy = {alloc = &a};
+    array::Array(u16, LegacyPolicy) arr = array::new_array(policy);
     if arr.reserve(max).unwrap_err() != mem::AllocError::OutOfMemory || c.allocations != 0 { return 18; }
     if arr.count != 0 || arr.storage.ptr != null || arr.storage.len != 0 { return 19; }
     if arr.reserve(8).unwrap_err() != mem::AllocError::OutOfMemory || c.allocations != 1 { return 20; }
@@ -80,7 +80,7 @@ void release(void* ctx, []u8 old, usize alignment) {
     arr.count = 1;
     arr.storage = slice::from_raw(&value, max / 2 + 1);
     if arr.reserve(max).unwrap_err() != mem::AllocError::OutOfMemory || arr.count != 1 || c.allocations != 1 || c.resizes != 0 { return 25; }
-    map::Map(u8, u8) m = map::new_map(a);
+    map::Map(u8, u8, LegacyPolicy) m = map::new_map(policy);
     if m.ensure_capacity(max).unwrap_err() != mem::AllocError::OutOfMemory || m.control.ptr != null || m.count != 0 { return 26; }
     usize cap = max / 2 + 1;
     m.control = slice::from_raw(&backing[0], cap);

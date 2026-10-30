@@ -19,12 +19,29 @@ void free(void* ctx, []u8 old, usize alignment) {
     t.live = t.live - 1;
     t.buffer.allocator().raw_free(old, alignment);
 }
+struct FailurePolicy {
+    mem::Allocator* alloc;
+}
+
+Result([]u8, mem::AllocError) allocate(FailurePolicy* self, usize len, usize align) {
+    return self.alloc.raw_alloc(len, align);
+}
+
+bool resize_in_place(FailurePolicy* self, []u8 block, usize new_bytes, usize align) {
+    return self.alloc.raw_resize(block, new_bytes, align);
+}
+
+void free(FailurePolicy* self, []u8 block, usize align) {
+    self.alloc.raw_free(block, align);
+}
+
 u8[2048] backing = {};
 @nomangle public i32 dcc_main() {
     for usize failure = 1; failure <= 3; failure++ {
         Tracking t = {buffer = mem::new_fixed_buffer(backing[0..2048]), calls = 0, fail = 0, live = 0};
         mem::Allocator a = {ctx = &t as void*, alloc_fn = allocate, resize_fn = resize, free_fn = free};
-        map::Map(u16, u16) m = map::new_map(a);
+        FailurePolicy policy = {alloc = &a};
+        map::Map(u16, u16, FailurePolicy) m = map::new_map(policy);
         if m.put(7, 19).is_err() { return 1; }
         usize capacity = m.capacity();
         u8* control = m.control.ptr;

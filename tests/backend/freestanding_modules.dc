@@ -18,7 +18,7 @@ import assert;
     std::mem::FixedHandle handle = std::mem::borrow(&buffer);
     std::array::Array(u64, std::mem::FixedHandle) values = std::array::new_array(handle);
     if !values.push(7).is_ok() { return 1; }
-    std::map::Map(u64, u64) mapping = std::map::new_map(allocator);
+    std::map::Map(u64, u64, std::mem::FixedHandle) mapping = std::map::new_map(handle);
     if mapping.put(3, 7).is_err() { return 2; }
     if mapping.get(3).unwrap_some() != 7 { return 3; }
     if std::hash::fnv1a_64("abc") == 0 {

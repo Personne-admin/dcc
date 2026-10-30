@@ -57,8 +57,9 @@ public i32 main() {
     u8[16384] backing;
     std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..16384]);
     std::mem::Allocator alloc = fb.allocator();
+    std::mem::FixedHandle handle = std::mem::borrow(&fb);
     std::os::file::File out = std::os::file::stdout();
-    std::map::Map(u64, Record) entries = std::map::new_map(alloc);
+    std::map::Map(u64, Record, std::mem::FixedHandle) entries = std::map::new_map(handle);
     Record probe = make_record(1);
     u64 live_count = 0;
     f64 live_weight = probe.weight;
@@ -88,7 +89,7 @@ public i32 main() {
 
     print_u64(&out, live_count);
     print_u64(&out, f64bits(live_weight));
-    std::map::Iterator(u64, Record) cursor = entries.iterate();
+    std::map::Iterator(u64, Record, std::mem::FixedHandle) cursor = entries.iterate();
     u64 iterated = 0;
     u64 key_total = 0;
     f64 weight_total = 0.0;

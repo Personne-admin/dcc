@@ -62,8 +62,9 @@ public i32 main() {
     u8[16384] backing;
     std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..16384]);
     std::mem::Allocator alloc = fb.allocator();
+    std::mem::FixedHandle handle = std::mem::borrow(&fb);
     std::os::file::File out = std::os::file::stdout();
-    std::map::Map(u64, Pad) entries = std::map::new_map(alloc);
+    std::map::Map(u64, Pad, std::mem::FixedHandle) entries = std::map::new_map(handle);
 
     usize i = 1;
     while i <= 24 {
