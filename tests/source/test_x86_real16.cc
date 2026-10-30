@@ -16,6 +16,8 @@ import dcc.backend.x86.modasm;
 
 #include "harness.hh"
 
+#include <unistd.h>
+
 using namespace dcc::backend::x86;
 
 namespace
@@ -94,7 +96,7 @@ namespace
     {
         static unsigned counter = 0;
         auto dir =
-            std::filesystem::temp_directory_path() / std::format("dcc-real16-{}-{}", std::chrono::steady_clock::now().time_since_epoch().count(), counter++);
+            std::filesystem::temp_directory_path() / std::format("dcc-real16-{}-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count(), counter++);
         std::filesystem::create_directories(dir);
         auto source = dir / "case.asm";
         auto output = dir / "case.bin";
@@ -753,7 +755,7 @@ TEST_CASE("i8086 objects are elf32 i386 relocatable files with rel relocations")
 TEST_CASE("i8086 elf32 objects link with ld.lld into a flat binary that runs under qemu")
 {
     auto obj = build_i8086_object();
-    auto dir = std::filesystem::temp_directory_path() / std::format("dcc-elf32-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+    auto dir = std::filesystem::temp_directory_path() / std::format("dcc-elf32-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
     std::filesystem::create_directories(dir);
     {
         std::ofstream out{dir / "main.o", std::ios::binary};

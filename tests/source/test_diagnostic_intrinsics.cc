@@ -2,6 +2,8 @@ import std;
 
 #include "harness.hh"
 
+#include <unistd.h>
+
 namespace
 {
     struct Compilation
@@ -15,7 +17,7 @@ namespace
     {
         auto const dcc = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path() / "dcc";
         auto const dir = std::filesystem::temp_directory_path() /
-                         std::format("dcc-diagnostic-intrinsics-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+                         std::format("dcc-diagnostic-intrinsics-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
         std::filesystem::create_directories(dir);
         auto const src = dir / "main.dc";
         auto const log = dir / "diagnostics";

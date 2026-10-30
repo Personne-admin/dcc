@@ -12,6 +12,8 @@ import dcc.types;
 
 #include "harness.hh"
 
+#include <unistd.h>
+
 namespace ast = dcc::ast;
 namespace comptime = dcc::comptime;
 namespace ctfe = dcc::ctfe;
@@ -40,7 +42,7 @@ namespace
         {
             static int counter = 0;
             ++counter;
-            dir = std::filesystem::temp_directory_path() / ("dcc-spec-" + std::to_string(counter));
+            dir = std::filesystem::temp_directory_path() / ("dcc-spec-" + std::to_string(::getpid()) + "-" + std::to_string(counter));
             std::error_code ec;
             std::filesystem::create_directories(dir, ec);
             std::ofstream out{dir / "test.dc"};

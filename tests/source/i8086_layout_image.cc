@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <unistd.h>
 
 import std;
 import dcc.cli;
@@ -228,7 +229,7 @@ namespace
             std::println(std::cerr, "dcc: error: {}", layout.error());
             return std::unexpected(1);
         }
-        auto directory = fs::temp_directory_path() / std::format("dcc-i8086-legacy-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+        auto directory = fs::temp_directory_path() / std::format("dcc-i8086-legacy-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
         std::error_code ec;
         fs::create_directories(directory, ec);
         struct Cleanup
@@ -263,7 +264,7 @@ namespace
     int self_check()
     {
         std::error_code ec;
-        auto directory = fs::temp_directory_path(ec) / std::format("dcc-i8086-layout-self-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+        auto directory = fs::temp_directory_path(ec) / std::format("dcc-i8086-layout-self-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
         fs::create_directories(directory, ec);
         struct Cleanup
         {

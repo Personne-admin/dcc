@@ -10,6 +10,8 @@ import dcdoc.markdown.emit;
 
 #include "harness.hh"
 
+#include <unistd.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -21,7 +23,7 @@ struct TempDir
     TempDir()
     {
         auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-        auto dir = std::filesystem::temp_directory_path() / ("dcdoc_test_" + std::to_string(stamp) + "_" + std::to_string(++s_counter));
+        auto dir = std::filesystem::temp_directory_path() / ("dcdoc_test_" + std::to_string(::getpid()) + "_" + std::to_string(stamp) + "_" + std::to_string(++s_counter));
         std::filesystem::create_directories(dir);
         path = std::move(dir);
     }

@@ -762,7 +762,7 @@ TEST_CASE("clobbers and literal registers are tracked")
 TEST_CASE("inline port io matches nasm in both modes and dialects")
 {
     using namespace dcc::backend::x86;
-    auto dir = std::filesystem::temp_directory_path() / std::format("dcc-inline-port-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+    auto dir = std::filesystem::temp_directory_path() / std::format("dcc-inline-port-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
     std::filesystem::create_directories(dir);
     for (auto arch : {dcc::target::Arch::X86_64, dcc::target::Arch::I8086})
         for (auto dialect : {IrAsmDialect::Intel, IrAsmDialect::Att})

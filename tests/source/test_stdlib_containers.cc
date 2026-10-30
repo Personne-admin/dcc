@@ -3,6 +3,7 @@ import std;
 #include "harness.hh"
 
 #include <sys/wait.h>
+#include <unistd.h>
 
 namespace
 {
@@ -15,7 +16,8 @@ namespace
     {
         std::error_code ec;
         auto const dcc = std::filesystem::weakly_canonical("/proc/self/exe", ec).parent_path().parent_path() / "dcc";
-        auto const dir = std::filesystem::temp_directory_path() / "dcc-stdlib-containers" / name;
+        static std::atomic<int> counter{0};
+        auto const dir = std::filesystem::temp_directory_path() / std::format("dcc-stdlib-containers-{}-{}-{}", ::getpid(), ++counter, name);
         std::filesystem::create_directories(dir, ec);
         auto const src = dir / "main.dc";
         auto const exe = dir / "program";
@@ -26,7 +28,10 @@ namespace
 
         auto const compile = std::format("timeout 60 {} -flibdcext -target x86_64-elf -fbackend {} {} -o {} {}", shell_quote(dcc), backend, opt, shell_quote(exe), shell_quote(src));
         if (std::system(compile.c_str()) != 0)
+        {
+            std::filesystem::remove_all(dir, ec);
             return -1;
+        }
 
         int const status = std::system(("timeout 30 " + shell_quote(exe)).c_str());
         std::filesystem::remove_all(dir, ec);

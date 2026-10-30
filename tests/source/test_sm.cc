@@ -4,6 +4,8 @@ import dcc.utf8;
 
 #include "harness.hh"
 
+#include <unistd.h>
+
 namespace sm = dcc::sm;
 
 SECTION("sm: lsp_position bounds checking");
@@ -186,7 +188,8 @@ TEST_CASE("update_in_memory on nonexistent URI returns FileNotFound")
 
 TEST_CASE("update_in_memory on disk-loaded file returns PermissionDenied")
 {
-    auto temp_file = std::filesystem::temp_directory_path() / "dcc_test_permission.tmp";
+    static std::atomic<int> counter{0};
+    auto temp_file = std::filesystem::temp_directory_path() / std::format("dcc-permission-{}-{}.tmp", ::getpid(), ++counter);
 
     std::error_code ec;
     std::filesystem::remove(temp_file, ec);

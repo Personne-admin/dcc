@@ -14,6 +14,8 @@ import dcc.target;
 
 #include "harness.hh"
 
+#include <unistd.h>
+
 using namespace std::literals;
 
 namespace types = dcc::types;
@@ -1569,7 +1571,7 @@ TEST_CASE("pack-spliced function pointer substitution interns and mangles expand
 TEST_CASE("parsed pack-spliced function pointer specializations share canonical identity")
 {
     auto path = std::filesystem::temp_directory_path() /
-                std::format("dcc-fnptr-identity-{}.dc", std::chrono::steady_clock::now().time_since_epoch().count());
+                std::format("dcc-fnptr-identity-{}-{}.dc", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
     struct Cleanup
     {
         std::filesystem::path path;

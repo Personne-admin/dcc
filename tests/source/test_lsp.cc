@@ -12,6 +12,8 @@ import dccd.workspace_index;
 
 #include "harness.hh"
 
+#include <unistd.h>
+
 namespace
 {
     using dccd::protocol::JsonValue;
@@ -219,7 +221,7 @@ namespace
         TempDir()
         {
             auto base = std::filesystem::temp_directory_path();
-            auto tag = std::format("dcc-lsp-test-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+            auto tag = std::format("dcc-lsp-test-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
             path = base / tag;
             std::filesystem::create_directories(path);
         }
@@ -4818,7 +4820,8 @@ TEST_CASE("range formatting returns only the selected unformatted region and app
     dccd::LanguageServer server{&sink.stream};
     initialize_server(server, sink);
 
-    auto uri = open_file(server, sink, std::filesystem::temp_directory_path() / "dccd_lsp_range_fmt.dc", "module m;\nvoid f() {\n    i32 x=1;\n}\n");
+    TempDir td;
+    auto uri = open_file(server, sink, td.path / "range_fmt.dc", "module m;\nvoid f() {\n    i32 x=1;\n}\n");
 
     dccd::protocol::LspRange range;
     range.start.line = 2;
@@ -4848,7 +4851,8 @@ TEST_CASE("range formatting refuses when another needed change lies outside the 
     dccd::LanguageServer server{&sink.stream};
     initialize_server(server, sink);
 
-    auto uri = open_file(server, sink, std::filesystem::temp_directory_path() / "dccd_lsp_range_fmt_refuse.dc",
+    TempDir td;
+    auto uri = open_file(server, sink, td.path / "range_fmt_refuse.dc",
                          "module m;\nvoid f() {\n    i32 x=1;\n    i32 y=2;\n}\n");
 
     dccd::protocol::LspRange range;
@@ -4866,7 +4870,7 @@ TEST_CASE("range formatting refuses when another needed change lies outside the 
     edits = request_range_formatting(server, sink, uri, range);
     CHECK(edits.empty());
 
-    auto uri2 = open_file(server, sink, std::filesystem::temp_directory_path() / "dccd_lsp_range_fmt_noop.dc", "module m;\nvoid f() {\n    i32 x = 1;\n}\n");
+    auto uri2 = open_file(server, sink, td.path / "range_fmt_noop.dc", "module m;\nvoid f() {\n    i32 x = 1;\n}\n");
     range.start.line = 2;
     range.start.character = 8;
     range.end.line = 2;
@@ -4884,7 +4888,8 @@ TEST_CASE("range formatting honors negotiated utf-8, utf-16 and utf-32 positions
         initialize_server(server, sink, {}, {enc});
 
         std::string src = "module m;\nvoid f() {\n    const char* s=\"caf\u00e9\";\n    i32 y = 2;\n}\n";
-        auto uri = open_file(server, sink, std::filesystem::temp_directory_path() / "dccd_lsp_range_fmt_enc.dc", src);
+        TempDir td;
+        auto uri = open_file(server, sink, td.path / "range_fmt_enc.dc", src);
 
         std::uint32_t line_end = (enc == "utf-8") ? 26u : 25u;
         dccd::protocol::LspRange range;
@@ -4915,7 +4920,8 @@ TEST_CASE("on-type '}' reindents and ';' cleans up through the LSP server")
     dccd::LanguageServer server{&sink.stream};
     initialize_server(server, sink);
 
-    auto uri = open_file(server, sink, std::filesystem::temp_directory_path() / "dccd_lsp_ontype_brace.dc",
+    TempDir td;
+    auto uri = open_file(server, sink, td.path / "ontype_brace.dc",
                          "module m;\nvoid f() {\n    if (cond) {\n        i32 x = 1;\n   }\n}\n");
 
     auto edits = request_on_type_formatting(server, sink, uri, "}", 4, 4);
@@ -4925,7 +4931,7 @@ TEST_CASE("on-type '}' reindents and ';' cleans up through the LSP server")
     CHECK_EQ(edits[0].range.start.character, 3u);
     CHECK_EQ(edits[0].range.end.character, 3u);
 
-    auto uri2 = open_file(server, sink, std::filesystem::temp_directory_path() / "dccd_lsp_ontype_semi.dc", "module m;\nvoid f() {\n    i32 x=1;\n}\n");
+    auto uri2 = open_file(server, sink, td.path / "ontype_semi.dc", "module m;\nvoid f() {\n    i32 x=1;\n}\n");
     edits = request_on_type_formatting(server, sink, uri2, ";", 2, 12);
     REQUIRE(edits.size() == 1);
     CHECK_EQ(edits[0].newText, " = ");

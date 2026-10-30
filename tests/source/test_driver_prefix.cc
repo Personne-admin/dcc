@@ -4,6 +4,7 @@ import std;
 
 #include <stdio.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 namespace
 {
@@ -93,6 +94,24 @@ namespace
         return {exit_code, output};
     }
 
+    struct TempDir
+    {
+        std::filesystem::path path;
+        static inline std::atomic<int> s_counter{0};
+
+        TempDir()
+            : path{std::filesystem::temp_directory_path() / std::format("dcc-driver-prefix-{}-{}", ::getpid(), ++s_counter)}
+        {
+            std::filesystem::create_directories(path);
+        }
+
+        ~TempDir()
+        {
+            std::error_code ec;
+            std::filesystem::remove_all(path, ec);
+        }
+    };
+
 } // anonymous namespace
 
 SECTION("Driver prefix diagnostics");
@@ -133,8 +152,8 @@ TEST_CASE("--version exits 0 and reports the release version")
 
 TEST_CASE("a misplaced module declaration is a parse error, not an endless recovery loop")
 {
-    auto dir = std::filesystem::temp_directory_path() / std::format("dcc_module_recovery_{}", std::chrono::steady_clock::now().time_since_epoch().count());
-    std::filesystem::create_directories(dir);
+    TempDir td;
+    auto dir = td.path;
     struct Case
     {
         std::string_view name;
@@ -150,13 +169,12 @@ TEST_CASE("a misplaced module declaration is a parse error, not an endless recov
         CHECK(code == 1);
         CHECK(output.find("module declaration must be the first declaration in the file") != std::string::npos);
     }
-    std::filesystem::remove_all(dir);
 }
 
 TEST_CASE("an explicit template call with an argument that does not fit reports a sema error and is never lowered")
 {
-    auto dir = std::filesystem::temp_directory_path() / std::format("dcc_template_arg_error_{}", std::chrono::steady_clock::now().time_since_epoch().count());
-    std::filesystem::create_directories(dir);
+    TempDir td;
+    auto dir = td.path;
     auto src = dir / "main.dc";
     std::ofstream{src} << "module m;\nT tid(T)(T v) { return v; }\n@nomangle public i32 dcc_main() {\n    u8 a = tid!u8(-3);\n    return a as i32;\n}\n";
     for (std::string_view flags : {"-fbackend llvm", "-fbackend custom", "-target i8086-binary -fbackend custom"})
@@ -166,13 +184,12 @@ TEST_CASE("an explicit template call with an argument that does not fit reports 
         CHECK(output.find("integer literal -3 does not fit in type u8") != std::string::npos);
         CHECK(output.find("IR lowering") == std::string::npos);
     }
-    std::filesystem::remove_all(dir);
 }
 
 TEST_CASE("the i8086 backend emits elf32 objects, assembly and mir")
 {
-    auto dir = std::filesystem::temp_directory_path() / std::format("dcc_i8086_backend_{}", std::chrono::steady_clock::now().time_since_epoch().count());
-    std::filesystem::create_directories(dir);
+    TempDir td;
+    auto dir = td.path;
     auto src = dir / "main.dc";
     {
         std::ofstream file{src};
@@ -199,13 +216,12 @@ TEST_CASE("the i8086 backend emits elf32 objects, assembly and mir")
     auto [mir_code, mir_output] = run_dcc("-target i8086-binary -fbackend custom -fdump-mir " + shell_quote(src));
     CHECK(mir_code == 0);
     CHECK(mir_output.find("func dcc_main") != std::string::npos);
-
-    std::filesystem::remove_all(dir);
 }
 
 TEST_CASE("the i8086 backend lowers indirect calls")
 {
-    auto src = std::filesystem::temp_directory_path() / "dcc_i8086_indirect.dc";
+    TempDir td;
+    auto src = td.path / "indirect.dc";
     {
         std::ofstream file{src};
         file << "module test;\npublic u8 f(u8(*)() p) { return p(); }\n";
@@ -214,20 +230,18 @@ TEST_CASE("the i8086 backend lowers indirect calls")
     auto [code, output] = run_dcc("-target i8086-binary -fbackend custom -c -o /dev/null " + shell_quote(src));
     CHECK(code == 0);
 
-    auto asm_path = std::filesystem::temp_directory_path() / "dcc_i8086_indirect.s";
+    auto asm_path = td.path / "indirect.s";
     auto [asm_code, asm_log] = run_dcc("-target i8086-binary -fbackend custom -S -o " + shell_quote(asm_path) + " " + shell_quote(src));
     CHECK(asm_code == 0);
     std::ifstream asm_in{asm_path};
     std::string asm_output{std::istreambuf_iterator<char>(asm_in), {}};
     CHECK(asm_output.find("call ") != std::string::npos);
-
-    std::filesystem::remove(src);
-    std::filesystem::remove(asm_path);
 }
 
 TEST_CASE("the i8086 target dumps ir in every code model")
 {
-    auto src = std::filesystem::temp_directory_path() / "dcc_i8086_dump_ir.dc";
+    TempDir td;
+    auto src = td.path / "dump_ir.dc";
     {
         std::ofstream file{src};
         file << "module test;\npublic usize f(u8* p, usize i) { return p[i] as usize + i; }";
@@ -241,13 +255,12 @@ TEST_CASE("the i8086 target dumps ir in every code model")
         CHECK(output.find("ret usize") != std::string::npos);
         CHECK(output.find("no backend for target") == std::string::npos);
     }
-
-    std::filesystem::remove(src);
 }
 
 TEST_CASE("the llvm backend rejects the i8086 target")
 {
-    auto src = std::filesystem::temp_directory_path() / "dcc_llvm_i8086_target.dc";
+    TempDir td;
+    auto src = td.path / "llvm_i8086_target.dc";
     {
         std::ofstream file{src};
         file << "module test;\nvoid f() {}\n";
@@ -260,8 +273,6 @@ TEST_CASE("the llvm backend rejects the i8086 target")
         CHECK(output.find("LLVM backend does not support target 'i8086-binary'") != std::string::npos);
         CHECK(output.find("no backend for target") == std::string::npos);
     }
-
-    std::filesystem::remove(src);
 }
 
 SECTION("Driver -flibdcext");
@@ -269,9 +280,9 @@ SECTION("Driver -flibdcext");
 #if DCC_ENABLE_LLVM
 TEST_CASE("-flibdcext -c compiles a trivial module")
 {
-    auto tmp_dir = std::filesystem::temp_directory_path();
-    auto src = tmp_dir / "test_flibdcext_c.dc";
-    auto obj = tmp_dir / "test_flibdcext_c.o";
+    TempDir td;
+    auto src = td.path / "flibdcext_c.dc";
+    auto obj = td.path / "flibdcext_c.o";
 
     {
         std::ofstream f{src};
@@ -279,17 +290,15 @@ TEST_CASE("-flibdcext -c compiles a trivial module")
     }
 
     auto rc = run_dcc("-flibdcext -c -target x86_64-elf -o " + shell_quote(obj) + " " + shell_quote(src)).first;
-    std::filesystem::remove(src);
-    std::filesystem::remove(obj);
 
     CHECK_EQ(rc, 0);
 }
 
 TEST_CASE("-flibdcext produces a working executable")
 {
-    auto tmp_dir = std::filesystem::temp_directory_path();
-    auto src = tmp_dir / "test_flibdcext_exe.dc";
-    auto exe = tmp_dir / "test_flibdcext_exe";
+    TempDir td;
+    auto src = td.path / "flibdcext_exe.dc";
+    auto exe = td.path / "flibdcext_exe";
 
     {
         std::ofstream f{src};
@@ -300,12 +309,7 @@ TEST_CASE("-flibdcext produces a working executable")
 
     auto [rc, out] = run_dcc("-flibdcext -target x86_64-elf -o " + shell_quote(exe) + " " + shell_quote(src));
 
-    std::filesystem::remove(src);
     bool exe_exists = std::filesystem::exists(exe);
-    {
-        std::error_code ec;
-        std::filesystem::remove(exe, ec);
-    }
 
     CHECK_EQ(rc, 0);
     CHECK(exe_exists);
@@ -313,9 +317,9 @@ TEST_CASE("-flibdcext produces a working executable")
 
 TEST_CASE("DCC_WARN_ARRAY_DECAY warns on implicit array to slice copies")
 {
-    auto tmp_dir = std::filesystem::temp_directory_path();
-    auto src = tmp_dir / "test_array_decay.dc";
-    auto obj = tmp_dir / "test_array_decay.o";
+    TempDir td;
+    auto src = td.path / "array_decay.dc";
+    auto obj = td.path / "array_decay.o";
 
     {
         std::ofstream f{src};
@@ -351,16 +355,13 @@ TEST_CASE("DCC_WARN_ARRAY_DECAY warns on implicit array to slice copies")
     auto [rc_on, out_on] = run_with("DCC_WARN_ARRAY_DECAY=1 ");
     CHECK_EQ(rc_on, 0);
     CHECK(out_on.find("implicit copy of array as slice") != std::string::npos);
-
-    std::filesystem::remove(src);
-    std::filesystem::remove(obj);
 }
 
 TEST_CASE("DCC_WARN_ARRAY_DECAY reports repeated template instantiations once")
 {
-    auto tmp_dir = std::filesystem::temp_directory_path();
-    auto src = tmp_dir / "test_array_decay_dedup.dc";
-    auto obj = tmp_dir / "test_array_decay_dedup.o";
+    TempDir td;
+    auto src = td.path / "array_decay_dedup.dc";
+    auto obj = td.path / "array_decay_dedup.o";
 
     {
         std::ofstream f{src};
@@ -395,16 +396,13 @@ TEST_CASE("DCC_WARN_ARRAY_DECAY reports repeated template instantiations once")
     for (std::size_t pos = output.find(needle); pos != std::string::npos; pos = output.find(needle, pos + needle.size()))
         ++count;
     CHECK_EQ(count, 1u);
-
-    std::filesystem::remove(src);
-    std::filesystem::remove(obj);
 }
 #endif
 
 TEST_CASE("inline assembly errors fail every output mode")
 {
-    auto dir = std::filesystem::temp_directory_path() / std::format("dcc_asm_errors_{}", std::chrono::steady_clock::now().time_since_epoch().count());
-    std::filesystem::create_directories(dir);
+    TempDir td;
+    auto dir = td.path;
     auto source = dir / "invalid.dc";
     std::ofstream{source} << "module test;\n@nomangle public void _start() { asm @[intel] { \"popq rax\" }; }\n";
     for (auto backend : {"llvm", "custom"})
@@ -414,13 +412,12 @@ TEST_CASE("inline assembly errors fail every output mode")
             CHECK_EQ(code, 1);
             CHECK(output.contains("popq"));
         }
-    std::filesystem::remove_all(dir);
 }
 
 TEST_CASE("per-symbol sections discard unused functions and globals")
 {
-    auto dir = std::filesystem::temp_directory_path() / std::format("dcc_sections_{}", std::chrono::steady_clock::now().time_since_epoch().count());
-    std::filesystem::create_directories(dir);
+    TempDir td;
+    auto dir = td.path;
     auto source = dir / "sections.dc";
     std::ofstream{source} << R"dc(module test;
 @nomangle public u32 initialized = 7;
@@ -463,5 +460,4 @@ TEST_CASE("per-symbol sections discard unused functions and globals")
         CHECK(!names.contains("unused_bss"));
         CHECK(!names.contains("unused_readonly"));
     }
-    std::filesystem::remove_all(dir);
 }

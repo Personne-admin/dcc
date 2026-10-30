@@ -6,6 +6,8 @@ import dcc.si;
 
 #include "harness.hh"
 
+#include <unistd.h>
+
 namespace
 {
     [[nodiscard]] std::optional<std::string> format_source_with(std::string_view src, std::uint32_t tab_size, bool insert_spaces)
@@ -2641,7 +2643,8 @@ TEST_CASE("clang-format PointerAlignment moves the star")
 TEST_CASE("style cache applies the nearest .clang-format and reloads it when it changes")
 {
     namespace fs = std::filesystem;
-    auto const root = fs::temp_directory_path() / "dccd_style_cache_test";
+    static std::atomic<int> counter{0};
+    auto const root = fs::temp_directory_path() / std::format("dccd-style-cache-test-{}-{}", ::getpid(), ++counter);
     fs::remove_all(root);
     fs::create_directories(root / "src" / "nested");
 

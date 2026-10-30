@@ -19,6 +19,8 @@ import dcc.backend.llvm;
 
 #include "harness.hh"
 
+#include <unistd.h>
+
 namespace ast = dcc::ast;
 namespace comptime = dcc::comptime;
 namespace ctfe = dcc::ctfe;
@@ -52,7 +54,7 @@ struct Fixture
     {
         static int counter = 1000;
         ++counter;
-        dir = std::filesystem::temp_directory_path() / ("dcc-resid-" + std::to_string(counter));
+        dir = std::filesystem::temp_directory_path() / ("dcc-resid-" + std::to_string(::getpid()) + "-" + std::to_string(counter));
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
         std::ofstream out{dir / "test.dc"};
@@ -741,7 +743,7 @@ struct MoneyFixture
     {
         static int counter = 2000;
         ++counter;
-        dir = std::filesystem::temp_directory_path() / ("dcc-money-" + std::to_string(counter));
+        dir = std::filesystem::temp_directory_path() / ("dcc-money-" + std::to_string(::getpid()) + "-" + std::to_string(counter));
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
         std::ofstream out{dir / "test.dc"};

@@ -3,6 +3,8 @@ import dcc.config;
 
 #include "harness.hh"
 
+#include <unistd.h>
+
 namespace
 {
     struct TempDir
@@ -12,7 +14,7 @@ namespace
         TempDir()
         {
             auto base = std::filesystem::temp_directory_path();
-            auto tag = std::format("dcc-config-test-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+            auto tag = std::format("dcc-config-test-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
             path = base / tag;
             std::filesystem::create_directories(path);
         }

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 from pathlib import Path
 import random
 import subprocess
@@ -112,9 +113,10 @@ def run(executable, iterations, seeds):
                     client.request(f"textDocument/{method}", {
                         "textDocument": {"uri": uri}, "position": position(text, len(text))})
         except BaseException:
-            Path(tempfile.gettempdir(), "dccd-edit-failure.json").write_text(json.dumps({
+            failure = Path(tempfile.gettempdir(), f"dccd-edit-failure-{os.getpid()}.json")
+            failure.write_text(json.dumps({
                 "seed": seed, "iteration": iteration, "text": text, "changes": changes}, ensure_ascii=False, indent=2))
-            print(f"FAIL seed={seed} iteration={iteration}; /tmp/dccd-edit-failure.json", flush=True)
+            print(f"FAIL seed={seed} iteration={iteration}; {failure}", flush=True)
             raise
         finally:
             client.close()

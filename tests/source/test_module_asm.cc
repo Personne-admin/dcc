@@ -8,6 +8,8 @@ import dcc.backend.x86.modasm;
 
 #include "harness.hh"
 
+#include <unistd.h>
+
 using namespace dcc::backend::x86;
 
 namespace
@@ -24,7 +26,7 @@ namespace
     {
         static unsigned counter = 0;
         auto dir =
-            std::filesystem::temp_directory_path() / std::format("dcc-modasm-{}-{}", std::chrono::steady_clock::now().time_since_epoch().count(), counter++);
+            std::filesystem::temp_directory_path() / std::format("dcc-modasm-{}-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count(), counter++);
         std::filesystem::create_directories(dir);
         auto source = dir / "case.asm";
         auto output = dir / "case.bin";
@@ -339,7 +341,7 @@ TEST_CASE("module asm listings reassemble with nasm")
     CHECK(text.find("dd __bss_start") != std::string::npos);
     CHECK(text.find("dw value") != std::string::npos);
     CHECK(text.find("    ; call dcc_main") != std::string::npos);
-    auto dir = std::filesystem::temp_directory_path() / std::format("dcc-modasm-listing-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+    auto dir = std::filesystem::temp_directory_path() / std::format("dcc-modasm-listing-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
     std::filesystem::create_directories(dir);
     {
         std::ofstream file{dir / "listing.asm"};

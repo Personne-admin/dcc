@@ -3,6 +3,7 @@ import std;
 #include "harness.hh"
 
 #include <sys/wait.h>
+#include <unistd.h>
 
 namespace
 {
@@ -15,7 +16,8 @@ namespace
     {
         std::error_code ec;
         auto const dcc = std::filesystem::weakly_canonical("/proc/self/exe", ec).parent_path().parent_path() / "dcc";
-        auto const dir = std::filesystem::temp_directory_path() / "dcc-stdlib-modules";
+        static std::atomic<int> counter{0};
+        auto const dir = std::filesystem::temp_directory_path() / std::format("dcc-stdlib-modules-{}-{}", ::getpid(), ++counter);
         std::filesystem::create_directories(dir, ec);
         auto const src = dir / "main.dc";
         auto const exe = dir / "program";
@@ -27,7 +29,10 @@ namespace
         auto const compile = std::format("timeout 60 {} -flibdcext -target x86_64-elf -fbackend {} {} -o {} {}", shell_quote(dcc), backend, optimization, shell_quote(exe),
                                          shell_quote(src));
         if (std::system(compile.c_str()) != 0)
+        {
+            std::filesystem::remove_all(dir, ec);
             return -1;
+        }
 
         int const status = std::system(("timeout 120 " + shell_quote(exe)).c_str());
         std::filesystem::remove_all(dir, ec);
@@ -38,6 +43,13 @@ namespace
     {
         auto const root = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path().parent_path().parent_path();
         std::ifstream in{root / "tests/stdlib" / name};
+        return {std::istreambuf_iterator<char>{in}, {}};
+    }
+
+    [[nodiscard]] std::string cases_fixture(std::string_view name)
+    {
+        auto const root = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path().parent_path().parent_path();
+        std::ifstream in{root / "tests/cases" / name};
         return {std::istreambuf_iterator<char>{in}, {}};
     }
 
@@ -1840,12 +1852,8 @@ public i32 main() {
 
 TEST_CASE("implicit function pointer pack deduction executes on both backends at O0 and O2")
 {
-    auto fixture = std::filesystem::path{"cases/em64t/fnptr-pack-deduction-exec.dcc-test"};
-    if (!std::filesystem::exists(fixture))
-        fixture = std::filesystem::path{"tests"} / fixture;
-    std::ifstream input{fixture};
-    REQUIRE(input.good());
-    std::string contents{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
+    auto contents = cases_fixture("em64t/fnptr-pack-deduction-exec.dcc-test");
+    REQUIRE(!contents.empty());
     auto start = contents.find('\n') + 1;
     auto end = contents.find("=== EXPECT-");
     auto source = contents.substr(start, end - start);
@@ -1862,12 +1870,8 @@ TEST_CASE("implicit function pointer pack deduction executes on both backends at
 
 TEST_CASE("constants materialized per block execute on both backends at O0, O1 and O2")
 {
-    auto fixture = std::filesystem::path{"cases/em64t/const-cross-block-exec.dcc-test"};
-    if (!std::filesystem::exists(fixture))
-        fixture = std::filesystem::path{"tests"} / fixture;
-    std::ifstream input{fixture};
-    REQUIRE(input.good());
-    std::string contents{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
+    auto contents = cases_fixture("em64t/const-cross-block-exec.dcc-test");
+    REQUIRE(!contents.empty());
     auto start = contents.find('\n') + 1;
     auto end = contents.find("=== EXPECT-");
     auto source = contents.substr(start, end - start);

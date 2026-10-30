@@ -1350,7 +1350,7 @@ namespace
         if (ec)
             return std::nullopt;
 
-        auto root = base / std::format("dcc-test-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+        auto root = base / std::format("dcc-test-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
         if (std::getenv("DCC_BYTE_CAPTURE_ROOT"))
         {
             auto relative = fs::relative(source_path, fs::canonical("tests/cases", ec), ec);
@@ -2906,7 +2906,7 @@ namespace
 
             if (!exp.is_error && artifact.llvm_ir_text && exp.verify)
             {
-                auto vf_path = fs::temp_directory_path() / std::format("dcc-verify-{}.ll", std::chrono::steady_clock::now().time_since_epoch().count());
+                auto vf_path = fs::temp_directory_path() / std::format("dcc-verify-{}-{}.ll", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
                 {
                     std::ofstream vf{vf_path, std::ios::binary};
                     if (vf)
@@ -3097,7 +3097,7 @@ namespace
                 if (elf_valid && exp.run_exit_code)
                 {
                     std::error_code run_ec;
-                    auto run_dir = fs::temp_directory_path(run_ec) / std::format("dcc-llvm-run-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+                    auto run_dir = fs::temp_directory_path(run_ec) / std::format("dcc-llvm-run-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
                     if (run_ec || !fs::create_directories(run_dir, run_ec))
                     {
                         ok = false;
@@ -3918,7 +3918,7 @@ namespace
             if (!is_coff_target && elf_valid && exp.shared_link)
             {
                 std::error_code ec;
-                auto shared_dir = fs::temp_directory_path(ec) / std::format("dcc-em64t-shared-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+                auto shared_dir = fs::temp_directory_path(ec) / std::format("dcc-em64t-shared-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
                 if (ec)
                 {
                     ok = false;
@@ -3964,7 +3964,7 @@ namespace
             if (!is_coff_target && elf_valid && exp.run_exit_code.has_value())
             {
                 std::error_code ec;
-                auto run_dir = fs::temp_directory_path(ec) / std::format("dcc-em64t-run-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+                auto run_dir = fs::temp_directory_path(ec) / std::format("dcc-em64t-run-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
                 if (ec)
                 {
                     ok = false;
@@ -4237,7 +4237,7 @@ namespace
                 base = *parsed_base;
             }
             std::error_code ec;
-            auto run_dir = fs::temp_directory_path(ec) / std::format("dcc-i8086-run-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+            auto run_dir = fs::temp_directory_path(ec) / std::format("dcc-i8086-run-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
             fs::create_directories(run_dir, ec);
             if (std::ranges::any_of(fx.files, [](VirtualFile const& file) { return file.path.ends_with(".asm"); }))
             {
@@ -4547,7 +4547,7 @@ namespace
                 }
 
             std::error_code ec;
-            auto asm_dir = fs::temp_directory_path(ec) / std::format("dcc-asm-test-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+            auto asm_dir = fs::temp_directory_path(ec) / std::format("dcc-asm-test-{}-{}", ::getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
             if (!ec && fs::create_directories(asm_dir, ec))
             {
                 auto asm_path = asm_dir / "test.s";
