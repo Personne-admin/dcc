@@ -7,6 +7,7 @@ import dpm.fetch;
 import dpm.lock;
 import dpm.manifest;
 import dpm.process;
+import dpm.publish;
 import dpm.registry;
 import dpm.resolve;
 import dpm.semver;
@@ -78,6 +79,12 @@ namespace
         std::string runner;
         std::string name;
         bool lib{};
+        std::string registry_dir;
+        std::string location;
+        std::string base;
+        bool no_build{};
+        bool verify_sources{};
+        bool undo{};
         std::vector<std::string> positional;
         std::vector<std::string> passthrough;
     };
@@ -162,6 +169,19 @@ namespace
                 c.refresh = true;
             else if (arg == "--locked")
                 c.locked = true;
+            else if (arg == "--no-build")
+                c.no_build = true;
+            else if (arg == "--verify-sources")
+                c.verify_sources = true;
+            else if (arg == "--undo")
+                c.undo = true;
+            else if (arg == "--registry-dir" || arg == "--location" || arg == "--base")
+            {
+                auto v = value(arg);
+                if (!v)
+                    return k_exit_usage;
+                (arg == "--registry-dir" ? c.registry_dir : arg == "--location" ? c.location : c.base) = *v;
+            }
             else if (arg == "-v")
                 c.verbose = true;
             else if (arg == "--color")
@@ -1289,6 +1309,209 @@ namespace
         return k_exit_usage;
     }
 
+    std::string dcc_version()
+    {
+        dpm::process::Command cmd;
+        cmd.argv = {dcc_path().string(), "--version"};
+        cmd.timeout = std::chrono::seconds(10);
+        auto r = dpm::process::run(cmd);
+        if (!r.ok())
+            return {};
+        std::string_view text{r.out};
+        if (!text.starts_with("dcc "))
+            return {};
+        text.remove_prefix(4);
+        auto end = text.find_first_of(" \n");
+        auto version = std::string{text.substr(0, end)};
+        return dpm::semver::parse(version) ? version : std::string{};
+    }
+
+    dpm::publish::Context publish_context()
+    {
+        dpm::publish::Context ctx;
+        ctx.schema_root = schema_root();
+        ctx.allow_file = env_flag("DPM_ALLOW_FILE_URLS");
+        return ctx;
+    }
+
+    std::optional<fs::path> pick_registry_dir(Common const& c)
+    {
+        if (!c.registry_dir.empty())
+            return fs::path{c.registry_dir};
+        std::error_code ec;
+        if (fs::is_directory("dc-registry", ec))
+            return fs::path{"dc-registry"};
+        return std::nullopt;
+    }
+
+    void print_written(fs::path const& dir, dpm::publish::Written const& written, bool dry_run, std::string const& branch, std::string const& message)
+    {
+        if (!written.changed)
+        {
+            std::println("nothing to change in {}", dir.string());
+            return;
+        }
+        for (auto const& f : written.files)
+            std::println("{} {}", dry_run ? "would write" : "wrote", (dir / f).string());
+        if (dry_run)
+            return;
+        std::println("\ndpm did not run git. To propose the change, run:\n");
+        for (auto const& line : dpm::publish::git_commands(dir, written, branch, message))
+            std::println("    {}", line);
+    }
+
+    int cmd_publish(Common common)
+    {
+        auto registry_dir = pick_registry_dir(common);
+        if (!registry_dir)
+        {
+            std::println(std::cerr, "error: pass --registry-dir DIR (no ./dc-registry here)");
+            return k_exit_usage;
+        }
+        bool dry_run = common.dry_run;
+        bool no_build = common.no_build;
+        auto location = common.location;
+        Session s;
+        if (auto code = open_session(s, std::move(common)))
+            return *code;
+        dpm::publish::PublishInput input;
+        input.project = &s.project;
+        input.project_dir = ".";
+        input.registry_dir = *registry_dir;
+        input.location = location;
+        input.dcc_version = dcc_version();
+        input.cache = s.cache;
+        input.policy = s.policy;
+        input.ctx = publish_context();
+        std::string error;
+        auto prepared = dpm::publish::prepare(input, error);
+        if (!prepared)
+        {
+            std::println(std::cerr, "error: {}", error);
+            return resolution_exit(error) == k_exit_network ? k_exit_network : k_exit_failure;
+        }
+        if (!no_build && !s.project.products.empty())
+        {
+            int code = 0;
+            auto built = prepare(s, code);
+            if (!built)
+                return code;
+            std::vector<m::Product const*> products;
+            for (auto const& p : s.project.products)
+                products.push_back(&p);
+            if (!build_products(s, *built, products, code))
+                return code;
+        }
+        auto written = dpm::publish::write_entry(*prepared, input, dry_run, error);
+        if (!written)
+        {
+            std::println(std::cerr, "error: {}", error);
+            return k_exit_failure;
+        }
+        std::println("{} {} -> {}", prepared->alias, s.project.version, prepared->location);
+        std::println("  tag {}  commit {}  hash {}", prepared->tag, prepared->entry.commit, prepared->entry.hash);
+        if (!written->changed)
+        {
+            std::println("version {} is already in the registry with these contents", s.project.version);
+            return 0;
+        }
+        print_written(*registry_dir, *written, dry_run, std::format("publish-{}-{}", prepared->alias, s.project.version),
+                      std::format("add {} {}", prepared->alias, s.project.version));
+        return 0;
+    }
+
+    int cmd_registry(std::span<char const* const> args)
+    {
+        constexpr auto usage = "usage: dpm registry {alias LOC NAME | check [DIR] [--verify-sources] [--base REV] | yank ALIAS VERSION [--undo]} [--registry-dir DIR]";
+        if (args.empty())
+        {
+            std::println(std::cerr, "{}", usage);
+            return k_exit_usage;
+        }
+        std::string_view const sub{args[0]};
+        Common common;
+        std::string error;
+        if (auto code = parse_common(args.subspan(1), common, error))
+        {
+            std::println(std::cerr, "dpm registry: {}", error);
+            return *code;
+        }
+        auto ctx = publish_context();
+        auto dir = pick_registry_dir(common);
+        if (sub == "alias" || sub == "yank")
+        {
+            bool const alias = sub == "alias";
+            if (common.positional.size() != 2)
+            {
+                std::println(std::cerr, "{}", usage);
+                return k_exit_usage;
+            }
+            if (!dir)
+            {
+                std::println(std::cerr, "error: pass --registry-dir DIR (no ./dc-registry here)");
+                return k_exit_usage;
+            }
+            std::optional<dpm::publish::Written> written;
+            std::string branch;
+            std::string message;
+            if (alias)
+            {
+                written = dpm::publish::create_alias(*dir, common.positional[0], common.positional[1], {}, ctx, common.dry_run, error);
+                branch = "alias-" + common.positional[1];
+                message = "add alias " + common.positional[1];
+            }
+            else
+            {
+                written = dpm::publish::set_yanked(*dir, common.positional[0], common.positional[1], !common.undo, ctx, common.dry_run, error);
+                branch = std::format("{}-{}-{}", common.undo ? "unyank" : "yank", common.positional[0], common.positional[1]);
+                message = std::format("{} {} {}", common.undo ? "unyank" : "yank", common.positional[0], common.positional[1]);
+            }
+            if (!written)
+            {
+                std::println(std::cerr, "error: {}", error);
+                return k_exit_failure;
+            }
+            print_written(*dir, *written, common.dry_run, branch, message);
+            return 0;
+        }
+        if (sub == "check")
+        {
+            if (common.positional.size() > 1)
+            {
+                std::println(std::cerr, "{}", usage);
+                return k_exit_usage;
+            }
+            fs::path root = !common.positional.empty() ? fs::path{common.positional[0]} : dir ? *dir : fs::path{"."};
+            auto scan = dpm::publish::scan_registry(root, ctx);
+            auto problems = scan.problems;
+            if (common.verify_sources)
+            {
+                dpm::publish::VerifyRequest request;
+                request.policy = fetch_policy(common);
+                request.ctx = ctx;
+                request.base = common.base;
+                request.cache = dpm::cache::Cache{fs::absolute(dpm::cache::default_root())};
+                auto lock = request.cache.lock();
+                request.base = common.base;
+                for (auto& p : dpm::publish::verify_sources(root, scan, request))
+                    problems.push_back(std::move(p));
+            }
+            int code = 0;
+            for (auto const& p : problems)
+            {
+                std::println(std::cerr, "{}", p.format());
+                code = std::max(code, resolution_exit(p.message));
+            }
+            std::size_t versions = 0;
+            for (auto const& [name, record] : scan.aliases)
+                versions += record.versions.size();
+            std::println("{} aliases, {} versions, {} location pointers, {} problems", scan.aliases.size(), versions, scan.pointers.size(), problems.size());
+            return code;
+        }
+        std::println(std::cerr, "{}", usage);
+        return k_exit_usage;
+    }
+
     void print_usage()
     {
         std::println(std::cerr,
@@ -1303,6 +1526,8 @@ namespace
                      "  build [PRODUCT]                    build products\n"
                      "  run [PRODUCT] [-- ARGS]            build and run an executable\n"
                      "  test [NAME...]                     build and run tests\n"
+                     "  publish [--registry-dir D] [--location L]   write the registry entry for this version\n"
+                     "  registry {{alias LOC NAME | check [DIR] | yank ALIAS VERSION}}\n"
                      "  tree | why LOC | clean | cache {{path|verify|clean [--all]}}\n"
                      "options: --manifest-path P --profile NAME --target TRIPLE -O {{0,1,2,s}} --offline --refresh --locked -v -j N --timeout S --runner CMD");
     }
@@ -1322,6 +1547,8 @@ auto main(int argc, char** argv) -> int
         return cmd_check(rest);
     if (command == "cache")
         return cmd_cache(rest);
+    if (command == "registry")
+        return cmd_registry(rest);
     Common common;
     std::string error;
     if (auto code = parse_common(rest, common, error))
@@ -1331,6 +1558,8 @@ auto main(int argc, char** argv) -> int
     }
     if (command == "init")
         return cmd_init(std::move(common));
+    if (command == "publish")
+        return cmd_publish(std::move(common));
     if (command == "add")
         return cmd_add(std::move(common));
     if (command == "remove")

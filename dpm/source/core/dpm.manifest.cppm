@@ -943,6 +943,18 @@ export namespace dpm::manifest
             return std::nullopt;
         }
 
+        inline std::optional<std::string> alias_error(std::string_view name)
+        {
+            bool shape = name.size() >= 2 && name.size() <= 32 && name[0] >= 'a' && name[0] <= 'z' &&
+                         std::ranges::all_of(name, [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
+            if (!shape)
+                return std::format("'{}' is not a valid alias; use 2 to 32 characters from [a-z][a-z0-9_]", name);
+            static constexpr std::array<std::string_view, 5> reserved{"std", "core", "assert", "dcext", "dpm"};
+            if (std::ranges::find(reserved, name) != reserved.end() || is_reserved_word(name))
+                return std::format("'{}' is a reserved name", name);
+            return std::nullopt;
+        }
+
         inline bool is_relative_subpath(std::string_view p)
         {
             if (p.empty() || p.front() == '/' || p.find('\\') != std::string_view::npos || (p.size() > 1 && p[1] == ':'))
@@ -1222,22 +1234,7 @@ export namespace dpm::manifest
                 return l;
             }
 
-            static bool is_alias_name(std::string_view s)
-            {
-                if (s.size() < 2 || s.size() > 32 || !(s[0] >= 'a' && s[0] <= 'z'))
-                    return false;
-                return std::ranges::all_of(s, [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
-            }
-
-            std::optional<std::string> alias_name_error(std::string const& name)
-            {
-                if (!is_alias_name(name))
-                    return std::format("'{}' is not a valid alias; use 2 to 32 characters from [a-z][a-z0-9_]", name);
-                static constexpr std::array<std::string_view, 5> reserved{"std", "core", "assert", "dcext", "dpm"};
-                if (std::ranges::find(reserved, name) != reserved.end() || is_reserved_word(name))
-                    return std::format("'{}' is a reserved name", name);
-                return std::nullopt;
-            }
+            std::optional<std::string> alias_name_error(std::string const& name) { return alias_error(name); }
 
             RegistryVersion registry_version(Node const& item)
             {
@@ -1392,6 +1389,9 @@ export namespace dpm::manifest
                     error(*n, std::format("'{}' is not a valid version", p.version));
                 if (auto const* n = root.find("requires_dcc"); n && !p.requires_dcc.empty() && !dpm::semver::is_valid(p.requires_dcc))
                     error(*n, std::format("'{}' is not a valid version", p.requires_dcc));
+                if (auto const* n = root.find("alias"); n && !p.alias.empty())
+                    if (auto message = alias_error(p.alias))
+                        error(*n, *message);
                 if (auto const* n = root.find("source"))
                     check_entry_path(*n, p.source, "source");
                 if (auto const* n = root.find("test_dir"))

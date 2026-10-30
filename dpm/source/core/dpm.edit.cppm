@@ -227,7 +227,7 @@ export namespace dpm::edit
         {
             Prepared p;
             p.loaded = manifest::load(text, options);
-            if (!p.loaded.ok || !p.loaded.project)
+            if (!p.loaded.ok || !(p.loaded.project || p.loaded.registry_alias))
             {
                 EditResult r;
                 r.diagnostics = p.loaded.diagnostics;
@@ -533,6 +533,64 @@ export namespace dpm::edit
         if (auto* node = detail::mutable_field(expected, field_name(list)))
             if (auto* item_version = detail::mutable_field(node->items[*index], "version"))
                 item_version->text = std::string{version};
+        return detail::finish(p, std::move(splices), expected, options);
+    }
+
+    [[nodiscard]] inline EditResult set_registry_yanked(std::string_view text, manifest::LoadOptions options, std::string_view version, bool yanked)
+    {
+        options.kind = manifest::FileKind::RegistryAlias;
+        auto prepared = detail::prepare(text, options);
+        if (auto* failed = std::get_if<EditResult>(&prepared))
+            return std::move(*failed);
+        auto& p = std::get<detail::Prepared>(prepared);
+        if (!p.loaded.registry_alias)
+            return detail::fail("not an alias record");
+        auto const& versions = p.loaded.registry_alias->versions;
+        std::optional<std::size_t> index;
+        for (std::size_t i = 0; i < versions.size(); ++i)
+            if (versions[i].version == version)
+                index = i;
+        if (!index)
+            return detail::fail(std::format("version {} is not in the record", version));
+        if (versions[*index].yanked == yanked)
+        {
+            EditResult same;
+            same.ok = true;
+            same.text = std::string{text};
+            return same;
+        }
+        auto field = detail::find_field(p, p.root, "versions");
+        if (!field)
+            return detail::fail("versions is not written in the file");
+        auto l = detail::list_layout(p, *field);
+        if (!l || l->elems.size() != versions.size())
+            return detail::fail("versions is not a plain list literal; edit it by hand");
+        auto const& t = p.doc.tokens;
+        auto const& e = l->elems[*index];
+        auto inner = detail::layout_of(p.doc, e.first);
+        if (!inner || inner->close != e.last)
+            return detail::fail("the version is not a literal; edit it by hand");
+        std::vector<detail::Splice> splices;
+        if (auto yf = detail::find_field(p, *inner, "yanked"))
+        {
+            auto const& f = inner->elems[*yf];
+            if (f.last != f.first + 2)
+                return detail::fail("yanked is not a literal; edit it by hand");
+            splices.push_back({t[f.last].begin, t[f.last].end - t[f.last].begin, yanked ? "true" : "false"});
+        }
+        else
+        {
+            if (inner->elems.empty())
+                return detail::fail("the version is empty; edit it by hand");
+            splices = detail::append_element(p, *inner, yanked ? "yanked = true" : "yanked = false", {});
+        }
+        manifest::Node expected = p.loaded.tree;
+        if (auto* node = detail::mutable_field(expected, "versions"))
+            if (auto* flag = detail::mutable_field(node->items[*index], "yanked"))
+            {
+                flag->boolean = yanked;
+                flag->from_default = false;
+            }
         return detail::finish(p, std::move(splices), expected, options);
     }
 

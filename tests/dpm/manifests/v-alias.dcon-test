@@ -1,0 +1,6 @@
+=== FILE: project.dcon ===
+{ name = "a", version = "1.0.0", alias = "Bad Alias" }
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:1:42: 'Bad Alias' is not a valid alias; use 2 to 32 characters from [a-z][a-z0-9_]

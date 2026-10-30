@@ -460,6 +460,22 @@ export namespace dpm::registry
         return "git+" + spec->url + (spec->subdir.empty() ? std::string{} : "#" + spec->subdir);
     }
 
+    [[nodiscard]] inline std::optional<std::string> record_problem(manifest::RegistryAlias const& record, bool allow_file)
+    {
+        fetch::Policy policy;
+        policy.allow_file = allow_file;
+        bool const tarball_location = fetch::is_tarball_location(record.location, policy);
+        auto expected = expected_git_source(record.location, policy);
+        for (auto const& v : record.versions)
+        {
+            if (!v.source.starts_with("git+"))
+                continue;
+            if (tarball_location || !expected || v.source != *expected)
+                return std::format("version {} has source {}, which does not belong to {}", v.version, v.source, record.location);
+        }
+        return std::nullopt;
+    }
+
     class Client
     {
     public:
@@ -571,17 +587,8 @@ export namespace dpm::registry
             auto const& record = *loaded.registry_alias;
             if (record.alias != name)
                 return std::format("{} describes alias '{}', not '{}'", rel, record.alias, name);
-            fetch::Policy policy;
-            policy.allow_file = config_.allow_file;
-            bool const tarball_location = fetch::is_tarball_location(record.location, policy);
-            auto expected = expected_git_source(record.location, policy);
-            for (auto const& v : record.versions)
-            {
-                if (!v.source.starts_with("git+"))
-                    continue;
-                if (tarball_location || !expected || v.source != *expected)
-                    return std::format("{}: version {} has source {}, which does not belong to {}", rel, v.version, v.source, record.location);
-            }
+            if (auto problem = record_problem(record, config_.allow_file))
+                return std::format("{}: {}", rel, *problem);
             out = record;
             return std::nullopt;
         }
