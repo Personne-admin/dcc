@@ -174,6 +174,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_codegen_determinism.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_mem2reg.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/dpm/e2e.py $(BUILD_DIR)/bin/dpm $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/test_windows_skips_dpm.py
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_bitfield_clang_layout.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tools/codegen/random_differential.py --dcc $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/i8086/test_harness.py

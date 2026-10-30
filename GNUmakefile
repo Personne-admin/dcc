@@ -57,14 +57,19 @@ compiler:
 driver: compiler
 	@$(MAKE) -C driver
 
-dccd: compiler dpm
+dccd: compiler $(if $(filter windows,$(CROSS)),,dpm)
 	@$(MAKE) -C dccd
 
 dcdoc: compiler
 	@$(MAKE) -C dcdoc
 
+ifeq ($(CROSS),windows)
+dpm:
+	@echo "dpm: not built for Windows (its process runner and file locking are POSIX only); skipped"
+else
 dpm: compiler
 	@$(MAKE) -C dpm
+endif
 
 libdcext: driver
 	@$(MAKE) -C libdcext
@@ -83,6 +88,7 @@ test-bin: compiler dpm
 tools-windows:
 	@$(MAKE) CROSS=windows driver
 	@$(MAKE) CROSS=windows dccd
+	@$(MAKE) CROSS=windows dpm
 
 MSI_VERSION ?= $(firstword $(subst -, ,$(DCC_VERSION)))
 MSI_STAGE_DIR := $(TOPLEVEL)/build-windows/msi-stage
@@ -200,7 +206,7 @@ help:
 	@echo "  test-win       Run Win64 OS integration tests under Wine and ABI audit"
 	@echo "  install        Install to PREFIX (default: /usr/local)"
 	@echo "  uninstall      Remove files installed by 'make install'"
-	@echo "  tools-windows  Cross-compile dcc/dccd to run on Windows (needs llvm-mingw)"
+	@echo "  tools-windows  Cross-compile dcc/dccd to run on Windows (needs llvm-mingw); dpm is skipped there"
 	@echo "  msi            Package tools-windows + a windows-targeted libdcext as a .msi (needs msitools)"
 	@echo "  clean          Remove build artifacts"
 	@echo "  distclean      Remove entire build directory"
