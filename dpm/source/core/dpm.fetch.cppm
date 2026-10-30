@@ -628,6 +628,63 @@ export namespace dpm::fetch
         return out;
     }
 
+    [[nodiscard]] inline std::optional<std::string> latest_version(cache::Cache const& cache, std::string const& location, Policy const& policy,
+                                                                    std::optional<semver::Series> within, std::string& error)
+    {
+        if (policy.offline)
+        {
+            error = "listing versions needs the network (offline mode)";
+            return std::nullopt;
+        }
+        if (is_tarball_location(location, policy))
+        {
+            error = "a tarball dependency needs an explicit version";
+            return std::nullopt;
+        }
+        auto spec = parse_git_location(location, policy, error);
+        if (!spec)
+            return std::nullopt;
+        std::string ignored;
+        if (!cache.ensure(ignored))
+        {
+            error = ignored;
+            return std::nullopt;
+        }
+        git::Policy git_policy;
+        git_policy.allow_file = policy.allow_file;
+        git_policy.program = policy.git;
+        git::Repository repo{cache.tmp_dir() / "ls-remote.git", git_policy};
+        auto tags = repo.remote_tags(spec->url, error);
+        if (!tags)
+            return std::nullopt;
+        std::optional<semver::Version> best;
+        std::string best_text;
+        for (auto tag : *tags)
+        {
+            std::string_view name{tag};
+            if (!spec->subdir.empty() && name.starts_with(spec->subdir + "/"))
+                name.remove_prefix(spec->subdir.size() + 1);
+            if (name.starts_with('v'))
+                name.remove_prefix(1);
+            auto version = semver::parse(name);
+            if (!version || version->is_prerelease())
+                continue;
+            if (within && !(semver::series_of(*version) == *within))
+                continue;
+            if (!best || semver::compare(*version, *best) > 0)
+            {
+                best = version;
+                best_text = std::string{name};
+            }
+        }
+        if (!best)
+        {
+            error = "no release tags found";
+            return std::nullopt;
+        }
+        return best_text;
+    }
+
     class FetchSource : public resolve::RequirementSource
     {
     public:

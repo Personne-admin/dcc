@@ -86,6 +86,33 @@ export namespace dpm::git
             return resolve("refs/dpm/commits/" + std::string{commit});
         }
 
+        [[nodiscard]] std::optional<std::vector<std::string>> remote_tags(std::string_view url, std::string& error) const
+        {
+            std::error_code ec;
+            std::filesystem::create_directories(dir_.parent_path(), ec);
+            auto r = run({"ls-remote", "--tags", "--refs", std::string{url}}, false, 8u << 20);
+            if (!r.ok())
+            {
+                error = "cannot list tags: " + message(r);
+                return std::nullopt;
+            }
+            std::vector<std::string> tags;
+            std::size_t pos = 0;
+            while (pos < r.out.size())
+            {
+                auto nl = r.out.find('\n', pos);
+                auto line = std::string_view{r.out}.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
+                pos = nl == std::string::npos ? r.out.size() : nl + 1;
+                auto tab = line.find('\t');
+                if (tab == std::string_view::npos)
+                    continue;
+                auto ref = line.substr(tab + 1);
+                if (ref.starts_with("refs/tags/"))
+                    tags.emplace_back(ref.substr(10));
+            }
+            return tags;
+        }
+
         [[nodiscard]] bool has_commit(std::string_view commit) const
         {
             if (!is_object_id(commit))

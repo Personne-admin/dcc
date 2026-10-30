@@ -10,6 +10,8 @@ module;
 #include <sys/wait.h>
 #include <unistd.h>
 
+extern "C" char** environ;
+
 export module dpm.process;
 
 import std;
@@ -27,6 +29,8 @@ export namespace dpm::process
         std::chrono::milliseconds timeout{300000};
         std::uint64_t max_file_size = 0;
         std::function<bool(std::string_view)> on_stdout;
+        bool passthrough{};
+        bool inherit_env{};
     };
 
     struct Result
@@ -83,6 +87,9 @@ export namespace dpm::process
         std::string path_value = "/usr/local/bin:/usr/bin:/bin";
         if (auto it = cmd.env.find("PATH"); it != cmd.env.end())
             path_value = it->second;
+        else if (cmd.inherit_env)
+            if (char const* parent = std::getenv("PATH"))
+                path_value = parent;
         auto program = detail::find_program(cmd.argv[0], path_value);
         if (!program)
         {
@@ -90,6 +97,14 @@ export namespace dpm::process
             return result;
         }
         std::vector<std::string> env_strings;
+        if (cmd.inherit_env)
+            for (char** e = environ; e && *e; ++e)
+            {
+                std::string_view entry{*e};
+                auto eq = entry.find('=');
+                if (eq != std::string_view::npos && !cmd.env.contains(std::string{entry.substr(0, eq)}))
+                    env_strings.emplace_back(entry);
+            }
         for (auto const& [key, value] : cmd.env)
             env_strings.push_back(key + "=" + value);
         std::vector<char*> envp;
@@ -105,8 +120,9 @@ export namespace dpm::process
         int out_pipe[2] = {-1, -1};
         int err_pipe[2] = {-1, -1};
         int exec_pipe[2] = {-1, -1};
-        bool const capture_out = cmd.stdout_file.empty();
-        if ((capture_out && ::pipe(out_pipe) != 0) || ::pipe(err_pipe) != 0 || ::pipe(exec_pipe) != 0)
+        bool const capture_out = cmd.stdout_file.empty() && !cmd.passthrough;
+        bool const piped_err = !cmd.passthrough;
+        if ((capture_out && ::pipe(out_pipe) != 0) || (piped_err && ::pipe(err_pipe) != 0) || ::pipe(exec_pipe) != 0)
         {
             result.error = "cannot create pipes";
             return result;
@@ -120,21 +136,26 @@ export namespace dpm::process
         }
         if (pid == 0)
         {
-            ::setsid();
-            int in_fd = ::open(cmd.stdin_file.empty() ? "/dev/null" : cmd.stdin_file.c_str(), O_RDONLY);
-            if (in_fd < 0)
-                ::_exit(126);
-            ::dup2(in_fd, 0);
+            if (!cmd.passthrough)
+                ::setsid();
+            if (!cmd.passthrough || !cmd.stdin_file.empty())
+            {
+                int in_fd = ::open(cmd.stdin_file.empty() ? "/dev/null" : cmd.stdin_file.c_str(), O_RDONLY);
+                if (in_fd < 0)
+                    ::_exit(126);
+                ::dup2(in_fd, 0);
+            }
             if (capture_out)
                 ::dup2(out_pipe[1], 1);
-            else
+            else if (!cmd.passthrough)
             {
                 int fd = ::open(cmd.stdout_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
                 if (fd < 0)
                     ::_exit(126);
                 ::dup2(fd, 1);
             }
-            ::dup2(err_pipe[1], 2);
+            if (piped_err)
+                ::dup2(err_pipe[1], 2);
             for (int fd = 3; fd < 256; ++fd)
                 if (fd != exec_pipe[1])
                     ::close(fd);
@@ -155,7 +176,8 @@ export namespace dpm::process
         ::close(exec_pipe[1]);
         if (capture_out)
             ::close(out_pipe[1]);
-        ::close(err_pipe[1]);
+        if (piped_err)
+            ::close(err_pipe[1]);
         int exec_errno = 0;
         if (::read(exec_pipe[0], &exec_errno, sizeof exec_errno) == static_cast<ssize_t>(sizeof exec_errno))
         {
@@ -163,7 +185,8 @@ export namespace dpm::process
             ::close(exec_pipe[0]);
             if (capture_out)
                 ::close(out_pipe[0]);
-            ::close(err_pipe[0]);
+            if (piped_err)
+                ::close(err_pipe[0]);
             result.error = std::format("cannot run {}: {}", cmd.argv[0], ::strerror(exec_errno));
             return result;
         }
@@ -181,6 +204,31 @@ export namespace dpm::process
                 killed = true;
             }
         };
+        if (cmd.passthrough)
+        {
+            int pass_status = 0;
+            for (;;)
+            {
+                auto done = ::waitpid(pid, &pass_status, WNOHANG);
+                if (done == pid)
+                    break;
+                if (done < 0 && errno != EINTR)
+                    break;
+                if (std::chrono::steady_clock::now() >= deadline)
+                {
+                    result.timed_out = true;
+                    kill_child();
+                    ::waitpid(pid, &pass_status, 0);
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            if (WIFEXITED(pass_status))
+                result.exit_code = WEXITSTATUS(pass_status);
+            else if (WIFSIGNALED(pass_status))
+                result.signal = WTERMSIG(pass_status);
+            return result;
+        }
         std::array<pollfd, 2> fds{};
         std::size_t nfds = 0;
         int out_index = -1;

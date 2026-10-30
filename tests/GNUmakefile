@@ -171,6 +171,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_libdcext_prefix_map.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_codegen_determinism.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_mem2reg.py $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/dpm/e2e.py $(BUILD_DIR)/bin/dpm $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_bitfield_clang_layout.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tools/codegen/random_differential.py --dcc $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/i8086/test_harness.py
@@ -233,6 +234,8 @@ $(BUILD_DIR)/bin/tests/test_dpm_fetch: $(OBJ_DIR)/tests/source/test_dpm_fetch.cc
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
 $(BUILD_DIR)/bin/tests/test_dpm_inflate: $(OBJ_DIR)/tests/source/test_dpm_inflate.cc.o $(DPM_CORE_LIB) $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
+$(BUILD_DIR)/bin/tests/test_dpm_build: $(OBJ_DIR)/tests/source/test_dpm_build.cc.o $(DPM_CORE_LIB) $(COMPILER_LIB)
+	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
 
 $(BUILD_DIR)/bin/tests/%: $(OBJ_DIR)/tests/source/%.cc.o $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
@@ -288,7 +291,10 @@ $(OBJ_DIR)/tests/source/test_dpm_fetch.cc.o: $(TOPLEVEL)/tests/source/test_dpm_f
 $(OBJ_DIR)/tests/source/test_dpm_inflate.cc.o: $(TOPLEVEL)/tests/source/test_dpm_inflate.cc $(COMPILER_PCMS) $(DPM_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
-$(filter-out $(OBJ_DIR)/tests/source/test_format.cc.o $(OBJ_DIR)/tests/source/test_protocol.cc.o $(OBJ_DIR)/tests/source/test_lsp.cc.o $(OBJ_DIR)/tests/source/test_workspace_index.cc.o $(OBJ_DIR)/tests/source/test_transport.cc.o $(OBJ_DIR)/tests/source/test_compilation_database.cc.o $(OBJ_DIR)/tests/source/test_dcdoc.cc.o $(OBJ_DIR)/tests/source/test_dpm_manifests.cc.o $(OBJ_DIR)/tests/source/test_dpm_semver.cc.o $(OBJ_DIR)/tests/source/test_dpm_settings.cc.o $(OBJ_DIR)/tests/source/test_dpm_edit.cc.o $(OBJ_DIR)/tests/source/test_dpm_hash.cc.o $(OBJ_DIR)/tests/source/test_dpm_extract.cc.o $(OBJ_DIR)/tests/source/test_dpm_cache.cc.o $(OBJ_DIR)/tests/source/test_dpm_resolve.cc.o $(OBJ_DIR)/tests/source/test_dpm_fetch.cc.o $(OBJ_DIR)/tests/source/test_dpm_inflate.cc.o,$(ALL_TEST_OBJS)): $(OBJ_DIR)/%.o: $(TOPLEVEL)/% $(COMPILER_PCMS)
+$(OBJ_DIR)/tests/source/test_dpm_build.cc.o: $(TOPLEVEL)/tests/source/test_dpm_build.cc $(COMPILER_PCMS) $(DPM_PCMS)
+	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
+
+$(filter-out $(OBJ_DIR)/tests/source/test_format.cc.o $(OBJ_DIR)/tests/source/test_protocol.cc.o $(OBJ_DIR)/tests/source/test_lsp.cc.o $(OBJ_DIR)/tests/source/test_workspace_index.cc.o $(OBJ_DIR)/tests/source/test_transport.cc.o $(OBJ_DIR)/tests/source/test_compilation_database.cc.o $(OBJ_DIR)/tests/source/test_dcdoc.cc.o $(OBJ_DIR)/tests/source/test_dpm_manifests.cc.o $(OBJ_DIR)/tests/source/test_dpm_semver.cc.o $(OBJ_DIR)/tests/source/test_dpm_settings.cc.o $(OBJ_DIR)/tests/source/test_dpm_edit.cc.o $(OBJ_DIR)/tests/source/test_dpm_hash.cc.o $(OBJ_DIR)/tests/source/test_dpm_extract.cc.o $(OBJ_DIR)/tests/source/test_dpm_cache.cc.o $(OBJ_DIR)/tests/source/test_dpm_resolve.cc.o $(OBJ_DIR)/tests/source/test_dpm_fetch.cc.o $(OBJ_DIR)/tests/source/test_dpm_inflate.cc.o $(OBJ_DIR)/tests/source/test_dpm_build.cc.o,$(ALL_TEST_OBJS)): $(OBJ_DIR)/%.o: $(TOPLEVEL)/% $(COMPILER_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
 clean:
