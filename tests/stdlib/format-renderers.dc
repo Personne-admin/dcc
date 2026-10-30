@@ -1,0 +1,227 @@
+module main;
+import std::fmt;
+import std::json;
+import std::os::file;
+import std::result;
+
+public struct Spec {
+    u8 base;
+    bool uppercase;
+    bool plus_sign;
+    bool zero_pad;
+    usize width;
+    u8 align;
+    char fill;
+}
+
+void emit([] const char line) {
+    std::os::file::stdout().write_all(line as [] const u8).unwrap();
+    std::os::file::stdout().write_all("\n" as [] const u8).unwrap();
+}
+
+void emit_number(usize value) {
+    char[32] buffer = {};
+    std::result::Result([] char, std::fmt::FmtError) r = std::fmt::format_buf(buffer[0..32], "{}", value);
+    if r.is_err() {
+        emit("<err>" as [] const char);
+    } else {
+        emit(r.unwrap());
+    }
+}
+
+usize build_spec(char* out, const Spec* spec) {
+    usize n = 0;
+    out[n] = '{' as char;
+    n++;
+
+    if spec.align != 3 {
+        out[n] = spec.fill;
+        n++;
+        out[n] = if spec.align == 0 { '<' as char } else { if spec.align == 1 { '>' as char } else { '^' as char } };
+        n++;
+    }
+
+    if spec.plus_sign {
+        out[n] = '+' as char;
+        n++;
+    }
+
+    if spec.zero_pad {
+        out[n] = '0' as char;
+        n++;
+    }
+
+    char[20] digits = {};
+    usize count = 0;
+    usize w = spec.width;
+    while w > 0 {
+        count++;
+        digits[20 - count] = (('0' as u8) + (w % 10) as u8) as char;
+        w = w / 10;
+    }
+
+    for usize i = 0; i < count; i++ {
+        out[n] = digits[20 - count + i];
+        n++;
+    }
+
+    if spec.base == 2 {
+        out[n] = 'b' as char;
+        n++;
+    } else if spec.base == 8 {
+        out[n] = 'o' as char;
+        n++;
+    } else if spec.base == 16 {
+        out[n] = if spec.uppercase { 'X' as char } else { 'x' as char };
+        n++;
+    }
+
+    out[n] = '}' as char;
+    n++;
+    return n;
+}
+
+void dump_escape([] const char text) {
+    char[1024] out = {};
+    std::fmt::BufferWriter sink = std::fmt::new_buffer_writer(out[0..1024]);
+    std::fmt::Writer writer = sink.writer();
+    if !std::json::write_escaped(&writer, text).is_ok() {
+        emit("<err>" as [] const char);
+    } else {
+        emit(std::fmt::written_slice(&sink));
+    }
+
+    char[1024] chunked = {};
+    usize n = 0;
+    std::fmt::JsonEscapeCursor cursor = std::fmt::new_json_escape(text);
+    bool finished = false;
+    while !finished {
+        [] const char chunk = std::fmt::next(&cursor);
+        if chunk.len == 0 {
+            finished = true;
+        } else {
+            for usize i = 0; i < chunk.len; i++ {
+                chunked[n] = chunk[i];
+                n++;
+            }
+        }
+    }
+
+    emit(chunked[0..n]);
+}
+
+public i32 main() {
+    char[256] got = {};
+    char[32] spec_buf = {};
+
+    u64[12] unsigned_values = {0, 1, 7, 9, 10, 15, 16, 255, 256, 4294967295, 4294967296, 9223372036854775807};
+    i64[15] signed_values = {0, 1, -1, 7, -7, 9, -9, 10, -10, 255, -256, 2147483647, -2147483648, 9223372036854775807, -9223372036854775808};
+    u8[4] bases = {2, 8, 10, 16};
+    usize[5] widths = {0, 3, 8, 20, 41};
+    char[2] fills = {' ' as char, '*' as char};
+
+    Spec spec = {};
+
+    for usize vi = 0; vi < 12; vi++ {
+        for usize bi = 0; bi < 4; bi++ {
+            for u8 upper = 0; upper < 2; upper++ {
+                for u8 plus = 0; plus < 2; plus++ {
+                    for u8 zero = 0; zero < 2; zero++ {
+                        for usize wi = 0; wi < 5; wi++ {
+                            for u8 ai = 0; ai < 4; ai++ {
+                                for u8 fi = 0; fi < 2; fi++ {
+                                    spec.base = bases[bi];
+                                    spec.uppercase = upper == 1;
+                                    spec.plus_sign = plus == 1;
+                                    spec.zero_pad = zero == 1;
+                                    spec.width = widths[wi];
+                                    spec.align = ai;
+                                    spec.fill = fills[fi];
+                                    usize spec_len = build_spec(&spec_buf[0], &spec);
+                                    std::result::Result([] char, std::fmt::FmtError) r = std::fmt::format_buf(got[0..256], spec_buf[0..spec_len], unsigned_values[vi]);
+                                    if r.is_err() {
+                                        emit("<err>" as [] const char);
+                                    } else {
+                                        emit(r.unwrap());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for usize vi = 0; vi < 15; vi++ {
+        for usize bi = 0; bi < 4; bi++ {
+            for u8 upper = 0; upper < 2; upper++ {
+                for u8 plus = 0; plus < 2; plus++ {
+                    for u8 zero = 0; zero < 2; zero++ {
+                        for usize wi = 0; wi < 5; wi++ {
+                            for u8 ai = 0; ai < 4; ai++ {
+                                for u8 fi = 0; fi < 2; fi++ {
+                                    spec.base = bases[bi];
+                                    spec.uppercase = upper == 1;
+                                    spec.plus_sign = plus == 1;
+                                    spec.zero_pad = zero == 1;
+                                    spec.width = widths[wi];
+                                    spec.align = ai;
+                                    spec.fill = fills[fi];
+                                    usize spec_len = build_spec(&spec_buf[0], &spec);
+                                    std::result::Result([] char, std::fmt::FmtError) r = std::fmt::format_buf(got[0..256], spec_buf[0..spec_len], signed_values[vi]);
+                                    if r.is_err() {
+                                        emit("<err>" as [] const char);
+                                    } else {
+                                        emit(r.unwrap());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    char[256] every_byte = {};
+    for usize i = 0; i < 256; i++ {
+        every_byte[i] = i as char;
+    }
+    dump_escape(every_byte[0..256]);
+    dump_escape("" as [] const char);
+    dump_escape("plain text" as [] const char);
+    char[10] specials = {'a', '"', 'b', '\\', 'c', '\n', '\r', '\t', '\x08', '\x0c'};
+    dump_escape(specials[0..10]);
+    char[3] high = {0x7f as char, 0x80 as char, 0xff as char};
+    dump_escape(high[0..3]);
+
+    char[128] buffer = {};
+    std::result::Result([] char, std::fmt::FmtError) r1 = std::fmt::format_buf(buffer[0..128], "a{{b}}c");
+    if r1.is_err() { emit("err" as [] const char); } else { emit(r1.unwrap()); }
+    std::result::Result([] char, std::fmt::FmtError) r2 = std::fmt::format_buf(buffer[0..128], "}}");
+    if r2.is_err() { emit("err" as [] const char); } else { emit(r2.unwrap()); }
+    std::result::Result([] char, std::fmt::FmtError) r3 = std::fmt::format_buf(buffer[0..128], "}");
+    if r3.is_err() { emit("err" as [] const char); } else { emit(r3.unwrap()); }
+    std::result::Result([] char, std::fmt::FmtError) r4 = std::fmt::format_buf(buffer[0..128], "literal");
+    if r4.is_err() { emit("err" as [] const char); } else { emit(r4.unwrap()); }
+    std::result::Result([] char, std::fmt::FmtError) r5 = std::fmt::format_buf(buffer[0..128], "x", 1 as u8, 2 as u8);
+    if r5.is_err() { emit("err" as [] const char); } else { emit(r5.unwrap()); }
+    std::result::Result([] char, std::fmt::FmtError) r6 = std::fmt::format_buf(buffer[0..128], "{} {}", 1 as u8);
+    if r6.is_err() { emit("err" as [] const char); } else { emit(r6.unwrap()); }
+    std::result::Result([] char, std::fmt::FmtError) r7 = std::fmt::format_buf(buffer[0..128], "{");
+    if r7.is_err() { emit("err" as [] const char); } else { emit(r7.unwrap()); }
+    std::result::Result([] char, std::fmt::FmtError) r8 = std::fmt::format_buf(buffer[0..128], "{x", 1 as u8);
+    if r8.is_err() { emit("err" as [] const char); } else { emit(r8.unwrap()); }
+    std::result::Result([] char, std::fmt::FmtError) r9 = std::fmt::format_buf(buffer[0..128], "{}", 1 as u8);
+    if r9.is_err() { emit("err" as [] const char); } else { emit(r9.unwrap()); }
+    std::result::Result([] char, std::fmt::FmtError) r10 = std::fmt::format_buf(buffer[0..128], "{:p}", 7 as u8);
+    if r10.is_err() { emit("err" as [] const char); } else { emit(r10.unwrap()); }
+    std::result::Result([] char, std::fmt::FmtError) r11 = std::fmt::format_buf(buffer[0..128], "{}");
+    if r11.is_err() { emit("err" as [] const char); } else { emit(r11.unwrap()); }
+
+    emit_number(std::fmt::format_len("{:*<100000}", 7 as u8).unwrap());
+    emit_number(std::fmt::format_len("{:>100000}", 12345 as u32).unwrap());
+
+    return 0;
+}

@@ -4,6 +4,7 @@ import std;
 
 #include <sys/wait.h>
 #include <unistd.h>
+#include <cstdio>
 
 namespace
 {
@@ -37,6 +38,189 @@ namespace
         int const status = std::system(("timeout 120 " + shell_quote(exe)).c_str());
         std::filesystem::remove_all(dir, ec);
         return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    }
+
+    [[nodiscard]] std::optional<std::string> build_and_capture(std::string_view source, std::string_view backend, std::string_view optimization)
+    {
+        std::error_code ec;
+        auto const dcc = std::filesystem::weakly_canonical("/proc/self/exe", ec).parent_path().parent_path() / "dcc";
+        static std::atomic<int> counter{0};
+        auto const dir = std::filesystem::temp_directory_path() / std::format("dcc-stdlib-capture-{}-{}", ::getpid(), ++counter);
+        std::filesystem::create_directories(dir, ec);
+        auto const src = dir / "main.dc";
+        auto const exe = dir / "program";
+        {
+            std::ofstream out{src};
+            out << source;
+        }
+
+        auto const compile = std::format("timeout 60 {} -flibdcext -target x86_64-elf -fbackend {} {} -o {} {}", shell_quote(dcc), backend, optimization, shell_quote(exe),
+                                         shell_quote(src));
+        if (std::system(compile.c_str()) != 0)
+        {
+            std::filesystem::remove_all(dir, ec);
+            return std::nullopt;
+        }
+
+        auto const run = "timeout 120 " + shell_quote(exe);
+        FILE* pipe = ::popen(run.c_str(), "r");
+        if (!pipe)
+        {
+            std::filesystem::remove_all(dir, ec);
+            return std::nullopt;
+        }
+
+        std::string output;
+        std::array<char, 65536> buffer{};
+        std::size_t read = 0;
+        while ((read = std::fread(buffer.data(), 1, buffer.size(), pipe)) > 0)
+            output.append(buffer.data(), read);
+
+        int const status = ::pclose(pipe);
+        std::filesystem::remove_all(dir, ec);
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+            return std::nullopt;
+
+        return output;
+    }
+
+    [[nodiscard]] std::string reference_digits(std::uint64_t value, unsigned base, bool upper)
+    {
+        static constexpr std::string_view lower_digits = "0123456789abcdef";
+        static constexpr std::string_view upper_digits = "0123456789ABCDEF";
+        auto const table = upper ? upper_digits : lower_digits;
+
+        std::string digits;
+        std::uint64_t remaining = value;
+        if (remaining == 0)
+            digits.push_back('0');
+
+        while (remaining > 0)
+        {
+            digits.insert(digits.begin(), table[remaining % base]);
+            remaining /= base;
+        }
+
+        return digits;
+    }
+
+    [[nodiscard]] int reference_align(int align) { return align == 3 ? 1 : align; }
+    [[nodiscard]] char reference_fill(int align, char fill) { return align == 3 ? ' ' : fill; }
+
+    [[nodiscard]] std::string reference_unsigned(std::uint64_t value, unsigned base, bool upper, bool zero_pad, std::size_t width, int align, char fill)
+    {
+        std::string const digits = reference_digits(value, base, upper);
+        std::size_t before = 0;
+        std::size_t zeros = 0;
+        std::size_t after = 0;
+        char const pad = reference_fill(align, fill);
+
+        if (width > digits.size())
+        {
+            std::size_t const slack = width - digits.size();
+            if (zero_pad && reference_align(align) == 1)
+                zeros = slack;
+            else if (align == 3 || align == 1)
+                before = slack;
+            else if (align == 0)
+                after = slack;
+            else
+            {
+                before = slack / 2;
+                after = slack - slack / 2;
+            }
+        }
+
+        std::string out(before, pad);
+        out.append(zeros, '0');
+        out += digits;
+        out.append(after, pad);
+        return out;
+    }
+
+    [[nodiscard]] std::string reference_signed(std::int64_t value, unsigned base, bool upper, bool plus_sign, bool zero_pad, std::size_t width, int align, char fill)
+    {
+        bool const negative = value < 0;
+        std::uint64_t const magnitude = negative ? std::uint64_t{0} - static_cast<std::uint64_t>(value) : static_cast<std::uint64_t>(value);
+        char const sign = negative ? '-' : (plus_sign ? '+' : '\0');
+        std::string const digits = reference_digits(magnitude, base, upper);
+        std::size_t const total = digits.size() + (sign ? 1 : 0);
+        std::size_t before = 0;
+        std::size_t zeros = 0;
+        std::size_t after = 0;
+        char const pad = reference_fill(align, fill);
+
+        if (zero_pad && total < width && reference_align(align) == 1)
+            zeros = width - total;
+        else if (!sign)
+        {
+            if (width > digits.size())
+            {
+                std::size_t const slack = width - digits.size();
+                if (align == 3 || align == 1)
+                    before = slack;
+                else if (align == 0)
+                    after = slack;
+                else
+                {
+                    before = slack / 2;
+                    after = slack - slack / 2;
+                }
+            }
+        }
+        else
+        {
+            if (total < width && reference_align(align) == 1)
+                before = width - total;
+            if (total < width && align == 0)
+                after = width - total;
+        }
+
+        std::string out(before, pad);
+        if (sign)
+            out.push_back(sign);
+        out.append(zeros, '0');
+        out += digits;
+        out.append(after, pad);
+        return out;
+    }
+
+    [[nodiscard]] std::string reference_escape(std::string_view text)
+    {
+        std::string out;
+        out.push_back('"');
+        for (char const c : text)
+        {
+            auto const byte = static_cast<unsigned char>(c);
+            if (c != '"' && c != '\\' && byte >= 0x20)
+            {
+                out.push_back(c);
+                continue;
+            }
+
+            out.push_back('\\');
+            switch (c)
+            {
+                case '"': out.push_back('"'); break;
+                case '\\': out.push_back('\\'); break;
+                case '\n': out.push_back('n'); break;
+                case '\r': out.push_back('r'); break;
+                case '\t': out.push_back('t'); break;
+                case '\b': out.push_back('b'); break;
+                case '\f': out.push_back('f'); break;
+                default:
+                {
+                    static constexpr std::string_view hex = "0123456789abcdef";
+                    out += "u00";
+                    out.push_back(hex[byte >> 4]);
+                    out.push_back(hex[byte & 0xF]);
+                    break;
+                }
+            }
+        }
+
+        out.push_back('"');
+        return out;
     }
 
     [[nodiscard]] std::string stdlib_fixture(std::string_view name)
@@ -663,6 +847,102 @@ public i32 main() {
 }
 )";
     CHECK_EQ(build_and_run(source), 0);
+}
+
+TEST_CASE("format renderers match an independent oracle")
+{
+    auto const source = stdlib_fixture("format-renderers.dc");
+    REQUIRE(!source.empty());
+
+    std::string want;
+    auto append = [&](std::string const& line) {
+        want += line;
+        want.push_back(static_cast<char>(10));
+    };
+
+    constexpr std::uint64_t unsigned_values[] = {0, 1, 7, 9, 10, 15, 16, 255, 256, 4294967295, 4294967296, 9223372036854775807};
+    constexpr std::int64_t signed_values[] = {0, 1, -1, 7, -7, 9, -9, 10, -10, 255, -256, 2147483647, -2147483648, 9223372036854775807,
+                                               std::numeric_limits<std::int64_t>::min()};
+    constexpr unsigned bases[] = {2, 8, 10, 16};
+    constexpr std::size_t widths[] = {0, 3, 8, 20, 41};
+    constexpr char fills[] = {' ', '*'};
+
+    for (std::uint64_t value : unsigned_values)
+        for (unsigned base : bases)
+            for (bool upper : {false, true})
+                for ([[maybe_unused]] bool plus : {false, true})
+                    for (bool zero : {false, true})
+                        for (std::size_t width : widths)
+                            for (int align : {0, 1, 2, 3})
+                                for (char fill : fills)
+                                    append(reference_unsigned(value, base, upper, zero, width, align, fill));
+
+    for (std::int64_t value : signed_values)
+        for (unsigned base : bases)
+            for (bool upper : {false, true})
+                for (bool plus : {false, true})
+                    for (bool zero : {false, true})
+                        for (std::size_t width : widths)
+                            for (int align : {0, 1, 2, 3})
+                                for (char fill : fills)
+                                    append(reference_signed(value, base, upper, plus, zero, width, align, fill));
+
+    std::string every_byte;
+    for (int byte = 0; byte < 256; ++byte)
+        every_byte.push_back(static_cast<char>(byte));
+
+    std::string specials{"a"};
+    specials.push_back(static_cast<char>(34));
+    specials += "b";
+    specials.push_back(static_cast<char>(92));
+    specials += "c";
+    specials.push_back(static_cast<char>(10));
+    specials.push_back(static_cast<char>(13));
+    specials.push_back(static_cast<char>(9));
+    specials.push_back(static_cast<char>(8));
+    specials.push_back(static_cast<char>(12));
+
+    std::string high;
+    high.push_back(static_cast<char>(0x7f));
+    high.push_back(static_cast<char>(0x80));
+    high.push_back(static_cast<char>(0xff));
+
+    for (std::string const& text : {every_byte, std::string{}, std::string{"plain text"}, specials, high})
+    {
+        std::string const escaped = reference_escape(text);
+        append(escaped);
+        append(escaped);
+    }
+
+    for (std::string_view line : {"a{b}c", "}", "}", "literal", "x", "err", "err", "err", "1", "0000000000000007", "err"})
+        append(std::string{line});
+
+    append(std::string{"100000"});
+    append(std::string{"100000"});
+
+    for (auto backend : {"llvm", "custom"})
+        for (auto optimization : {"-O0", "-O2"})
+        {
+            auto const output = build_and_capture(source, backend, optimization);
+            if (!output)
+            {
+                CHECK(false);
+                continue;
+            }
+
+            if (*output != want)
+            {
+                std::size_t const limit = std::min(output->size(), want.size());
+                std::size_t prefix = 0;
+                while (prefix < limit && (*output)[prefix] == want[prefix])
+                    ++prefix;
+
+                auto const line = static_cast<std::size_t>(std::count(output->begin(), output->begin() + static_cast<std::ptrdiff_t>(prefix), static_cast<char>(10))) + 1;
+                std::println(std::cerr, "    first renderer mismatch on line {}  ({} {})", line, backend, optimization);
+            }
+
+            CHECK(*output == want);
+        }
 }
 
 TEST_CASE("tuple constructs through Tuple::make and reads elements back")

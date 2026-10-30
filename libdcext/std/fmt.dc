@@ -48,9 +48,28 @@ public Status(FmtError) write_codepoint(const Writer* self, u32 cp) {
     };
 }
 
+using usize REPEAT_CHUNK = 32;
+
+/// writes `byte` `times` times from a bounded local chunk, so a wide
+/// field never needs a width-sized buffer.
 public Status(FmtError) write_repeat(const Writer* self, char byte, usize times) {
-    for usize i = 0; i < times; i++ {
-        self.write_byte(byte) ?;
+    char[REPEAT_CHUNK] chunk;
+    [] const char view = chunk;
+    usize remaining = times;
+
+    for usize i = 0; i < REPEAT_CHUNK; i++ {
+        chunk[i] = byte;
+    }
+
+    while remaining > 0 {
+        usize count = if remaining < REPEAT_CHUNK {
+            remaining
+        } else {
+            REPEAT_CHUNK
+        };
+
+        self.write_all(view[0..count]) ?;
+        remaining = remaining - count;
     }
 
     return Status::Ok;
@@ -229,31 +248,49 @@ char digit_char(u64 value, bool uppercase) {
     return scratch[i..scratch.len];
 }
 
-public Status(FmtError) format_unsigned(
-    const Writer* w,
-    u64 value,
-    const Options* opts
-) {
-    char[72] scratch;
-    [] char view = scratch;
-    [] char digits = render_unsigned(value, view, opts);
+using usize INTEGER_SCRATCH = 72;
 
-    if opts.zero_pad && digits.len < opts.width && opts.align == Align::Right {
-        w.write_repeat('0' as char, opts.width - digits.len) ?;
-        return w.write_all(digits);
-    }
-
-    return write_padded(w, digits, opts);
+/// the rendered integer plus the chunk order the writer must emit it in.
+/// planning is ordinary code shared by every writer; nothing here depends
+/// on the writer type.
+struct IntegerPlan {
+    char[INTEGER_SCRATCH] digits;
+    usize start;
+    usize len;
+    char sign;
+    char fill;
+    usize fill_before;
+    usize zeros;
+    usize fill_after;
 }
 
-public Status(FmtError) format_signed(
-    const Writer* w,
-    i64 value,
-    const Options* opts
-) {
-    char[72] scratch;
-    [] char view = scratch;
+void plan_unsigned(IntegerPlan* self, u64 value, const Options* opts) {
+    [] char view = self.digits;
+    [] char rendered = render_unsigned(value, view, opts);
+    self.len = rendered.len;
+    self.start = INTEGER_SCRATCH - rendered.len;
+    self.sign = '\0';
+    self.fill = opts.fill;
+    self.fill_before = 0;
+    self.zeros = 0;
+    self.fill_after = 0;
 
+    if opts.width > self.len {
+        usize slack = opts.width - self.len;
+        if opts.zero_pad && opts.align == Align::Right {
+            self.zeros = slack;
+        } else if opts.align == Align::Left {
+            self.fill_after = slack;
+        } else if opts.align == Align::Center {
+            self.fill_before = slack / 2;
+            self.fill_after = slack - slack / 2;
+        } else {
+            self.fill_before = slack;
+        }
+    }
+}
+
+void plan_signed(IntegerPlan* self, i64 value, const Options* opts) {
     bool negative = value < 0;
     u64 magnitude = if negative {
         (0 - value) as u64
@@ -261,8 +298,11 @@ public Status(FmtError) format_signed(
         value as u64
     };
 
-    [] char digits = render_unsigned(magnitude, view, opts);
-    char sign = if negative {
+    [] char view = self.digits;
+    [] char rendered = render_unsigned(magnitude, view, opts);
+    self.len = rendered.len;
+    self.start = INTEGER_SCRATCH - rendered.len;
+    self.sign = if negative {
         '-' as char
     } else {
         if opts.plus_sign {
@@ -272,38 +312,89 @@ public Status(FmtError) format_signed(
         }
     };
 
-    usize total = digits.len + if sign != '\0' {
+    self.fill = opts.fill;
+    self.fill_before = 0;
+    self.zeros = 0;
+    self.fill_after = 0;
+
+    usize total = self.len + if self.sign != '\0' {
         1 as usize
     } else {
         0 as usize
     };
 
     if opts.zero_pad && total < opts.width && opts.align == Align::Right {
-        if sign != '\0' {
-            w.write_byte(sign) ?;
+        self.zeros = opts.width - total;
+        return;
+    }
+
+    if self.sign == '\0' {
+        if opts.width > self.len {
+            usize slack = opts.width - self.len;
+            if opts.align == Align::Left {
+                self.fill_after = slack;
+            } else if opts.align == Align::Center {
+                self.fill_before = slack / 2;
+                self.fill_after = slack - slack / 2;
+            } else {
+                self.fill_before = slack;
+            }
         }
 
-        w.write_repeat('0' as char, opts.width - total) ?;
-        return w.write_all(digits);
+        return;
     }
 
-    if sign == '\0' {
-        return write_padded(w, digits, opts);
-    }
-
-    // sign must sit inside the padding, so pad manually
     if total < opts.width && opts.align == Align::Right {
-        w.write_repeat(opts.fill, opts.width - total) ?;
+        self.fill_before = opts.width - total;
     }
-
-    w.write_byte(sign) ?;
-    w.write_all(digits) ?;
 
     if total < opts.width && opts.align == Align::Left {
-        w.write_repeat(opts.fill, opts.width - total) ?;
+        self.fill_after = opts.width - total;
+    }
+}
+
+Status(FmtError) emit_integer(const Writer* w, const IntegerPlan* self) {
+    if self.fill_before > 0 {
+        w.write_repeat(self.fill, self.fill_before) ?;
+    }
+
+    if self.sign != '\0' {
+        w.write_byte(self.sign) ?;
+    }
+
+    if self.zeros > 0 {
+        w.write_repeat('0' as char, self.zeros) ?;
+    }
+
+    if self.len > 0 {
+        w.write_all(self.digits[self.start..self.start + self.len]) ?;
+    }
+
+    if self.fill_after > 0 {
+        w.write_repeat(self.fill, self.fill_after) ?;
     }
 
     return Status::Ok;
+}
+
+public Status(FmtError) format_unsigned(
+    const Writer* w,
+    u64 value,
+    const Options* opts
+) {
+    IntegerPlan plan;
+    plan_unsigned(&plan, value, opts);
+    return emit_integer(w, &plan);
+}
+
+public Status(FmtError) format_signed(
+    const Writer* w,
+    i64 value,
+    const Options* opts
+) {
+    IntegerPlan plan;
+    plan_signed(&plan, value, opts);
+    return emit_integer(w, &plan);
 }
 
 //!
@@ -440,6 +531,145 @@ static if core::target::FLOAT_AVAILABLE {
 }
 
 //!
+//! JSON escaping
+//!
+//! literal runs come from the input, escape sequences from a small fixed
+//! buffer, so a writer only hands bytes on and no intermediate string is
+//! built.
+//!
+
+public enum JsonEscapePhase : u8 {
+    Open,
+    Body,
+    Close,
+    Done,
+}
+
+public struct JsonEscapeCursor {
+    [] const char text;
+    usize index;
+    usize literal_start;
+    char[8] pending;
+    usize pending_len;
+    JsonEscapePhase phase;
+}
+
+public JsonEscapeCursor new_json_escape([] const char text) {
+    return {
+        text = text,
+        index = 0,
+        literal_start = 0,
+        pending = {},
+        pending_len = 0,
+        phase = JsonEscapePhase::Open,
+    };
+}
+
+char hex_digit(u32 nibble) {
+    if nibble < 10 {
+        return (('0' as u32) + nibble) as char;
+    }
+
+    return (('a' as u32) + nibble - 10) as char;
+}
+
+void fill_escape(JsonEscapeCursor* self, char c) {
+    self.pending[0] = '\\' as char;
+    self.pending_len = 2;
+
+    if c == ('"' as char) {
+        self.pending[1] = '"' as char;
+        return;
+    }
+
+    if c == ('\\' as char) {
+        self.pending[1] = '\\' as char;
+        return;
+    }
+
+    if c == ('\n' as char) {
+        self.pending[1] = 'n' as char;
+        return;
+    }
+
+    if c == ('\r' as char) {
+        self.pending[1] = 'r' as char;
+        return;
+    }
+
+    if c == ('\t' as char) {
+        self.pending[1] = 't' as char;
+        return;
+    }
+
+    if c == '\x08' {
+        self.pending[1] = 'b' as char;
+        return;
+    }
+
+    if c == '\x0c' {
+        self.pending[1] = 'f' as char;
+        return;
+    }
+
+    self.pending_len = 6;
+    self.pending[1] = 'u' as char;
+    self.pending[2] = '0' as char;
+    self.pending[3] = '0' as char;
+    self.pending[4] = hex_digit((c as u8 >> 4) as u32);
+    self.pending[5] = hex_digit((c as u8 & 0xF) as u32);
+}
+
+/// next chunk of a quoted JSON string, or an empty slice when finished.
+public [] const char next(JsonEscapeCursor* self) {
+    if self.phase == JsonEscapePhase::Done {
+        return self.text[0..0];
+    }
+
+    if self.phase == JsonEscapePhase::Open {
+        self.phase = JsonEscapePhase::Body;
+        self.pending[0] = '"' as char;
+        self.pending_len = 1;
+        return self.pending[0..1];
+    }
+
+    if self.phase == JsonEscapePhase::Body {
+        while self.index < self.text.len {
+            char c = self.text[self.index];
+            if c != ('"' as char) && c != ('\\' as char) && (c as u8) >= 0x20 {
+                self.index++;
+                continue;
+            }
+
+            if self.index > self.literal_start {
+                [] const char piece = self.text[self.literal_start..self.index];
+                self.literal_start = self.index;
+                return piece;
+            }
+
+            fill_escape(self, c);
+            self.index++;
+            self.literal_start = self.index;
+            return self.pending[0..self.pending_len];
+        }
+
+        if self.text.len > self.literal_start {
+            [] const char piece = self.text[self.literal_start..self.text.len];
+            self.literal_start = self.text.len;
+            self.index = self.text.len;
+            return piece;
+        }
+
+        self.phase = JsonEscapePhase::Close;
+    }
+
+    self.phase = JsonEscapePhase::Done;
+    self.pending[0] = '"' as char;
+    self.pending_len = 1;
+    return self.pending[0..1];
+}
+
+//!
 //! Value dispatch
 //!
 
@@ -528,42 +758,148 @@ struct Chunk {
     bool found;
 }
 
-/// emits literal text up to the next placeholder and parses its spec.
-Result(Chunk, FmtError) emit_until_placeholder(
-    const Writer* w,
-    [] const char fmt,
-    usize from
-) {
-    usize i = from;
-    usize literal_start = from;
+/// one token of a format string: literal bytes to emit, the options of the
+/// next placeholder, or the end of the format. the cursor itself is
+/// ordinary code, so a formatter instantiated for many writers shares it.
+public struct FormatStep {
+    [] const char literal;
+    Options opts;
+    bool placeholder;
+    bool done;
+}
 
-    while i < fmt.len {
-        if fmt[i] == ('{' as char) {
-            if i < fmt.len && fmt.len - i > 1 && fmt[i + 1] == ('{' as char) {
-                w.write_all(fmt[literal_start..i + 1]) ?;
-                i = i + 2;
-                literal_start = i;
-                continue;
-            }
+public struct FormatCursor {
+    [] const char format;
+    usize cursor;
+    usize literal_start;
+    usize spec_at;
+    bool have_spec;
+    bool done;
+}
 
-            w.write_all(fmt[literal_start..i]) ?;
-            return parse_spec(fmt, i + 1);
+public FormatCursor new_format_cursor([] const char format) {
+    return {
+        format = format,
+        cursor = 0,
+        literal_start = 0,
+        spec_at = 0,
+        have_spec = false,
+        done = false,
+    };
+}
+
+/// advances to the next literal run or placeholder. a doubled brace is
+/// returned as its own literal run; the caller keeps asking until it gets
+/// a placeholder or the end.
+public Result(FormatStep, FmtError) next(FormatCursor* self) {
+    if self.done {
+        FormatStep end = {
+            literal = self.format[0..0],
+            opts = Options::default(),
+            placeholder = false,
+            done = true,
+        };
+        return Result::Ok(end);
+    }
+
+    if self.have_spec {
+        self.have_spec = false;
+        Result(Chunk, FmtError) parsed = parse_spec(self.format, self.spec_at);
+        if parsed.is_err() {
+            self.done = true;
+            return parsed.unwrap_err();
         }
 
-        if fmt[i] == ('}' as char) && i < fmt.len && fmt.len - i > 1 && fmt[i + 1] == ('}' as char) {
-            w.write_all(fmt[literal_start..i + 1]) ?;
-            i = i + 2;
-            literal_start = i;
-            continue;
+        Chunk chunk = parsed.unwrap();
+        self.cursor = chunk.cursor;
+        self.literal_start = chunk.cursor;
+        FormatStep step = {
+            literal = self.format[0..0],
+            opts = chunk.opts,
+            placeholder = true,
+            done = false,
+        };
+        return Result::Ok(step);
+    }
+
+    usize i = self.cursor;
+    while i < self.format.len {
+        char c = self.format[i];
+
+        if c == ('{' as char) {
+            if i + 1 < self.format.len && self.format[i + 1] == ('{' as char) {
+                [] const char piece = self.format[self.literal_start..i + 1];
+                self.cursor = i + 2;
+                self.literal_start = i + 2;
+                FormatStep step = {
+                    literal = piece,
+                    opts = Options::default(),
+                    placeholder = false,
+                    done = false,
+                };
+                return Result::Ok(step);
+            }
+
+            if i > self.literal_start {
+                [] const char piece = self.format[self.literal_start..i];
+                self.spec_at = i + 1;
+                self.have_spec = true;
+                self.cursor = i + 1;
+                self.literal_start = i;
+                FormatStep step = {
+                    literal = piece,
+                    opts = Options::default(),
+                    placeholder = false,
+                    done = false,
+                };
+                return Result::Ok(step);
+            }
+
+            Result(Chunk, FmtError) parsed = parse_spec(self.format, i + 1);
+            if parsed.is_err() {
+                self.done = true;
+                return parsed.unwrap_err();
+            }
+
+            Chunk chunk = parsed.unwrap();
+            self.cursor = chunk.cursor;
+            self.literal_start = chunk.cursor;
+            FormatStep step = {
+                literal = self.format[0..0],
+                opts = chunk.opts,
+                placeholder = true,
+                done = false,
+            };
+            return Result::Ok(step);
+        }
+
+        if c == ('}' as char) && i + 1 < self.format.len && self.format[i + 1] == ('}' as char) {
+            [] const char piece = self.format[self.literal_start..i + 1];
+            self.cursor = i + 2;
+            self.literal_start = i + 2;
+            FormatStep step = {
+                literal = piece,
+                opts = Options::default(),
+                placeholder = false,
+                done = false,
+            };
+            return Result::Ok(step);
         }
 
         i++;
     }
 
-    w.write_all(fmt[literal_start..fmt.len]) ?;
-    return Result::Ok(
-        {cursor = fmt.len, opts = Options::default(), found = false}
-    );
+    self.cursor = self.format.len;
+    self.done = true;
+    [] const char piece = self.format[self.literal_start..self.format.len];
+    self.literal_start = self.format.len;
+    FormatStep step = {
+        literal = piece,
+        opts = Options::default(),
+        placeholder = false,
+        done = true,
+    };
+    return Result::Ok(step);
 }
 
 Result(Chunk, FmtError) parse_spec([] const char fmt, usize from) {
@@ -676,20 +1012,37 @@ Align align_of(char c) {
 //!
 
 public Status(FmtError) format(T...)(const Writer* w, [] const char fmt, T args) {
-    usize cursor = 0;
+    FormatCursor cursor = new_format_cursor(fmt);
 
     static for arg in args {
-        Chunk chunk = emit_until_placeholder(w, fmt, cursor) ?;
-        cursor = chunk.cursor;
+        bool placed = false;
+        while !placed {
+            FormatStep step = next(&cursor) ?;
+            if step.literal.len > 0 {
+                w.write_all(step.literal) ?;
+            }
 
-        if chunk.found {
-            format_value(w, arg, &chunk.opts) ?;
+            if step.placeholder {
+                format_value(w, arg, &step.opts) ?;
+                placed = true;
+            } else if step.done {
+                placed = true;
+            }
         }
     }
 
-    Chunk tail = emit_until_placeholder(w, fmt, cursor) ?;
-    if tail.found {
-        return FmtError::BadFormat;
+    bool finished = false;
+    while !finished {
+        FormatStep step = next(&cursor) ?;
+        if step.literal.len > 0 {
+            w.write_all(step.literal) ?;
+        }
+
+        if step.placeholder {
+            return FmtError::BadFormat;
+        }
+
+        finished = step.done;
     }
 
     return Status::Ok;

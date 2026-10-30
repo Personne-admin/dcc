@@ -1315,56 +1315,19 @@ public Status(fmt::FmtError) write_escaped(
     const fmt::Writer* w,
     [] const char text
 ) {
-    w.write_byte('"' as char) ?;
+    fmt::JsonEscapeCursor cursor = fmt::new_json_escape(text);
 
-    usize plain = 0;
-    for usize i = 0; i < text.len; i++ {
-        char c = text[i];
-
-        if c != ('"' as char) && c != ('\\' as char) && (c as u8) >= 0x20 {
-            continue;
-        }
-
-        w.write_all(text[plain..i]) ?;
-        plain = i + 1;
-
-        if c == ('"' as char) {
-            w.write_all("\\\"") ?;
-        } else if c == ('\\' as char) {
-            w.write_all("\\\\") ?;
-        } else if c == ('\n' as char) {
-            w.write_all("\\n") ?;
-        } else if c == ('\r' as char) {
-            w.write_all("\\r") ?;
-        } else if c == ('\t' as char) {
-            w.write_all("\\t") ?;
-        } else if c == '\x08' {
-            w.write_all("\\b") ?;
-        } else if c == '\x0c' {
-            w.write_all("\\f") ?;
+    bool finished = false;
+    while !finished {
+        [] const char chunk = fmt::next(&cursor);
+        if chunk.len == 0 {
+            finished = true;
         } else {
-            char[6] scratch;
-            [] char view = slice::from_raw(&scratch[0], 6);
-            view[0] = '\\' as char;
-            view[1] = 'u' as char;
-            view[2] = '0' as char;
-            view[3] = '0' as char;
-            view[4] = hex_digit((c as u8 >> 4) as u32);
-            view[5] = hex_digit((c as u8 & 0xF) as u32);
-            w.write_all(view) ?;
+            w.write_all(chunk) ?;
         }
     }
 
-    w.write_all(text[plain..text.len]) ?;
-    return w.write_byte('"' as char);
-}
-
-char hex_digit(u32 nibble) {
-    if nibble < 10 {
-        return (('0' as u32) + nibble) as char;
-    }
-
-    return (('a' as u32) + nibble - 10) as char;
+    return Status::Ok;
 }
 
 public Status(fmt::FmtError) begin_object(Emitter* self) {
