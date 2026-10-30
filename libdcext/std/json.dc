@@ -16,6 +16,7 @@ module std::json;
 
 import core;
 import core::target;
+import std::alloc;
 import std::fmt;
 import std::mem;
 import std::slice;
@@ -24,6 +25,7 @@ public import std::parse;
 public import std::result;
 
 using result::{ Result, Status, Optional };
+using alloc::AllocatorPolicy;
 using parse::{ Position, Located, NumError };
 
 //!
@@ -806,17 +808,17 @@ struct MemberVec {
 
 using usize VEC_MIN = 8;
 
-Status(JsonError) push_value(
-    const mem::Allocator* alloc,
+Status(JsonError) push_value(A)(
+    A* alloc,
     ValueVec* self,
     Value value
-) {
+) if AllocatorPolicy(A) {
     if self.len == self.items.len {
         Optional(usize) doubled = json_checked_mul(self.items.len, 2);
         if doubled.is_none() { return JsonError::OutOfMemory; }
         usize want = if self.items.len == 0 { VEC_MIN } else { doubled.unwrap_some() };
 
-        Result([] Value, mem::AllocError) grown = alloc.alloc(want);
+        Result([] Value, mem::AllocError) grown = alloc.allocate_slice(want);
         if grown.is_err() {
             return if grown.unwrap_err() == mem::AllocError::OutOfMemory { JsonError::OutOfMemory } else { JsonError::OutOfMemory };
         }
@@ -827,7 +829,7 @@ Status(JsonError) push_value(
         }
 
         if self.items.len != 0 {
-            alloc.free(self.items);
+            alloc.free_slice(self.items);
         }
 
         self.items = fresh;
@@ -838,17 +840,17 @@ Status(JsonError) push_value(
     return Status::Ok;
 }
 
-Status(JsonError) push_member(
-    const mem::Allocator* alloc,
+Status(JsonError) push_member(A)(
+    A* alloc,
     MemberVec* self,
     Member member
-) {
+) if AllocatorPolicy(A) {
     if self.len == self.items.len {
         Optional(usize) doubled = json_checked_mul(self.items.len, 2);
         if doubled.is_none() { return JsonError::OutOfMemory; }
         usize want = if self.items.len == 0 { VEC_MIN } else { doubled.unwrap_some() };
 
-        Result([] Member, mem::AllocError) grown = alloc.alloc(want);
+        Result([] Member, mem::AllocError) grown = alloc.allocate_slice(want);
         if grown.is_err() {
             return if grown.unwrap_err() == mem::AllocError::OutOfMemory { JsonError::OutOfMemory } else { JsonError::OutOfMemory };
         }
@@ -859,7 +861,7 @@ Status(JsonError) push_member(
         }
 
         if self.items.len != 0 {
-            alloc.free(self.items);
+            alloc.free_slice(self.items);
         }
 
         self.items = fresh;
@@ -877,16 +879,16 @@ Status(JsonError) push_member(
 /// borrows `raw` when it holds no escape, and decodes into `alloc` when
 /// it does. must be called before the next `next`, which overwrites the
 /// scanner's `needs_unescape`.
-Result([] const char, JsonError) materialize(
-    const mem::Allocator* alloc,
+Result([] const char, JsonError) materialize(A)(
+    A* alloc,
     const Scanner* self,
     [] const char raw
-) {
+) if AllocatorPolicy(A) {
     if !self.needs_unescape {
         return Result::Ok(raw);
     }
 
-    Result([] char, mem::AllocError) slot = alloc.alloc(raw.len);
+    Result([] char, mem::AllocError) slot = alloc.allocate_slice(raw.len);
     if slot.is_err() {
         return JsonError::OutOfMemory;
     }
@@ -896,10 +898,10 @@ Result([] const char, JsonError) materialize(
     return Result::Ok(buffer[0..n] as [] const char);
 }
 
-Result(Value, JsonError) build_array(
-    const mem::Allocator* alloc,
+Result(Value, JsonError) build_array(A)(
+    A* alloc,
     Scanner* self
-) {
+) if AllocatorPolicy(A) {
     ValueVec items = {items = slice::from_raw(null as Value*, 0), len = 0};
 
     while true {
@@ -917,10 +919,10 @@ Result(Value, JsonError) build_array(
     }
 }
 
-Result(Value, JsonError) build_object(
-    const mem::Allocator* alloc,
+Result(Value, JsonError) build_object(A)(
+    A* alloc,
     Scanner* self
-) {
+) if AllocatorPolicy(A) {
     MemberVec members = {items = slice::from_raw(null as Member*, 0), len = 0};
 
     while true {
@@ -943,11 +945,11 @@ Result(Value, JsonError) build_object(
     }
 }
 
-Result(Value, JsonError) build(
-    const mem::Allocator* alloc,
+Result(Value, JsonError) build(A)(
+    A* alloc,
     Scanner* self,
     Event event
-) {
+) if AllocatorPolicy(A) {
     static if core::target::FLOAT_AVAILABLE {
         return match event {
             Event::Null => Result::Ok(Value::Null),
@@ -986,10 +988,10 @@ Result(Value, JsonError) build(
 
 /// parses one document. strings borrow `input` unless they carried an
 /// escape, so the result outlives neither `alloc` nor `input`.
-public Result(Value, JsonError) parse(
-    const mem::Allocator* alloc,
+public Result(Value, JsonError) parse(A)(
+    A* alloc,
     [] const char input
-) {
+) if AllocatorPolicy(A) {
     Scanner self = scan(input);
 
     Located(Event) first = next(&self) ?;
@@ -1006,20 +1008,20 @@ public Result(Value, JsonError) parse(
 
 /// copies every borrowed string into `alloc`, so the result depends on
 /// the allocator alone. use it when the input buffer is about to go away.
-public Result(Value, JsonError) own(
-    const mem::Allocator* alloc,
+public Result(Value, JsonError) own(A)(
+    A* alloc,
     const Value* self
-) {
+) if AllocatorPolicy(A) {
     return match *self {
         Value::String(text) => {
-            Result([] char, mem::AllocError) slot = alloc.dupe(text);
+            Result([] char, mem::AllocError) slot = alloc.duplicate_slice(text);
             if slot.is_err() {
                 return JsonError::OutOfMemory;
             }
             Result::Ok(Value::String(slot.unwrap() as [] const char))
         },
         Value::Array(items) => {
-            Result([] Value, mem::AllocError) slot = alloc.alloc(items.len);
+            Result([] Value, mem::AllocError) slot = alloc.allocate_slice(items.len);
             if slot.is_err() {
                 return JsonError::OutOfMemory;
             }
@@ -1034,13 +1036,13 @@ public Result(Value, JsonError) own(
             Result::Ok(Value::Array(copied))
         },
         Value::Object(members) => {
-            Result([] Member, mem::AllocError) slot = alloc.alloc(members.len);
+            Result([] Member, mem::AllocError) slot = alloc.allocate_slice(members.len);
             if slot.is_err() {
                 return JsonError::OutOfMemory;
             }
             [] Member copied = slot.unwrap();
             for usize i = 0; i < members.len; i++ {
-                Result([] char, mem::AllocError) key = alloc.dupe(members[i].key);
+                Result([] char, mem::AllocError) key = alloc.duplicate_slice(members[i].key);
                 if key.is_err() {
                     return JsonError::OutOfMemory;
                 }

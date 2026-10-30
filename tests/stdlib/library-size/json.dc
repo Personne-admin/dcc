@@ -4,7 +4,7 @@ import std::mem;
 public i32 main() {
     u8[8192] storage = {};
     std::mem::FixedBuffer backing = std::mem::new_fixed_buffer(storage[0..8192]);
-    std::mem::Allocator alloc = backing.allocator();
+    std::mem::FixedHandle alloc = std::mem::borrow(&backing);
     std::json::Value value = std::json::parse(&alloc, "{\"name\":\"dc\",\"items\":[1,2,3],\"ok\":true}").unwrap();
     return if value.get("items").is_some() && value.get("ok").is_some() { 0 } else { 1 };
 }

@@ -1897,7 +1897,7 @@ import std::result;
 bool check_int([] const char input, i64 want) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
-    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::mem::FixedHandle alloc = std::mem::borrow(&fb);
     std::result::Result(std::json::Value, std::json::JsonError) r = std::json::parse(&alloc, input);
     if r.is_err() { return false; }
     std::json::Value v = r.unwrap();
@@ -1909,7 +1909,7 @@ bool check_int([] const char input, i64 want) {
 bool check_int_err([] const char input, std::json::JsonError want) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
-    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::mem::FixedHandle alloc = std::mem::borrow(&fb);
     std::result::Result(std::json::Value, std::json::JsonError) r = std::json::parse(&alloc, input);
     if r.is_ok() { return false; }
     return r.unwrap_err() == want;
@@ -1918,7 +1918,7 @@ bool check_int_err([] const char input, std::json::JsonError want) {
 bool check_float([] const char input, f64 lo, f64 hi) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
-    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::mem::FixedHandle alloc = std::mem::borrow(&fb);
     std::result::Result(std::json::Value, std::json::JsonError) r = std::json::parse(&alloc, input);
     if r.is_err() { return false; }
     std::json::Value v = r.unwrap();
@@ -1976,7 +1976,7 @@ import std::result;
 bool check_int([] const char input, i64 want) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
-    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::mem::FixedHandle alloc = std::mem::borrow(&fb);
     std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
     if r.is_err() { return false; }
     std::toml::Table t = r.unwrap();
@@ -1992,7 +1992,7 @@ bool check_int([] const char input, i64 want) {
 bool check_int_err([] const char input, std::toml::TomlError want) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
-    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::mem::FixedHandle alloc = std::mem::borrow(&fb);
     std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
     if r.is_ok() { return false; }
     return r.unwrap_err() == want;
@@ -2001,7 +2001,7 @@ bool check_int_err([] const char input, std::toml::TomlError want) {
 bool check_float([] const char input, f64 lo, f64 hi) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
-    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::mem::FixedHandle alloc = std::mem::borrow(&fb);
     std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
     if r.is_err() { return false; }
     std::toml::Table t = r.unwrap();
@@ -2018,7 +2018,7 @@ bool check_float([] const char input, f64 lo, f64 hi) {
 bool check_float_above([] const char input, f64 lo) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
-    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::mem::FixedHandle alloc = std::mem::borrow(&fb);
     std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
     if r.is_err() { return false; }
     std::toml::Table t = r.unwrap();
@@ -2034,7 +2034,7 @@ bool check_float_above([] const char input, f64 lo) {
 bool check_float_below([] const char input, f64 hi) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
-    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::mem::FixedHandle alloc = std::mem::borrow(&fb);
     std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
     if r.is_err() { return false; }
     std::toml::Table t = r.unwrap();

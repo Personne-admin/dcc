@@ -14,6 +14,7 @@ module std::toml;
 
 import core;
 import core::target;
+import std::alloc;
 import std::mem;
 import std::slice;
 import std::utf8;
@@ -22,6 +23,7 @@ public import std::parse;
 public import std::result;
 
 using result::{ Result, Status, Optional };
+using alloc::AllocatorPolicy;
 using os::time::{ Date, Time, DateTime };
 using parse::{ Position, Located, NumError };
 
@@ -1435,8 +1437,8 @@ struct BTable {
     bool dotted;
 }
 
-Result(BTable*, TomlError) new_table(const mem::Allocator* alloc) {
-    Result(BTable*, mem::AllocError) slot = alloc.create();
+Result(BTable*, TomlError) new_table(A)(A* alloc) if AllocatorPolicy(A) {
+    Result(BTable*, mem::AllocError) slot = alloc.create_item();
     if slot.is_err() {
         return TomlError::OutOfMemory;
     }
@@ -1449,17 +1451,17 @@ Result(BTable*, TomlError) new_table(const mem::Allocator* alloc) {
     return Result::Ok(out);
 }
 
-Result(BEntry*, TomlError) reserve_entry(
-    const mem::Allocator* alloc,
+Result(BEntry*, TomlError) reserve_entry(A)(
+    A* alloc,
     BTable* self,
     [] const char key
-) {
+) if AllocatorPolicy(A) {
     if self.len == self.entries.len {
         Optional(usize) doubled = toml_checked_mul(self.entries.len, 2);
         if doubled.is_none() { return TomlError::OutOfMemory; }
         usize want = if self.entries.len == 0 { 8 as usize } else { doubled.unwrap_some() };
 
-        Result([] BEntry, mem::AllocError) grown = alloc.alloc(want);
+        Result([] BEntry, mem::AllocError) grown = alloc.allocate_slice(want);
         if grown.is_err() {
             return if grown.unwrap_err() == mem::AllocError::OutOfMemory { TomlError::OutOfMemory } else { TomlError::OutOfMemory };
         }
@@ -1470,7 +1472,7 @@ Result(BEntry*, TomlError) reserve_entry(
         }
 
         if self.entries.len != 0 {
-            alloc.free(self.entries);
+            alloc.free_slice(self.entries);
         }
 
         self.entries = fresh;
@@ -1496,17 +1498,17 @@ BEntry* find_entry(BTable* self, [] const char key) {
     return null as BEntry*;
 }
 
-Status(TomlError) push_element(
-    const mem::Allocator* alloc,
+Status(TomlError) push_element(A)(
+    A* alloc,
     BEntry* self,
     BTable* element
-) {
+) if AllocatorPolicy(A) {
     if self.element_count == self.elements.len {
         Optional(usize) doubled = toml_checked_mul(self.elements.len, 2);
         if doubled.is_none() { return TomlError::OutOfMemory; }
         usize want = if self.elements.len == 0 { 4 as usize } else { doubled.unwrap_some() };
 
-        Result([] TablePtr, mem::AllocError) grown = alloc.alloc(want);
+        Result([] TablePtr, mem::AllocError) grown = alloc.allocate_slice(want);
         if grown.is_err() {
             return if grown.unwrap_err() == mem::AllocError::OutOfMemory { TomlError::OutOfMemory } else { TomlError::OutOfMemory };
         }
@@ -1517,7 +1519,7 @@ Status(TomlError) push_element(
         }
 
         if self.elements.len != 0 {
-            alloc.free(self.elements);
+            alloc.free_slice(self.elements);
         }
 
         self.elements = fresh;
@@ -1529,10 +1531,10 @@ Status(TomlError) push_element(
 }
 
 /// copies a key segment into `alloc`, decoding it when it was quoted.
-Result([] const char, TomlError) key_text(
-    const mem::Allocator* alloc,
+Result([] const char, TomlError) key_text(A)(
+    A* alloc,
     const Str* self
-) {
+) if AllocatorPolicy(A) {
     if self.kind == StrKind::Bare {
         return Result::Ok(self.raw);
     }
@@ -1541,7 +1543,7 @@ Result([] const char, TomlError) key_text(
         return Result::Ok(self.raw);
     }
 
-    Result([] char, mem::AllocError) slot = alloc.alloc(self.raw.len);
+    Result([] char, mem::AllocError) slot = alloc.allocate_slice(self.raw.len);
     if slot.is_err() {
         return TomlError::OutOfMemory;
     }
@@ -1553,13 +1555,13 @@ Result([] const char, TomlError) key_text(
 
 /// walks into `key`, creating tables as it goes. `dotted` marks the
 /// intermediates a dotted key creates, which a later header may not claim.
-Result(BTable*, TomlError) descend(
-    const mem::Allocator* alloc,
+Result(BTable*, TomlError) descend(A)(
+    A* alloc,
     BTable* from,
     const KeyPath* key,
     usize count,
     bool dotted
-) {
+) if AllocatorPolicy(A) {
     BTable* current = from;
 
     for usize i = 0; i < count; i++ {
@@ -1597,11 +1599,11 @@ Result(BTable*, TomlError) descend(
     return Result::Ok(current);
 }
 
-Result(BTable*, TomlError) open_table(
-    const mem::Allocator* alloc,
+Result(BTable*, TomlError) open_table(A)(
+    A* alloc,
     BTable* root,
     const TablePath* path
-) {
+) if AllocatorPolicy(A) {
     BTable* parent = descend(alloc, root, &path.key, path.key.count - 1, false) ?;
     [] const char name = key_text(alloc, &path.key.parts[path.key.count - 1]) ?;
 
@@ -1652,12 +1654,12 @@ Result(BTable*, TomlError) open_table(
     return Result::Ok(found.table);
 }
 
-Status(TomlError) set_key(
-    const mem::Allocator* alloc,
+Status(TomlError) set_key(A)(
+    A* alloc,
     BTable* current,
     const KeyPath* key,
     Value value
-) {
+) if AllocatorPolicy(A) {
     BTable* target = descend(alloc, current, key, key.count - 1, true) ?;
     [] const char name = key_text(alloc, &key.parts[key.count - 1]) ?;
 
@@ -1671,12 +1673,12 @@ Status(TomlError) set_key(
     return Status::Ok;
 }
 
-Result(Table, TomlError) freeze(const mem::Allocator* alloc, BTable* self) {
+Result(Table, TomlError) freeze(A)(A* alloc, BTable* self) if AllocatorPolicy(A) {
     if self.len == 0 {
         return Result::Ok(Table {entries = slice::from_raw(null as Entry*, 0)});
     }
 
-    Result([] Entry, mem::AllocError) slot = alloc.alloc(self.len);
+    Result([] Entry, mem::AllocError) slot = alloc.allocate_slice(self.len);
     if slot.is_err() {
         return TomlError::OutOfMemory;
     }
@@ -1697,7 +1699,7 @@ Result(Table, TomlError) freeze(const mem::Allocator* alloc, BTable* self) {
             continue;
         }
 
-        Result([] Value, mem::AllocError) elements = alloc.alloc(
+        Result([] Value, mem::AllocError) elements = alloc.allocate_slice(
             source.element_count
         );
         if elements.is_err() {
@@ -1724,17 +1726,17 @@ struct ValueVec {
     usize len;
 }
 
-Status(TomlError) push_value(
-    const mem::Allocator* alloc,
+Status(TomlError) push_value(A)(
+    A* alloc,
     ValueVec* self,
     Value value
-) {
+) if AllocatorPolicy(A) {
     if self.len == self.items.len {
         Optional(usize) doubled = toml_checked_mul(self.items.len, 2);
         if doubled.is_none() { return TomlError::OutOfMemory; }
         usize want = if self.items.len == 0 { 8 as usize } else { doubled.unwrap_some() };
 
-        Result([] Value, mem::AllocError) grown = alloc.alloc(want);
+        Result([] Value, mem::AllocError) grown = alloc.allocate_slice(want);
         if grown.is_err() {
             return if grown.unwrap_err() == mem::AllocError::OutOfMemory { TomlError::OutOfMemory } else { TomlError::OutOfMemory };
         }
@@ -1745,7 +1747,7 @@ Status(TomlError) push_value(
         }
 
         if self.items.len != 0 {
-            alloc.free(self.items);
+            alloc.free_slice(self.items);
         }
 
         self.items = fresh;
@@ -1756,10 +1758,10 @@ Status(TomlError) push_value(
     return Status::Ok;
 }
 
-Result(Value, TomlError) scalar_value(
-    const mem::Allocator* alloc,
+Result(Value, TomlError) scalar_value(A)(
+    A* alloc,
     Scalar item
-) {
+) if AllocatorPolicy(A) {
     static if core::target::FLOAT_AVAILABLE {
         return match item {
             Scalar::String(text) => {
@@ -1798,15 +1800,15 @@ Result(Value, TomlError) scalar_value(
 
 /// borrows the source when the string carried no escape, and decodes
 /// into `alloc` when it did.
-Result([] const char, TomlError) string_text(
-    const mem::Allocator* alloc,
+Result([] const char, TomlError) string_text(A)(
+    A* alloc,
     const Str* self
-) {
+) if AllocatorPolicy(A) {
     if !self.needs_unescape {
         return Result::Ok(self.raw);
     }
 
-    Result([] char, mem::AllocError) slot = alloc.alloc(self.raw.len);
+    Result([] char, mem::AllocError) slot = alloc.allocate_slice(self.raw.len);
     if slot.is_err() {
         return TomlError::OutOfMemory;
     }
@@ -1816,10 +1818,10 @@ Result([] const char, TomlError) string_text(
     return Result::Ok(buffer[0..n] as [] const char);
 }
 
-Result(Value, TomlError) build_array(
-    const mem::Allocator* alloc,
+Result(Value, TomlError) build_array(A)(
+    A* alloc,
     Scanner* self
-) {
+) if AllocatorPolicy(A) {
     ValueVec items = {items = slice::from_raw(null as Value*, 0), len = 0};
 
     while true {
@@ -1837,10 +1839,10 @@ Result(Value, TomlError) build_array(
     }
 }
 
-Result(Value, TomlError) build_inline(
-    const mem::Allocator* alloc,
+Result(Value, TomlError) build_inline(A)(
+    A* alloc,
     Scanner* self
-) {
+) if AllocatorPolicy(A) {
     BTable* table = new_table(alloc) ?;
 
     while true {
@@ -1860,11 +1862,11 @@ Result(Value, TomlError) build_inline(
     }
 }
 
-Result(Value, TomlError) build_value(
-    const mem::Allocator* alloc,
+Result(Value, TomlError) build_value(A)(
+    A* alloc,
     Scanner* self,
     Event event
-) {
+) if AllocatorPolicy(A) {
     return match event {
         Event::Scalar(item) => scalar_value(alloc, item),
         Event::ArrayBegin => build_array(alloc, self),
@@ -1875,10 +1877,10 @@ Result(Value, TomlError) build_value(
 
 /// parses a document. strings borrow `input` unless they carried an
 /// escape, so the result outlives neither `alloc` nor `input`.
-public Result(Table, TomlError) parse(
-    const mem::Allocator* alloc,
+public Result(Table, TomlError) parse(A)(
+    A* alloc,
     [] const char input
-) {
+) if AllocatorPolicy(A) {
     Scanner self = scan(input);
     BTable* root = new_table(alloc) ?;
     BTable* current = root;
