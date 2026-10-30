@@ -734,6 +734,22 @@ export namespace dcc::sm
             return f->text(range);
         }
 
+        [[nodiscard]] std::string text_trimmed(SourceRange range) const
+        {
+            auto source = text(range);
+            if (!source)
+                return {};
+            std::string out(*source);
+            for (char& c : out)
+                if (c == '\n' || c == '\r' || c == '\t')
+                    c = ' ';
+            auto first = out.find_first_not_of(' ');
+            if (first == std::string::npos)
+                return {};
+            auto last = out.find_last_not_of(' ');
+            return out.substr(first, last - first + 1);
+        }
+
         [[nodiscard]] std::size_t file_count() const noexcept { return m_files.size(); }
 
         [[nodiscard]] std::uint64_t content_revision(FileId id) const noexcept

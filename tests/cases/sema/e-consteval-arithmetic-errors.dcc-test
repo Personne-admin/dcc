@@ -8,3 +8,4 @@ void test_div_zero() {
 }
 
 === EXPECT-ERRORS EXACT ===
+main.dc:4: static if condition is not a compile-time constant: `1 / 0) == 0`

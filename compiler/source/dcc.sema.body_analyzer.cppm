@@ -16719,8 +16719,12 @@ export namespace dcc::sema
 
             if (!scrutinee_type)
             {
-                if (!fn || !fn->template_params.empty())
+                if (si.taken_branch < 0)
+                {
+                    error(si.condition->range, "static if condition is not a compile-time constant: `{}`",
+                          m_diag.source_manager().text_trimmed(si.condition->range));
                     si.taken_branch = 0;
+                }
 
                 if (si.taken_branch == 0)
                 {
@@ -17098,19 +17102,28 @@ export namespace dcc::sema
                         return analyze_static_type_if(mod, fn, scope, si, loop_depth, next_off, const_env);
 
                     auto cond = analyze_expr_or_error(mod, fn, scope, si.condition, loop_depth, next_off, nullptr, const_env);
-                    if (!cond.constant && si.condition && !has_error(cond.type))
+                    if (si.condition && !has_error(cond.type))
                     {
-                        auto result = evaluate_constant(*si.condition, ctfe::Mode::Required);
-                        if (result.flow == ctfe::Flow::Normal && result.value)
+                        if (!cond.constant)
                         {
-                            cond.constant = make_value(std::move(*result.value));
-                            si.condition->sema.const_value = cond.constant;
-                            si.condition->sema.is_constant = true;
+                            auto result = evaluate_constant(*si.condition, ctfe::Mode::Required);
+                            if (result.flow == ctfe::Flow::Normal && result.value)
+                            {
+                                cond.constant = make_value(std::move(*result.value));
+                                si.condition->sema.const_value = cond.constant;
+                                si.condition->sema.is_constant = true;
+                            }
+                            else
+                            {
+                                error(si.condition->range, "static if condition is not a compile-time constant: `{}`",
+                                      m_diag.source_manager().text_trimmed(si.condition->range));
+                                note_evaluated_calls(result);
+                            }
                         }
-                        else if (contains_call(*si.condition))
+                        else if (cond.constant->kind() != comptime::Value::Kind::Bool)
                         {
-                            error(si.condition->range, "static if condition is not a compile-time constant: {}", result.message);
-                            note_evaluated_calls(result);
+                            error(si.condition->range, "static if condition must be a compile-time boolean: `{}`",
+                                  m_diag.source_manager().text_trimmed(si.condition->range));
                         }
                     }
                     bool take_then = !(cond.constant && cond.constant->kind() == comptime::Value::Kind::Bool) || cond.constant->get_bool();

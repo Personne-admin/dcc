@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module m;
+
+i32 flag = 1;
+
+static if flag && true {
+    public i32 a = 1;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: `flag` is not a compile-time constant
+
+=== ENTRY: main.dc ===

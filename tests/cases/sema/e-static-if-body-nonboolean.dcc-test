@@ -1,0 +1,15 @@
+=== FILE: main.dc ===
+module m;
+
+i32 f() {
+    i32 result = 0;
+    static if 1 {
+        result = 1;
+    }
+    return result;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: static if condition must be a compile-time boolean: `1`
+
+=== ENTRY: main.dc ===

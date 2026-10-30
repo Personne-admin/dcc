@@ -657,9 +657,15 @@ export namespace dcc::sema
                     return;
                 }
 
+                auto const errors_before = m_diag.error_count();
                 auto val = m_eval.eval_condition(cur->condition);
                 if (!val)
+                {
+                    if (m_diag.error_count() == errors_before)
+                        m_diag.error(cur->condition->range, "static if condition is not a compile-time constant: `{}`",
+                                     m_diag.source_manager().text_trimmed(cur->condition->range));
                     return;
+                }
 
                 if (val->kind() != comptime::Value::Kind::Bool)
                 {

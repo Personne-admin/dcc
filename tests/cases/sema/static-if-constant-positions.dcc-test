@@ -1,0 +1,36 @@
+=== FILE: main.dc ===
+module m;
+
+public const bool ENABLED = true;
+
+static if ENABLED {
+    public i32 module_value = 1;
+} else {
+    public i32 module_value = 2;
+}
+
+i32 body_if() {
+    i32 result = 0;
+    static if sizeof(i32) == 4 {
+        result = 1;
+    }
+    return result;
+}
+
+i32 generic_if(T)(T value) {
+    i32 result = 0;
+    static if T == u8 {
+        result = 1;
+    } else {
+        result = 2;
+    }
+    return result;
+}
+
+i32 check() {
+    return body_if() * 10 + generic_if(1 as u8) * 100 + generic_if(1 as u16) * 1000;
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===
+
+=== ENTRY: main.dc ===
