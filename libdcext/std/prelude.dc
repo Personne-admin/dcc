@@ -6,6 +6,3 @@ public import std::mem;
 using public Result = result::Result;
 using public Status = result::Status;
 using public Optional = result::Optional;
-
-using public Arena = mem::Arena;
-using public Arena::new = mem::new_arena;

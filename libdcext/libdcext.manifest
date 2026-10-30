@@ -2,6 +2,7 @@ dcc-libdcext-manifest 1
 source all assert assert.dc
 source all dcext_abi common/abi.dc
 source all std::alloc std/alloc.dc
+source all std::alloc::arena std/alloc/arena.dc
 source all std::alloc::callback std/alloc/callback.dc
 source all std::alloc::fixed std/alloc/fixed.dc
 source all std::array std/array.dc

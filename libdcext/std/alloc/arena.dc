@@ -1,0 +1,171 @@
+module std::alloc::arena;
+
+public import std::result;
+
+import std::alloc;
+import std::debug;
+import core::slice;
+
+using result::{ Result, Optional };
+
+//!
+//! Arena allocator policy
+//!
+//! `Arena(P)` owns the chunks it carves out of a borrowed parent policy `P` and
+//! returns them all to that parent in `reset`/`deinit`. `ArenaHandle(P)` borrows
+//! one arena state; handles may be copied, but a copy neither copies nor extends
+//! the state lifetime. Arena operations are thread-confined unless the caller
+//! serializes them.
+//!
+
+public struct ArenaChunk {
+    ArenaChunk* next;
+    [] u8 memory;
+    usize offset;
+}
+
+public using usize ARENA_MIN_CHUNK = 4096;
+
+public struct Arena(P) {
+    P* parent;
+    ArenaChunk* head;
+    usize next_chunk_size;
+}
+
+public struct ArenaHandle(P) {
+    Arena(P)* state;
+}
+
+public Arena(P) new_arena(P)(P* parent) {
+    return {parent = parent, head = null, next_chunk_size = ARENA_MIN_CHUNK};
+}
+
+/// borrows `state`. the handle does not own it.
+public ArenaHandle(P) borrow(P)(Arena(P)* state) {
+    return {state = state};
+}
+
+//!
+//! Allocator contract
+//!
+
+public Result([] u8, AllocError) allocate(P)(
+    const ArenaHandle(P)* self,
+    usize len,
+    usize align
+) {
+    if !valid_alignment(align) {
+        return AllocError::InvalidAlignment;
+    }
+
+    if len == 0 {
+        return Result::Ok(core::slice::from_raw(null as u8*, 0));
+    }
+
+    if self.state.head != null {
+        Result(usize, AllocError) offset = allocation_start(
+            self.state.head.memory,
+            self.state.head.offset,
+            len,
+            align
+        );
+
+        if offset.is_ok() {
+            usize start = offset.unwrap();
+            self.state.head.offset = start + len;
+            return Result::Ok(core::slice::from_raw(self.state.head.memory.ptr + start, len));
+        }
+    }
+
+    return arena_new_chunk(self.state, len, align);
+}
+
+Result([] u8, AllocError) arena_new_chunk(P)(
+    Arena(P)* self,
+    usize len,
+    usize align
+) {
+    Optional(usize) minimum = checked_add(len, align - 1);
+    if minimum.is_none() { return AllocError::OutOfMemory; }
+
+    usize size = self.next_chunk_size;
+    if size <= minimum.unwrap_some() {
+        Optional(usize) rounded = checked_align_up(minimum.unwrap_some(), ARENA_MIN_CHUNK);
+        if rounded.is_none() { return AllocError::OutOfMemory; }
+        size = rounded.unwrap_some();
+    }
+
+    Optional(usize) total = checked_add(size, sizeof(ArenaChunk));
+    Optional(usize) next = checked_mul(size, 2);
+    if total.is_none() || next.is_none() { return AllocError::OutOfMemory; }
+
+    Result([] u8, AllocError) block_r = self.parent.allocate(
+        total.unwrap_some(),
+        alignof(ArenaChunk)
+    );
+
+    if block_r.is_err() {
+        return block_r.unwrap_err();
+    }
+
+    [] u8 block = block_r.unwrap();
+    [] u8 memory = core::slice::from_raw(block.ptr + sizeof(ArenaChunk), size);
+    Result(usize, AllocError) offset = allocation_start(memory, 0, len, align);
+    if offset.is_err() {
+        self.parent.free(block, alignof(ArenaChunk));
+        return offset.unwrap_err();
+    }
+
+    usize start = offset.unwrap();
+    ArenaChunk* chunk = block.ptr as ArenaChunk*;
+    chunk.next = self.head;
+    chunk.memory = memory;
+    chunk.offset = start + len;
+    self.head = chunk;
+    self.next_chunk_size = next.unwrap_some();
+    return Result::Ok(core::slice::from_raw(memory.ptr + start, len));
+}
+
+public bool resize_in_place(P)(
+    const ArenaHandle(P)* self,
+    [] u8 block,
+    usize new_bytes,
+    usize align
+) {
+    if block.len == 0 {
+        return false;
+    }
+
+    if new_bytes == 0 {
+        return true;
+    }
+
+    return new_bytes <= block.len;
+}
+
+public void free(P)(const ArenaHandle(P)* self, [] u8 block, usize align) {
+}
+
+/// releases every chunk back to the parent policy. the arena is empty and reusable.
+public void reset(P)(Arena(P)* self) {
+    ArenaChunk* chunk = self.head;
+
+    while chunk != null {
+        ArenaChunk* next = chunk.next;
+        Optional(usize) total = checked_add(chunk.memory.len, sizeof(ArenaChunk));
+        if total.is_none() { debug::panic("std::alloc::arena: invalid chunk size"); }
+        self.parent.free(
+            core::slice::from_raw(chunk as u8*, total.unwrap_some()),
+            alignof(ArenaChunk)
+        );
+        chunk = next;
+    }
+
+    self.head = null;
+    self.next_chunk_size = ARENA_MIN_CHUNK;
+}
+
+/// releases every chunk. safe on the empty arena.
+public void deinit(P)(Arena(P)* self) {
+    reset(self);
+}

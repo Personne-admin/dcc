@@ -1,12 +1,15 @@
 module main;
 
 import core::slice;
-import std::alloc;
-import std::alloc::fixed;
-import std::result;
+import core::target;
+public import std::alloc;
+public import std::alloc::arena;
+public import std::alloc::fixed;
+public import std::result;
 
 using std::result::{ Result, Optional };
 using std::alloc::{ AllocError, AllocatorPolicy, allocation_start, as_bytes, as_typed, bytes_for, checked_add, checked_align_up, checked_mul, create_item, destroy_item, duplicate_slice, free_slice, reallocate, valid_alignment };
+using std::alloc::arena::{ Arena, ArenaHandle, deinit, new_arena, reset };
 using std::alloc::fixed::{ FixedBuffer, FixedHandle, borrow, new_fixed_buffer };
 
 //!
@@ -36,6 +39,30 @@ void free(NullPolicy* self, [] u8 block, usize align) {
     self.frees += 1;
 }
 
+public struct CountingParent {
+    FixedBuffer buffer;
+    usize allocations;
+    usize frees;
+}
+
+public Result([] u8, AllocError) allocate(CountingParent* self, usize len, usize align) {
+    FixedHandle handle = borrow(&self.buffer);
+    Result([] u8, AllocError) block = handle.allocate(len, align);
+    if block.is_ok() { self.allocations += 1; }
+    return block;
+}
+
+public bool resize_in_place(CountingParent* self, [] u8 block, usize new_bytes, usize align) {
+    FixedHandle handle = borrow(&self.buffer);
+    return handle.resize_in_place(block, new_bytes, align);
+}
+
+public void free(CountingParent* self, [] u8 block, usize align) {
+    FixedHandle handle = borrow(&self.buffer);
+    handle.free(block, align);
+    self.frees += 1;
+}
+
 i32 static_checks() {
     if sizeof(FixedHandle) != sizeof(usize) {
         return 110;
@@ -43,6 +70,14 @@ i32 static_checks() {
 
     if sizeof(FixedBuffer) != sizeof([] u8) + 2 * sizeof(usize) {
         return 111;
+    }
+
+    if sizeof(Arena(FixedHandle)) != 3 * sizeof(usize) {
+        return 112;
+    }
+
+    if sizeof(ArenaHandle(FixedHandle)) != sizeof(usize) {
+        return 113;
     }
 
     return 0;
@@ -280,6 +315,129 @@ i32 typed_checks() {
     return 0;
 }
 
+i32 arena_checks() {
+    static if sizeof(usize) >= 4 && core::target::ARCH != core::target::Arch::I8086 {
+    u8[17500] arena_backing = {};
+    u8[17500] nested_arena_backing = {};
+    CountingParent parent = {buffer = new_fixed_buffer(arena_backing[0..17500]), allocations = 0, frees = 0};
+    Arena(CountingParent) arena = new_arena(&parent);
+    ArenaHandle(CountingParent) handle = std::alloc::arena::borrow(&arena);
+
+    Result([] u8, AllocError) first_r = handle.allocate(16, 1);
+    if first_r.is_err() { return 300; }
+    [] u8 first = first_r.unwrap();
+    if first.len != 16 { return 301; }
+    if parent.allocations != 1 { return 302; }
+    if arena.head == null { return 303; }
+    usize parent_offset = parent.buffer.offset;
+    if parent_offset <= 16 { return 304; }
+
+    Result([] u8, AllocError) second_r = handle.allocate(8, 1);
+    if second_r.is_err() { return 305; }
+    [] u8 second = second_r.unwrap();
+    if second.len != 8 { return 306; }
+    if parent.allocations != 1 { return 307; }
+    if parent.buffer.offset != parent_offset { return 308; }
+    if (second.ptr as usize) < (first.ptr as usize) + 16 { return 309; }
+
+    if !handle.resize_in_place(second, 4, 1) { return 310; }
+    if handle.resize_in_place(second, 12, 1) { return 311; }
+    if !handle.resize_in_place(second, 0, 1) { return 312; }
+    if handle.resize_in_place(core::slice::from_raw(null as u8*, 0), 4, 1) { return 313; }
+    handle.free(second, 1);
+    if parent.allocations != 1 { return 314; }
+
+    usize before = parent.buffer.offset;
+    Result([] u8, AllocError) empty_r = handle.allocate(0, 8);
+    if empty_r.is_err() { return 315; }
+    [] u8 empty = empty_r.unwrap();
+    if empty.len != 0 || empty.ptr != null { return 316; }
+    if parent.buffer.offset != before || parent.allocations != 1 { return 317; }
+
+    if handle.allocate(8, 3).unwrap_err() != AllocError::InvalidAlignment { return 318; }
+    if parent.buffer.offset != before { return 319; }
+
+    Result([] u8, AllocError) large_r = handle.allocate(5000, 1);
+    if large_r.is_err() { return 320; }
+    [] u8 large = large_r.unwrap();
+    if large.len != 5000 { return 321; }
+    if parent.allocations != 2 { return 322; }
+    first[0] = 7;
+    large[0] = 9;
+    large[4999] = 11;
+    if first[0] != 7 || large[0] != 9 || large[4999] != 11 { return 323; }
+
+    usize saved_head = arena.head as usize;
+    usize saved_next = arena.next_chunk_size;
+    usize saved_offset = parent.buffer.offset;
+    Result([] u8, AllocError) overflow_r = handle.allocate(5000, 1);
+    if overflow_r.is_ok() { return 324; }
+    if overflow_r.unwrap_err() != AllocError::OutOfMemory { return 325; }
+    if (arena.head as usize) != saved_head || arena.next_chunk_size != saved_next { return 326; }
+    if parent.buffer.offset != saved_offset { return 327; }
+    if first[0] != 7 || large[4999] != 11 { return 328; }
+
+    ArenaHandle(CountingParent) alias = handle;
+    Result([] u8, AllocError) via_alias_r = alias.allocate(4, 1);
+    if via_alias_r.is_err() { return 329; }
+    if alias.allocate(8, 3).unwrap_err() != AllocError::InvalidAlignment { return 330; }
+
+    Arena(CountingParent) other = new_arena(&parent);
+    ArenaHandle(CountingParent) other_handle = std::alloc::arena::borrow(&other);
+    Result([] u8, AllocError) other_r = other_handle.allocate(8, 1);
+    if other_r.is_err() { return 331; }
+    if (other.head as usize) == (arena.head as usize) { return 332; }
+    deinit(&other);
+
+    usize chunks = parent.allocations;
+    deinit(&arena);
+    if arena.head != null || arena.next_chunk_size != std::alloc::arena::ARENA_MIN_CHUNK { return 333; }
+    if parent.allocations != chunks { return 334; }
+    usize freed = parent.frees;
+    if freed == 0 { return 335; }
+
+    reset(&arena);
+    if arena.head != null || parent.frees != freed { return 336; }
+    Result([] u8, AllocError) after_reset_r = handle.allocate(16, 1);
+    if after_reset_r.is_err() { return 337; }
+    if parent.allocations != chunks + 1 { return 338; }
+    deinit(&arena);
+
+    Arena(CountingParent) typed_arena = new_arena(&parent);
+    ArenaHandle(CountingParent) typed_handle = std::alloc::arena::borrow(&typed_arena);
+    usize typed_before = parent.allocations;
+    Result([] Empty, AllocError) empties_r = typed_handle.allocate_slice(3);
+    if empties_r.is_err() { return 339; }
+    [] Empty empties = empties_r.unwrap();
+    if empties.len != 3 || empties.ptr != null { return 340; }
+    if parent.allocations != typed_before { return 341; }
+    Result([] u32, AllocError) words_r = typed_handle.allocate_slice(4);
+    if words_r.is_err() { return 342; }
+    [] u32 words = words_r.unwrap();
+    if words.len != 4 { return 343; }
+    if (((words.ptr as usize) & (alignof(u32) - 1)) != 0) { return 344; }
+    words[0] = 5;
+    words[3] = 6;
+    if words[0] != 5 || words[3] != 6 { return 345; }
+    deinit(&typed_arena);
+
+    CountingParent nested_parent = {buffer = new_fixed_buffer(nested_arena_backing[0..17500]), allocations = 0, frees = 0};
+    Arena(CountingParent) outer = new_arena(&nested_parent);
+    ArenaHandle(CountingParent) outer_handle = std::alloc::arena::borrow(&outer);
+    Arena(ArenaHandle(CountingParent)) inner = new_arena(&outer_handle);
+    ArenaHandle(ArenaHandle(CountingParent)) inner_handle = std::alloc::arena::borrow(&inner);
+    Result([] u8, AllocError) inner_r = inner_handle.allocate(32, 1);
+    if inner_r.is_err() { return 346; }
+    if inner_r.unwrap().len != 32 { return 347; }
+    deinit(&inner);
+    deinit(&outer);
+    if inner.head != null || outer.head != null { return 348; }
+    return 0;
+    } else {
+        return 0;
+    }
+}
+
 i32 policy_checks() {
     NullPolicy policy = {};
     require_allocator(&policy);
@@ -317,6 +475,9 @@ i32 policy_checks() {
     if status != 0 { return status; }
 
     status = policy_checks();
+    if status != 0 { return status; }
+
+    status = arena_checks();
     if status != 0 { return status; }
 
     return 0;
