@@ -79,19 +79,25 @@ TEST_CASE("every field maps to its dcc flag")
     CHECK(dcc_accepts(s::dcc_flags(st)));
 }
 
-TEST_CASE("the default libdcext variant follows the target")
+TEST_CASE("the default libdcext links the hosted variant only for the host target")
 {
     m::Settings st;
     CHECK(contains(s::dcc_flags(st), "-flibdcext"));
+    for (auto target :
+         all<m::Target>({m::Target::X86_64Elf, m::Target::X86_64Coff, m::Target::X86Elf, m::Target::X86Coff, m::Target::I8086Binary, m::Target::I8086Mz}))
+    {
+        m::Settings other;
+        other.target = target;
+        auto flags = s::dcc_flags(other);
+        CHECK(flags == strs({"-target=" + std::string{s::triple(target)}}));
+    }
     st.target = m::Target::X86_64Elf;
+    st.libdcext = m::Libdcext::Linux;
     CHECK(contains(s::dcc_flags(st), "-flibdcext=linux"));
-    st.target = m::Target::X86_64Coff;
-    CHECK(contains(s::dcc_flags(st), "-flibdcext=windows"));
-    st.target = m::Target::I8086Binary;
-    CHECK(s::dcc_flags(st) == strs({"-target=i8086-binary"}));
-    st.target = m::Target::X86_64Elf;
     st.libdcext = m::Libdcext::Off;
     CHECK(s::dcc_flags(st) == strs({"-target=x86_64-elf"}));
+    st.target = m::Target::Host;
+    CHECK(s::dcc_flags(st) == strs({}));
 }
 
 TEST_CASE("product flags cover shared libraries and link libraries")
@@ -137,16 +143,27 @@ TEST_CASE("layers override from the lowest to the highest and extra flags concat
     CHECK(cli.target == m::Target::X86_64Elf);
 }
 
-TEST_CASE("a profile declared with a built-in name adds to the defaults")
+TEST_CASE("a custom profile starts from the defaults of the profile it inherits")
 {
     m::Project project;
-    m::Profile release;
-    release.name = "release";
-    release.settings.optimize = m::Optimize::Size;
-    project.profiles.push_back(release);
-    auto result = s::effective(project, "release", nullptr);
-    CHECK(result.optimize == m::Optimize::Size);
-    CHECK(result.whole_program == m::Tri::On);
+    m::Profile debugish;
+    debugish.name = "debugish";
+    debugish.settings.optimize = m::Optimize::O1;
+    m::Profile releaseish;
+    releaseish.name = "releaseish";
+    releaseish.inherits = m::ProfileBase::Release;
+    releaseish.settings.debug_info = m::Tri::On;
+    project.profiles = {debugish, releaseish};
+    auto d = s::effective(project, "debugish", nullptr);
+    CHECK(d.optimize == m::Optimize::O1);
+    CHECK(d.debug_info == m::Tri::On);
+    CHECK(d.bounds_check == m::Tri::On);
+    CHECK(d.whole_program == m::Tri::Default);
+    auto r = s::effective(project, "releaseish", nullptr);
+    CHECK(r.optimize == m::Optimize::O2);
+    CHECK(r.whole_program == m::Tri::On);
+    CHECK(r.debug_info == m::Tri::On);
+    CHECK(r.bounds_check == m::Tri::Default);
 }
 
 TEST_CASE("drift: dcc accepts every flag for every enumerator")

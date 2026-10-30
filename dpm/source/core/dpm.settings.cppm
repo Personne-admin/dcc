@@ -70,10 +70,14 @@ export namespace dpm::settings
 
     [[nodiscard]] inline Settings effective(Project const& project, std::string_view profile, Product const* product, Overrides const& overrides = {})
     {
-        auto result = merge(profile_defaults(profile), project.settings);
+        manifest::Profile const* custom = nullptr;
         for (auto const& p : project.profiles)
             if (p.name == profile)
-                result = merge(std::move(result), p.settings);
+                custom = &p;
+        auto base = custom ? (custom->inherits == manifest::ProfileBase::Release ? "release" : "debug") : profile;
+        auto result = merge(profile_defaults(base), project.settings);
+        if (custom)
+            result = merge(std::move(result), custom->settings);
         if (product)
             result = merge(std::move(result), product->settings);
         if (overrides.target)
@@ -145,7 +149,7 @@ export namespace dpm::settings
         return "";
     }
 
-    [[nodiscard]] inline std::string_view libdcext_os(Libdcext lib, Target target)
+    [[nodiscard]] inline std::string_view libdcext_os(Libdcext lib)
     {
         switch (lib)
         {
@@ -158,17 +162,9 @@ export namespace dpm::settings
             case Libdcext::Freestanding:
                 return "freestanding";
             case Libdcext::Default:
-                break;
-        }
-        switch (target)
-        {
-            case Target::X86_64Elf:
-                return "linux";
-            case Target::X86_64Coff:
-                return "windows";
-            default:
                 return "";
         }
+        return "";
     }
 
     namespace detail
@@ -200,7 +196,7 @@ export namespace dpm::settings
         detail::tri_flag(out, s.whole_program, "-fwhole-program", "-fno-whole-program");
         if (s.libdcext == Libdcext::Default && s.target == Target::Host)
             out.emplace_back("-flibdcext");
-        else if (auto os = libdcext_os(s.libdcext, s.target); !os.empty())
+        else if (auto os = libdcext_os(s.libdcext); !os.empty())
             out.push_back("-flibdcext=" + std::string{os});
         detail::tri_flag(out, s.debug_info, "-g", "-g0");
         detail::tri_flag(out, s.bounds_check, "-fbounds-check", "-fno-bounds-check");

@@ -1,0 +1,4 @@
+=== FILE: project.dcon ===
+{ name = "a", version = "1.0.0", profiles = { { name = "release" } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:56: profile 'release' is built in and cannot be declared; use another name and set inherits

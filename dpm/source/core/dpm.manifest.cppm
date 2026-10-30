@@ -263,9 +263,16 @@ export namespace dpm::manifest
         Range range;
     };
 
+    enum class ProfileBase : std::uint8_t
+    {
+        Debug,
+        Release,
+    };
+
     struct Profile
     {
         std::string name;
+        ProfileBase inherits{ProfileBase::Debug};
         Settings settings;
         Range range;
     };
@@ -1096,12 +1103,16 @@ export namespace dpm::manifest
                         Profile pf;
                         pf.range = item.range;
                         pf.name = str(item, "name");
+                        static constexpr std::array<std::string_view, 2> bases{"Debug", "Release"};
+                        pf.inherits = enumerator<ProfileBase>(item, "inherits", bases);
                         if (auto const* s = field(item, "settings"))
                             pf.settings = settings(*s);
                         if (auto const* n = item.find("name"))
                         {
                             if (!is_identifier(pf.name))
                                 error(*n, std::format("'{}' is not a valid profile name", pf.name));
+                            else if (pf.name == "debug" || pf.name == "release")
+                                error(*n, std::format("profile '{}' is built in and cannot be declared; use another name and set inherits", pf.name));
                             else if (!profile_names.insert(pf.name).second)
                                 error(*n, std::format("duplicate profile '{}'", pf.name));
                         }

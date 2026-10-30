@@ -79,7 +79,8 @@ public enum Optimize : u8
 /// Which libdcext variant to link.
 public enum Libdcext : u8
 {
-    /// Pick the variant that matches the target.
+    /// Link the hosted variant when the target is `Host`; link nothing for any
+    /// explicitly chosen target. Name a variant to get a runtime for a target.
     Default,
     /// Do not link libdcext.
     Off,
@@ -170,14 +171,26 @@ public struct Product
     []const []const char link = {};
 }
 
+/// The built-in profile a custom profile starts from.
+public enum ProfileBase : u8
+{
+    /// Start from the `debug` defaults.
+    Debug,
+    /// Start from the `release` defaults.
+    Release,
+}
+
 /// A named group of settings, selected with `--profile`.
 ///
-/// The profiles `debug` and `release` always exist; declaring a profile of
-/// the same name adds to its defaults.
+/// The profiles `debug` and `release` always exist and cannot be declared;
+/// a custom profile starts from the defaults of the built-in profile named by
+/// `inherits` and applies its own settings on top.
 public struct Profile
 {
-    /// Profile name.
+    /// Profile name. `debug` and `release` are reserved.
     []const char name;
+    /// Built-in profile whose defaults this profile starts from.
+    ProfileBase inherits = ProfileBase::Debug;
     /// Settings applied when the profile is selected.
     Settings settings = {};
 }

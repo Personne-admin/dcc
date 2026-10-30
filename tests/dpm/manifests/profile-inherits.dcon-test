@@ -1,0 +1,16 @@
+=== FILE: project.dcon ===
+{ name = "a", version = "1.0.0", profiles = { { name = "fast", inherits = ProfileBase::Release, settings = { debug_info = Tri::On } } } }
+=== EXPECT-TREE ===
+{
+  name = "a",
+  version = "1.0.0",
+  profiles = [
+    {
+      name = "fast",
+      inherits = ProfileBase::Release,
+      settings = {
+        debug_info = Tri::On,
+      },
+    },
+  ],
+}
