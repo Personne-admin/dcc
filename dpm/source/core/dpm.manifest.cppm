@@ -12,6 +12,7 @@ import dcc.session;
 import dcc.types;
 import dcc.comptime;
 import dcc.ctfe;
+import dpm.semver;
 
 export namespace dpm::manifest
 {
@@ -804,69 +805,6 @@ export namespace dpm::manifest
             return tokens.size() != 1 || tokens[0].kind != TokenKind::Identifier;
         }
 
-        inline bool is_digits(std::string_view s)
-        {
-            return !s.empty() && std::ranges::all_of(s, [](char c) { return c >= '0' && c <= '9'; }) && (s.size() == 1 || s[0] != '0');
-        }
-
-        inline bool is_semver(std::string_view v)
-        {
-            auto plus = v.find('+');
-            if (plus != std::string_view::npos)
-            {
-                auto build = v.substr(plus + 1);
-                v = v.substr(0, plus);
-                if (build.empty())
-                    return false;
-                std::size_t start = 0;
-                while (start <= build.size())
-                {
-                    auto dot = build.find('.', start);
-                    auto part = build.substr(start, dot == std::string_view::npos ? std::string_view::npos : dot - start);
-                    if (part.empty() || !std::ranges::all_of(part, [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '-'; }))
-                        return false;
-                    if (dot == std::string_view::npos)
-                        break;
-                    start = dot + 1;
-                }
-            }
-            auto dash = v.find('-');
-            if (dash != std::string_view::npos)
-            {
-                auto pre = v.substr(dash + 1);
-                v = v.substr(0, dash);
-                if (pre.empty())
-                    return false;
-                std::size_t start = 0;
-                while (start <= pre.size())
-                {
-                    auto dot = pre.find('.', start);
-                    auto part = pre.substr(start, dot == std::string_view::npos ? std::string_view::npos : dot - start);
-                    if (part.empty() || !std::ranges::all_of(part, [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '-'; }))
-                        return false;
-                    if (std::ranges::all_of(part, [](char c) { return c >= '0' && c <= '9'; }) && part.size() > 1 && part[0] == '0')
-                        return false;
-                    if (dot == std::string_view::npos)
-                        break;
-                    start = dot + 1;
-                }
-            }
-            std::array<std::string_view, 3> parts;
-            std::size_t count = 0;
-            std::size_t start = 0;
-            while (true)
-            {
-                auto dot = v.find('.', start);
-                if (count == 3)
-                    return false;
-                parts[count++] = v.substr(start, dot == std::string_view::npos ? std::string_view::npos : dot - start);
-                if (dot == std::string_view::npos)
-                    break;
-                start = dot + 1;
-            }
-            return count == 3 && is_digits(parts[0]) && is_digits(parts[1]) && is_digits(parts[2]);
-        }
-
         inline std::vector<std::string_view> split_path(std::string_view s, char sep)
         {
             std::vector<std::string_view> parts;
@@ -1083,7 +1021,7 @@ export namespace dpm::manifest
                     }
                     else if (d.version.empty())
                         error(item, "dependency needs a minimum version");
-                    if (!d.version.empty() && !is_semver(d.version))
+                    if (!d.version.empty() && !dpm::semver::is_valid(d.version))
                         error(ver ? *ver : item, std::format("'{}' is not a valid version", d.version));
                     out.push_back(std::move(d));
                 }
@@ -1104,9 +1042,9 @@ export namespace dpm::manifest
                 p.registry = str(root, "registry");
                 if (auto const* n = root.find("name"); n && (!is_identifier(p.name) || is_reserved_word(p.name)))
                     error(*n, std::format("'{}' is not a valid package name; use a single identifier", p.name));
-                if (auto const* n = root.find("version"); n && !is_semver(p.version))
+                if (auto const* n = root.find("version"); n && !dpm::semver::is_valid(p.version))
                     error(*n, std::format("'{}' is not a valid version", p.version));
-                if (auto const* n = root.find("requires_dcc"); n && !p.requires_dcc.empty() && !is_semver(p.requires_dcc))
+                if (auto const* n = root.find("requires_dcc"); n && !p.requires_dcc.empty() && !dpm::semver::is_valid(p.requires_dcc))
                     error(*n, std::format("'{}' is not a valid version", p.requires_dcc));
                 if (auto const* n = root.find("source"))
                     check_entry_path(*n, p.source, "source");
