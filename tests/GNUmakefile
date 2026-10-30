@@ -229,6 +229,8 @@ $(BUILD_DIR)/bin/tests/test_dpm_cache: $(OBJ_DIR)/tests/source/test_dpm_cache.cc
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
 $(BUILD_DIR)/bin/tests/test_dpm_resolve: $(OBJ_DIR)/tests/source/test_dpm_resolve.cc.o $(DPM_CORE_LIB) $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
+$(BUILD_DIR)/bin/tests/test_dpm_fetch: $(OBJ_DIR)/tests/source/test_dpm_fetch.cc.o $(DPM_CORE_LIB) $(COMPILER_LIB)
+	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
 
 $(BUILD_DIR)/bin/tests/%: $(OBJ_DIR)/tests/source/%.cc.o $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
@@ -278,7 +280,10 @@ $(OBJ_DIR)/tests/source/test_dpm_cache.cc.o: $(TOPLEVEL)/tests/source/test_dpm_c
 $(OBJ_DIR)/tests/source/test_dpm_resolve.cc.o: $(TOPLEVEL)/tests/source/test_dpm_resolve.cc $(COMPILER_PCMS) $(DPM_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
-$(filter-out $(OBJ_DIR)/tests/source/test_format.cc.o $(OBJ_DIR)/tests/source/test_protocol.cc.o $(OBJ_DIR)/tests/source/test_lsp.cc.o $(OBJ_DIR)/tests/source/test_workspace_index.cc.o $(OBJ_DIR)/tests/source/test_transport.cc.o $(OBJ_DIR)/tests/source/test_compilation_database.cc.o $(OBJ_DIR)/tests/source/test_dcdoc.cc.o $(OBJ_DIR)/tests/source/test_dpm_manifests.cc.o $(OBJ_DIR)/tests/source/test_dpm_semver.cc.o $(OBJ_DIR)/tests/source/test_dpm_settings.cc.o $(OBJ_DIR)/tests/source/test_dpm_edit.cc.o $(OBJ_DIR)/tests/source/test_dpm_hash.cc.o $(OBJ_DIR)/tests/source/test_dpm_extract.cc.o $(OBJ_DIR)/tests/source/test_dpm_cache.cc.o $(OBJ_DIR)/tests/source/test_dpm_resolve.cc.o,$(ALL_TEST_OBJS)): $(OBJ_DIR)/%.o: $(TOPLEVEL)/% $(COMPILER_PCMS)
+$(OBJ_DIR)/tests/source/test_dpm_fetch.cc.o: $(TOPLEVEL)/tests/source/test_dpm_fetch.cc $(COMPILER_PCMS) $(DPM_PCMS)
+	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
+
+$(filter-out $(OBJ_DIR)/tests/source/test_format.cc.o $(OBJ_DIR)/tests/source/test_protocol.cc.o $(OBJ_DIR)/tests/source/test_lsp.cc.o $(OBJ_DIR)/tests/source/test_workspace_index.cc.o $(OBJ_DIR)/tests/source/test_transport.cc.o $(OBJ_DIR)/tests/source/test_compilation_database.cc.o $(OBJ_DIR)/tests/source/test_dcdoc.cc.o $(OBJ_DIR)/tests/source/test_dpm_manifests.cc.o $(OBJ_DIR)/tests/source/test_dpm_semver.cc.o $(OBJ_DIR)/tests/source/test_dpm_settings.cc.o $(OBJ_DIR)/tests/source/test_dpm_edit.cc.o $(OBJ_DIR)/tests/source/test_dpm_hash.cc.o $(OBJ_DIR)/tests/source/test_dpm_extract.cc.o $(OBJ_DIR)/tests/source/test_dpm_cache.cc.o $(OBJ_DIR)/tests/source/test_dpm_resolve.cc.o $(OBJ_DIR)/tests/source/test_dpm_fetch.cc.o,$(ALL_TEST_OBJS)): $(OBJ_DIR)/%.o: $(TOPLEVEL)/% $(COMPILER_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
 clean:

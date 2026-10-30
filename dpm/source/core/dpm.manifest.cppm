@@ -320,6 +320,7 @@ export namespace dpm::manifest
         std::filesystem::path schema_root;
         std::filesystem::path project_root;
         FileKind kind{FileKind::Project};
+        bool allow_file_urls{false};
     };
 
     struct LoadResult
@@ -847,12 +848,20 @@ export namespace dpm::manifest
             return parts;
         }
 
-        inline std::optional<std::string> location_error(std::string_view loc)
+        inline std::optional<std::string> location_error(std::string_view loc, bool allow_file = false)
         {
             if (loc.empty())
                 return "location is empty";
             if (loc.starts_with("path:"))
                 return loc.size() == 5 ? std::optional<std::string>{"path location has no directory"} : std::nullopt;
+            if (allow_file && loc.starts_with("git+file://"))
+                return loc.size() == 11 ? std::optional<std::string>{"git location needs a path"} : std::nullopt;
+            if (allow_file && loc.starts_with("file://"))
+            {
+                if (loc.ends_with(".tar.gz") || loc.ends_with(".tgz") || loc.ends_with(".tar.xz"))
+                    return std::nullopt;
+                return "tarball location must end in .tar.gz, .tgz or .tar.xz";
+            }
             if (loc.starts_with("git+https://"))
                 return loc.size() == 12 || loc.find('/', 12) == std::string_view::npos ? std::optional<std::string>{"git location needs a host and a path"}
                                                                                        : std::nullopt;
@@ -901,6 +910,7 @@ export namespace dpm::manifest
         {
             Reporter const* report{};
             std::filesystem::path project_root;
+            bool allow_file{false};
             bool ok{true};
 
             void error(Node const& at, std::string message)
@@ -1039,7 +1049,7 @@ export namespace dpm::manifest
                     d.version = str(item, "version");
                     auto const* loc = item.find("location");
                     auto const* ver = item.find("version");
-                    if (auto message = location_error(d.location))
+                    if (auto message = location_error(d.location, allow_file))
                         error(loc ? *loc : item, *message);
                     else if (d.location.starts_with("path:"))
                     {
@@ -1098,7 +1108,7 @@ export namespace dpm::manifest
                     auto const* hsh = item.find("hash");
                     if (loc)
                     {
-                        if (auto message = location_error(pk.location))
+                        if (auto message = location_error(pk.location, allow_file))
                             error(*loc, *message);
                         else if (is_alias(pk.location))
                             error(*loc, "lock locations are canonical; a registry alias is not allowed");
@@ -1114,7 +1124,7 @@ export namespace dpm::manifest
                     if (src)
                     {
                         bool const known = pk.source.starts_with("git+https://") || pk.source.starts_with("https://") || pk.source.starts_with("path:") ||
-                                           pk.source.starts_with("registry:");
+                                           pk.source.starts_with("registry:") || (allow_file && (pk.source.starts_with("git+file://") || pk.source.starts_with("file://")));
                         if (!known)
                             error(*src, "source must start with git+https://, https://, path: or registry:");
                         else if (is_path && pk.source != pk.location)
@@ -1126,9 +1136,9 @@ export namespace dpm::manifest
                     {
                         if (!pk.commit.empty() && !is_hex40(pk.commit))
                             error(*com, "commit must be 40 lowercase hex digits");
-                        else if (pk.commit.empty() && pk.source.starts_with("git+https://"))
+                        else if (pk.commit.empty() && (pk.source.starts_with("git+https://") || pk.source.starts_with("git+file://")))
                             error(*com, "a git source needs a full commit");
-                        else if (!pk.commit.empty() && (pk.source.starts_with("https://") || is_path))
+                        else if (!pk.commit.empty() && (pk.source.starts_with("https://") || pk.source.starts_with("file://") || is_path))
                             error(*com, "only git sources have a commit");
                     }
                     if (hsh)
@@ -1464,6 +1474,7 @@ export namespace dpm::manifest
             detail::Decoder decoder;
             decoder.report = &report;
             decoder.project_root = options.project_root;
+            decoder.allow_file = options.allow_file_urls;
             auto project = decoder.project(result.tree);
             if (!decoder.ok)
                 return result;
@@ -1474,6 +1485,7 @@ export namespace dpm::manifest
             detail::Decoder decoder;
             decoder.report = &report;
             decoder.project_root = options.project_root;
+            decoder.allow_file = options.allow_file_urls;
             auto lock = decoder.lock(result.tree);
             if (!decoder.ok)
                 return result;

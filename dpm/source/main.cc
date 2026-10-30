@@ -2,6 +2,7 @@ import std;
 import dcc.config;
 import dpm.cache;
 import dpm.edit;
+import dpm.fetch;
 import dpm.lock;
 import dpm.manifest;
 import dpm.resolve;
@@ -17,6 +18,12 @@ namespace
         if (char const* env = std::getenv("DPM_SCHEMA_ROOT"))
             return env;
         return dcc::config::current_prefix(argv).path / "include";
+    }
+
+    bool env_flag(char const* name)
+    {
+        char const* value = std::getenv(name);
+        return value && std::string_view{value} == "1";
     }
 
     int run_check(char** argv, std::span<char const* const> args)
@@ -47,6 +54,7 @@ namespace
         options.schema_root = schema_root(argv);
         options.project_root = file.has_parent_path() ? file.parent_path() : std::filesystem::path{"."};
         options.kind = dpm::manifest::detect_kind(text, file.string());
+        options.allow_file_urls = env_flag("DPM_ALLOW_FILE_URLS");
         auto result = dpm::manifest::load(text, options);
         for (auto const& diagnostic : result.diagnostics)
             std::println(std::cerr, "{}", diagnostic.format());
@@ -55,6 +63,14 @@ namespace
         if (tree)
             std::print("{}", result.tree.dump(true));
         return 0;
+    }
+
+    dpm::fetch::Policy fetch_policy()
+    {
+        dpm::fetch::Policy policy;
+        policy.allow_file = env_flag("DPM_ALLOW_FILE_URLS");
+        policy.offline = env_flag("DPM_OFFLINE");
+        return policy;
     }
 
     struct Resolved
@@ -79,6 +95,8 @@ namespace
         options.file_name = file.string();
         options.schema_root = schema_root(argv);
         options.project_root = ".";
+        auto policy = fetch_policy();
+        options.allow_file_urls = policy.allow_file;
         auto loaded = dpm::manifest::load(text, options);
         for (auto const& diagnostic : loaded.diagnostics)
             std::println(std::cerr, "{}", diagnostic.format());
@@ -90,7 +108,6 @@ namespace
         Resolved r;
         r.project = std::move(*loaded.project);
         r.root = ".";
-        dpm::resolve::PathSource source{r.root, options.schema_root};
         dpm::resolve::Options resolve_options;
         resolve_options.root_name = r.project.name;
         std::optional<dpm::manifest::Lock> previous;
@@ -101,6 +118,7 @@ namespace
                 std::string lock_text{std::istreambuf_iterator<char>{lock_in}, std::istreambuf_iterator<char>{}};
                 dpm::manifest::LoadOptions lock_options = options;
                 lock_options.kind = dpm::manifest::FileKind::Lock;
+                lock_options.allow_file_urls = policy.allow_file;
                 lock_options.file_name = std::string{dpm::lock::k_lock_file};
                 auto lock_loaded = dpm::manifest::load(lock_text, lock_options);
                 if (lock_loaded.ok)
@@ -109,7 +127,12 @@ namespace
         }
         if (previous)
             resolve_options.previous = &*previous;
+        dpm::cache::Cache cache{dpm::cache::default_root()};
+        auto cache_lock = cache.lock();
+        dpm::fetch::FetchSource source{cache, policy, r.root, options.schema_root, previous ? &*previous : nullptr};
         r.resolution = dpm::resolve::resolve(r.project, source, resolve_options);
+        for (auto const& w : source.warnings)
+            std::println(std::cerr, "warning: {}", w);
         for (auto const& w : r.resolution.warnings)
             std::println(std::cerr, "warning: {}", w);
         if (!r.resolution.ok)
@@ -168,6 +191,35 @@ namespace
         }
         std::println("wrote {} ({} packages)", dpm::lock::k_lock_file, r->resolution.lock.packages.size());
         return 0;
+    }
+
+    int run_fetch(char** argv)
+    {
+        auto policy = fetch_policy();
+        dpm::manifest::LoadOptions options;
+        options.file_name = std::string{dpm::lock::k_lock_file};
+        options.schema_root = schema_root(argv);
+        options.kind = dpm::manifest::FileKind::Lock;
+        options.allow_file_urls = policy.allow_file;
+        std::ifstream in{options.file_name, std::ios::binary};
+        if (!in)
+        {
+            std::println(std::cerr, "dpm: cannot read {} (run dpm lock)", options.file_name);
+            return k_exit_manifest;
+        }
+        std::string text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+        auto loaded = dpm::manifest::load(text, options);
+        for (auto const& diagnostic : loaded.diagnostics)
+            std::println(std::cerr, "{}", diagnostic.format());
+        if (!loaded.ok || !loaded.lock)
+            return k_exit_manifest;
+        dpm::cache::Cache cache{dpm::cache::default_root()};
+        auto cache_lock = cache.lock();
+        auto result = dpm::fetch::fetch_locked(cache, *loaded.lock, policy);
+        for (auto const& e : result.errors)
+            std::println(std::cerr, "error: {}", e);
+        std::println("{} fetched, {} already in the cache", result.fetched, result.present);
+        return result.ok ? 0 : k_exit_cache;
     }
 
     int run_tree(char** argv)
@@ -251,12 +303,14 @@ auto main(int argc, char** argv) -> int
         return run_check(argv, std::span<char const* const>{argv + 2, static_cast<std::size_t>(argc - 2)});
     if (argc >= 2 && std::string_view{argv[1]} == "lock")
         return run_lock(argv, std::span<char const* const>{argv + 2, static_cast<std::size_t>(argc - 2)});
+    if (argc == 2 && std::string_view{argv[1]} == "fetch")
+        return run_fetch(argv);
     if (argc == 2 && std::string_view{argv[1]} == "tree")
         return run_tree(argv);
     if (argc >= 2 && std::string_view{argv[1]} == "why")
         return run_why(argv, std::span<char const* const>{argv + 2, static_cast<std::size_t>(argc - 2)});
     if (argc >= 2 && std::string_view{argv[1]} == "cache")
         return run_cache(std::span<char const* const>{argv + 2, static_cast<std::size_t>(argc - 2)});
-    std::println(std::cerr, "usage: dpm check [--tree] [project.dcon]\n       dpm lock [--check]\n       dpm tree\n       dpm why LOCATION\n       dpm cache {{path|verify|clean [--all]}}");
+    std::println(std::cerr, "usage: dpm check [--tree] [project.dcon]\n       dpm lock [--check]\n       dpm fetch\n       dpm tree\n       dpm why LOCATION\n       dpm cache {{path|verify|clean [--all]}}");
     return k_exit_usage;
 }

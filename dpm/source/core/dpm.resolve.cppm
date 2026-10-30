@@ -238,7 +238,7 @@ export namespace dpm::resolve
                             out.errors.push_back(std::format("cannot resolve {}: {}", label(r.location, r.version), error));
                             continue;
                         }
-                        std::string version = is_path(r.location) ? requested_info->version : r.version;
+                        std::string version = requested_info->version.empty() ? r.version : requested_info->version;
                         auto effective = effective_version(r.location, version, *requested_info);
                         if (!effective)
                         {
