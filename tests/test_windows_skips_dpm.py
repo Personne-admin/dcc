@@ -33,6 +33,8 @@ native = prerequisites("dccd")
 check(native is not None and "dpm" in native, "a native dccd build needs dpm", str(native))
 cross = prerequisites("dccd", "CROSS=windows")
 check(cross is not None and "compiler" in cross and "dpm" not in cross, "a Windows dccd build does not build dpm", str(cross))
+plain = prerequisites("dccd", "DCCD_DCON=0")
+check(plain is not None and "dpm" not in plain, "DCCD_DCON=0 builds dccd without dpm", str(plain))
 dpm_cross = prerequisites("dpm", "CROSS=windows")
 check(dpm_cross == [], "dpm has no prerequisites in a Windows build", str(dpm_cross))
 dpm_native = prerequisites("dpm")
@@ -49,6 +51,10 @@ recipe = text.split("tools-windows:\n", 1)[1].split("\n\n", 1)[0]
 check("CROSS=windows driver" in recipe and "CROSS=windows dccd" in recipe and "CROSS=windows dpm" in recipe, "tools-windows builds the driver and dccd and reports dpm as skipped", recipe)
 msi = text.split("msi: tools-windows\n", 1)[1].split("\n\n", 1)[0]
 check("dpm" not in msi, "the installer stages no dpm", msi)
+
+dccd_make = open(os.path.join(ROOT, "dccd", "GNUmakefile")).read()
+check("DCCD_DCON ?= $(if $(filter windows,$(CROSS)),0,1)" in dccd_make, "dccd omits dcon analysis by default in Windows builds")
+check("BASE_CXXFLAGS += -DDCCD_NO_DCON" in dccd_make and "libdpmcore.a" in dccd_make, "the dpm library is only linked when dcon analysis is built")
 
 print("%d checks, %d failed" % (CHECKS, len(FAILURES)))
 sys.exit(1 if FAILURES else 0)

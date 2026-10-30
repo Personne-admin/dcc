@@ -5,8 +5,10 @@ import subprocess
 import sys
 import tempfile
 
-SERVER = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1] / "build/bin/dccd"
-SCHEMA = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(__file__).resolve().parents[1] / "dpm/schema"
+NO_DCON = "--no-dcon" in sys.argv
+ARGS = [a for a in sys.argv[1:] if a != "--no-dcon"]
+SERVER = Path(ARGS[0]) if len(ARGS) > 0 else Path(__file__).resolve().parents[1] / "build/bin/dccd"
+SCHEMA = Path(ARGS[1]) if len(ARGS) > 1 else Path(__file__).resolve().parents[1] / "dpm/schema"
 CHECKS = 0
 FAILURES = []
 
@@ -315,6 +317,32 @@ def scenario_no_side_effects():
         check(after == before or after == sorted(before + ["dpm-home"]) and not list((root / "dpm-home").glob("*")), "analysis creates no files and fetches nothing", str(after))
         check(s.last(manifest) is not None, "analysis works without git or curl on PATH")
 
+
+def scenario_unavailable():
+    with tempfile.TemporaryDirectory(prefix="dccd-dcon-") as directory:
+        root = Path(directory)
+        manifest = root / "project.dcon"
+        source = root / "a.dc"
+        s = Session(root)
+        s.open(manifest, 'dpm::v1::Project { name = "app", version = "1.0.0", bogus = 1 }\n')
+        s.open(source, "module main; i32 x = missing;\n", language="dc")
+        hover = s.at("textDocument/hover", manifest, 0, 20)
+        completion = s.at("textDocument/completion", manifest, 0, 20)
+        definition = s.at("textDocument/definition", manifest, 0, 20)
+        s.change(manifest, 'dpm::v1::Project { name = "app" }\n', 2)
+        s.run()
+        published = [p for p in s.published if p["uri"] == manifest.as_uri()]
+        check(len(published) == 2 and all(len(p["diagnostics"]) == 1 for p in published), "a manifest gets one notice", str(published))
+        d = published[0]["diagnostics"][0]
+        check(d["severity"] == 3 and "not available in this build" in d["message"], "the notice says analysis is unavailable", str(d))
+        check(s.result(hover) is None and s.result(completion)["items"] == [] and s.result(definition) is None, "queries answer empty")
+        check(len(s.last(source)["diagnostics"]) == 1, ".dc files are analysed as before", str(s.last(source)))
+
+
+if NO_DCON:
+    scenario_unavailable()
+    print("%d checks, %d failed" % (CHECKS, len(FAILURES)))
+    sys.exit(1 if FAILURES else 0)
 
 scenario_diagnostics()
 scenario_utf16_columns()

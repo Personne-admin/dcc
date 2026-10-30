@@ -57,7 +57,7 @@ compiler:
 driver: compiler
 	@$(MAKE) -C driver
 
-dccd: compiler $(if $(filter windows,$(CROSS)),,dpm)
+dccd: compiler $(if $(or $(filter windows,$(CROSS)),$(filter 0,$(DCCD_DCON))),,dpm)
 	@$(MAKE) -C dccd
 
 dcdoc: compiler

@@ -9,8 +9,10 @@ export module dccd.dcon;
 import std;
 import dcc.sm;
 import dccd.protocol;
+#ifndef DCCD_NO_DCON
 import dpm.analyze;
 import dpm.schema;
+#endif
 
 export namespace dccd::dcon
 {
@@ -68,6 +70,44 @@ export namespace dccd::dcon
     {
         return {position_of(text, starts, begin), position_of(text, starts, end)};
     }
+
+#ifdef DCCD_NO_DCON
+    inline constexpr bool k_available = false;
+
+    class Analyzer
+    {
+    public:
+        explicit Analyzer(std::filesystem::path schema_root) : schema_root_{std::move(schema_root)} {}
+
+        void set_schema_root(std::filesystem::path root) { schema_root_ = std::move(root); }
+
+        [[nodiscard]] std::filesystem::path const& schema_root() const { return schema_root_; }
+
+        [[nodiscard]] protocol::PublishDiagnosticsParams diagnostics(std::string const& uri, std::optional<std::int64_t> version, std::string_view,
+                                                                     std::filesystem::path const&)
+        {
+            protocol::PublishDiagnosticsParams params;
+            params.uri = uri;
+            params.version = version;
+            protocol::LspDiagnostic d;
+            d.source = "dpm";
+            d.severity = protocol::DiagnosticSeverity::Information;
+            d.message = "analysis of dpm manifests is not available in this build of dccd";
+            params.diagnostics.push_back(std::move(d));
+            return params;
+        }
+
+        [[nodiscard]] std::optional<protocol::Hover> hover(std::string_view, std::filesystem::path const&, protocol::LspPosition) { return std::nullopt; }
+
+        [[nodiscard]] protocol::CompletionList completion(std::string_view, std::filesystem::path const&, protocol::LspPosition) { return {}; }
+
+        [[nodiscard]] std::optional<protocol::LspLocation> definition(std::string_view, std::filesystem::path const&, protocol::LspPosition) { return std::nullopt; }
+
+    private:
+        std::filesystem::path schema_root_;
+    };
+#else
+    inline constexpr bool k_available = true;
 
     class Analyzer
     {
@@ -243,4 +283,5 @@ export namespace dccd::dcon
         std::optional<dpm::schema::Schema> schema_;
         bool schema_loaded_{};
     };
+#endif
 } // namespace dccd::dcon
