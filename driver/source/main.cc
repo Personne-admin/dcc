@@ -18,6 +18,7 @@ import dcc.config;
 import dcc.backend;
 import dcc.session;
 import dcc.cli;
+import dcc.help;
 #if DCC_ENABLE_LLVM
 import dcc.backend.llvm;
 #endif
@@ -30,7 +31,6 @@ import dcc.backend.object.inspect;
 #ifndef _WIN32
 #include <cerrno>
 #include <fcntl.h>
-#include <sys/ioctl.h>
 #include <unistd.h>
 #else
 #define WIN32_LEAN_AND_MEAN
@@ -70,129 +70,30 @@ namespace
         return *target;
     }
 
-    [[nodiscard]] int get_terminal_width()
+    [[nodiscard]] dcc::help::Flag help_flag(OptionSpec const& spec)
     {
-        if (char const* columns = std::getenv("COLUMNS"))
-        {
-            int parsed = 0;
-            for (char const* p = columns; *p >= '0' && *p <= '9'; ++p)
-                parsed = parsed * 10 + (*p - '0');
-
-            if (parsed > 0)
-                return parsed;
-        }
-
-#ifndef _WIN32
-        struct winsize w;
-        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1)
-            return w.ws_col;
-#endif
-        return 80;
-    }
-
-    [[nodiscard]] std::string spec_flag_text(OptionSpec const& spec)
-    {
-        std::string out;
-
-        if (!spec.negated.empty() && spec.name.starts_with("-f") && spec.negated == std::format("-fno-{}", spec.name.substr(2)))
-            out = std::format("-f[no-]{}", spec.name.substr(2));
-        else if (!spec.negated.empty())
-            out = std::format("{} | {}", spec.name, spec.negated);
-        else
-            out = std::string{spec.name};
-
+        auto kind = dcc::help::ArgKind::Required;
         if (spec.arg == Arg::None)
-            return out;
-
-        if (spec.arg == Arg::Glued || spec.arg == Arg::Joined)
-            return out + std::string{spec.metavar};
-
-        if (spec.arg == Arg::Optional)
-            return std::format("{} [{}]", out, spec.metavar);
-
-        return std::format("{} {}", out, spec.metavar);
-    }
-
-    [[nodiscard]] std::string spec_desc_text(OptionSpec const& spec)
-    {
-        std::string out{spec.help};
-
-        if (!spec.choices.empty())
-            out += std::format(" (one of: {})", choice_list(spec));
-
-        if (!spec.aliases.empty())
-        {
-            out += spec.aliases.size() == 1 ? " (alias: " : " (aliases: ";
-            for (std::size_t k = 0; k < spec.aliases.size(); ++k)
-            {
-                if (k)
-                    out += ", ";
-                out += spec.aliases[k];
-            }
-            out += ")";
-        }
-
-        if (!spec.default_text.empty())
-            out += std::format(" [default: {}]", spec.default_text);
-
-        return out;
+            kind = dcc::help::ArgKind::None;
+        else if (spec.arg == Arg::Glued || spec.arg == Arg::Joined)
+            kind = dcc::help::ArgKind::Attached;
+        else if (spec.arg == Arg::Optional)
+            kind = dcc::help::ArgKind::Optional;
+        return {spec.name, spec.negated, kind, spec.metavar};
     }
 
     void print_usage()
     {
-        int const term_width = get_terminal_width();
-        int const flag_col_width = 26;
-        int const desc_col_width = std::max(20, term_width - flag_col_width - 4);
-
         std::println("usage: dcc [options] <input-file>");
         std::println("       dcc -o <output> <input1.o> [<input2.o> ...] [link options]");
         std::println("       dcc --merge-compdb <out> [<entry files> ...]");
         std::println("");
         std::println("options:");
 
+        std::vector<dcc::help::Row> rows;
         for (auto const& spec : k_options)
-        {
-            auto const flag = spec_flag_text(spec);
-            auto const desc_text = spec_desc_text(spec);
-
-            if (flag.length() >= static_cast<std::size_t>(flag_col_width))
-            {
-                std::println("  {}", flag);
-                std::print("{:<{}}", "", flag_col_width + 2);
-            }
-            else
-                std::print("  {:<{}}", flag, flag_col_width);
-
-            std::string_view desc = desc_text;
-            bool first_line = true;
-
-            while (!desc.empty())
-            {
-                if (!first_line)
-                    std::print("{:<{}}", "", flag_col_width + 2);
-
-                if (desc.length() <= static_cast<std::size_t>(desc_col_width))
-                {
-                    std::println("{}", desc);
-                    break;
-                }
-
-                auto wrap_pos = desc.find_last_of(" \t", static_cast<std::size_t>(desc_col_width));
-                if (wrap_pos == std::string_view::npos)
-                    wrap_pos = static_cast<std::size_t>(desc_col_width);
-
-                std::println("{}", desc.substr(0, wrap_pos));
-
-                desc = desc.substr(wrap_pos);
-                auto first_non_space = desc.find_first_not_of(" \t");
-                if (first_non_space != std::string_view::npos)
-                    desc = desc.substr(first_non_space);
-                else
-                    desc = "";
-
-                first_line = false;
-            }
-        }
+            rows.push_back({dcc::help::flag_text(help_flag(spec)), dcc::help::description_text(spec.help, spec.choices, spec.aliases, spec.default_text)});
+        std::print("{}", dcc::help::format_rows(rows, dcc::help::terminal_width()));
     }
 
     [[nodiscard]] std::filesystem::path output_base(Options const& opts, std::filesystem::path const& input_path)
