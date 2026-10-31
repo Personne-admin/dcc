@@ -1031,7 +1031,8 @@ def scenario_stamps():
     check(rebuilt(build()), "and the next build compiles")
 
     compiler = os.path.join(ROOT, "dcc-copy")
-    shutil.copy(DCC, compiler)
+    write(compiler, '#!/bin/sh\nexec "%s" "$@"\n' % DCC)
+    os.chmod(compiler, 0o755)
     env = {"DCC": compiler}
     check(rebuilt(build(env=env)), "a different compiler path rebuilds")
     check(fresh(build(env=env)), "the same compiler is fresh")
