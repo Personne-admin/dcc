@@ -47,7 +47,7 @@ else
   MSG = @true
 endif
 
-.PHONY: all compiler driver dccd dcdoc dpm libdcext test test-bin install uninstall compdb clean distclean help tools-windows msi
+.PHONY: all compiler driver dccd dcdoc dpm libdcext libdcext-test test test-bin install uninstall compdb clean distclean help tools-windows msi
 
 all: driver libdcext dccd dcdoc dpm
 
@@ -78,7 +78,11 @@ ifneq ($(ENABLE_LLVM),0)
 endif
 	@$(MAKE) -C libdcext TARGET=x86_64-freestanding BACKEND=custom
 
-test-bin: compiler dpm
+libdcext-test: driver
+	@$(MAKE) -C libdcext TARGET=x86_64-linux BACKEND=llvm
+	@$(MAKE) -C libdcext TARGET=x86_64-linux BACKEND=custom
+
+test-bin: driver dpm libdcext-test
 	@if [ -z "$(strip $(NAMES))" ]; then \
 		echo 'usage: make test-bin NAMES="test_name ..."' >&2; \
 		exit 2; \
