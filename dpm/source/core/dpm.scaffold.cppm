@@ -421,4 +421,34 @@ export namespace dpm::scaffold
             {".gitignore", ".dpm/\n"},
         };
     }
+
+    struct BuiltIn
+    {
+        manifest::ProjectTemplate tmpl;
+        std::vector<File> tree;
+    };
+
+    [[nodiscard]] inline std::optional<BuiltIn> builtin_template(std::string_view name)
+    {
+        BuiltIn out;
+        out.tmpl.root = "files";
+        out.tmpl.substitute = {"**"};
+        if (name == "executable")
+        {
+            out.tmpl.name = "executable";
+            out.tmpl.description = "A program with one product and src/main.dc";
+            out.tree = builtin_executable();
+            out.tmpl.next_steps = "dpm run";
+        }
+        else if (name == "library")
+        {
+            out.tmpl.name = "library";
+            out.tmpl.description = "A source library with src/<name>/lib.dc";
+            out.tree = builtin_library();
+            out.tmpl.next_steps = "dpm build";
+        }
+        else
+            return std::nullopt;
+        return out;
+    }
 } // namespace dpm::scaffold

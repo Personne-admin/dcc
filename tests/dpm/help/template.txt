@@ -1,0 +1,10 @@
+usage: dpm template <command>
+
+A template is a directory with a template.dcon and the files to generate; see
+'dpm help new'.
+
+commands:
+  info                      describe a template and its variables
+  check                     validate a template directory
+
+Run 'dpm help template <command>' for the options and exit codes of one command.

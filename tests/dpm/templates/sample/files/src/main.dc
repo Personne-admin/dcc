@@ -1,0 +1,6 @@
+module main;
+
+public i32 main()
+{
+    return @@answer@@;
+}

@@ -1,0 +1,8 @@
+dpm::v1::Project {
+    name = "@@name@@",
+    version = "0.1.0",
+    description = "@@title@@",
+    products = {
+        { name = "@@name@@", entry = "src/main.dc" },
+    },
+}

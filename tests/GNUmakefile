@@ -182,7 +182,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	@passed=0; failed=0; \
 	for bin in $(ALL_TEST_BINS); do \
 		name=$$(basename $$bin); \
-		if DCC_TEST_DPM_SCHEMA="$(TOPLEVEL)/dpm/schema" DCC_TEST_DPM_CASES="$(TOPLEVEL)/tests/dpm/manifests" DCC_TEST_DPM_GZIP="$(TOPLEVEL)/tests/dpm/gzip" DCC_TEST_DPM_HELP="$(TOPLEVEL)/tests/dpm/help" DCC_TEST_LIBDCEXT_SRC="$(TOPLEVEL)/libdcext" DCC_TEST_LIBDCEXT_A="$(BUILD_DIR)/lib/libdcext-linux-custom.a" $$bin; then \
+		if DCC_TEST_DPM_SCHEMA="$(TOPLEVEL)/dpm/schema" DCC_TEST_DPM_CASES="$(TOPLEVEL)/tests/dpm/manifests" DCC_TEST_DPM_GZIP="$(TOPLEVEL)/tests/dpm/gzip" DCC_TEST_DPM_HELP="$(TOPLEVEL)/tests/dpm/help" DCC_TEST_DPM_TEMPLATES="$(TOPLEVEL)/tests/dpm/templates" DCC_TEST_LIBDCEXT_SRC="$(TOPLEVEL)/libdcext" DCC_TEST_LIBDCEXT_A="$(BUILD_DIR)/lib/libdcext-linux-custom.a" $$bin; then \
 			passed=$$((passed+1)); \
 		else \
 			failed=$$((failed+1)); \
@@ -250,6 +250,8 @@ $(BUILD_DIR)/bin/tests/test_dpm_cli: $(OBJ_DIR)/tests/source/test_dpm_cli.cc.o $
 $(BUILD_DIR)/bin/tests/test_dpm_stamp: $(OBJ_DIR)/tests/source/test_dpm_stamp.cc.o $(DPM_CORE_LIB) $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
 $(BUILD_DIR)/bin/tests/test_dpm_scaffold: $(OBJ_DIR)/tests/source/test_dpm_scaffold.cc.o $(DPM_CORE_LIB) $(COMPILER_LIB)
+	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
+$(BUILD_DIR)/bin/tests/test_dpm_stage: $(OBJ_DIR)/tests/source/test_dpm_stage.cc.o $(DPM_CORE_LIB) $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
 
 $(BUILD_DIR)/bin/tests/%: $(OBJ_DIR)/tests/source/%.cc.o $(COMPILER_LIB)
@@ -327,7 +329,10 @@ $(OBJ_DIR)/tests/source/test_dpm_stamp.cc.o: $(TOPLEVEL)/tests/source/test_dpm_s
 $(OBJ_DIR)/tests/source/test_dpm_scaffold.cc.o: $(TOPLEVEL)/tests/source/test_dpm_scaffold.cc $(COMPILER_PCMS) $(DPM_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
-$(filter-out $(OBJ_DIR)/tests/source/test_format.cc.o $(OBJ_DIR)/tests/source/test_protocol.cc.o $(OBJ_DIR)/tests/source/test_lsp.cc.o $(OBJ_DIR)/tests/source/test_workspace_index.cc.o $(OBJ_DIR)/tests/source/test_transport.cc.o $(OBJ_DIR)/tests/source/test_compilation_database.cc.o $(OBJ_DIR)/tests/source/test_dcdoc.cc.o $(OBJ_DIR)/tests/source/test_dpm_manifests.cc.o $(OBJ_DIR)/tests/source/test_dpm_semver.cc.o $(OBJ_DIR)/tests/source/test_dpm_settings.cc.o $(OBJ_DIR)/tests/source/test_dpm_edit.cc.o $(OBJ_DIR)/tests/source/test_dpm_hash.cc.o $(OBJ_DIR)/tests/source/test_dpm_extract.cc.o $(OBJ_DIR)/tests/source/test_dpm_cache.cc.o $(OBJ_DIR)/tests/source/test_dpm_resolve.cc.o $(OBJ_DIR)/tests/source/test_dpm_fetch.cc.o $(OBJ_DIR)/tests/source/test_dpm_inflate.cc.o $(OBJ_DIR)/tests/source/test_dpm_build.cc.o $(OBJ_DIR)/tests/source/test_dpm_registry.cc.o $(OBJ_DIR)/tests/source/test_dpm_publish.cc.o $(OBJ_DIR)/tests/source/test_dpm_analyze.cc.o $(OBJ_DIR)/tests/source/test_dpm_cli.cc.o $(OBJ_DIR)/tests/source/test_dpm_stamp.cc.o $(OBJ_DIR)/tests/source/test_dpm_scaffold.cc.o,$(ALL_TEST_OBJS)): $(OBJ_DIR)/%.o: $(TOPLEVEL)/% $(COMPILER_PCMS)
+$(OBJ_DIR)/tests/source/test_dpm_stage.cc.o: $(TOPLEVEL)/tests/source/test_dpm_stage.cc $(COMPILER_PCMS) $(DPM_PCMS)
+	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
+
+$(filter-out $(OBJ_DIR)/tests/source/test_format.cc.o $(OBJ_DIR)/tests/source/test_protocol.cc.o $(OBJ_DIR)/tests/source/test_lsp.cc.o $(OBJ_DIR)/tests/source/test_workspace_index.cc.o $(OBJ_DIR)/tests/source/test_transport.cc.o $(OBJ_DIR)/tests/source/test_compilation_database.cc.o $(OBJ_DIR)/tests/source/test_dcdoc.cc.o $(OBJ_DIR)/tests/source/test_dpm_manifests.cc.o $(OBJ_DIR)/tests/source/test_dpm_semver.cc.o $(OBJ_DIR)/tests/source/test_dpm_settings.cc.o $(OBJ_DIR)/tests/source/test_dpm_edit.cc.o $(OBJ_DIR)/tests/source/test_dpm_hash.cc.o $(OBJ_DIR)/tests/source/test_dpm_extract.cc.o $(OBJ_DIR)/tests/source/test_dpm_cache.cc.o $(OBJ_DIR)/tests/source/test_dpm_resolve.cc.o $(OBJ_DIR)/tests/source/test_dpm_fetch.cc.o $(OBJ_DIR)/tests/source/test_dpm_inflate.cc.o $(OBJ_DIR)/tests/source/test_dpm_build.cc.o $(OBJ_DIR)/tests/source/test_dpm_registry.cc.o $(OBJ_DIR)/tests/source/test_dpm_publish.cc.o $(OBJ_DIR)/tests/source/test_dpm_analyze.cc.o $(OBJ_DIR)/tests/source/test_dpm_cli.cc.o $(OBJ_DIR)/tests/source/test_dpm_stamp.cc.o $(OBJ_DIR)/tests/source/test_dpm_scaffold.cc.o $(OBJ_DIR)/tests/source/test_dpm_stage.cc.o,$(ALL_TEST_OBJS)): $(OBJ_DIR)/%.o: $(TOPLEVEL)/% $(COMPILER_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
 clean:

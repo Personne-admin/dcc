@@ -31,6 +31,8 @@ export namespace dpm::cli
         Undo,
         Tree,
         All,
+        Template,
+        Set,
     };
 
     enum class Value : std::uint8_t
@@ -87,6 +89,10 @@ export namespace dpm::cli
         {Opt::Undo, "--undo", Value::None, "", "unyank instead of yank", "", {}, "", 0, 0},
         {Opt::Tree, "--tree", Value::None, "", "also print the decoded tree, with defaults", "", {}, "", 0, 0},
         {Opt::All, "--all", Value::None, "", "also remove installed packages and registry files", "", {}, "", 0, 0},
+        {Opt::Template, "--template", Value::Text, "<source>", "generate the project from this template",
+         "A built-in template (builtin:executable, builtin:library) or a directory that holds a template.dcon.", {}, "builtin:executable", 0, 0},
+        {Opt::Set, "--set", Value::Text, "<var>=<value>", "give a template variable a value",
+         "May be repeated. 'dpm template info <source>' lists the variables. --name is the same as --set name=<name>.", {}, "", 0, 0},
     });
 
     inline constexpr std::size_t k_unlimited = std::numeric_limits<std::size_t>::max();
@@ -116,6 +122,7 @@ export namespace dpm::cli
         }
 
         inline constexpr Opt init_opts[] = {Opt::Lib, Opt::Name};
+        inline constexpr Opt new_opts[] = {Opt::Template, Opt::Set, Opt::Lib, Opt::Name};
         inline constexpr Opt add_opts[] = {Opt::ManifestPath, Opt::Dev, Opt::Offline, Opt::Refresh};
         inline constexpr Opt update_opts[] = {Opt::ManifestPath, Opt::DryRun, Opt::Offline, Opt::Refresh};
         inline constexpr Opt lock_opts[] = {Opt::ManifestPath, Opt::Check, Opt::Offline, Opt::Refresh};
@@ -150,6 +157,11 @@ export namespace dpm::cli
          "Writes project.dcon, src/main.dc (or src/<name>/lib.dc with --lib) and adds .dpm/ to .gitignore. The package name is the directory name unless "
          "--name is given. An existing project.dcon is never overwritten.",
          detail::init_opts, 0, 1, false, detail::codes({0, 1, 2}), false},
+        {"new", "[DIR]", "create a project from a template",
+         "Generates a project in DIR (default: the current directory, which must be empty) from a template and prints what to do next. Without --template "
+         "the built-in executable template is used, or the library template with --lib. A template is data: nothing in it is run. The project is "
+         "written into a temporary directory first and moved into place only when everything succeeded.",
+         detail::new_opts, 0, 1, false, detail::codes({0, 1, 2, 3}), false},
         {"add", "<location>[@version]", "add a dependency",
          "Resolves the requirement, edits project.dcon in place (comments and layout are kept), writes project.lock.dcon and fetches the package. "
          "Without @version the latest release is used: from the registry for an alias, from the repository's version tags for a location. A failed "
@@ -195,6 +207,15 @@ export namespace dpm::cli
          "commit and the tree hash, and writes the alias record and location pointer into a registry clone. It never pushes and runs no git command in "
          "the registry: it prints the commands for you to run.",
          detail::publish_opts, 0, 0, false, detail::codes({0, 1, 2, 3, 4, 5}), false},
+        {"template", "<command>", "inspect and check project templates", "A template is a directory with a template.dcon and the files to generate; see 'dpm help new'.", {}, 0, 0,
+         false, 0, true},
+        {"template info", "<source>", "describe a template and its variables",
+         "Loads the template the way 'dpm new' does and prints its name, description and variables with their kinds, defaults and limits. Nothing is generated.",
+         {}, 1, 1, false, detail::codes({0, 2, 3}), false},
+        {"template check", "[<dir>]", "validate a template directory",
+         "Loads template.dcon and the files under its root, generates the project with default values (sample values for required variables) in memory and "
+         "validates it, including the generated project.dcon. Reports unused variables and patterns that match nothing as warnings.",
+         {}, 0, 1, false, detail::codes({0, 2, 3}), false},
         {"cache", "<command>", "manage the package cache", "The cache is shared by all projects: DPM_HOME, else $XDG_CACHE_HOME/dpm, else ~/.cache/dpm.", {}, 0, 0, false, 0,
          true},
         {"cache path", "", "print the cache directory", "", {}, 0, 0, false, detail::codes({0, 2}), false},
@@ -228,10 +249,11 @@ export namespace dpm::cli
         std::set<Opt> flags;
         std::vector<std::string> positional;
         std::vector<std::string> passthrough;
+        std::vector<std::string> sets;
         bool help{};
         std::string help_topic;
 
-        [[nodiscard]] bool has(Opt o) const { return flags.contains(o) || values.contains(o); }
+        [[nodiscard]] bool has(Opt o) const { return flags.contains(o) || values.contains(o) || (o == Opt::Set && !sets.empty()); }
         [[nodiscard]] std::optional<std::string> value(Opt o) const
         {
             if (auto it = values.find(o); it != values.end())
@@ -385,7 +407,10 @@ export namespace dpm::cli
                     if (ec != std::errc{} || ptr != value.data() + value.size() || number < spec->min || number > spec->max)
                         return std::unexpected{Failure{std::format("dpm {}: {} needs a number from {} to {} ({})", name, arg, spec->min, spec->max, detail::pointer(name)), ""}};
                 }
-                parsed.values[spec->id] = std::move(value);
+                if (spec->id == Opt::Set)
+                    parsed.sets.push_back(std::move(value));
+                else
+                    parsed.values[spec->id] = std::move(value);
                 continue;
             }
             parsed.positional.emplace_back(arg);

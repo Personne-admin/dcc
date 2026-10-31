@@ -148,6 +148,112 @@ def scenario_modules():
     check("-fwhole-program" in r.stdout + r.stderr, "the debug profile compiles the whole import graph", detail(r))
 
 
+def scenario_new():
+    sample = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "sample")
+    parent = os.path.join(ROOT, "new")
+    os.makedirs(parent)
+    r = dpm(parent, "template", "check", sample)
+    check(r.returncode == 0 and "sample: ok (7 files, 4 variables)" in r.stdout and r.stderr == "", "template check accepts the sample", detail(r))
+    r = dpm(parent, "template", "info", "path:" + sample)
+    check(r.returncode == 0 and "owner (string, required): Who owns the project" in r.stdout and "answer (integer, default \"42\", 0 to 255)" in r.stdout, "template info lists the variables", detail(r))
+    r = dpm(parent, "template", "info", "builtin:library")
+    check(r.returncode == 0 and "template library" in r.stdout, "template info describes a built-in template", detail(r))
+
+    r = dpm(parent, "new", "made", "--template", "path:" + sample, "--set", "owner=me", "--set", "title=My Title")
+    made = os.path.join(parent, "made")
+    check(r.returncode == 0 and "created made from sample (7 files)" in r.stdout and "cd made && dpm run" in r.stdout, "new generates the sample", detail(r))
+    check(read(os.path.join(made, "README.md")) == "# My Title\n\nLevel low, owned by me.\n@@name@@ stays as it is.\n", "placeholders are replaced and @@@@ is an escape")
+    check(read(os.path.join(made, "docs", "made.md")) == "documentation for made\n", "a placeholder in a file name is replaced")
+    check(not os.path.exists(os.path.join(made, "skip")), "excluded files are not generated")
+    with open(os.path.join(made, "data", "blob.bin"), "rb") as f:
+        check(f.read() == b"raw @@name@@ \0 bytes\n", "a file without substitution is copied byte for byte")
+    check(os.access(os.path.join(made, "scripts", "run.sh"), os.X_OK) and not os.access(os.path.join(made, "README.md"), os.X_OK), "the executable bit is kept")
+    check(read(os.path.join(made, ".gitignore")) == ".dpm/\ncompile_commands.json\n", "dot files are generated")
+    r = dpm(made, "run")
+    check(r.returncode == 42, "the generated project builds and runs", detail(r))
+    leftovers = [n for n in os.listdir(parent) if n.startswith(".dpm-new")]
+    check(leftovers == [], "no staging directory is left behind")
+
+    r = dpm(parent, "new", "seven", "--template", "path:" + sample, "--set", "owner=me", "--set", "answer=7", "--name", "sev")
+    check(r.returncode == 0 and dpm(os.path.join(parent, "seven"), "run").returncode == 7, "--set and --name are applied", detail(r))
+    check('name = "sev"' in read(os.path.join(parent, "seven", "project.dcon")), "--name sets the package name")
+
+    before = set(os.listdir(parent))
+    for label, args in (
+        ("a required variable is missing", ["--set", "title=x"]),
+        ("an integer is out of range", ["--set", "owner=me", "--set", "answer=300"]),
+        ("a choice is not one of the choices", ["--set", "owner=me", "--set", "level=mid"]),
+        ("a string has a character that is not allowed", ["--set", "owner=me", '--set', 'title=a"b']),
+        ("a string is too long", ["--set", "owner=me", "--set", "title=" + "x" * 41]),
+        ("a variable is unknown", ["--set", "owner=me", "--set", "nope=1"]),
+        ("a variable is set twice", ["--set", "owner=me", "--set", "owner=you"]),
+        ("--set has no value", ["--set", "owner"]),
+        ("the built-in dir cannot be set", ["--set", "owner=me", "--set", "dir=x"]),
+        ("the name is not an identifier", ["--set", "owner=me", "--name", "1bad"]),
+        ("--name and --set name disagree", ["--set", "owner=me", "--name", "a", "--set", "name=b"]),
+    ):
+        r = dpm(parent, "new", "refused", "--template", "path:" + sample, *args)
+        check(r.returncode == 2 and not os.path.exists(os.path.join(parent, "refused")), "usage error, nothing created: " + label, detail(r))
+    check(set(os.listdir(parent)) == before, "refused runs created nothing")
+
+    r = dpm(parent, "new", "lib1", "--lib")
+    check(r.returncode == 0 and os.path.isfile(os.path.join(parent, "lib1", "src", "lib1", "lib.dc")), "the built-in library template", detail(r))
+    r = dpm(parent, "new", "x", "--template", "path:" + sample, "--lib", "--set", "owner=me")
+    check(r.returncode == 2 and "--lib" in r.stderr, "--lib applies to built-in templates only", detail(r))
+    r = dpm(parent, "new", "x", "--template", "builtin:nope")
+    check(r.returncode == 2 and "no built-in template" in r.stderr, "an unknown built-in template", detail(r))
+    r = dpm(parent, "new", "x", "--template", "sample")
+    check(r.returncode == 2 and "not a built-in template" in r.stderr, "a bare word is not a path", detail(r))
+    shutil.copytree(sample, os.path.join(parent, "tpl"))
+    r = dpm(parent, "new", "x", "--template", "tpl")
+    check(r.returncode == 2 and "write ./tpl or path:tpl" in r.stderr, "a relative directory needs ./ or path:", detail(r))
+    r = dpm(parent, "new", "viadot", "--template", "./tpl", "--set", "owner=me")
+    check(r.returncode == 0, "./DIR is a local template", detail(r))
+    r = dpm(parent, "new", "viapath", "--template", "path:tpl", "--set", "owner=me")
+    check(r.returncode == 0, "path:DIR is a local template", detail(r))
+
+    busy = os.path.join(parent, "busy")
+    write(os.path.join(busy, "mine.txt"), "mine")
+    r = dpm(parent, "new", "busy", "--template", "path:" + sample, "--set", "owner=me")
+    check(r.returncode == 1 and "not empty" in r.stderr and os.listdir(busy) == ["mine.txt"], "a non-empty directory is refused and untouched", detail(r))
+    empty = os.path.join(parent, "empty")
+    os.makedirs(os.path.join(empty, ".git"))
+    r = dpm(parent, "new", "empty", "--template", "path:" + sample, "--set", "owner=me")
+    check(r.returncode == 0 and os.path.isdir(os.path.join(empty, ".git")) and os.path.isfile(os.path.join(empty, "project.dcon")), "an empty directory with .git is filled", detail(r))
+    here = os.path.join(parent, "here")
+    os.makedirs(here)
+    r = dpm(here, "new", "--template", "path:" + sample, "--set", "owner=me")
+    check(r.returncode == 0 and 'name = "here"' in read(os.path.join(here, "project.dcon")), "no DIR means the current directory, named after it", detail(r))
+
+    def broken(name, files, template=None, links=()):
+        root = os.path.join(ROOT, "broken", name)
+        write(os.path.join(root, "template.dcon"), template or 'dpm::v1::Template { name = "bad", substitute = { "*.md" } }\n')
+        for rel, text in files.items():
+            write(os.path.join(root, "files", rel), text)
+        for rel, target in links:
+            os.symlink(target, os.path.join(root, "files", rel))
+        return root
+
+    for label, root in (
+        ("an unknown placeholder", broken("unknown", {"a.md": "one\n@@nope@@\n"})),
+        ("a symbolic link", broken("link", {"a.md": "x"}, links=[("l", "a.md")])),
+        ("a missing template.dcon", os.path.join(ROOT, "broken", "none")),
+        ("an invalid template.dcon", broken("invalid", {}, template="dpm::v1::Template { name = 1 }\n")),
+        ("a case collision", broken("case", {"Readme": "a", "README": "b"})),
+        ("a generated project.dcon that is not valid", broken("project", {"project.dcon": "dpm::v1::Project { name = \"@@name@@\", version = \"nope\" }\n"},
+                                                          template='dpm::v1::Template { name = "bad", substitute = { "project.dcon" } }\n')),
+    ):
+        os.makedirs(root, exist_ok=True)
+        r = dpm(parent, "new", "never", "--template", "path:" + root)
+        check(r.returncode == 3 and not os.path.exists(os.path.join(parent, "never")), "template error, nothing created: " + label, detail(r))
+        r = dpm(parent, "template", "check", root)
+        check(r.returncode == 3, "template check fails: " + label, detail(r))
+    r = dpm(parent, "template", "check", broken("unused", {"a.md": "x"}, template='dpm::v1::Template { name = "bad", variables = { { name = "idle", default_value = "x" } }, exclude = { "gone/**" } }\n'))
+    check(r.returncode == 0 and "variable 'idle' is not used" in r.stderr and "'gone/**' matches no file" in r.stderr, "template check warns without failing", detail(r))
+    r = dpm(parent, "template", "check", broken("gitdir", {".git/config": "x"}))
+    check(r.returncode == 0, "a .git directory at the template root is ignored", detail(r))
+
+
 def scenario_run_args():
     app = new_app("args", "return 3;")
     r = run_app(app, "--", "a", "b")
@@ -1077,6 +1183,7 @@ try:
     scenario_basic()
     scenario_run_args()
     scenario_modules()
+    scenario_new()
     scenario_path_dependency()
     scenario_git_dependency()
     scenario_offline_and_cache()

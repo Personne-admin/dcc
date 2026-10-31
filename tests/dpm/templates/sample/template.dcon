@@ -1,0 +1,13 @@
+dpm::v1::Template {
+    name = "sample",
+    description = "A template used by the dpm tests",
+    variables = {
+        { name = "title", description = "Document title", default_value = "Sample Title", max_length = 40 },
+        { name = "answer", description = "The exit code of the program", kind = VariableKind::Integer, default_value = "42", min = 0, max = 255 },
+        { name = "owner", description = "Who owns the project", required = true },
+        { name = "level", kind = VariableKind::Choice, choices = { "low", "high" }, default_value = "low" },
+    },
+    substitute = { "project.dcon", "src/**", "README.md", "scripts/*.sh", "docs/*.md" },
+    exclude = { "skip/**" },
+    next_steps = "cd @@dir@@ && dpm run",
+}

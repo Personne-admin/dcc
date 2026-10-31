@@ -5,6 +5,7 @@ usage: dpm <command> [options]
 commands:
   init [DIR]                create a package in DIR (default: the current
                             directory)
+  new [DIR]                 create a project from a template
   add <location>[@version]  add a dependency
   remove <location>         remove a dependency
   update [<location>...]    raise minimum versions to the latest release
@@ -19,6 +20,8 @@ commands:
   tree                      print the resolved dependency graph
   why <location>            explain why a package is in the build list
   publish                   write the registry entry for the current version
+  template info <source>    describe a template and its variables
+  template check [<dir>]    validate a template directory
   cache path                print the cache directory
   cache verify              check that every cached package matches its hash
   cache clean               remove downloads and git data from the cache

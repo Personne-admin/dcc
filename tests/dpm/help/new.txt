@@ -1,0 +1,26 @@
+usage: dpm new [DIR] [options]
+
+Generates a project in DIR (default: the current directory, which must be
+empty) from a template and prints what to do next. Without --template the
+built-in executable template is used, or the library template with --lib. A
+template is data: nothing in it is run. The project is written into a
+temporary directory first and moved into place only when everything succeeded.
+
+options:
+  --template <source>       generate the project from this template. A
+                            built-in template (builtin:executable,
+                            builtin:library) or a directory that holds a
+                            template.dcon. [default: builtin:executable]
+  --set <var>=<value>       give a template variable a value. May be repeated.
+                            'dpm template info <source>' lists the variables.
+                            --name is the same as --set name=<name>.
+  --lib                     create a library (src/<name>/lib.dc) instead of an
+                            executable
+  --name <name>             name to use instead of the directory name
+
+exit codes:
+  0                         success
+  1                         a build or test failed, a precondition was not
+                            met, or a file could not be written
+  2                         usage error
+  3                         invalid manifest, lock or configuration file

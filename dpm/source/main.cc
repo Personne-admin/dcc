@@ -15,6 +15,7 @@ import dpm.resolve;
 import dpm.scaffold;
 import dpm.semver;
 import dpm.settings;
+import dpm.stage;
 import dpm.stamp;
 
 namespace
@@ -82,6 +83,8 @@ namespace
         std::chrono::seconds timeout{60};
         std::string runner;
         std::string name;
+        std::string template_source;
+        std::vector<std::string> sets;
         bool lib{};
         std::string registry_dir;
         std::string location;
@@ -148,6 +151,8 @@ namespace
         c.verify_sources = parsed.has(Opt::VerifySources);
         c.undo = parsed.has(Opt::Undo);
         c.name = parsed.value(Opt::Name).value_or("");
+        c.template_source = parsed.value(Opt::Template).value_or("");
+        c.sets = parsed.sets;
         c.runner = parsed.value(Opt::Runner).value_or("");
         c.registry_dir = parsed.value(Opt::RegistryDir).value_or("");
         c.location = parsed.value(Opt::Location).value_or("");
@@ -881,6 +886,12 @@ namespace
         return out;
     }
 
+    std::string default_package_name(fs::path const& dir)
+    {
+        auto absolute = fs::absolute(dir).lexically_normal();
+        return identifier_from(absolute.filename().empty() ? absolute.parent_path().filename().string() : absolute.filename().string());
+    }
+
     int cmd_init(Common common)
     {
         fs::path dir = common.positional.empty() ? fs::path{"."} : fs::path{common.positional[0]};
@@ -896,9 +907,7 @@ namespace
             std::println(std::cerr, "error: {} already exists", (dir / k_project_file).string());
             return k_exit_usage;
         }
-        auto name = common.name.empty() ? identifier_from(fs::absolute(dir).lexically_normal().filename().empty() ? fs::absolute(dir).parent_path().filename().string()
-                                                                                                                    : fs::absolute(dir).lexically_normal().filename().string())
-                                        : common.name;
+        auto name = common.name.empty() ? default_package_name(dir) : common.name;
         auto files = common.lib ? dpm::scaffold::builtin_library() : dpm::scaffold::builtin_executable();
         auto rendered = dpm::scaffold::render(files, {{"name", name}});
         if (!rendered.ok())
@@ -954,6 +963,233 @@ namespace
             f << ignore_entries;
         }
         std::println("created {} {}", common.lib ? "library" : "executable", name);
+        return 0;
+    }
+
+    std::string dcc_version();
+
+    m::LoadOptions template_load_options()
+    {
+        m::LoadOptions options;
+        options.schema_root = schema_root();
+        return options;
+    }
+
+    struct TemplateSource
+    {
+        dpm::stage::Loaded loaded;
+        std::string label;
+        std::vector<std::string> problems;
+    };
+
+    std::optional<std::string> local_template_path(std::string_view source)
+    {
+        if (source.starts_with("path:"))
+            return std::string{source.substr(5)};
+        if (source == "." || source == ".." || source.starts_with("./") || source.starts_with("../") || source.starts_with("/"))
+            return std::string{source};
+        return std::nullopt;
+    }
+
+    std::optional<TemplateSource> open_template(Common const& common, std::string& error)
+    {
+        TemplateSource out;
+        std::string source = common.template_source;
+        if (source.empty())
+            source = common.lib ? "builtin:library" : "builtin:executable";
+        else if (common.lib)
+        {
+            error = "--lib applies to the built-in templates only";
+            return std::nullopt;
+        }
+        if (source.starts_with("builtin:"))
+        {
+            auto name = source.substr(8);
+            auto builtin = dpm::scaffold::builtin_template(name);
+            if (!builtin)
+            {
+                error = std::format("there is no built-in template '{}' (the built-in templates are executable and library)", name);
+                return std::nullopt;
+            }
+            out.loaded.tmpl = std::move(builtin->tmpl);
+            out.loaded.tree = std::move(builtin->tree);
+            out.label = std::format("built-in template {}", out.loaded.tmpl.name);
+            return out;
+        }
+        if (auto path = local_template_path(source))
+        {
+            out.loaded = dpm::stage::load_template(*path, template_load_options());
+            out.label = out.loaded.ok() ? out.loaded.tmpl.name : *path;
+            return out;
+        }
+        std::error_code ec;
+        if (fs::is_directory(source, ec))
+            error = std::format("'{0}' is a directory; write ./{0} or path:{0} to use it as a template", source);
+        else
+            error = std::format("'{}' is not a built-in template or a template directory (write path:DIR or ./DIR for a directory)", source);
+        return std::nullopt;
+    }
+
+    void print_template_problems(std::string_view heading, std::vector<std::string> const& problems)
+    {
+        for (auto const& problem : problems)
+            std::println(std::cerr, "{}: {}", heading, problem);
+    }
+
+    bool parse_assignments(std::vector<std::string> const& sets, dpm::scaffold::Variables& values, std::string& error)
+    {
+        for (auto const& item : sets)
+        {
+            auto eq = item.find('=');
+            if (eq == std::string::npos || eq == 0)
+            {
+                error = std::format("--set needs VAR=VALUE, got '{}'", item);
+                return false;
+            }
+            auto key = item.substr(0, eq);
+            if (!values.emplace(key, item.substr(eq + 1)).second)
+            {
+                error = std::format("variable '{}' is set twice", key);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    int cmd_new(Common common)
+    {
+        std::string error;
+        auto source = open_template(common, error);
+        if (!source)
+        {
+            std::println(std::cerr, "dpm new: {}", error);
+            return k_exit_usage;
+        }
+        if (!source->loaded.ok())
+        {
+            print_template_problems("template", source->loaded.problems);
+            return k_exit_manifest;
+        }
+        auto const& tmpl = source->loaded.tmpl;
+        if (!tmpl.requires_dcc.empty())
+        {
+            auto have = dcc_version();
+            auto need = dpm::semver::parse(tmpl.requires_dcc);
+            auto parsed = dpm::semver::parse(have);
+            if (need && parsed && dpm::semver::compare(*parsed, *need) < 0)
+            {
+                std::println(std::cerr, "dpm new: the template requires dcc {} but this dcc is {}", tmpl.requires_dcc, have);
+                return k_exit_failure;
+            }
+        }
+        fs::path dir = common.positional.empty() ? fs::path{"."} : fs::path{common.positional[0]};
+        dpm::scaffold::Variables given;
+        if (!parse_assignments(common.sets, given, error))
+        {
+            std::println(std::cerr, "dpm new: {}", error);
+            return k_exit_usage;
+        }
+        if (!common.name.empty())
+        {
+            if (auto it = given.find("name"); it != given.end() && it->second != common.name)
+            {
+                std::println(std::cerr, "dpm new: --name and --set name= disagree");
+                return k_exit_usage;
+            }
+            given["name"] = common.name;
+        }
+        if (!given.contains("name"))
+            given["name"] = default_package_name(dir);
+        auto dir_text = common.positional.empty() ? std::string{"."} : common.positional[0];
+        auto resolved = dpm::scaffold::resolve(tmpl, given, dir_text);
+        if (!resolved.ok())
+        {
+            for (auto const& problem : resolved.problems)
+                std::println(std::cerr, "dpm new: {}", problem.message);
+            return k_exit_usage;
+        }
+        auto generated = dpm::scaffold::generate(tmpl, source->loaded.tree, given, dir_text);
+        auto checked = dpm::stage::check_generated(generated, template_load_options());
+        if (!checked.ok())
+        {
+            print_template_problems("template", checked.problems);
+            return k_exit_manifest;
+        }
+        auto written = dpm::stage::write_new(dir, generated.rendered.files);
+        if (!written.ok)
+        {
+            std::println(std::cerr, "dpm new: {}", written.error);
+            return k_exit_failure;
+        }
+        std::println("created {} from {} ({} files)", given["name"], source->label, checked.files);
+        if (!generated.next_steps.empty())
+            std::println("\n{}", generated.next_steps);
+        return 0;
+    }
+
+    std::string variable_summary(m::TemplateVariable const& v)
+    {
+        static constexpr std::array<std::string_view, 5> kinds{"string", "identifier", "integer", "bool", "choice"};
+        std::string details{kinds[static_cast<std::size_t>(v.kind)]};
+        if (v.required)
+            details += ", required";
+        else if (!v.default_value.empty() || v.kind != m::VariableKind::String)
+            details += std::format(", default \"{}\"", v.default_value);
+        if (v.kind == m::VariableKind::Choice)
+        {
+            details += ", one of";
+            for (auto const& choice : v.choices)
+                details += " " + choice;
+        }
+        if (v.kind == m::VariableKind::Integer && (v.min != 0 || v.max != 0))
+            details += std::format(", {} to {}", v.min, v.max);
+        if ((v.kind == m::VariableKind::String || v.kind == m::VariableKind::Identifier) && v.max_length != 0)
+            details += std::format(", at most {} bytes", v.max_length);
+        return details;
+    }
+
+    int cmd_template_info(dpm::cli::Parsed const& parsed)
+    {
+        Common common;
+        common.template_source = parsed.positional[0];
+        std::string error;
+        auto source = open_template(common, error);
+        if (!source)
+        {
+            std::println(std::cerr, "dpm template info: {}", error);
+            return k_exit_usage;
+        }
+        if (!source->loaded.ok())
+        {
+            print_template_problems("template", source->loaded.problems);
+            return k_exit_manifest;
+        }
+        auto const& tmpl = source->loaded.tmpl;
+        std::println("template {}", tmpl.name);
+        if (!tmpl.description.empty())
+            std::println("  {}", tmpl.description);
+        std::println("\nvariables:");
+        std::println("  name (identifier, default: from DIR): the package name; --name is the same as --set name=");
+        for (auto const& v : tmpl.variables)
+            std::println("  {} ({}){}{}", v.name, variable_summary(v), v.description.empty() ? "" : ": ", v.description);
+        if (!tmpl.requires_dcc.empty())
+            std::println("\nneeds dcc {} or newer", tmpl.requires_dcc);
+        return 0;
+    }
+
+    int cmd_template_check(dpm::cli::Parsed const& parsed)
+    {
+        fs::path dir = parsed.positional.empty() ? fs::path{"."} : fs::path{parsed.positional[0]};
+        auto loaded = dpm::stage::load_template(dir, template_load_options());
+        auto checked = dpm::stage::check_template(loaded, template_load_options());
+        for (auto const& warning : checked.warnings)
+            std::println(std::cerr, "warning: {}", warning);
+        if (!checked.ok())
+        {
+            print_template_problems("error", checked.problems);
+            return k_exit_manifest;
+        }
+        std::println("{}: ok ({} files, {} variables)", loaded.tmpl.name, checked.files, loaded.tmpl.variables.size());
         return 0;
     }
 
@@ -1504,6 +1740,10 @@ auto main(int argc, char** argv) -> int
     auto const command = parsed->command;
     if (command == "check")
         return cmd_check(*parsed);
+    if (command == "template info")
+        return cmd_template_info(*parsed);
+    if (command == "template check")
+        return cmd_template_check(*parsed);
     if (command.starts_with("cache "))
         return cmd_cache(*parsed);
     Common common;
@@ -1517,6 +1757,8 @@ auto main(int argc, char** argv) -> int
         return cmd_registry(std::move(common), std::string_view{command}.substr(9));
     if (command == "init")
         return cmd_init(std::move(common));
+    if (command == "new")
+        return cmd_new(std::move(common));
     if (command == "publish")
         return cmd_publish(std::move(common));
     if (command == "add")

@@ -321,6 +321,50 @@ TEST_CASE("arguments, values and pass-through arguments are collected")
     CHECK_EQ(many->positional.size(), std::size_t{3});
 }
 
+TEST_CASE("new collects repeated --set values in order and the template source")
+{
+    auto parsed = run({"new", "proj", "--template", "path:t", "--set", "a=1", "--name", "kern", "--set", "b=two words", "--set", "a=3"});
+    REQUIRE(parsed.has_value());
+    CHECK_EQ(parsed->command, std::string{"new"});
+    CHECK_EQ(parsed->positional, (std::vector<std::string>{"proj"}));
+    CHECK_EQ(parsed->value(cli::Opt::Template).value_or(""), std::string{"path:t"});
+    CHECK_EQ(parsed->value(cli::Opt::Name).value_or(""), std::string{"kern"});
+    CHECK_EQ(parsed->sets, (std::vector<std::string>{"a=1", "b=two words", "a=3"}));
+    CHECK(parsed->has(cli::Opt::Set));
+    CHECK(!run({"new", "--set"}).has_value());
+    CHECK(!run({"new", "a", "b"}).has_value());
+    auto bare = run({"new"});
+    REQUIRE(bare.has_value());
+    CHECK(bare->positional.empty());
+    CHECK(!bare->has(cli::Opt::Set));
+}
+
+TEST_CASE("--set and --template belong to dpm new only")
+{
+    for (auto const& command : {"init", "build", "run", "add", "check"})
+    {
+        auto parsed = run({command, "--set", "a=1"});
+        CHECK(!parsed.has_value());
+        auto with_template = run({command, "--template", "x"});
+        CHECK(!with_template.has_value());
+    }
+}
+
+TEST_CASE("template commands take their arguments")
+{
+    auto info = run({"template", "info", "src"});
+    REQUIRE(info.has_value());
+    CHECK_EQ(info->command, std::string{"template info"});
+    CHECK(!run({"template", "info"}).has_value());
+    CHECK(!run({"template", "info", "a", "b"}).has_value());
+    auto check = run({"template", "check"});
+    REQUIRE(check.has_value());
+    CHECK(check->positional.empty());
+    CHECK(run({"template", "check", "dir"}).has_value());
+    CHECK(!run({"template", "check", "a", "b"}).has_value());
+    CHECK(!run({"template"}).has_value());
+}
+
 TEST_CASE("golden help output")
 {
     if (!::getenv("DCC_TEST_DPM_HELP"))
@@ -329,5 +373,7 @@ TEST_CASE("golden help output")
     CHECK_EQ(cli::help_text("build", 80), read_golden("build.txt"));
     CHECK_EQ(cli::help_text("registry", 80), read_golden("registry.txt"));
     CHECK_EQ(cli::help_text("registry check", 80), read_golden("registry-check.txt"));
+    CHECK_EQ(cli::help_text("new", 80), read_golden("new.txt"));
+    CHECK_EQ(cli::help_text("template", 80), read_golden("template.txt"));
     CHECK(!read_golden("overview.txt").empty());
 }
