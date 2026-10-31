@@ -256,7 +256,10 @@ namespace dcc::sema
                     n->unwrap_unwrap_receiver_adjust = ast::UfcsReceiverAdjust::None;
                     n->unwrap_unwrap_err_receiver_adjust = ast::UfcsReceiverAdjust::None;
                     n->unwrap_err_needs_implicit_enum = false;
+                    n->unwrap_err_needs_nested_enum = false;
                     n->unwrap_err_constructed_variant = nullptr;
+                    n->unwrap_err_inner_variant = nullptr;
+                    n->unwrap_err_inner_enum_type = nullptr;
                     return n;
                 }
                 case ast::ExprKind::Binary: {

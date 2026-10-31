@@ -1194,6 +1194,15 @@ All three methods must be visible in the scope where `?` appears. Template
 instantiation re-resolves the methods for each instantiated type; generic
 `is_ok` / `unwrap` / `unwrap_err` functions work.
 
+**Error conversion.** The operand's error payload type must match the
+enclosing function's error type, with one exception: when the function returns
+`Status(F)` or `Result(U, F)` and `F` has exactly one variant annotated
+`@implicit_construction` whose single payload accepts the operand's error
+type `E`, `?` propagates `Err(E::e)` as `Err(F::Variant(e))`. Only that one
+nested level is allowed; the payload is used as-is, never converted further.
+If more than one variant of `F` could accept `E`, the `?` is rejected with a
+diagnostic naming the candidates. A matching error type propagates unchanged.
+
 Each synthesized call fills omitted defaulted parameters using the same rules
 as an explicit call. An additional required parameter makes the protocol
 method inapplicable and produces a diagnostic naming the missing parameter.

@@ -2250,6 +2250,18 @@ export namespace dcc::ctfe
             if (err.flow != Flow::Normal || !err.value)
                 return err;
             std::optional<comptime::Value> out = std::move(*err.value);
+            if (e.unwrap_err_needs_nested_enum && e.unwrap_err_inner_variant && e.unwrap_err_inner_enum_type)
+            {
+                auto* inner_ret_type = reinterpret_cast<types::TypePtr>(e.unwrap_err_inner_enum_type);
+                auto const* inner_enum = types::type_cast<types::EnumType>(inner_ret_type);
+                if (!inner_enum || !inner_enum->is_tagged || !inner_enum->tagged_layout)
+                    return failure("unwrap-propagate error type cannot be constructed");
+                std::vector<comptime::Value> inner_elements;
+                inner_elements.push_back(
+                    comptime::Value::make_int(e.unwrap_err_inner_variant->discriminant, inner_enum->tagged_layout->discriminant_type));
+                inner_elements.push_back(std::move(*out));
+                out = comptime::Value::make_aggregate(std::move(inner_elements), inner_ret_type);
+            }
             if (e.unwrap_err_needs_implicit_enum && e.unwrap_err_constructed_variant)
             {
                 auto* ret_type = fn->return_type ? type_of(fn->return_type) : nullptr;

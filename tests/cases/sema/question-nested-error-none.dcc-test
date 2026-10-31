@@ -1,0 +1,70 @@
+=== FILE: main.dc ===
+module main;
+
+public enum Status(E) {
+    Ok,
+    @implicit_construction Err(E),
+}
+
+bool is_ok(E)(const Status(E)* self) {
+    return match *self {
+        Status::Ok => true,
+        _ => false,
+    };
+}
+
+void unwrap(E)(const Status(E)* self) {
+    if self.is_ok() {
+        return;
+    }
+}
+
+E unwrap_err(E)(const Status(E)* self) {
+    return match *self {
+        Status::Err(error) => error,
+        _ => self.unwrap_err(),
+    };
+}
+
+struct Leaf {
+    u32 value;
+}
+
+struct Other {
+    u32 other;
+}
+
+enum Texted : u8 {
+    None,
+    @implicit_construction FromU32(u32),
+}
+
+enum Blobbed : u8 {
+    Empty,
+    @implicit_construction FromOther(Other),
+}
+
+Status(Leaf) leaf_step(bool fail) {
+    if fail {
+        return Leaf {value = 1};
+    }
+    return Status::Ok;
+}
+
+Status(Texted) texted(bool fail) {
+    leaf_step(fail) ?;
+    return Status::Ok;
+}
+
+Status(Blobbed) blobbed(bool fail) {
+    leaf_step(fail) ?;
+    return Status::Ok;
+}
+
+public i32 main() {
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:54: ? operator: error type `Leaf` cannot be propagated into return type `Status(Texted)`
+main.dc:59: ? operator: error type `Leaf` cannot be propagated into return type `Status(Blobbed)`

@@ -4961,6 +4961,11 @@ export namespace dcc::ir::lower
             append_inst(unwrap_err_call);
 
             IrValue* return_val = unwrap_err_call;
+            if (p->unwrap_err_needs_nested_enum && p->unwrap_err_inner_variant && p->unwrap_err_inner_enum_type)
+            {
+                IrValue* inner_payloads[] = {return_val};
+                return_val = lower_tagged_enum_construction(p->unwrap_err_inner_variant, reinterpret_cast<dcc::types::TypePtr>(p->unwrap_err_inner_enum_type), inner_payloads);
+            }
             if (p->unwrap_err_needs_implicit_enum && p->unwrap_err_constructed_variant)
             {
                 auto* ret_sema_type = m_current_func_decl ? get_canonical_type(m_current_func_decl->return_type) : nullptr;

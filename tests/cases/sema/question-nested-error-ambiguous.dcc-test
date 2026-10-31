@@ -1,0 +1,54 @@
+=== FILE: main.dc ===
+module main;
+
+public enum Status(E) {
+    Ok,
+    @implicit_construction Err(E),
+}
+
+bool is_ok(E)(const Status(E)* self) {
+    return match *self {
+        Status::Ok => true,
+        _ => false,
+    };
+}
+
+void unwrap(E)(const Status(E)* self) {
+    if self.is_ok() {
+        return;
+    }
+}
+
+E unwrap_err(E)(const Status(E)* self) {
+    return match *self {
+        Status::Err(error) => error,
+        _ => self.unwrap_err(),
+    };
+}
+
+enum Code : u8 { Plain, Special }
+
+enum Detail : u8 {
+    Nothing,
+    @implicit_construction First(Code),
+    @implicit_construction Second(Code),
+}
+
+Status(Code) step(bool fail) {
+    if fail {
+        return Code::Special;
+    }
+    return Status::Ok;
+}
+
+Status(Detail) run(bool fail) {
+    step(fail) ?;
+    return Status::Ok;
+}
+
+public i32 main() {
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:44: ? operator: error type `Code` matches more than one implicit construction: Detail::First, Detail::Second

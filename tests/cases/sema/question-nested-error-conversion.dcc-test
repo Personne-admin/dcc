@@ -1,0 +1,127 @@
+=== FILE: main.dc ===
+module main;
+
+public enum Status(E) {
+    Ok,
+    @implicit_construction Err(E),
+}
+
+public enum Result(T, E) {
+    Ok(T),
+    @implicit_construction Err(E),
+}
+
+bool is_ok(E)(const Status(E)* self) {
+    return match *self {
+        Status::Ok => true,
+        _ => false,
+    };
+}
+
+void unwrap(E)(const Status(E)* self) {
+    if self.is_ok() {
+        return;
+    }
+}
+
+E unwrap_err(E)(const Status(E)* self) {
+    return match *self {
+        Status::Err(error) => error,
+        _ => self.unwrap_err(),
+    };
+}
+
+bool is_ok(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(_) => true,
+        _ => false,
+    };
+}
+
+T unwrap(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(value) => value,
+        _ => self.unwrap(),
+    };
+}
+
+E unwrap_err(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Err(error) => error,
+        _ => self.unwrap_err(),
+    };
+}
+
+struct Failure {
+    u32 code;
+}
+
+enum Code : u8 { Plain, Special }
+
+enum Detail : u8 {
+    Nothing,
+    @implicit_construction Wrap(Code),
+}
+
+enum StructDetail : u8 {
+    Empty,
+    @implicit_construction FromFailure(Failure),
+}
+
+Status(Code) step(bool fail) {
+    if fail {
+        return Code::Special;
+    }
+    return Status::Ok;
+}
+
+Result(u32, Code) rstep(bool fail) {
+    if fail {
+        return Code::Special;
+    }
+    return Result::Ok(7);
+}
+
+Status(Failure) fail_step(bool fail) {
+    if fail {
+        return Failure {code = 9};
+    }
+    return Status::Ok;
+}
+
+Status(Detail) status_run(bool fail) {
+    step(fail) ?;
+    return Status::Ok;
+}
+
+Result(u32, Detail) result_run(bool fail) {
+    u32 value = rstep(fail) ?;
+    return Result::Ok(value);
+}
+
+Status(StructDetail) struct_run(bool fail) {
+    fail_step(fail) ?;
+    return Status::Ok;
+}
+
+Status(Code) matching(bool fail) {
+    step(fail) ?;
+    return Status::Ok;
+}
+
+Status(Detail) generic_run(E)(Status(E) inner) if compiles (E candidate) {
+    Detail::Wrap(candidate);
+} {
+    inner ?;
+    return Status::Ok;
+}
+
+public i32 main() {
+    bool flag = false;
+    status_run(flag);
+    result_run(flag);
+    struct_run(flag);
+    matching(flag);
+    generic_run(step(flag));
+    return 0;
+}

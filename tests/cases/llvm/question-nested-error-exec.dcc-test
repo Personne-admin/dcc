@@ -1,0 +1,140 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module main;
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+public enum Status(E) {
+    Ok,
+    @implicit_construction Err(E),
+}
+
+public enum Result(T, E) {
+    Ok(T),
+    @implicit_construction Err(E),
+}
+
+bool is_ok(E)(const Status(E)* self) {
+    return match *self {
+        Status::Ok => true,
+        _ => false,
+    };
+}
+
+void unwrap(E)(const Status(E)* self) {
+    if self.is_ok() {
+        return;
+    }
+}
+
+E unwrap_err(E)(const Status(E)* self) {
+    return match *self {
+        Status::Err(error) => error,
+        _ => self.unwrap_err(),
+    };
+}
+
+bool is_ok(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(_) => true,
+        _ => false,
+    };
+}
+
+T unwrap(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(value) => value,
+        _ => self.unwrap(),
+    };
+}
+
+E unwrap_err(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Err(error) => error,
+        _ => self.unwrap_err(),
+    };
+}
+
+enum Code : u8 { Plain, Special }
+
+enum Detail : u8 {
+    Nothing,
+    @implicit_construction Wrap(Code),
+}
+
+Status(Code) step(bool fail) {
+    if fail {
+        return Code::Special;
+    }
+    return Status::Ok;
+}
+
+Status(Detail) run(bool fail) {
+    step(fail) ?;
+    return Status::Ok;
+}
+
+Result(u32, Code) rstep(bool fail) {
+    if fail {
+        return Code::Special;
+    }
+    return Result::Ok(7);
+}
+
+Result(u32, Detail) rrun(bool fail) {
+    u32 value = rstep(fail) ?;
+    return Result::Ok(value);
+}
+
+bool check_run(bool fail) {
+    match run(fail) {
+        Status::Ok => return !fail,
+        Status::Err(err) => match err {
+            Detail::Wrap(code) => return fail && code == Code::Special,
+            _ => return false,
+        },
+    }
+}
+
+bool check_rrun(bool fail) {
+    match rrun(fail) {
+        Result::Ok(value) => return !fail && value == 7,
+        Result::Err(err) => match err {
+            Detail::Wrap(code) => return fail && code == Code::Special,
+            _ => return false,
+        },
+    }
+}
+
+const bool RUN_TRUE = check_run(true);
+const bool RUN_FALSE = check_run(false);
+const bool RRUN_TRUE = check_rrun(true);
+const bool RRUN_FALSE = check_rrun(false);
+
+@nomangle
+public i32 dcc_main() {
+    if !RUN_TRUE || !RUN_FALSE || !RRUN_TRUE || !RRUN_FALSE {
+        return 1;
+    }
+
+    bool flag = RUN_TRUE;
+    if !check_run(flag) {
+        return 2;
+    }
+    if !check_run(!flag) {
+        return 3;
+    }
+    if !check_rrun(flag) {
+        return 4;
+    }
+    if !check_rrun(!flag) {
+        return 5;
+    }
+
+    return 0;
+}
+
+=== EXPECT-EXECUTABLE ===
+RUN-EXIT: 0

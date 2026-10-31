@@ -12334,6 +12334,8 @@ export namespace dcc::sema
                     auto* error_type = unwrap_err_info->result_type;
 
                     ast::EnumVariant const* implicit_enum_var = nullptr;
+                    ast::EnumVariant const* nested_inner_var = nullptr;
+                    types::TypePtr nested_inner_enum_type{};
                     bool err_compatible = can_assign_return(ret_type, error_type);
 
                     if (!err_compatible)
@@ -12341,6 +12343,30 @@ export namespace dcc::sema
                         auto* conv = try_implicit_enum_conversion(ret_type, error_type, mod, scope, &implicit_enum_var);
                         if (conv && !has_error(conv))
                             err_compatible = true;
+                        else if (!conv)
+                        {
+                            std::vector<std::string> candidates;
+                            auto* nested = try_nested_implicit_enum_conversion(ret_type, error_type, mod, scope, &implicit_enum_var, &nested_inner_var,
+                                                                               &nested_inner_enum_type, &candidates);
+                            if (nested && !has_error(nested))
+                            {
+                                err_compatible = true;
+                            }
+                            else if (nested && has_error(nested))
+                            {
+                                std::string names;
+                                for (std::size_t i = 0; i < candidates.size(); ++i)
+                                {
+                                    if (i != 0)
+                                        names += ", ";
+                                    names += candidates[i];
+                                }
+                                out.type = m_types.m_errort();
+                                error(p.range, "? operator: error type `{}` matches more than one implicit construction: {}", format_type_str(error_type),
+                                      names);
+                                return out;
+                            }
+                        }
                     }
 
                     if (!err_compatible)
@@ -12364,6 +12390,12 @@ export namespace dcc::sema
                     {
                         p.unwrap_err_needs_implicit_enum = true;
                         p.unwrap_err_constructed_variant = implicit_enum_var;
+                    }
+                    if (nested_inner_var)
+                    {
+                        p.unwrap_err_needs_nested_enum = true;
+                        p.unwrap_err_inner_variant = nested_inner_var;
+                        p.unwrap_err_inner_enum_type = nested_inner_enum_type;
                     }
 
                     out.type = success_type;
@@ -18290,6 +18322,86 @@ export namespace dcc::sema
             out.type = then_result.type ? then_result.type : else_result.type;
             out.is_diverging = then_result.is_diverging && else_result.is_diverging;
             return out;
+        }
+
+        [[nodiscard]] types::TypePtr try_nested_implicit_enum_conversion(types::TypePtr target_type, types::TypePtr source_type, ModuleInfo& mod,
+                                                                         Scope& scope, ast::EnumVariant const** out_outer,
+                                                                         ast::EnumVariant const** out_inner, types::TypePtr* out_inner_enum_type,
+                                                                         std::vector<std::string>* out_candidates)
+        {
+            if (!target_type || !source_type || target_type->kind != types::TypeKind::Enum)
+                return nullptr;
+
+            auto const* et = types::type_cast<types::EnumType>(target_type);
+            if (!et)
+                return nullptr;
+
+            auto const* enum_decl = reinterpret_cast<ast::EnumDecl const*>(et->decl);
+            if (!enum_decl)
+                return nullptr;
+
+            ast::EnumVariant const* outer = nullptr;
+            ast::EnumVariant const* inner = nullptr;
+            types::TypePtr inner_enum_type{};
+            int matches = 0;
+            for (auto const& variant : enum_decl->variants)
+            {
+                if (!variant_has_attr(variant, "implicit_construction"))
+                    continue;
+                if (variant.payload.size() != 1)
+                    continue;
+
+                auto payload_ty = resolve_payload_type(*enum_decl, variant.payload[0], target_type, mod, scope);
+                if (!payload_ty || payload_ty->kind != types::TypeKind::Enum || has_error(payload_ty))
+                    continue;
+                if (can_assign_return(payload_ty, source_type))
+                    continue;
+
+                auto const* payload_enum = types::type_cast<types::EnumType>(payload_ty);
+                auto const* payload_decl = payload_enum ? reinterpret_cast<ast::EnumDecl const*>(payload_enum->decl) : nullptr;
+                if (!payload_decl)
+                    continue;
+
+                for (auto const& candidate : payload_decl->variants)
+                {
+                    if (!variant_has_attr(candidate, "implicit_construction"))
+                        continue;
+                    if (candidate.payload.size() != 1)
+                        continue;
+
+                    auto candidate_payload = resolve_payload_type(*payload_decl, candidate.payload[0], payload_ty, mod, scope);
+                    if (!candidate_payload || has_error(candidate_payload))
+                        continue;
+                    if (!can_assign_return(candidate_payload, source_type))
+                        continue;
+
+                    ++matches;
+                    if (!outer)
+                    {
+                        outer = &variant;
+                        inner = &candidate;
+                        inner_enum_type = payload_ty;
+                    }
+                    if (out_candidates)
+                        out_candidates->push_back(std::format("{}::{}", payload_decl->name, candidate.name));
+                }
+            }
+
+            if (matches == 1)
+            {
+                if (out_outer)
+                    *out_outer = outer;
+                if (out_inner)
+                    *out_inner = inner;
+                if (out_inner_enum_type)
+                    *out_inner_enum_type = inner_enum_type;
+                return target_type;
+            }
+
+            if (matches > 1)
+                return m_types.m_errort();
+
+            return nullptr;
         }
 
         [[nodiscard]] types::TypePtr try_implicit_enum_conversion(types::TypePtr target_type, types::TypePtr source_type, ModuleInfo& mod, Scope& scope,

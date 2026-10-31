@@ -712,7 +712,10 @@ export namespace dcc::ast
         UfcsReceiverAdjust unwrap_unwrap_receiver_adjust{};
         UfcsReceiverAdjust unwrap_unwrap_err_receiver_adjust{};
         bool unwrap_err_needs_implicit_enum : 1 {};
+        bool unwrap_err_needs_nested_enum : 1 {};
         EnumVariant const* unwrap_err_constructed_variant{};
+        EnumVariant const* unwrap_err_inner_variant{};
+        void const* unwrap_err_inner_enum_type{};
 
         PostfixExpr(sm::SourceRange r, ExprPtr operand, lex::TokenKind o, sm::SourceRange op_range_ = {})
             : Expr(Kind, r), operand(operand), op(o), op_range(op_range_)
