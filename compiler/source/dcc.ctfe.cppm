@@ -342,6 +342,30 @@ export namespace dcc::ctfe
             m_seq_stack.pop_back();
         }
 
+        static bool unknown_pointer_value(comptime::Value const& value)
+        {
+            return value.kind() == Kind::Unknown && value.type && pointee_of(value.type) != nullptr;
+        }
+
+        static bool has_unknown_pointer_argument(std::vector<comptime::Value> const& args)
+        {
+            for (auto const& arg : args)
+                if (unknown_pointer_value(arg))
+                    return true;
+            return false;
+        }
+
+        void rollback_trace(std::size_t mark)
+        {
+            m_trace.nodes.resize(mark);
+            if (!m_seq_stack.empty())
+            {
+                auto& children = m_trace.nodes[m_seq_stack.back()].children;
+                if (!children.empty() && children.back() == mark)
+                    children.pop_back();
+            }
+        }
+
         void poison_reachable(std::size_t cause, std::vector<comptime::Value> const& args, std::optional<comptime::Value> const& callee)
         {
             std::unordered_set<std::size_t> pinned;
@@ -2077,8 +2101,17 @@ export namespace dcc::ctfe
                 m_frames.pop_back();
                 return abandoned(AbandonReason::TraceExhausted);
             }
+            std::vector<comptime::Value> call_args = args;
             auto result = enter(*fn, std::move(args));
             seq_end();
+            if ((result.flow == Flow::Abandoned || result.failed()) && has_unknown_pointer_argument(call_args))
+            {
+                for (auto allocation : m_frames.back().allocations)
+                    m_heap.end_lifetime(allocation);
+                m_frames.pop_back();
+                rollback_trace(*seq);
+                return residual_call(call, std::move(call_args), callee);
+            }
             if (m_frames.back().saw_question)
             {
                 if (m_frames.size() > 1)

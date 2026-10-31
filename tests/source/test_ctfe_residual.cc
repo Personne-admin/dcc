@@ -907,6 +907,44 @@ R entry3(R r) {
     CHECK_EQ(lowerer.specialize_stats().fallbacks, 1u);
 }
 
+TEST_CASE("direct call through an unknown pointer receiver residualizes")
+{
+    Fixture fx(R"dc(
+struct Counter {
+    u32 total;
+}
+
+void bump(Counter* self, u32 step) {
+    if step == 0 {
+        return;
+    }
+    self.total = self.total + step;
+}
+
+u32 run(Counter* counter, u32 n) {
+    bump(counter, n);
+    bump(counter, n + 1);
+    return n + 2;
+}
+
+@nomangle
+public i32 dcc_main() {
+    Counter counter = {total = 0};
+    return run(&counter, 5) as i32;
+}
+)dc");
+    REQUIRE(fx.ok());
+    irc::IrContext ir_ctx;
+    lower::Lowerer lowerer(ir_ctx, &fx.sema->spec_registry(), &fx.sema->graph(), false, &fx.sm, &fx.sema->types(), false, true);
+    auto* ir_mod = lowerer.lower_module(*fx.mod);
+    auto text = irc::IrSerializer::dump(ir_mod);
+    CHECK(lowerer.specialize_stats().succeeded > 0u);
+    auto region = slice_function_region(text, "run");
+    REQUIRE(!region.empty());
+    CHECK(count_substr(region, "call fn(") >= 2u);
+    CHECK(region.find("bump") != std::string::npos);
+}
+
 TEST_CASE("money format over literal specializes to straight-line writes")
 {
     REQUIRE(std::getenv("DCC_TEST_LIBDCEXT_SRC") != nullptr);
