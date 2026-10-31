@@ -518,6 +518,7 @@ export namespace dpm::fetch
         std::vector<std::string> tags;
         std::string commit;
         std::string hash;
+        std::string ref;
         bool allow_cached{};
     };
 
@@ -578,6 +579,19 @@ export namespace dpm::fetch
                         commit = by_tag.commit;
                         break;
                     }
+                    if (commit.empty() && !request.ref.empty())
+                    {
+                        auto by_ref = repo.fetch_ref(request.spec.url, request.ref);
+                        if (by_ref.ok)
+                        {
+                            if (by_ref.commit != request.commit)
+                            {
+                                out.error = std::format("{} now points to {}, but the pin is {}", request.ref, by_ref.commit, request.commit);
+                                return out;
+                            }
+                            commit = by_ref.commit;
+                        }
+                    }
                     if (commit.empty())
                     {
                         out.error = "cannot fetch the pinned commit: " + fetched.error;
@@ -585,6 +599,16 @@ export namespace dpm::fetch
                     }
                 }
             }
+        }
+        else if (!request.ref.empty())
+        {
+            auto fetched = policy.offline ? repo.cached_ref(request.ref) : repo.fetch_ref(request.spec.url, request.ref);
+            if (!fetched.ok)
+            {
+                out.error = policy.offline ? "not in cache (run dpm fetch)" : fetched.error;
+                return out;
+            }
+            commit = fetched.commit;
         }
         else
         {

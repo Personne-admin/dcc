@@ -723,6 +723,159 @@ TEST_CASE("a tagged repository is fetched, exported without git metadata and has
     CHECK(env.cache.verify()[0].ok);
 }
 
+TEST_CASE("a branch is fetched by name and a moved branch gives the new commit")
+{
+    TempDir repo;
+    init_repo(repo);
+    repo.write("project.dcon", project_text("lib", "1.0.0"));
+    repo.write("a.txt", "main\n");
+    auto first = commit_all(repo);
+    REQUIRE(git(repo.path, {"checkout", "--quiet", "-b", "dev"}).ok());
+    repo.write("a.txt", "dev one\n");
+    auto second = commit_all(repo, "dev one");
+    auto dev_hash = tree_hash_of_worktree(repo);
+    REQUIRE(git(repo.path, {"checkout", "--quiet", "main"}).ok());
+    Env env;
+    auto request = request_for(repo, {});
+    request.ref = "dev";
+    auto r = dpm::fetch::fetch_git(env.cache, request, test_policy());
+    if (!r.ok)
+        std::println(std::cerr, "{}", r.error);
+    REQUIRE(r.ok);
+    CHECK_EQ(r.commit, second);
+    CHECK(r.commit != first);
+    CHECK_EQ(r.hash, dev_hash);
+    REQUIRE(git(repo.path, {"checkout", "--quiet", "dev"}).ok());
+    repo.write("a.txt", "dev two\n");
+    auto third = commit_all(repo, "dev two");
+    auto moved = dpm::fetch::fetch_git(env.cache, request, test_policy());
+    REQUIRE(moved.ok);
+    CHECK_EQ(moved.commit, third);
+    CHECK(moved.hash != r.hash);
+    auto pinned = request;
+    pinned.commit = second;
+    pinned.hash = r.hash;
+    auto kept = dpm::fetch::fetch_git(env.cache, pinned, test_policy());
+    REQUIRE(kept.ok);
+    CHECK_EQ(kept.commit, second);
+}
+
+TEST_CASE("a ref can be a branch with slashes, a tag or a full commit id; a tag wins over a branch of the same name")
+{
+    TempDir repo;
+    init_repo(repo);
+    repo.write("project.dcon", project_text("lib", "1.0.0"));
+    repo.write("a.txt", "one\n");
+    auto first = commit_all(repo);
+    REQUIRE(git(repo.path, {"tag", "v1"}).ok());
+    REQUIRE(git(repo.path, {"checkout", "--quiet", "-b", "release/1.0"}).ok());
+    repo.write("a.txt", "two\n");
+    auto second = commit_all(repo, "two");
+    REQUIRE(git(repo.path, {"branch", "v1"}).ok());
+    Env env;
+    auto with = [&](std::string ref) {
+        auto request = request_for(repo, {});
+        request.ref = std::move(ref);
+        return dpm::fetch::fetch_git(env.cache, request, test_policy());
+    };
+    auto slashed = with("release/1.0");
+    REQUIRE(slashed.ok);
+    CHECK_EQ(slashed.commit, second);
+    auto tagged = with("v1");
+    REQUIRE(tagged.ok);
+    CHECK_EQ(tagged.commit, first);
+    auto by_id = with(first);
+    REQUIRE(by_id.ok);
+    CHECK_EQ(by_id.commit, first);
+    auto head = with("main");
+    REQUIRE(head.ok);
+    CHECK_EQ(head.commit, first);
+}
+
+TEST_CASE("an unknown or unsafe ref is refused with a message that names it")
+{
+    TempDir repo;
+    init_repo(repo);
+    repo.write("project.dcon", project_text("lib", "1.0.0"));
+    commit_all(repo);
+    Env env;
+    auto with = [&](std::string ref) {
+        auto request = request_for(repo, {});
+        request.ref = std::move(ref);
+        return dpm::fetch::fetch_git(env.cache, request, test_policy());
+    };
+    auto missing = with("nowhere");
+    CHECK(!missing.ok);
+    CHECK(contains(missing.error, "'nowhere'"));
+    CHECK(contains(missing.error, "no tag or branch"));
+    for (std::string bad : std::initializer_list<std::string>{"--upload-pack=touch /tmp/x", "-x", "a..b", "x.lock", "a@{1}", "a b", "refs/../x", "/abs", "a//b", "a;b", "x/", std::string(201, 'a')})
+    {
+        auto r = with(bad);
+        CHECK(!r.ok);
+        CHECK(contains(r.error, "unsafe"));
+    }
+    CHECK(!with(std::string(40, 'f')).ok);
+}
+
+TEST_CASE("offline mode resolves a ref only from the cache")
+{
+    TempDir repo;
+    init_repo(repo);
+    repo.write("project.dcon", project_text("lib", "1.0.0"));
+    auto commit = commit_all(repo);
+    Env env;
+    auto request = request_for(repo, {});
+    request.ref = "main";
+    auto offline = test_policy();
+    offline.offline = true;
+    auto before = dpm::fetch::fetch_git(env.cache, request, offline);
+    CHECK(!before.ok);
+    CHECK(contains(before.error, "not in cache"));
+    REQUIRE(dpm::fetch::fetch_git(env.cache, request, test_policy()).ok);
+    auto after = dpm::fetch::fetch_git(env.cache, request, offline);
+    REQUIRE(after.ok);
+    CHECK_EQ(after.commit, commit);
+    request.ref = commit;
+    CHECK(dpm::fetch::fetch_git(env.cache, request, offline).ok);
+}
+
+TEST_CASE("a ref and a subdirectory combine")
+{
+    TempDir repo;
+    init_repo(repo);
+    repo.write("pkg/project.dcon", project_text("inner", "1.0.0"));
+    repo.write("pkg/src/inner/lib.dc", "module inner::lib;\n");
+    repo.write("other/x.txt", "x\n");
+    commit_all(repo);
+    Env env;
+    auto request = request_for(repo, {}, {}, {}, "pkg");
+    request.ref = "main";
+    auto r = dpm::fetch::fetch_git(env.cache, request, test_policy());
+    REQUIRE(r.ok);
+    CHECK(fs::exists(r.path / "project.dcon"));
+    CHECK(!fs::exists(r.path / "other"));
+}
+
+TEST_CASE("a pinned commit is used even when a ref is given, and a pin the ref contradicts is refused")
+{
+    TempDir repo;
+    init_repo(repo);
+    repo.write("project.dcon", project_text("lib", "1.0.0"));
+    auto first = commit_all(repo);
+    Env env;
+    auto request = request_for(repo, {});
+    request.ref = "main";
+    request.commit = first;
+    auto ok = dpm::fetch::fetch_git(env.cache, request, test_policy());
+    REQUIRE(ok.ok);
+    CHECK_EQ(ok.commit, first);
+    request.commit = std::string(40, 'a');
+    auto contradicted = dpm::fetch::fetch_git(env.cache, request, test_policy());
+    CHECK(!contradicted.ok);
+    CHECK(contains(contradicted.error, "main now points to " + first));
+    CHECK(contains(contradicted.error, "the pin is " + std::string(40, 'a')));
+}
+
 TEST_CASE("annotated tags peel to their commit and later candidates are tried")
 {
     TempDir repo;

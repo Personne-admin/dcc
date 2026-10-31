@@ -75,6 +75,45 @@ export namespace dpm::git
             return resolve(local);
         }
 
+        [[nodiscard]] Fetched fetch_branch(std::string_view url, std::string_view branch) const
+        {
+            if (!safe_ref_component(branch))
+                return {false, {}, "unsafe branch name"};
+            auto local = "refs/dpm/heads/" + std::string{branch};
+            auto r = run({"fetch", "--quiet", "--depth=1", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", std::string{url},
+                          "+refs/heads/" + std::string{branch} + ":" + local});
+            if (!r.ok())
+                return {false, {}, "cannot fetch branch " + std::string{branch} + ": " + message(r)};
+            return resolve(local);
+        }
+
+        [[nodiscard]] Fetched fetch_ref(std::string_view url, std::string_view ref) const
+        {
+            if (is_object_id(ref))
+                return fetch_commit(url, ref);
+            if (!safe_ref_component(ref))
+                return {false, {}, "unsafe ref name"};
+            auto as_tag = fetch_tag(url, ref);
+            if (as_tag.ok)
+                return as_tag;
+            auto as_branch = fetch_branch(url, ref);
+            if (as_branch.ok)
+                return as_branch;
+            return {false, {}, "cannot fetch '" + std::string{ref} + "': the repository has no tag or branch of that name"};
+        }
+
+        [[nodiscard]] Fetched cached_ref(std::string_view ref) const
+        {
+            if (is_object_id(ref))
+                return has_commit(ref) ? Fetched{true, std::string{ref}, {}} : Fetched{false, {}, "not in cache"};
+            if (!safe_ref_component(ref))
+                return {false, {}, "unsafe ref name"};
+            auto as_tag = resolve("refs/dpm/tags/" + std::string{ref});
+            if (as_tag.ok)
+                return as_tag;
+            return resolve("refs/dpm/heads/" + std::string{ref});
+        }
+
         [[nodiscard]] Fetched fetch_commit(std::string_view url, std::string_view commit) const
         {
             if (!is_object_id(commit))
