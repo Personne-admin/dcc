@@ -1039,6 +1039,20 @@ namespace dcc::backend::em64t
             }
         }
 
+        [[nodiscard]] bool awaits_memory_address(IselCtx const& ctx, dcc::ir::IrValue const* val)
+        {
+            using dcc::ir::IrNodeKind;
+            if (!val || !is_memory_type(val->type))
+                return false;
+            if (val->kind != IrNodeKind::Load && val->kind != IrNodeKind::LoadVolatile && val->kind != IrNodeKind::Extract)
+                return false;
+            auto home = ctx.value_home.find(val);
+            if (home == ctx.value_home.end() || !home->second || ctx.lowered_blocks.contains(home->second))
+                return false;
+            auto block = ctx.ir_bb_to_mblock.find(home->second);
+            return block != ctx.ir_bb_to_mblock.end() && block->second != ctx.current_block_id;
+        }
+
         [[nodiscard]] VReg memory_value_addr(IselCtx& ctx, dcc::ir::IrValue const* val)
         {
             auto it = ctx.aggregate_to_slot.find(val);
@@ -1049,6 +1063,9 @@ namespace dcc::backend::em64t
                 return emit_aggregate(ctx, agg);
 
             if (ctx.memory_addr_values.contains(val))
+                return ctx.try_materialize(val);
+
+            if (awaits_memory_address(ctx, val))
                 return ctx.try_materialize(val);
 
             return VReg{};
@@ -2618,8 +2635,6 @@ namespace dcc::backend::em64t
                             auto* store_type = val_val ? val_val->type : nullptr;
 
                             VReg mem_src = is_memory_type(store_type) ? memory_value_addr(ctx, val_val) : VReg{};
-                            if (!mem_src.is_valid() && is_memory_type(store_type) && store_type->byte_size >= 8)
-                                mem_src = ctx.try_materialize(val_val);
                             if (mem_src.is_valid())
                                 emit_mem_copy(ctx, emit_slot_addr(ctx, alloca_it->second), mem_src, store_type->byte_size);
                             else if (is_memory_type(store_type) && store_type->byte_size < 8)
@@ -2661,8 +2676,6 @@ namespace dcc::backend::em64t
                             VReg addr = absolute ? VReg{} : ctx.try_materialize(ptr_val);
 
                             VReg mem_src = is_memory_type(store_type) ? memory_value_addr(ctx, val_val) : VReg{};
-                            if (!mem_src.is_valid() && is_memory_type(store_type) && store_type->byte_size >= 8)
-                                mem_src = ctx.try_materialize(val_val);
                             if (mem_src.is_valid())
                             {
                                 if (addr.is_valid())

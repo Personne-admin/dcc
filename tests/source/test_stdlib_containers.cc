@@ -421,10 +421,13 @@ public i32 main() {
 TEST_CASE("map rehash releases temporary allocations on failure")
 {
     auto root = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path().parent_path().parent_path();
-    std::ifstream in{root / "tests/stdlib/map-failure.dc"};
-    std::string source{std::istreambuf_iterator<char>{in}, {}};
-    REQUIRE(!source.empty());
-    for (auto backend : {"llvm", "custom"})
-        for (auto opt : {"-O0", "-O2"})
-            CHECK_EQ(build_and_run(source, "map-failure", backend, opt), 0);
+    for (auto name : {"map-failure", "map-failure-code"})
+    {
+        std::ifstream in{root / "tests/stdlib" / (std::string{name} + ".dc")};
+        std::string source{std::istreambuf_iterator<char>{in}, {}};
+        REQUIRE(!source.empty());
+        for (auto backend : {"llvm", "custom"})
+            for (auto opt : {"-O0", "-O2"})
+                CHECK_EQ(build_and_run(source, name, backend, opt), 0);
+    }
 }
