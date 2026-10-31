@@ -213,8 +213,12 @@ export namespace dpm::extract
                 problems.push_back({dir.lexically_relative(root).generic_string(), "cannot list directory"});
                 continue;
             }
-            std::map<std::string, std::string> folded;
+            std::vector<std::filesystem::directory_entry> entries;
             for (auto const& item : it)
+                entries.push_back(item);
+            std::ranges::sort(entries, [](auto const& a, auto const& b) { return a.path().filename().string() < b.path().filename().string(); });
+            std::map<std::string, std::string> folded;
+            for (auto const& item : entries)
             {
                 auto rel = item.path().lexically_relative(root).generic_string();
                 auto leaf = item.path().filename().string();
