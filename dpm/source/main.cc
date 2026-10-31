@@ -12,6 +12,7 @@ import dpm.process;
 import dpm.publish;
 import dpm.registry;
 import dpm.resolve;
+import dpm.scaffold;
 import dpm.semver;
 import dpm.settings;
 import dpm.stamp;
@@ -898,17 +899,33 @@ namespace
         auto name = common.name.empty() ? identifier_from(fs::absolute(dir).lexically_normal().filename().empty() ? fs::absolute(dir).parent_path().filename().string()
                                                                                                                     : fs::absolute(dir).lexically_normal().filename().string())
                                         : common.name;
-        std::string manifest = std::format("dpm::v1::Project {{\n    name = \"{}\",\n    version = \"0.1.0\",\n", name);
-        if (!common.lib)
-            manifest += std::format("    products = {{\n        {{ name = \"{}\", entry = \"src/main.dc\" }},\n    }},\n", name);
-        manifest += "}\n";
+        auto files = common.lib ? dpm::scaffold::builtin_library() : dpm::scaffold::builtin_executable();
+        auto rendered = dpm::scaffold::render(files, {{"name", name}});
+        if (!rendered.ok())
+        {
+            std::println(std::cerr, "error: '{}' is not usable as a package name; pass --name", name);
+            return k_exit_usage;
+        }
+        std::string manifest;
+        std::string entry_text;
+        std::string ignore_entries;
+        fs::path entry_path;
+        for (auto& file : rendered.files)
+        {
+            if (file.path == k_project_file)
+                manifest = file.content;
+            else if (file.path == ".gitignore")
+                ignore_entries = file.content;
+            else
+            {
+                entry_path = file.path;
+                entry_text = file.content;
+            }
+        }
         Session probe;
         probe.options.schema_root = schema_root();
         probe.options.project_root = dir;
         probe.options.kind = m::FileKind::Project;
-        std::string entry_text = common.lib ? std::format("module {}::lib;\n\npublic i32 answer()\n{{\n    return 42;\n}}\n", name)
-                                            : std::string{"module main;\n\npublic i32 main()\n{\n    return 0;\n}\n"};
-        fs::path entry_path = common.lib ? fs::path{"src"} / name / "lib.dc" : fs::path{"src"} / "main.dc";
         fs::create_directories(dir / entry_path.parent_path(), ec);
         {
             std::ofstream f{dir / entry_path, std::ios::binary};
@@ -934,7 +951,7 @@ namespace
             std::ofstream f{dir / ".gitignore", std::ios::binary | std::ios::app};
             if (!ignore.empty() && ignore.back() != '\n')
                 f << '\n';
-            f << ".dpm/\n";
+            f << ignore_entries;
         }
         std::println("created {} {}", common.lib ? "library" : "executable", name);
         return 0;
