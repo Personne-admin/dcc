@@ -250,11 +250,11 @@ char digit_char(u64 value, bool uppercase) {
 
 using usize INTEGER_SCRATCH = 72;
 
-/// the rendered integer plus the chunk order the writer must emit it in.
-/// planning is ordinary code shared by every writer; nothing here depends
-/// on the writer type.
+/// the chunk order for one rendered integer. the digits live in a
+/// separate scratch: an opaque writer call that receives a slice of the
+/// scratch must not make the still-needed plan fields unknown when the
+/// formatter runs at compile time.
 struct IntegerPlan {
-    char[INTEGER_SCRATCH] digits;
     usize start;
     usize len;
     char sign;
@@ -264,9 +264,8 @@ struct IntegerPlan {
     usize fill_after;
 }
 
-void plan_unsigned(IntegerPlan* self, u64 value, const Options* opts) {
-    [] char view = self.digits;
-    [] char rendered = render_unsigned(value, view, opts);
+void plan_unsigned(IntegerPlan* self, [] char scratch, u64 value, const Options* opts) {
+    [] char rendered = render_unsigned(value, scratch, opts);
     self.len = rendered.len;
     self.start = INTEGER_SCRATCH - rendered.len;
     self.sign = '\0';
@@ -290,7 +289,7 @@ void plan_unsigned(IntegerPlan* self, u64 value, const Options* opts) {
     }
 }
 
-void plan_signed(IntegerPlan* self, i64 value, const Options* opts) {
+void plan_signed(IntegerPlan* self, [] char scratch, i64 value, const Options* opts) {
     bool negative = value < 0;
     u64 magnitude = if negative {
         (0 - value) as u64
@@ -298,8 +297,7 @@ void plan_signed(IntegerPlan* self, i64 value, const Options* opts) {
         value as u64
     };
 
-    [] char view = self.digits;
-    [] char rendered = render_unsigned(magnitude, view, opts);
+    [] char rendered = render_unsigned(magnitude, scratch, opts);
     self.len = rendered.len;
     self.start = INTEGER_SCRATCH - rendered.len;
     self.sign = if negative {
@@ -353,7 +351,7 @@ void plan_signed(IntegerPlan* self, i64 value, const Options* opts) {
     }
 }
 
-Status(FmtError) emit_integer(const Writer* w, const IntegerPlan* self) {
+Status(FmtError) emit_integer(const Writer* w, const IntegerPlan* self, [] const char digits) {
     if self.fill_before > 0 {
         w.write_repeat(self.fill, self.fill_before) ?;
     }
@@ -367,7 +365,7 @@ Status(FmtError) emit_integer(const Writer* w, const IntegerPlan* self) {
     }
 
     if self.len > 0 {
-        w.write_all(self.digits[self.start..self.start + self.len]) ?;
+        w.write_all(digits[self.start..self.start + self.len]) ?;
     }
 
     if self.fill_after > 0 {
@@ -383,8 +381,10 @@ public Status(FmtError) format_unsigned(
     const Options* opts
 ) {
     IntegerPlan plan;
-    plan_unsigned(&plan, value, opts);
-    return emit_integer(w, &plan);
+    char[INTEGER_SCRATCH] scratch;
+    [] char view = scratch;
+    plan_unsigned(&plan, view, value, opts);
+    return emit_integer(w, &plan, view);
 }
 
 public Status(FmtError) format_signed(
@@ -393,8 +393,10 @@ public Status(FmtError) format_signed(
     const Options* opts
 ) {
     IntegerPlan plan;
-    plan_signed(&plan, value, opts);
-    return emit_integer(w, &plan);
+    char[INTEGER_SCRATCH] scratch;
+    [] char view = scratch;
+    plan_signed(&plan, view, value, opts);
+    return emit_integer(w, &plan, view);
 }
 
 //!
