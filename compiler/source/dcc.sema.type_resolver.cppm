@@ -1202,7 +1202,8 @@ export namespace dcc::sema
 
             if (u.target_type)
             {
-                out = resolve_type_expr(u.target_type, mod, inst_env, quiet_unknown);
+                auto const* home = module_with_file(u.target_type->range.begin.fileId);
+                out = resolve_type_expr(u.target_type, home ? *home : mod, inst_env, quiet_unknown);
                 auto resolved = bindings.substitute_qualified(out.type);
                 out.type = resolved.type;
                 out.quals = detail::qual_or(out.quals, resolved.quals);

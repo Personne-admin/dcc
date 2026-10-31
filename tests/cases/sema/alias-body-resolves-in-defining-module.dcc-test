@@ -1,0 +1,23 @@
+=== FILE: box.dc ===
+module box;
+import core::meta;
+
+public struct Box(T) {
+    T value;
+}
+
+public using ValueOf(T) = core::meta::type_argument(T, 0);
+
+public using Inner(T) = ValueOf(T);
+
+=== FILE: main.dc ===
+module main;
+public import box;
+
+public u32 read(box::ValueOf(box::Box(u32)) value) {
+    return value;
+}
+
+public box::Box(box::Inner(box::Box(u32))) wrap(u32 value) {
+    return {value = value};
+}
