@@ -350,6 +350,27 @@ TEST_CASE("--set and --template belong to dpm new only")
     }
 }
 
+TEST_CASE("--ref and --pin belong to commands that fetch templates")
+{
+    auto fetched = run({"new", "dir", "--template", "github.com/u/r", "--ref", "main", "--pin", "sha256:aa", "--offline"});
+    REQUIRE(fetched.has_value());
+    CHECK_EQ(fetched->value(cli::Opt::Ref).value_or(""), std::string{"main"});
+    CHECK_EQ(fetched->value(cli::Opt::Pin).value_or(""), std::string{"sha256:aa"});
+    CHECK(fetched->has(cli::Opt::Offline));
+    auto info = run({"template", "info", "github.com/u/r@1.0.0", "--ref", "x", "--pin", "y", "--offline"});
+    REQUIRE(info.has_value());
+    CHECK_EQ(info->positional, (std::vector<std::string>{"github.com/u/r@1.0.0"}));
+    CHECK(!run({"template", "check", "--ref", "x"}).has_value());
+    CHECK(!run({"template", "check", "--pin", "x"}).has_value());
+    for (auto const& command : {"init", "build", "add", "check", "fetch"})
+    {
+        CHECK(!run({command, "--ref", "x"}).has_value());
+        CHECK(!run({command, "--pin", "x"}).has_value());
+    }
+    CHECK(!run({"new", "--ref"}).has_value());
+    CHECK(!run({"new", "--pin"}).has_value());
+}
+
 TEST_CASE("template commands take their arguments")
 {
     auto info = run({"template", "info", "src"});

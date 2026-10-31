@@ -33,6 +33,8 @@ export namespace dpm::cli
         All,
         Template,
         Set,
+        Ref,
+        Pin,
     };
 
     enum class Value : std::uint8_t
@@ -93,6 +95,10 @@ export namespace dpm::cli
          "A built-in template (builtin:executable, builtin:library) or a directory that holds a template.dcon.", {}, "builtin:executable", 0, 0},
         {Opt::Set, "--set", Value::Text, "<var>=<value>", "give a template variable a value",
          "May be repeated. 'dpm template info <source>' lists the variables. --name is the same as --set name=<name>.", {}, "", 0, 0},
+        {Opt::Ref, "--ref", Value::Text, "<ref>", "fetch this branch, tag or full commit id of a git template",
+         "Without it the latest v<version> tag is used, or the tag named by <source>@<version>. A repository without version tags needs --ref.", {}, "", 0, 0},
+        {Opt::Pin, "--pin", Value::Text, "<hash>", "require the fetched template to have this tree hash",
+         "The hash is printed by every fetch ('sha256:' and 64 hex digits). A mismatch is an integrity error (exit code 4) and nothing is generated.", {}, "", 0, 0},
     });
 
     inline constexpr std::size_t k_unlimited = std::numeric_limits<std::size_t>::max();
@@ -122,7 +128,8 @@ export namespace dpm::cli
         }
 
         inline constexpr Opt init_opts[] = {Opt::Lib, Opt::Name};
-        inline constexpr Opt new_opts[] = {Opt::Template, Opt::Set, Opt::Lib, Opt::Name};
+        inline constexpr Opt new_opts[] = {Opt::Template, Opt::Set, Opt::Lib, Opt::Name, Opt::Ref, Opt::Pin, Opt::Offline};
+        inline constexpr Opt template_info_opts[] = {Opt::Ref, Opt::Pin, Opt::Offline};
         inline constexpr Opt add_opts[] = {Opt::ManifestPath, Opt::Dev, Opt::Offline, Opt::Refresh};
         inline constexpr Opt update_opts[] = {Opt::ManifestPath, Opt::DryRun, Opt::Offline, Opt::Refresh};
         inline constexpr Opt lock_opts[] = {Opt::ManifestPath, Opt::Check, Opt::Offline, Opt::Refresh};
@@ -159,9 +166,11 @@ export namespace dpm::cli
          detail::init_opts, 0, 1, false, detail::codes({0, 1, 2}), false},
         {"new", "[DIR]", "create a project from a template",
          "Generates a project in DIR (default: the current directory, which must be empty) from a template and prints what to do next. Without --template "
-         "the built-in executable template is used, or the library template with --lib. A template is data: nothing in it is run. The project is "
-         "written into a temporary directory first and moved into place only when everything succeeded.",
-         detail::new_opts, 0, 1, false, detail::codes({0, 1, 2, 3}), false},
+         "the built-in executable template is used, or the library template with --lib. The template is a directory (path:DIR, ./DIR or /DIR), a git "
+         "location (github.com/user/repo[/subdir], git+https://host/repo.git[#subdir], optionally followed by @version) or an https .tar.gz. A fetched "
+         "template is checked like a dependency, cached by tree hash, and its commit and hash are printed. A template is data: nothing in it is run. The "
+         "project is written into a temporary directory first and moved into place only when everything succeeded.",
+         detail::new_opts, 0, 1, false, detail::codes({0, 1, 2, 3, 4, 5}), false},
         {"add", "<location>[@version]", "add a dependency",
          "Resolves the requirement, edits project.dcon in place (comments and layout are kept), writes project.lock.dcon and fetches the package. "
          "Without @version the latest release is used: from the registry for an alias, from the repository's version tags for a location. A failed "
@@ -211,7 +220,7 @@ export namespace dpm::cli
          false, 0, true},
         {"template info", "<source>", "describe a template and its variables",
          "Loads the template the way 'dpm new' does and prints its name, description and variables with their kinds, defaults and limits. Nothing is generated.",
-         {}, 1, 1, false, detail::codes({0, 2, 3}), false},
+         detail::template_info_opts, 1, 1, false, detail::codes({0, 2, 3, 4, 5}), false},
         {"template check", "[<dir>]", "validate a template directory",
          "Loads template.dcon and the files under its root, generates the project with default values (sample values for required variables) in memory and "
          "validates it, including the generated project.dcon. Reports unused variables and patterns that match nothing as warnings.",

@@ -6,6 +6,7 @@ import dpm.cache;
 import dpm.cli;
 import dpm.edit;
 import dpm.fetch;
+import dpm.hash;
 import dpm.lock;
 import dpm.manifest;
 import dpm.process;
@@ -84,6 +85,8 @@ namespace
         std::string runner;
         std::string name;
         std::string template_source;
+        std::string ref;
+        std::string pin;
         std::vector<std::string> sets;
         bool lib{};
         std::string registry_dir;
@@ -152,6 +155,8 @@ namespace
         c.undo = parsed.has(Opt::Undo);
         c.name = parsed.value(Opt::Name).value_or("");
         c.template_source = parsed.value(Opt::Template).value_or("");
+        c.ref = parsed.value(Opt::Ref).value_or("");
+        c.pin = parsed.value(Opt::Pin).value_or("");
         c.sets = parsed.sets;
         c.runner = parsed.value(Opt::Runner).value_or("");
         c.registry_dir = parsed.value(Opt::RegistryDir).value_or("");
@@ -991,8 +996,108 @@ namespace
         return std::nullopt;
     }
 
-    std::optional<TemplateSource> open_template(Common const& common, std::string& error)
+    bool remote_template_source(std::string_view source)
     {
+        if (source.starts_with("git+") || source.starts_with("https://") || source.starts_with("file://"))
+            return true;
+        auto slash = source.find('/');
+        return slash != std::string_view::npos && source.substr(0, slash).find('.') != std::string_view::npos && std::ranges::count(source, '/') >= 2;
+    }
+
+    struct VersionSplit
+    {
+        std::string location;
+        std::string version;
+    };
+
+    VersionSplit split_version(std::string_view source)
+    {
+        auto at = source.rfind('@');
+        if (at != std::string_view::npos && source.find('/', at) == std::string_view::npos && dpm::semver::parse(source.substr(at + 1)))
+            return {std::string{source.substr(0, at)}, std::string{source.substr(at + 1)}};
+        return {std::string{source}, {}};
+    }
+
+    std::optional<TemplateSource> fetch_template(Common const& common, std::string_view source, int& code, std::string& error)
+    {
+        code = k_exit_usage;
+        if (!common.pin.empty() && !dpm::hash::is_hash_string(common.pin))
+        {
+            error = std::format("--pin needs a hash like sha256:<64 hex digits>, got '{}'", common.pin);
+            return std::nullopt;
+        }
+        auto split = split_version(source);
+        auto policy = fetch_policy(common);
+        dpm::cache::Cache cache{fs::absolute(dpm::cache::default_root())};
+        dpm::fetch::Fetched fetched;
+        if (dpm::fetch::is_tarball_location(split.location, policy))
+        {
+            if (!common.ref.empty() || !split.version.empty())
+            {
+                error = "--ref and @version apply to git templates, not to tarballs";
+                return std::nullopt;
+            }
+            fetched = dpm::fetch::fetch_tarball(cache, split.location, common.pin, policy, !common.pin.empty());
+        }
+        else
+        {
+            std::string parse_error;
+            auto spec = dpm::fetch::parse_git_location(split.location, policy, parse_error);
+            if (!spec)
+            {
+                error = std::format("'{}': {}", source, parse_error);
+                return std::nullopt;
+            }
+            if (!common.ref.empty() && !split.version.empty())
+            {
+                error = "--ref and @version cannot be used together";
+                return std::nullopt;
+            }
+            dpm::fetch::GitRequest request;
+            request.spec = *spec;
+            request.hash = common.pin;
+            request.ref = common.ref;
+            if (common.ref.empty())
+            {
+                std::string version = split.version;
+                if (version.empty())
+                {
+                    std::string list_error;
+                    auto latest = dpm::fetch::latest_version(cache, split.location, policy, std::nullopt, list_error);
+                    if (!latest)
+                    {
+                        error = policy.offline ? std::string{"offline mode cannot list version tags; give <source>@<version> or --ref"}
+                                               : std::format("{}; a repository without version tags needs --ref (a branch, tag or commit)", list_error);
+                        code = resolution_exit(list_error);
+                        return std::nullopt;
+                    }
+                    version = *latest;
+                }
+                request.tags = dpm::publish::detail::tag_candidates(spec->subdir, version);
+            }
+            fetched = dpm::fetch::fetch_git(cache, request, policy);
+        }
+        if (!fetched.ok)
+        {
+            error = fetched.error;
+            code = resolution_exit(fetched.error);
+            return std::nullopt;
+        }
+        TemplateSource out;
+        out.loaded = dpm::stage::load_template(fetched.path, template_load_options());
+        out.label = out.loaded.ok() ? out.loaded.tmpl.name : std::string{source};
+        if (fetched.commit.empty())
+            std::println("template {} hash {}", source, fetched.hash);
+        else
+            std::println("template {} commit {} hash {}", source, fetched.commit, fetched.hash);
+        if (common.pin.empty())
+            std::println(std::cerr, "warning: this template was not pinned; pass --pin {} to require this tree", fetched.hash);
+        return out;
+    }
+
+    std::optional<TemplateSource> open_template(Common const& common, int& code, std::string& error)
+    {
+        code = k_exit_usage;
         TemplateSource out;
         std::string source = common.template_source;
         if (source.empty())
@@ -1000,6 +1105,12 @@ namespace
         else if (common.lib)
         {
             error = "--lib applies to the built-in templates only";
+            return std::nullopt;
+        }
+        bool const local = source.starts_with("builtin:") || local_template_path(source).has_value();
+        if (local && (!common.ref.empty() || !common.pin.empty()))
+        {
+            error = "--ref and --pin apply to templates that are fetched";
             return std::nullopt;
         }
         if (source.starts_with("builtin:"))
@@ -1022,11 +1133,13 @@ namespace
             out.label = out.loaded.ok() ? out.loaded.tmpl.name : *path;
             return out;
         }
+        if (remote_template_source(source))
+            return fetch_template(common, source, code, error);
         std::error_code ec;
         if (fs::is_directory(source, ec))
             error = std::format("'{0}' is a directory; write ./{0} or path:{0} to use it as a template", source);
         else
-            error = std::format("'{}' is not a built-in template or a template directory (write path:DIR or ./DIR for a directory)", source);
+            error = std::format("'{}' is not a built-in template, a template directory (write path:DIR or ./DIR) or a git or https location", source);
         return std::nullopt;
     }
 
@@ -1059,11 +1172,12 @@ namespace
     int cmd_new(Common common)
     {
         std::string error;
-        auto source = open_template(common, error);
+        int open_code = k_exit_usage;
+        auto source = open_template(common, open_code, error);
         if (!source)
         {
             std::println(std::cerr, "dpm new: {}", error);
-            return k_exit_usage;
+            return open_code;
         }
         if (!source->loaded.ok())
         {
@@ -1152,12 +1266,16 @@ namespace
     {
         Common common;
         common.template_source = parsed.positional[0];
+        common.ref = parsed.value(dpm::cli::Opt::Ref).value_or("");
+        common.pin = parsed.value(dpm::cli::Opt::Pin).value_or("");
+        common.offline = parsed.has(dpm::cli::Opt::Offline);
         std::string error;
-        auto source = open_template(common, error);
+        int open_code = k_exit_usage;
+        auto source = open_template(common, open_code, error);
         if (!source)
         {
             std::println(std::cerr, "dpm template info: {}", error);
-            return k_exit_usage;
+            return open_code;
         }
         if (!source->loaded.ok())
         {

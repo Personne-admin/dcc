@@ -254,6 +254,142 @@ def scenario_new():
     check(r.returncode == 0, "a .git directory at the template root is ignored", detail(r))
 
 
+def make_template_repo(name, tags, branches=()):
+    sample = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "sample")
+    path = os.path.join(ROOT, "repos", name)
+    os.makedirs(path)
+    git(path, "init", "-q", "--initial-branch=main")
+    for tag, title in tags:
+        shutil.rmtree(os.path.join(path, "files"), ignore_errors=True)
+        shutil.copytree(sample, path, dirs_exist_ok=True)
+        text = read(os.path.join(path, "template.dcon")).replace("Sample Title", title)
+        write(os.path.join(path, "template.dcon"), text)
+        git(path, "add", "-A")
+        git(path, "commit", "-q", "-m", title)
+        if tag:
+            git(path, "tag", tag)
+    for branch, title in branches:
+        git(path, "checkout", "-q", "-b", branch)
+        text = read(os.path.join(path, "template.dcon"))
+        write(os.path.join(path, "template.dcon"), re.sub(r'default_value = "[^"]*", max_length = 40', 'default_value = "%s", max_length = 40' % title, text))
+        git(path, "commit", "-q", "-am", title)
+        git(path, "checkout", "-q", "main")
+    return path
+
+
+FETCH_LINE = re.compile(r"template (\S+) commit ([0-9a-f]{40}) hash (sha256:[0-9a-f]{64})")
+
+
+def scenario_new_fetch():
+    parent = os.path.join(ROOT, "newfetch")
+    os.makedirs(parent)
+    repo = make_template_repo("tpl", [("v1.0.0", "First Edition"), ("v1.1.0", "Second Edition")], branches=[("dev", "Dev Edition")])
+    url = "git+file://" + repo
+    r = dpm(parent, "new", "latest", "--template", url, "--set", "owner=me")
+    m = FETCH_LINE.search(r.stdout)
+    head_tag = git(repo, "rev-parse", "v1.1.0^{commit}")
+    check(r.returncode == 0 and m and m.group(2) == head_tag, "the latest version tag is fetched and its commit is printed", detail(r))
+    check("was not pinned" in r.stderr and m and m.group(3) in r.stderr, "an unpinned fetch warns and shows the hash", detail(r))
+    check(read(os.path.join(parent, "latest", "README.md")).startswith("# Second Edition\n"), "the latest tag supplies the files")
+    r = dpm(parent, "new", "older", "--template", url + "@1.0.0", "--set", "owner=me")
+    m1 = FETCH_LINE.search(r.stdout)
+    check(r.returncode == 0 and m1 and m1.group(2) == git(repo, "rev-parse", "v1.0.0^{commit}") and read(os.path.join(parent, "older", "README.md")).startswith("# First Edition\n"),
+          "@version selects that tag", detail(r))
+    r = dpm(parent, "new", "bybranch", "--template", url, "--ref", "dev", "--set", "owner=me")
+    mb = FETCH_LINE.search(r.stdout)
+    check(r.returncode == 0 and mb and mb.group(2) == git(repo, "rev-parse", "dev") and read(os.path.join(parent, "bybranch", "README.md")).startswith("# Dev Edition\n"),
+          "--ref fetches a branch", detail(r))
+    r = dpm(parent, "new", "bycommit", "--template", url, "--ref", head_tag, "--set", "owner=me")
+    check(r.returncode == 0 and FETCH_LINE.search(r.stdout) and FETCH_LINE.search(r.stdout).group(2) == head_tag, "--ref fetches a commit id", detail(r))
+    r = dpm(parent, "new", "bytag", "--template", url, "--ref", "v1.0.0", "--set", "owner=me")
+    check(r.returncode == 0 and read(os.path.join(parent, "bytag", "README.md")).startswith("# First Edition\n"), "--ref fetches a tag", detail(r))
+
+    git(repo, "checkout", "-q", "dev")
+    write(os.path.join(repo, "moved.txt"), "moved\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "moved")
+    git(repo, "checkout", "-q", "main")
+    r = dpm(parent, "new", "moved", "--template", url, "--ref", "dev", "--set", "owner=me")
+    mm = FETCH_LINE.search(r.stdout)
+    check(r.returncode == 0 and mm and mm.group(2) == git(repo, "rev-parse", "dev") and mm.group(2) != mb.group(2), "a moved branch gives its new commit", detail(r))
+
+    r = dpm(parent, "new", "pinned", "--template", url + "@1.0.0", "--set", "owner=me", "--pin", m1.group(3))
+    check(r.returncode == 0 and "was not pinned" not in r.stderr, "a matching --pin is accepted silently", detail(r))
+    r = dpm(parent, "new", "wrongpin", "--template", url + "@1.0.0", "--set", "owner=me", "--pin", "sha256:" + "0" * 64)
+    check(r.returncode == 4 and not os.path.exists(os.path.join(parent, "wrongpin")), "a wrong --pin is an integrity error and nothing is created", detail(r))
+    r = dpm(parent, "new", "badpin", "--template", url, "--pin", "abc")
+    check(r.returncode == 2 and "--pin needs a hash" in r.stderr, "a malformed --pin is a usage error", detail(r))
+    r = dpm(parent, "new", "both", "--template", url + "@1.0.0", "--ref", "dev")
+    check(r.returncode == 2 and "cannot be used together" in r.stderr, "--ref and @version cannot be combined", detail(r))
+    r = dpm(parent, "new", "local", "--template", "builtin:executable", "--ref", "dev")
+    check(r.returncode == 2 and "apply to templates that are fetched" in r.stderr, "--ref does not apply to built-in templates", detail(r))
+    r = dpm(parent, "new", "gone", "--template", url, "--ref", "nowhere", "--set", "owner=me")
+    check(r.returncode in (4, 5) and "'nowhere'" in r.stderr and not os.path.exists(os.path.join(parent, "gone")), "an unknown ref fails and names it", detail(r))
+    r = dpm(parent, "template", "info", url, "--ref", "dev")
+    check(r.returncode == 0 and FETCH_LINE.search(r.stdout) and "template sample" in r.stdout and "owner (string, required)" in r.stdout, "template info fetches too", detail(r))
+
+    tagless = make_template_repo("tagless", [("", "Tagless")])
+    r = dpm(parent, "new", "t1", "--template", "git+file://" + tagless, "--set", "owner=me")
+    check(r.returncode != 0 and "--ref" in r.stderr and not os.path.exists(os.path.join(parent, "t1")), "a repository without version tags asks for --ref", detail(r))
+    r = dpm(parent, "new", "t2", "--template", "git+file://" + tagless, "--ref", "main", "--set", "owner=me")
+    check(r.returncode == 0 and read(os.path.join(parent, "t2", "README.md")).startswith("# Tagless\n"), "--ref main works on a repository without tags", detail(r))
+
+    sub = os.path.join(ROOT, "repos", "monotpl")
+    os.makedirs(os.path.join(sub, "templates"))
+    git(sub, "init", "-q", "--initial-branch=main")
+    shutil.copytree(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "sample"), os.path.join(sub, "templates", "inner"))
+    write(os.path.join(sub, "other.txt"), "not part of the template\n")
+    git(sub, "add", "-A")
+    git(sub, "commit", "-q", "-m", "mono")
+    git(sub, "tag", "templates/inner/v2.0.0")
+    r = dpm(parent, "new", "inner", "--template", "git+file://" + sub + "#templates/inner", "--set", "owner=me")
+    check(r.returncode == 0 and os.path.isfile(os.path.join(parent, "inner", "project.dcon")) and not os.path.exists(os.path.join(parent, "inner", "other.txt")),
+          "a template in a subdirectory uses the subdirectory tags", detail(r))
+
+    import tarfile
+    archive = os.path.join(ROOT, "repos", "sample-1.0.tar.gz")
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "sample"), arcname="sample-1.0")
+    r = dpm(parent, "new", "tarred", "--template", "file://" + archive, "--set", "owner=me")
+    mt = re.search(r"template (\S+) hash (sha256:[0-9a-f]{64})", r.stdout)
+    check(r.returncode == 0 and mt and os.path.isfile(os.path.join(parent, "tarred", "README.md")), "an https tarball template (file:// in tests)", detail(r))
+    r = dpm(parent, "new", "tarpin", "--template", "file://" + archive, "--set", "owner=me", "--pin", mt.group(2))
+    check(r.returncode == 0, "a tarball with a matching --pin", detail(r))
+    r = dpm(parent, "new", "tarbad", "--template", "file://" + archive, "--set", "owner=me", "--pin", "sha256:" + "1" * 64)
+    check(r.returncode == 4 and not os.path.exists(os.path.join(parent, "tarbad")), "a tarball with a wrong --pin", detail(r))
+    r = dpm(parent, "new", "tarref", "--template", "file://" + archive, "--ref", "main")
+    check(r.returncode == 2 and "not to tarballs" in r.stderr, "--ref does not apply to tarballs", detail(r))
+
+    fresh = os.path.join(ROOT, "fresh-home")
+    r = dpm(parent, "new", "cold", "--template", url, "--ref", "main", "--offline", "--set", "owner=me", env={"DPM_HOME": fresh})
+    check(r.returncode == 5 and not os.path.exists(os.path.join(parent, "cold")), "offline with an empty cache is a network error", detail(r))
+    r = dpm(parent, "new", "warm1", "--template", url, "--ref", "main", "--set", "owner=me", env={"DPM_HOME": fresh})
+    r2 = dpm(parent, "new", "warm2", "--template", url, "--ref", "main", "--offline", "--set", "owner=me", env={"DPM_HOME": fresh})
+    check(r.returncode == 0 and r2.returncode == 0 and FETCH_LINE.search(r.stdout).group(2) == FETCH_LINE.search(r2.stdout).group(2), "offline uses the cached ref", detail(r2))
+    r = dpm(parent, "new", "novers", "--template", url, "--offline", "--set", "owner=me", env={"DPM_HOME": fresh})
+    check(r.returncode == 5 and "offline" in r.stderr, "offline without --ref or @version cannot list tags", detail(r))
+    r = dpm(parent, "new", "cached_tag", "--template", url + "@1.0.0", "--offline", "--set", "owner=me", env={"DPM_HOME": fresh})
+    check(r.returncode == 5, "offline: a tag that was never fetched is not in the cache", detail(r))
+
+    bad = make_template_repo("linked", [("v1.0.0", "Linked")])
+    os.symlink("README.md", os.path.join(bad, "files", "link"))
+    git(bad, "add", "-A")
+    git(bad, "commit", "-q", "-m", "link")
+    git(bad, "tag", "v1.0.1")
+    r = dpm(parent, "new", "linked", "--template", "git+file://" + bad, "--set", "owner=me")
+    check(r.returncode != 0 and not os.path.exists(os.path.join(parent, "linked")), "a fetched template with a symbolic link is refused", detail(r))
+    empty = os.path.join(ROOT, "repos", "notemplate")
+    os.makedirs(empty)
+    git(empty, "init", "-q", "--initial-branch=main")
+    write(os.path.join(empty, "readme.txt"), "x\n")
+    git(empty, "add", "-A")
+    git(empty, "commit", "-q", "-m", "x")
+    r = dpm(parent, "new", "notpl", "--template", "git+file://" + empty, "--ref", "main")
+    check(r.returncode == 3 and "has no template.dcon" in r.stderr and not os.path.exists(os.path.join(parent, "notpl")), "a repository without template.dcon is a template error", detail(r))
+    leftovers = [n for n in os.listdir(parent) if n.startswith(".dpm-new")]
+    check(leftovers == [], "no staging directory is left behind by fetched templates")
+
+
 def scenario_run_args():
     app = new_app("args", "return 3;")
     r = run_app(app, "--", "a", "b")
@@ -1184,6 +1320,7 @@ try:
     scenario_run_args()
     scenario_modules()
     scenario_new()
+    scenario_new_fetch()
     scenario_path_dependency()
     scenario_git_dependency()
     scenario_offline_and_cache()
