@@ -699,7 +699,7 @@ constexpr std::string_view kMoneySnippet = R"dc(
 module test;
 import std::fmt;
 
-std::fmt::Status(std::fmt::FmtError) do_format(const std::fmt::Writer* w) {
+std::fmt::Status(std::fmt::FormatError(std::fmt::FmtError)) do_format(std::fmt::ErasedWriter* w) {
     return std::fmt::format(w, "hello {} world", 42);
 }
 
@@ -707,8 +707,40 @@ std::fmt::Status(std::fmt::FmtError) do_format(const std::fmt::Writer* w) {
 public i32 dcc_main() {
     char[64] backing;
     std::fmt::BufferWriter bw = std::fmt::new_buffer_writer(backing[0..64]);
-    std::fmt::Writer w = std::fmt::writer(&bw);
+    std::fmt::ErasedWriter w = std::fmt::writer(&bw);
     match do_format(&w) {
+        std::fmt::Status::Ok => {},
+        _ => return 1,
+    }
+    [] const char got = std::fmt::written_slice(&bw);
+    [] const char want = "hello 42 world";
+    if got.len != want.len {
+        return 2;
+    }
+    usize i = 0;
+    while i < got.len {
+        if got[i] != want[i] {
+            return 3;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+)dc";
+
+constexpr std::string_view kDuckSnippet = R"dc(
+module test;
+import std::fmt;
+
+std::fmt::Status(std::fmt::FormatError(std::fmt::BufferError)) do_format(std::fmt::BufferWriter* w) {
+    return std::fmt::format(w, "hello {} world", 42);
+}
+
+@nomangle
+public i32 dcc_main() {
+    char[64] backing;
+    std::fmt::BufferWriter bw = std::fmt::new_buffer_writer(backing[0..64]);
+    match do_format(&bw) {
         std::fmt::Status::Ok => {},
         _ => return 1,
     }
@@ -739,7 +771,7 @@ struct MoneyFixture
     std::unique_ptr<sema::SemaContext> sema;
     sema::ModuleInfo* mod = nullptr;
 
-    MoneyFixture() : engine(sm, diags)
+    explicit MoneyFixture(std::string_view snippet = kMoneySnippet) : engine(sm, diags)
     {
         static int counter = 2000;
         ++counter;
@@ -747,7 +779,7 @@ struct MoneyFixture
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
         std::ofstream out{dir / "test.dc"};
-        out << kMoneySnippet;
+        out << snippet;
         out.close();
 
         auto parse_fn = [this](sm::FileId fid, ast::AstContext& ctx, diag::DiagnosticEngine& d) -> ast::TranslationUnit* {
@@ -975,6 +1007,31 @@ public i32 dcc_main() {
     auto region = slice_function_region(text, "probe");
     REQUIRE(!region.empty());
     CHECK(region.find("read_node") != std::string::npos);
+}
+
+TEST_CASE("duck writer format over literal specializes to straight-line writes")
+{
+    REQUIRE(std::getenv("DCC_TEST_LIBDCEXT_SRC") != nullptr);
+    MoneyFixture fx(kDuckSnippet);
+    REQUIRE(fx.ok());
+    std::uint64_t off_attempts = 0;
+    std::uint64_t off_succeeded = 0;
+    auto off_text = money_ir_text(fx, false, off_attempts, off_succeeded);
+    CHECK_EQ(off_attempts, 0u);
+    auto off_region = slice_function_region(off_text, "do_format");
+    REQUIRE(!off_region.empty());
+    CHECK(region_calls_fmt(off_region));
+    std::uint64_t on_attempts = 0;
+    std::uint64_t on_succeeded = 0;
+    auto on_text = money_ir_text(fx, true, on_attempts, on_succeeded);
+    CHECK(on_attempts > 0u);
+    CHECK(on_succeeded > 0u);
+    auto on_region = slice_function_region(on_text, "do_format");
+    REQUIRE(!on_region.empty());
+    CHECK(count_substr(on_region, "call fn(") >= 3u);
+    CHECK(on_region.find("validate_format") == std::string::npos);
+    CHECK(on_region.find("parse_spec") == std::string::npos);
+    CHECK(on_region.find("write_all") != std::string::npos);
 }
 
 TEST_CASE("money format over literal specializes to straight-line writes")

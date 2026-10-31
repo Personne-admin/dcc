@@ -328,8 +328,9 @@ i32 test_files() {
         return 18;
     }
     file::FileWriter failed = file::new_file_writer(f);
-    fmt::Writer sink = failed.writer();
-    if fmt::format(&sink, "{}", 42).unwrap_err() != fmt::FmtError::SinkFailed
+    fmt::ErasedWriter sink = failed.writer();
+    fmt::Status(fmt::FormatError(fmt::FmtError)) render = fmt::format(&sink, "{}", 42);
+    if render.is_ok() || render.unwrap_err() != fmt::FormatError::Write(fmt::FmtError::SinkFailed)
         || failed.status().unwrap_err() != Error::BadHandle
     {
         return 19;

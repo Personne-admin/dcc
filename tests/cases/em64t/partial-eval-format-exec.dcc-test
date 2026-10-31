@@ -2,7 +2,7 @@
 module test;
 import std::fmt;
 
-std::fmt::Status(std::fmt::FmtError) do_format(const std::fmt::Writer* w) {
+std::fmt::Status(std::fmt::FormatError(std::fmt::BufferError)) do_format(std::fmt::BufferWriter* w) {
     return std::fmt::format(w, "hello {} world", 42);
 }
 
@@ -10,8 +10,7 @@ std::fmt::Status(std::fmt::FmtError) do_format(const std::fmt::Writer* w) {
 public i32 dcc_main() {
     char[64] backing;
     std::fmt::BufferWriter bw = std::fmt::new_buffer_writer(backing[0..64]);
-    std::fmt::Writer w = std::fmt::writer(&bw);
-    match do_format(&w) {
+    match do_format(&bw) {
         std::fmt::Status::Ok => {},
         _ => return 1,
     }

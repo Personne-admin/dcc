@@ -21,7 +21,7 @@ void emit([] const char line) {
 
 void emit_number(usize value) {
     char[32] buffer = {};
-    std::result::Result([] char, std::fmt::FmtError) r = std::fmt::format_buf(buffer[0..32], "{}", value);
+    std::result::Result([] char, std::fmt::FormatError(std::fmt::BufferError)) r = std::fmt::format_buf(buffer[0..32], "{}", value);
     if r.is_err() {
         emit("<err>" as [] const char);
     } else {
@@ -84,7 +84,7 @@ usize build_spec(char* out, const Spec* spec) {
 void dump_escape([] const char text) {
     char[1024] out = {};
     std::fmt::BufferWriter sink = std::fmt::new_buffer_writer(out[0..1024]);
-    std::fmt::Writer writer = sink.writer();
+    std::fmt::ErasedWriter writer = sink.writer();
     if !std::json::write_escaped(&writer, text).is_ok() {
         emit("<err>" as [] const char);
     } else {
@@ -138,7 +138,7 @@ public i32 main() {
                                     spec.align = ai;
                                     spec.fill = fills[fi];
                                     usize spec_len = build_spec(&spec_buf[0], &spec);
-                                    std::result::Result([] char, std::fmt::FmtError) r = std::fmt::format_buf(got[0..256], spec_buf[0..spec_len], unsigned_values[vi]);
+                                    std::result::Result([] char, std::fmt::FormatError(std::fmt::BufferError)) r = std::fmt::format_buf(got[0..256], spec_buf[0..spec_len], unsigned_values[vi]);
                                     if r.is_err() {
                                         emit("<err>" as [] const char);
                                     } else {
@@ -169,7 +169,7 @@ public i32 main() {
                                     spec.align = ai;
                                     spec.fill = fills[fi];
                                     usize spec_len = build_spec(&spec_buf[0], &spec);
-                                    std::result::Result([] char, std::fmt::FmtError) r = std::fmt::format_buf(got[0..256], spec_buf[0..spec_len], signed_values[vi]);
+                                    std::result::Result([] char, std::fmt::FormatError(std::fmt::BufferError)) r = std::fmt::format_buf(got[0..256], spec_buf[0..spec_len], signed_values[vi]);
                                     if r.is_err() {
                                         emit("<err>" as [] const char);
                                     } else {
@@ -197,27 +197,27 @@ public i32 main() {
     dump_escape(high[0..3]);
 
     char[128] buffer = {};
-    std::result::Result([] char, std::fmt::FmtError) r1 = std::fmt::format_buf(buffer[0..128], "a{{b}}c");
+    std::result::Result([] char, std::fmt::FormatError(std::fmt::BufferError)) r1 = std::fmt::format_buf(buffer[0..128], "a{{b}}c");
     if r1.is_err() { emit("err" as [] const char); } else { emit(r1.unwrap()); }
-    std::result::Result([] char, std::fmt::FmtError) r2 = std::fmt::format_buf(buffer[0..128], "}}");
+    std::result::Result([] char, std::fmt::FormatError(std::fmt::BufferError)) r2 = std::fmt::format_buf(buffer[0..128], "}}");
     if r2.is_err() { emit("err" as [] const char); } else { emit(r2.unwrap()); }
-    std::result::Result([] char, std::fmt::FmtError) r3 = std::fmt::format_buf(buffer[0..128], "}");
+    std::result::Result([] char, std::fmt::FormatError(std::fmt::BufferError)) r3 = std::fmt::format_buf(buffer[0..128], "}");
     if r3.is_err() { emit("err" as [] const char); } else { emit(r3.unwrap()); }
-    std::result::Result([] char, std::fmt::FmtError) r4 = std::fmt::format_buf(buffer[0..128], "literal");
+    std::result::Result([] char, std::fmt::FormatError(std::fmt::BufferError)) r4 = std::fmt::format_buf(buffer[0..128], "literal");
     if r4.is_err() { emit("err" as [] const char); } else { emit(r4.unwrap()); }
-    std::result::Result([] char, std::fmt::FmtError) r5 = std::fmt::format_buf(buffer[0..128], "x", 1 as u8, 2 as u8);
+    std::result::Result([] char, std::fmt::FormatError(std::fmt::BufferError)) r5 = std::fmt::format_buf(buffer[0..128], "x", 1 as u8, 2 as u8);
     if r5.is_err() { emit("err" as [] const char); } else { emit(r5.unwrap()); }
-    std::result::Result([] char, std::fmt::FmtError) r6 = std::fmt::format_buf(buffer[0..128], "{} {}", 1 as u8);
+    std::result::Result([] char, std::fmt::FormatError(std::fmt::BufferError)) r6 = std::fmt::format_buf(buffer[0..128], "{} {}", 1 as u8);
     if r6.is_err() { emit("err" as [] const char); } else { emit(r6.unwrap()); }
-    std::result::Result([] char, std::fmt::FmtError) r7 = std::fmt::format_buf(buffer[0..128], "{");
+    std::result::Result([] char, std::fmt::FormatError(std::fmt::BufferError)) r7 = std::fmt::format_buf(buffer[0..128], "{");
     if r7.is_err() { emit("err" as [] const char); } else { emit(r7.unwrap()); }
-    std::result::Result([] char, std::fmt::FmtError) r8 = std::fmt::format_buf(buffer[0..128], "{x", 1 as u8);
+    std::result::Result([] char, std::fmt::FormatError(std::fmt::BufferError)) r8 = std::fmt::format_buf(buffer[0..128], "{x", 1 as u8);
     if r8.is_err() { emit("err" as [] const char); } else { emit(r8.unwrap()); }
-    std::result::Result([] char, std::fmt::FmtError) r9 = std::fmt::format_buf(buffer[0..128], "{}", 1 as u8);
+    std::result::Result([] char, std::fmt::FormatError(std::fmt::BufferError)) r9 = std::fmt::format_buf(buffer[0..128], "{}", 1 as u8);
     if r9.is_err() { emit("err" as [] const char); } else { emit(r9.unwrap()); }
-    std::result::Result([] char, std::fmt::FmtError) r10 = std::fmt::format_buf(buffer[0..128], "{:p}", 7 as u8);
+    std::result::Result([] char, std::fmt::FormatError(std::fmt::BufferError)) r10 = std::fmt::format_buf(buffer[0..128], "{:p}", 7 as u8);
     if r10.is_err() { emit("err" as [] const char); } else { emit(r10.unwrap()); }
-    std::result::Result([] char, std::fmt::FmtError) r11 = std::fmt::format_buf(buffer[0..128], "{}");
+    std::result::Result([] char, std::fmt::FormatError(std::fmt::BufferError)) r11 = std::fmt::format_buf(buffer[0..128], "{}");
     if r11.is_err() { emit("err" as [] const char); } else { emit(r11.unwrap()); }
 
     emit_number(std::fmt::format_len("{:*<100000}", 7 as u8).unwrap());

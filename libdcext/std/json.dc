@@ -1256,12 +1256,12 @@ public bool is_null(const Value* self) {
 //!
 //! Emitting
 //!
-//! Over `fmt::Writer`, so a file, a buffer and a byte counter all work
+//! Over `fmt::ErasedWriter`, so a file, a buffer and a byte counter all work
 //! without this module knowing which it has.
 //!
 
 public struct Emitter {
-    fmt::Writer out;
+    fmt::ErasedWriter out;
     /// spaces per level; 0 emits compact output with no newlines
     u32 indent;
     usize depth;
@@ -1269,7 +1269,7 @@ public struct Emitter {
     bool suppress_separator;
 }
 
-public Emitter new_emitter(fmt::Writer out, u32 indent) {
+public Emitter new_emitter(fmt::ErasedWriter out, u32 indent) {
     return {
         out = out,
         indent = indent,
@@ -1312,7 +1312,7 @@ Status(fmt::FmtError) separate(Emitter* self) {
 }
 
 public Status(fmt::FmtError) write_escaped(
-    const fmt::Writer* w,
+    const fmt::ErasedWriter* w,
     [] const char text
 ) {
     fmt::JsonEscapeCursor cursor = fmt::new_json_escape(text);
@@ -1403,7 +1403,15 @@ static if core::target::FLOAT_AVAILABLE {
     public Status(fmt::FmtError) float(Emitter* self, f64 value) {
         separate(self) ?;
         fmt::Options opts = fmt::Options::default();
-        return fmt::format_float(&self.out, value, &opts);
+        fmt::Status(fmt::FormatError(fmt::FmtError)) rendered = fmt::format_float(&self.out, value, &opts);
+        if rendered.is_ok() {
+            return fmt::Status::Ok;
+        }
+
+        match rendered.unwrap_err() {
+            fmt::FormatError::Write(e) => return e,
+            _ => return fmt::FmtError::BadFormat,
+        }
     }
 }
 
@@ -1474,7 +1482,7 @@ public Status(fmt::FmtError) value(Emitter* self, const Value* item) {
 
 /// renders `item` to `w`. `indent` of 0 is compact.
 public Status(fmt::FmtError) write(
-    fmt::Writer w,
+    fmt::ErasedWriter w,
     const Value* item,
     u32 indent
 ) {

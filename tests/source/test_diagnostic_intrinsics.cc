@@ -84,14 +84,14 @@ TEST_CASE("fmt rejects unsupported types with one intentional diagnostic")
     auto result = compile(R"(module test;
 public import std::fmt;
 struct Unsupported { i32 value; }
-public void test(const std::fmt::Writer* writer, const std::fmt::Options* options) {
+public void test(std::fmt::ErasedWriter* writer, const std::fmt::Options* options) {
     Unsupported value = { 1 };
     std::fmt::format_value(writer, value, options);
 }
 )", true);
     CHECK_NE(result.status, 0);
     CHECK_EQ(count(result.diagnostics, "error:"), 1u);
-    CHECK_EQ(count(result.diagnostics, "error: type is not formattable: add format(const T*, const Writer*, const Options*)"), 1u);
+    CHECK_EQ(count(result.diagnostics, "error: type is not formattable: add format(const T*, W*, const Options*)"), 1u);
     CHECK_EQ(count(result.diagnostics, "unknown name"), 0u);
     CHECK_EQ(count(result.diagnostics, "no matching call"), 0u);
 }
@@ -100,7 +100,7 @@ TEST_CASE("supported fmt specialization still lowers")
 {
     auto result = compile(R"(module test;
 public import std::fmt;
-public void test(const std::fmt::Writer* writer, const std::fmt::Options* options) {
+public void test(std::fmt::ErasedWriter* writer, const std::fmt::Options* options) {
     std::fmt::format_value(writer, 42 as i32, options);
     std::fmt::format_value(writer, true, options);
     std::fmt::format_value(writer, 1.5 as f64, options);

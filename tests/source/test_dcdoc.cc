@@ -901,11 +901,11 @@ TEST_CASE("stdlib resolves via default prefix root")
     if (!std::filesystem::is_directory(std_root, ec) || ec)
         return;
     TempDir td;
-    td.write_file("main.dc", "module main;\npublic import std::fmt;\n\n/// Entry with [`std::fmt::Writer`].\npublic void run() {}\n");
+    td.write_file("main.dc", "module main;\npublic import std::fmt;\n\n/// Entry with [`std::fmt::Options`].\npublic void run() {}\n");
     dcdoc::Builder builder{td.path / "main.dc", {td.path}, {}, build_prefix()};
     dcdoc::Project project = builder.build();
     CHECK(project.file_errors.empty());
-    CHECK(contains(dcdoc::dump(project), "target:\"std::fmt::Writer#struct\" resolved:true"));
+    CHECK(contains(dcdoc::dump(project), "target:\"std::fmt::Options#struct\" resolved:true"));
 }
 
 TEST_CASE("stdlib modules render no chapters but keep resolved refs")
@@ -917,27 +917,27 @@ TEST_CASE("stdlib modules render no chapters but keep resolved refs")
     if (!std::filesystem::is_directory(std_root, ec) || ec)
         return;
     TempDir td;
-    td.write_file("main.dc", "module main;\npublic import std::fmt;\n\n/// Formats via [`std::fmt::Writer`].\npublic void run() {}\n");
+    td.write_file("main.dc", "module main;\npublic import std::fmt;\n\n/// Formats via [`std::fmt::Options`].\npublic void run() {}\n");
     dcdoc::Builder builder{td.path / "main.dc", {td.path}, {}, build_prefix()};
     dcdoc::Project project = builder.build();
     REQUIRE(project.file_errors.empty());
     std::string dump = dcdoc::dump(project);
     CHECK(!contains(dump, "- module \"std::"));
     CHECK(!contains(dump, "dcc-core:"));
-    CHECK(contains(dump, "target:\"std::fmt::Writer#struct\" resolved:true"));
+    CHECK(contains(dump, "target:\"std::fmt::Options#struct\" resolved:true"));
     std::string md = dcdoc::markdown::render_single(project);
     CHECK(!contains(md, "## std::fmt"));
-    CHECK(contains(md, "[std::fmt::Writer]"));
-    CHECK(!contains(md, "[std::fmt::Writer]("));
+    CHECK(contains(md, "[std::fmt::Options]"));
+    CHECK(!contains(md, "[std::fmt::Options]("));
     std::string typ = dcdoc::typst::render(project);
-    CHECK(contains(typ, "#text(style: \"italic\")[std::fmt::Writer]"));
+    CHECK(contains(typ, "#text(style: \"italic\")[std::fmt::Options]"));
     CHECK(!contains(typ, "link(<std--fmt--Writer"));
     CHECK(!contains(typ, "Source: std"));
     auto site = td.path / "site";
     REQUIRE(dcdoc::html::write_site(project, site) == 0);
     CHECK(!std::filesystem::exists(site / "std.fmt.html"));
     std::string page = read_file_bytes(site / "main.html");
-    CHECK(contains(page, "<span class=\"ref-ext\">std::fmt::Writer</span>"));
+    CHECK(contains(page, "<span class=\"ref-ext\">std::fmt::Options</span>"));
     CHECK(!contains(page, "<a class=\"ref\""));
 }
 

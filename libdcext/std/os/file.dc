@@ -941,8 +941,8 @@ static if core::target::OS != core::target::Os::Freestanding {
 }
 
 static if core::target::OS != core::target::Os::Freestanding {
-    public fmt::Writer writer(FileWriter* self) {
-        return fmt::Writer {ctx = self as void*, write_fn = file_write};
+    public fmt::ErasedWriter writer(FileWriter* self) {
+        return fmt::ErasedWriter {ctx = self as void*, write_fn = file_write};
     }
 }
 
