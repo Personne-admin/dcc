@@ -1,0 +1,5 @@
+=== FILE: template.dcon ===
+{ name = "tiny", variables = { { name = "a", kind = VariableKind::Float } } }
+=== EXPECT-ERRORS ===
+template.dcon:1:53: unknown path `VariableKind::Float`
+template.dcon:1:1: initializer for global `__manifest` is not a constant expression

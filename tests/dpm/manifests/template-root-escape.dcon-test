@@ -1,0 +1,4 @@
+=== FILE: template.dcon ===
+{ name = "tiny", root = "../files" }
+=== EXPECT-ERRORS ===
+template.dcon:1:25: root must be a relative path inside the template

@@ -1,0 +1,16 @@
+=== FILE: template.dcon ===
+{
+    name = "tiny",
+    variables = {
+        { name = "a", kind = VariableKind::Integer, default_value = "5", min = 1, max = 4 },
+        { name = "b", kind = VariableKind::Integer, default_value = "5", min = 9, max = 3 },
+        { name = "c", kind = VariableKind::Integer, default_value = "-3", min = -5, max = -1 },
+        { name = "d", default_value = "x", min = 1 },
+        { name = "e", kind = VariableKind::Bool, default_value = "true", max = 2 },
+    },
+}
+=== EXPECT-ERRORS ===
+template.dcon:4:69: the default '5' is invalid: outside 1 to 4
+template.dcon:5:80: min is greater than max
+template.dcon:7:50: min and max apply to Integer variables only
+template.dcon:8:80: min and max apply to Integer variables only

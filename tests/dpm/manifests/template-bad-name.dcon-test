@@ -1,0 +1,4 @@
+=== FILE: template.dcon ===
+{ name = "X" }
+=== EXPECT-ERRORS ===
+template.dcon:1:10: 'X' is not a valid template name; use 2 to 32 lowercase letters, digits, '_' or '-', starting with a letter

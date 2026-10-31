@@ -1,0 +1,18 @@
+=== FILE: template.dcon ===
+{
+    name = "tiny",
+    substitute = { "a[1]", "!x", "/abs", "a**b", "", "ok/**/*.dc", "a//b", "..", "a\\b", "{a}", "dir/" },
+    exclude = { "x/../y", "/" },
+}
+=== EXPECT-ERRORS ===
+template.dcon:3:20: 'a[1]': '[' is not supported in a pattern
+template.dcon:3:28: '!x': negation is not supported
+template.dcon:3:34: '/abs': a pattern is relative to the template root
+template.dcon:3:42: 'a**b': '**' must be a whole path component
+template.dcon:3:50: '': empty pattern
+template.dcon:3:68: 'a//b': empty path component
+template.dcon:3:76: '..': a pattern cannot leave the template root
+template.dcon:3:82: 'a\b': '\' is not supported in a pattern
+template.dcon:3:90: '{a}': '{' is not supported in a pattern
+template.dcon:4:17: 'x/../y': a pattern cannot leave the template root
+template.dcon:4:27: '/': a pattern is relative to the template root

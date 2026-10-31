@@ -1,0 +1,74 @@
+=== FILE: template.dcon ===
+{
+    name = "limine-x86-64",
+    description = "A kernel",
+    substitute = { "project.dcon", "src/**/*.dc", "*.md", "dir/" },
+    exclude = { "**/.keep", "tmp/*" },
+    next_steps = "run it",
+    requires_dpm = "0.1.0",
+    requires_dcc = "0.7.0",
+    variables = {
+        { name = "title", description = "Menu title", default_value = "Limine Template", max_length = 48 },
+        { name = "entry", kind = VariableKind::Identifier, default_value = "kmain" },
+        { name = "memory", kind = VariableKind::Integer, default_value = "2", min = 1, max = 64 },
+        { name = "uefi", kind = VariableKind::Bool, default_value = "true" },
+        { name = "arch", kind = VariableKind::Choice, choices = { "x86-64", "aarch64" }, default_value = "x86-64" },
+        { name = "owner", required = true },
+    },
+}
+=== EXPECT-TREE ===
+{
+  name = "limine-x86-64",
+  description = "A kernel",
+  variables = [
+    {
+      name = "title",
+      description = "Menu title",
+      default_value = "Limine Template",
+      max_length = 48,
+    },
+    {
+      name = "entry",
+      kind = VariableKind::Identifier,
+      default_value = "kmain",
+    },
+    {
+      name = "memory",
+      kind = VariableKind::Integer,
+      default_value = "2",
+      min = 1,
+      max = 64,
+    },
+    {
+      name = "uefi",
+      kind = VariableKind::Bool,
+      default_value = "true",
+    },
+    {
+      name = "arch",
+      kind = VariableKind::Choice,
+      default_value = "x86-64",
+      choices = [
+        "x86-64",
+        "aarch64",
+      ],
+    },
+    {
+      name = "owner",
+      required = true,
+    },
+  ],
+  substitute = [
+    "project.dcon",
+    "src/**/*.dc",
+    "*.md",
+    "dir/",
+  ],
+  exclude = [
+    "**/.keep",
+    "tmp/*",
+  ],
+  next_steps = "run it",
+  requires_dpm = "0.1.0",
+  requires_dcc = "0.7.0",
+}

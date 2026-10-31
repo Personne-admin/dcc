@@ -1,0 +1,27 @@
+=== FILE: template.dcon ===
+{
+    name = "tiny",
+    variables = {
+        { name = "s", default_value = "a;b" },
+        { name = "s2", default_value = "a b" },
+        { name = "i", kind = VariableKind::Identifier, default_value = "1bad" },
+        { name = "i2", kind = VariableKind::Identifier, default_value = "enum" },
+        { name = "n", kind = VariableKind::Integer, default_value = "01" },
+        { name = "n2", kind = VariableKind::Integer, default_value = "+1" },
+        { name = "n3", kind = VariableKind::Integer, default_value = "-0" },
+        { name = "n4", kind = VariableKind::Integer, default_value = "9999999999999999999" },
+        { name = "n5", kind = VariableKind::Integer, default_value = "-5" },
+        { name = "b", kind = VariableKind::Bool, default_value = "yes" },
+        { name = "c", kind = VariableKind::Choice, choices = { "a", "b" }, default_value = "c" },
+    },
+}
+=== EXPECT-ERRORS ===
+template.dcon:4:39: the default 'a;b' is invalid: contains ';', which is not allowed in a string value
+template.dcon:6:72: the default '1bad' is invalid: not an identifier
+template.dcon:7:73: the default 'enum' is invalid: not an identifier
+template.dcon:8:69: the default '01' is invalid: not a decimal integer
+template.dcon:9:70: the default '+1' is invalid: not a decimal integer
+template.dcon:10:70: the default '-0' is invalid: not a decimal integer
+template.dcon:11:70: the default '9999999999999999999' is invalid: not a decimal integer
+template.dcon:13:66: the default 'yes' is invalid: not true or false
+template.dcon:14:92: the default 'c' is invalid: not one of the choices

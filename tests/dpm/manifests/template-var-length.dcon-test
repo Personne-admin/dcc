@@ -1,0 +1,16 @@
+=== FILE: template.dcon ===
+{
+    name = "tiny",
+    variables = {
+        { name = "a", default_value = "abcd", max_length = 3 },
+        { name = "b", default_value = "ok", max_length = -1 },
+        { name = "c", default_value = "ok", max_length = 300 },
+        { name = "d", kind = VariableKind::Bool, default_value = "true", max_length = 8 },
+        { name = "e", kind = VariableKind::Identifier, default_value = "kmain", max_length = 256 },
+    },
+}
+=== EXPECT-ERRORS ===
+template.dcon:4:39: the default 'abcd' is invalid: longer than 3 bytes
+template.dcon:5:58: max_length must be from 0 to 256
+template.dcon:6:58: max_length must be from 0 to 256
+template.dcon:7:87: max_length applies to String and Identifier variables only

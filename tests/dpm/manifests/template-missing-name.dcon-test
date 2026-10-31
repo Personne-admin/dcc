@@ -1,0 +1,4 @@
+=== FILE: template.dcon ===
+{ description = "x" }
+=== EXPECT-ERRORS ===
+template.dcon:1:1: missing initializer for field `name` in struct literal

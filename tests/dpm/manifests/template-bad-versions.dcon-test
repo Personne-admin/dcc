@@ -1,0 +1,5 @@
+=== FILE: template.dcon ===
+{ name = "tiny", requires_dpm = "nope", requires_dcc = "1.x" }
+=== EXPECT-ERRORS ===
+template.dcon:1:33: 'nope' is not a valid version
+template.dcon:1:56: '1.x' is not a valid version

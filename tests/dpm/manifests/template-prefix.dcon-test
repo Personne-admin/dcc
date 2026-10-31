@@ -1,0 +1,9 @@
+=== FILE: template.dcon ===
+dpm::v1::Template { name = "tiny-two", description = "d", root = "payload", next_steps = "cd @@dir@@" }
+=== EXPECT-TREE ===
+{
+  name = "tiny-two",
+  description = "d",
+  root = "payload",
+  next_steps = "cd @@dir@@",
+}

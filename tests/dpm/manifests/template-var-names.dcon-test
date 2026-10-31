@@ -1,0 +1,20 @@
+=== FILE: template.dcon ===
+{
+    name = "tiny",
+    variables = {
+        { name = "Bad", default_value = "a" },
+        { name = "name", default_value = "a" },
+        { name = "dir", default_value = "a" },
+        { name = "dup", default_value = "a" },
+        { name = "dup", default_value = "b" },
+        { name = "", default_value = "a" },
+        { name = "a_very_long_variable_name_beyond_limit", default_value = "a" },
+    },
+}
+=== EXPECT-ERRORS ===
+template.dcon:4:18: 'Bad' is not a valid variable name; use lowercase letters, digits and '_', starting with a letter (at most 32)
+template.dcon:5:18: 'name' is a built-in variable and cannot be declared
+template.dcon:6:18: 'dir' is a built-in variable and cannot be declared
+template.dcon:8:18: duplicate variable 'dup'
+template.dcon:9:18: '' is not a valid variable name; use lowercase letters, digits and '_', starting with a letter (at most 32)
+template.dcon:10:18: 'a_very_long_variable_name_beyond_limit' is not a valid variable name; use lowercase letters, digits and '_', starting with a letter (at most 32)

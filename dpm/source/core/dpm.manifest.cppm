@@ -28,6 +28,7 @@ export namespace dpm::manifest
         RegistryLocation,
         RegistryConfig,
         UserConfig,
+        Template,
     };
 
     [[nodiscard]] constexpr std::string_view type_name(FileKind kind) noexcept
@@ -46,6 +47,8 @@ export namespace dpm::manifest
                 return "RegistryConfig";
             case FileKind::UserConfig:
                 return "UserConfig";
+            case FileKind::Template:
+                return "Template";
         }
         return "Project";
     }
@@ -355,6 +358,42 @@ export namespace dpm::manifest
         bool offline{false};
     };
 
+    enum class VariableKind : std::uint8_t
+    {
+        String,
+        Identifier,
+        Integer,
+        Bool,
+        Choice,
+    };
+
+    struct TemplateVariable
+    {
+        std::string name;
+        std::string description;
+        VariableKind kind{VariableKind::String};
+        std::string default_value;
+        bool required{false};
+        std::vector<std::string> choices;
+        std::int64_t max_length{};
+        std::int64_t min{};
+        std::int64_t max{};
+        Range range;
+    };
+
+    struct ProjectTemplate
+    {
+        std::string name;
+        std::string description;
+        std::string root;
+        std::vector<TemplateVariable> variables;
+        std::vector<std::string> substitute;
+        std::vector<std::string> exclude;
+        std::string next_steps;
+        std::string requires_dpm;
+        std::string requires_dcc;
+    };
+
     struct LoadOptions
     {
         std::string file_name{"project.dcon"};
@@ -375,6 +414,7 @@ export namespace dpm::manifest
         std::optional<RegistryLocation> registry_location;
         std::optional<RegistryConfig> registry_config;
         std::optional<UserConfig> user_config;
+        std::optional<ProjectTemplate> project_template;
     };
 
     namespace detail
@@ -967,6 +1007,116 @@ export namespace dpm::manifest
             return true;
         }
 
+        inline constexpr std::int64_t k_default_value_length = 128;
+        inline constexpr std::int64_t k_max_value_length = 256;
+
+        inline bool valid_utf8(std::string_view s)
+        {
+            std::size_t i = 0;
+            while (i < s.size())
+            {
+                auto c = static_cast<unsigned char>(s[i]);
+                std::size_t extra = c < 0x80 ? 0 : (c >= 0xC2 && c <= 0xDF) ? 1 : (c >= 0xE0 && c <= 0xEF) ? 2 : (c >= 0xF0 && c <= 0xF4) ? 3 : 4;
+                if (extra == 4 || i + extra >= s.size())
+                    return false;
+                for (std::size_t k = 1; k <= extra; ++k)
+                    if ((static_cast<unsigned char>(s[i + k]) & 0xC0) != 0x80)
+                        return false;
+                if (extra > 0)
+                {
+                    auto second = static_cast<unsigned char>(s[i + 1]);
+                    if ((c == 0xE0 && second < 0xA0) || (c == 0xED && second > 0x9F) || (c == 0xF0 && second < 0x90) || (c == 0xF4 && second > 0x8F))
+                        return false;
+                }
+                i += extra + 1;
+            }
+            return true;
+        }
+
+        inline std::int64_t value_length_limit(TemplateVariable const& v)
+        {
+            return v.max_length <= 0 || v.max_length > k_max_value_length ? k_default_value_length : v.max_length;
+        }
+
+        inline std::optional<std::string> variable_value_error(TemplateVariable const& v, std::string_view value)
+        {
+            switch (v.kind)
+            {
+                case VariableKind::String:
+                {
+                    if (static_cast<std::int64_t>(value.size()) > value_length_limit(v))
+                        return std::format("longer than {} bytes", value_length_limit(v));
+                    if (!valid_utf8(value))
+                        return "not valid UTF-8";
+                    for (char c : value)
+                    {
+                        auto u = static_cast<unsigned char>(c);
+                        bool ok = u >= 0x80 || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || std::string_view{" _-.,:/+@()#%"}.contains(c);
+                        if (!ok)
+                            return std::format("contains '{}', which is not allowed in a string value", u < 0x20 || u == 0x7F ? std::string{"a control character"} : std::string{c});
+                    }
+                    if (value.find("@@") != std::string_view::npos)
+                        return "contains '@@'";
+                    return std::nullopt;
+                }
+                case VariableKind::Identifier:
+                    if (value.empty())
+                        return "empty";
+                    if (static_cast<std::int64_t>(value.size()) > value_length_limit(v))
+                        return std::format("longer than {} bytes", value_length_limit(v));
+                    if (!is_identifier(value) || is_reserved_word(value))
+                        return "not an identifier";
+                    return std::nullopt;
+                case VariableKind::Integer:
+                {
+                    std::int64_t number{};
+                    auto [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), number);
+                    bool plain = !value.empty() && ec == std::errc{} && ptr == value.data() + value.size() && value.front() != '+' &&
+                                 !(value.size() > 1 && value[0] == '0') && !(value.size() > 2 && value[0] == '-' && value[1] == '0') && value != "-0";
+                    if (!plain)
+                        return "not a decimal integer";
+                    if ((v.min != 0 || v.max != 0) && (number < v.min || number > v.max))
+                        return std::format("outside {} to {}", v.min, v.max);
+                    return std::nullopt;
+                }
+                case VariableKind::Bool:
+                    if (value != "true" && value != "false")
+                        return "not true or false";
+                    return std::nullopt;
+                case VariableKind::Choice:
+                    if (std::ranges::find(v.choices, value) == v.choices.end())
+                        return "not one of the choices";
+                    return std::nullopt;
+            }
+            return "unknown kind";
+        }
+
+        inline std::optional<std::string> glob_error(std::string_view pattern)
+        {
+            if (pattern.empty())
+                return "empty pattern";
+            if (pattern.front() == '/')
+                return "a pattern is relative to the template root";
+            if (pattern.front() == '!')
+                return "negation is not supported";
+            for (char c : pattern)
+                if (c == '\\' || c == '[' || c == ']' || c == '{' || c == '}' || c == '\0')
+                    return std::format("'{}' is not supported in a pattern", c == '\0' ? std::string{"NUL"} : std::string{c});
+            auto body = pattern.ends_with('/') ? pattern.substr(0, pattern.size() - 1) : pattern;
+            if (body.empty())
+                return "empty pattern";
+            for (auto part : split_path(body, '/'))
+            {
+                if (part.empty())
+                    return "empty path component";
+                if (part == "..")
+                    return "a pattern cannot leave the template root";
+                if (part.find("**") != std::string_view::npos && part != "**")
+                    return "'**' must be a whole path component";
+            }
+            return std::nullopt;
+        }
+
         struct Decoder
         {
             Reporter const* report{};
@@ -1319,6 +1469,163 @@ export namespace dpm::manifest
                 return a;
             }
 
+            std::int64_t integer_of(Node const& node, std::string_view name)
+            {
+                auto const* f = field(node, name);
+                if (!f)
+                    return 0;
+                if (f->kind != Node::Kind::Int)
+                {
+                    internal(*f, name);
+                    return 0;
+                }
+                return f->integer;
+            }
+
+            bool flag_of(Node const& node, std::string_view name)
+            {
+                auto const* f = field(node, name);
+                if (!f)
+                    return false;
+                if (f->kind != Node::Kind::Bool)
+                {
+                    internal(*f, name);
+                    return false;
+                }
+                return f->boolean;
+            }
+
+            void check_globs(Node const& root, std::string_view name)
+            {
+                if (auto const* list = root.find(name))
+                    for (auto const& item : list->items)
+                        if (item.kind == Node::Kind::String)
+                            if (auto message = glob_error(item.text))
+                                error(item, std::format("'{}': {}", item.text, *message));
+            }
+
+            TemplateVariable template_variable(Node const& item)
+            {
+                static constexpr std::array<std::string_view, 5> kinds{"String", "Identifier", "Integer", "Bool", "Choice"};
+                TemplateVariable v;
+                v.range = item.range;
+                v.name = str(item, "name");
+                v.description = str(item, "description");
+                v.kind = enumerator<VariableKind>(item, "kind", kinds);
+                v.default_value = str(item, "default_value");
+                v.required = flag_of(item, "required");
+                v.choices = strs(item, "choices");
+                v.max_length = integer_of(item, "max_length");
+                v.min = integer_of(item, "min");
+                v.max = integer_of(item, "max");
+                auto const* name_node = item.find("name");
+                if (name_node)
+                {
+                    bool shaped = !v.name.empty() && v.name.size() <= 32 && v.name.front() >= 'a' && v.name.front() <= 'z' &&
+                                  std::ranges::all_of(v.name, [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
+                    if (!shaped)
+                        error(*name_node, std::format("'{}' is not a valid variable name; use lowercase letters, digits and '_', starting with a letter (at most 32)", v.name));
+                    else if (v.name == "name" || v.name == "dir")
+                        error(*name_node, std::format("'{}' is a built-in variable and cannot be declared", v.name));
+                }
+                bool const text_kind = v.kind == VariableKind::String || v.kind == VariableKind::Identifier;
+                if (auto const* n = item.find("max_length"))
+                {
+                    if (v.max_length < 0 || v.max_length > k_max_value_length)
+                        error(*n, std::format("max_length must be from 0 to {}", k_max_value_length));
+                    else if (v.max_length != 0 && !text_kind)
+                        error(*n, "max_length applies to String and Identifier variables only");
+                }
+                if (v.kind != VariableKind::Integer && (v.min != 0 || v.max != 0))
+                    error(*(item.find("min") && v.min != 0 ? item.find("min") : item.find("max")), "min and max apply to Integer variables only");
+                bool const range_ok = !(v.kind == VariableKind::Integer && v.min > v.max);
+                if (!range_ok)
+                    error(*item.find("min"), "min is greater than max");
+                bool choices_ok = true;
+                if (auto const* n = item.find("choices"))
+                {
+                    if (v.kind != VariableKind::Choice && !v.choices.empty())
+                        error(*n, "choices apply to Choice variables only");
+                    else if (v.kind == VariableKind::Choice)
+                    {
+                        if (v.choices.empty())
+                        {
+                            choices_ok = false;
+                            error(*n, "a Choice variable needs at least one choice");
+                        }
+                        std::set<std::string> seen;
+                        for (std::size_t i = 0; i < v.choices.size() && i < n->items.size(); ++i)
+                        {
+                            auto const& choice = v.choices[i];
+                            bool shaped = !choice.empty() && choice.size() <= 64 &&
+                                          std::ranges::all_of(choice, [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'; });
+                            if (!shaped)
+                            {
+                                choices_ok = false;
+                                error(n->items[i], std::format("'{}' is not a valid choice; use letters, digits, '_' and '-'", choice));
+                            }
+                            else if (!seen.insert(choice).second)
+                            {
+                                choices_ok = false;
+                                error(n->items[i], std::format("duplicate choice '{}'", choice));
+                            }
+                        }
+                    }
+                }
+                if (auto const* n = item.find("default_value"))
+                {
+                    if (v.required && !v.default_value.empty())
+                        error(*n, "a required variable cannot have a default");
+                    else if (!v.required && !(v.default_value.empty() && v.kind == VariableKind::String))
+                    {
+                        if (v.default_value.empty())
+                            error(*n, "a variable that is not required needs a default");
+                        else if (range_ok && choices_ok)
+                            if (auto message = variable_value_error(v, v.default_value))
+                                error(*n, std::format("the default '{}' is invalid: {}", v.default_value, *message));
+                    }
+                }
+                return v;
+            }
+
+            ProjectTemplate template_def(Node const& root)
+            {
+                ProjectTemplate t;
+                t.name = str(root, "name");
+                t.description = str(root, "description");
+                t.root = str(root, "root");
+                t.substitute = strs(root, "substitute");
+                t.exclude = strs(root, "exclude");
+                t.next_steps = str(root, "next_steps");
+                t.requires_dpm = str(root, "requires_dpm");
+                t.requires_dcc = str(root, "requires_dcc");
+                if (auto const* n = root.find("name"))
+                {
+                    bool shaped = t.name.size() >= 2 && t.name.size() <= 32 && t.name.front() >= 'a' && t.name.front() <= 'z' &&
+                                  std::ranges::all_of(t.name, [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'; });
+                    if (!shaped)
+                        error(*n, std::format("'{}' is not a valid template name; use 2 to 32 lowercase letters, digits, '_' or '-', starting with a letter", t.name));
+                }
+                if (auto const* n = root.find("root"); n && !is_relative_subpath(t.root))
+                    error(*n, "root must be a relative path inside the template");
+                check_globs(root, "substitute");
+                check_globs(root, "exclude");
+                if (auto const* n = root.find("requires_dpm"); n && !t.requires_dpm.empty() && !dpm::semver::is_valid(t.requires_dpm))
+                    error(*n, std::format("'{}' is not a valid version", t.requires_dpm));
+                if (auto const* n = root.find("requires_dcc"); n && !t.requires_dcc.empty() && !dpm::semver::is_valid(t.requires_dcc))
+                    error(*n, std::format("'{}' is not a valid version", t.requires_dcc));
+                std::set<std::string> names;
+                if (auto const* list = field(root, "variables"))
+                    for (auto const& item : list->items)
+                    {
+                        auto v = template_variable(item);
+                        if (auto const* n = item.find("name"); n && !v.name.empty() && !names.insert(v.name).second)
+                            error(*n, std::format("duplicate variable '{}'", v.name));
+                        t.variables.push_back(std::move(v));
+                    }
+                return t;
+            }
+
             RegistryLocation registry_location(Node const& root)
             {
                 RegistryLocation l;
@@ -1464,6 +1771,16 @@ export namespace dpm::manifest
         };
     } // namespace detail
 
+    [[nodiscard]] inline std::optional<std::string> template_value_error(TemplateVariable const& variable, std::string_view value)
+    {
+        return detail::variable_value_error(variable, value);
+    }
+
+    [[nodiscard]] inline std::optional<std::string> glob_error(std::string_view pattern)
+    {
+        return detail::glob_error(pattern);
+    }
+
     [[nodiscard]] inline FileKind kind_from_file_name(std::string_view file_name)
     {
         auto slash = file_name.find_last_of("/\\");
@@ -1474,6 +1791,8 @@ export namespace dpm::manifest
             return FileKind::RegistryConfig;
         if (leaf == "config.dcon")
             return FileKind::UserConfig;
+        if (leaf == "template.dcon")
+            return FileKind::Template;
         return FileKind::Project;
     }
 
@@ -1513,7 +1832,7 @@ export namespace dpm::manifest
         }
         if (segments.size() != 3 || segments[0] != "dpm" || i >= tokens.size() || tokens[i].kind != detail::TokenKind::LBrace)
             return fallback;
-        for (auto kind : {FileKind::Project, FileKind::Lock, FileKind::RegistryAlias, FileKind::RegistryLocation, FileKind::RegistryConfig, FileKind::UserConfig})
+        for (auto kind : {FileKind::Project, FileKind::Lock, FileKind::RegistryAlias, FileKind::RegistryLocation, FileKind::RegistryConfig, FileKind::UserConfig, FileKind::Template})
             if (segments[2] == type_name(kind))
                 return kind;
         return fallback;
@@ -1702,6 +2021,9 @@ export namespace dpm::manifest
                     break;
                 case FileKind::UserConfig:
                     result.user_config = decoder.user_config(result.tree);
+                    break;
+                case FileKind::Template:
+                    result.project_template = decoder.template_def(result.tree);
                     break;
                 default:
                     break;

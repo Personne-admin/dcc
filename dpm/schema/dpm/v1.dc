@@ -326,3 +326,65 @@ public struct UserConfig
     /// Never touch the network unless a command asks to.
     bool offline = false;
 }
+
+/// How the value of a template variable is checked.
+public enum VariableKind : u8
+{
+    /// Text from a restricted character set: letters, digits, space and `_ - . , : / + @ ( ) # %`.
+    String,
+    /// A DC identifier that is not a reserved word.
+    Identifier,
+    /// A decimal integer, optionally limited by `min` and `max`.
+    Integer,
+    /// `true` or `false`.
+    Bool,
+    /// One of `choices`.
+    Choice,
+}
+
+/// A value the user can give to a template, written `@@name@@` in its files.
+public struct TemplateVariable
+{
+    /// `[a-z][a-z0-9_]*`. `name` and `dir` are built in and cannot be declared.
+    []const char name;
+    /// Shown by `dpm template info` and in missing-variable errors.
+    []const char description = "";
+    /// How the value is checked.
+    VariableKind kind = VariableKind::String;
+    /// Used when the variable is not set. Must be empty when `required` is true.
+    []const char default_value = "";
+    /// When true there is no default and the variable must be given.
+    bool required = false;
+    /// The allowed values of a `Choice` variable.
+    []const []const char choices = {};
+    /// Maximum length in bytes of a `String` or `Identifier` value; 0 means 128. At most 256.
+    i32 max_length = 0;
+    /// Lowest allowed `Integer` value. Both `min` and `max` 0 means unrestricted.
+    i64 min = 0;
+    /// Highest allowed `Integer` value.
+    i64 max = 0;
+}
+
+/// The contents of `template.dcon`: a project template for `dpm new`.
+public struct Template
+{
+    /// Template name; for a registry template it must equal the registered name.
+    []const char name;
+    /// One-line description.
+    []const char description = "";
+    /// Directory inside the template whose contents are generated.
+    []const char root = "files";
+    /// Values the user can give.
+    []const TemplateVariable variables = {};
+    /// Files, as globs relative to `root`, whose contents get `@@name@@` substitution.
+    /// Every other file is copied byte for byte.
+    []const []const char substitute = {};
+    /// Files, as globs relative to `root`, that are not generated.
+    []const []const char exclude = {};
+    /// Printed after generation, with substitution.
+    []const char next_steps = "";
+    /// Minimum dpm version needed by the generated project.
+    []const char requires_dpm = "";
+    /// Minimum dcc version needed by the generated project.
+    []const char requires_dcc = "";
+}

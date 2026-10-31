@@ -1,0 +1,13 @@
+=== FILE: template.dcon ===
+{
+    name = "tiny",
+    variables = {
+        { name = "a", required = true, default_value = "x" },
+        { name = "b", required = true },
+        { name = "c" },
+        { name = "d", kind = VariableKind::Integer },
+    },
+}
+=== EXPECT-ERRORS ===
+template.dcon:4:56: a required variable cannot have a default
+template.dcon:7:9: a variable that is not required needs a default

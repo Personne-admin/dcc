@@ -82,7 +82,7 @@ namespace
     [[nodiscard]] std::optional<dpm::manifest::FileKind> kind_from(std::string_view name)
     {
         using K = dpm::manifest::FileKind;
-        for (auto kind : {K::Project, K::Lock, K::RegistryAlias, K::RegistryLocation, K::RegistryConfig, K::UserConfig})
+        for (auto kind : {K::Project, K::Lock, K::RegistryAlias, K::RegistryLocation, K::RegistryConfig, K::UserConfig, K::Template})
             if (dpm::manifest::type_name(kind) == name)
                 return kind;
         return std::nullopt;
@@ -110,7 +110,7 @@ namespace
             if (s.header.starts_with("FILE: "))
             {
                 auto file = s.header.substr(6);
-                if (file == "project.dcon" || file == "other.dcon" || file == "project.lock.dcon")
+                if (file == "project.dcon" || file == "other.dcon" || file == "project.lock.dcon" || file == "template.dcon")
                 {
                     manifest = s.body;
                     have_manifest = true;
@@ -209,6 +209,9 @@ TEST_CASE("file kinds come from the typed prefix, then from the file name")
     CHECK(dpm::manifest::detect_kind("{ }", "project.dcon") == K::Project);
     CHECK(dpm::manifest::detect_kind("{ }", "registry.dcon") == K::RegistryConfig);
     CHECK(dpm::manifest::detect_kind("{ }", "config.dcon") == K::UserConfig);
+    CHECK(dpm::manifest::detect_kind("{ }", "template.dcon") == K::Template);
+    CHECK(dpm::manifest::detect_kind("{ }", "dir/template.dcon") == K::Template);
+    CHECK(dpm::manifest::detect_kind("dpm::v1::Template { }", "project.dcon") == K::Template);
     CHECK(dpm::manifest::detect_kind("{ }", "other.txt") == K::Project);
     CHECK(dpm::manifest::detect_kind("dpm::v1::Nope { }", "project.lock.dcon") == K::Lock);
     CHECK(dpm::manifest::detect_kind("dpm::v1 { }", "project.lock.dcon") == K::Lock);
@@ -306,4 +309,97 @@ TEST_CASE("a missing schema file is an error")
     auto result = dpm::manifest::load(R"({ name = "a", version = "1.0.0" })", options);
     CHECK(!result.ok);
     CHECK(!result.diagnostics.empty());
+}
+
+namespace
+{
+    dpm::manifest::TemplateVariable variable(dpm::manifest::VariableKind kind)
+    {
+        dpm::manifest::TemplateVariable v;
+        v.kind = kind;
+        return v;
+    }
+
+    bool accepts(dpm::manifest::TemplateVariable const& v, std::string_view value)
+    {
+        return !dpm::manifest::template_value_error(v, value).has_value();
+    }
+} // namespace
+
+TEST_CASE("string values use a restricted character set")
+{
+    using VK = dpm::manifest::VariableKind;
+    auto v = variable(VK::String);
+    for (std::string_view ok : {"", "a", "Limine Template", "a_b-c.d,e:f/g+h@i(j)k#l%m", "caf\xC3\xA9", "\xE2\x82\xAC", "\xF0\x9F\x98\x80", "x1"})
+        CHECK(accepts(v, ok));
+    for (std::string_view bad : std::initializer_list<std::string_view>{"a\"b", "a'b", "a\\b", "a`b", "a$b", "a<b", "a>b", "a&b", "a|b", "a;b", "a{b", "a}b", "a\nb", "a\tb", "a\rb", std::string_view{"a\0b", 3},
+                                 "a@@b", "\x7F", "a=b", "a*b", "a?b", "a!b", "a~b", "a^b", "a[b", "a]b"})
+        CHECK(!accepts(v, bad));
+}
+
+TEST_CASE("string values must be valid UTF-8 and within the length limit")
+{
+    using VK = dpm::manifest::VariableKind;
+    auto v = variable(VK::String);
+    for (std::string_view bad : {"\xC3", "\xC3(", "\xE2\x82", "\xF0\x9F\x98", "\x80", "\xC0\xAF", "\xC1\xBF", "\xE0\x80\xAF", "\xED\xA0\x80", "\xF0\x80\x80\xAF", "\xF4\x90\x80\x80", "\xF5\x80\x80\x80", "\xFF"})
+        CHECK(!accepts(v, bad));
+    CHECK(accepts(v, std::string(128, 'a')));
+    CHECK(!accepts(v, std::string(129, 'a')));
+    v.max_length = 5;
+    CHECK(accepts(v, "abcde"));
+    CHECK(!accepts(v, "abcdef"));
+    v.max_length = 256;
+    CHECK(accepts(v, std::string(256, 'a')));
+    CHECK(!accepts(v, std::string(257, 'a')));
+}
+
+TEST_CASE("identifier, integer, bool and choice values")
+{
+    using VK = dpm::manifest::VariableKind;
+    auto id = variable(VK::Identifier);
+    for (std::string_view ok : {"a", "_a", "A1", "kmain", "my_tool"})
+        CHECK(accepts(id, ok));
+    for (std::string_view bad : {"", "1a", "a-b", "a b", "a.b", "enum", "struct", "a/b", "..", "a\"b"})
+        CHECK(!accepts(id, bad));
+    auto num = variable(VK::Integer);
+    for (std::string_view ok : {"0", "7", "-7", "123456789", "9223372036854775807", "-9223372036854775808"})
+        CHECK(accepts(num, ok));
+    for (std::string_view bad : {"", "-", "+1", "01", "-0", "00", "1.5", "1e3", "0x10", " 1", "1 ", "9223372036854775808", "a", "--1"})
+        CHECK(!accepts(num, bad));
+    num.min = 1;
+    num.max = 64;
+    CHECK(accepts(num, "1"));
+    CHECK(accepts(num, "64"));
+    CHECK(!accepts(num, "0"));
+    CHECK(!accepts(num, "65"));
+    num.min = -5;
+    num.max = -1;
+    CHECK(accepts(num, "-3"));
+    CHECK(!accepts(num, "0"));
+    auto flag = variable(VK::Bool);
+    CHECK(accepts(flag, "true"));
+    CHECK(accepts(flag, "false"));
+    for (std::string_view bad : {"", "True", "yes", "1", "true "})
+        CHECK(!accepts(flag, bad));
+    auto choice = variable(VK::Choice);
+    choice.choices = {"x86-64", "aarch64"};
+    CHECK(accepts(choice, "x86-64"));
+    CHECK(accepts(choice, "aarch64"));
+    CHECK(!accepts(choice, "X86-64"));
+    CHECK(!accepts(choice, ""));
+    CHECK(!accepts(choice, "x86"));
+}
+
+TEST_CASE("glob patterns are checked for the supported syntax")
+{
+    for (std::string_view ok : {"a", "a/b", "*.dc", "src/**/*.dc", "**", "**/x", "dir/", "a?c", ".hidden", "a/.b", "x.*"})
+        CHECK(!dpm::manifest::glob_error(ok).has_value());
+    for (std::string_view bad : {"", "/", "/a", "!a", "a[1]", "a{b,c}", "a\\b", "a//b", "..", "a/../b", "a**b", "***", "a/**b", "**b/c", "a/", "//"})
+    {
+        auto problem = dpm::manifest::glob_error(bad);
+        if (bad == "a/")
+            CHECK(!problem.has_value());
+        else
+            CHECK(problem.has_value());
+    }
 }

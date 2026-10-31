@@ -175,6 +175,7 @@ TEST_CASE("the schema scanner agrees with the fields the loader decodes")
         {"RegistryConfig", {dpm::manifest::FileKind::RegistryConfig, "{ name = \"r\" }"}},
         {"RegistryLocation", {dpm::manifest::FileKind::RegistryLocation, "{ alias = \"json5\" }"}},
         {"UserConfig", {dpm::manifest::FileKind::UserConfig, "{ }"}},
+        {"Template", {dpm::manifest::FileKind::Template, "{ name = \"tiny\" }"}},
         {"RegistryAlias", {dpm::manifest::FileKind::RegistryAlias, "{ alias = \"json5\", location = \"github.com/u/p\", versions = {} }"}},
     };
     for (auto const& [type_name, entry] : cases)
@@ -233,6 +234,26 @@ TEST_CASE("manifest errors become findings with exact byte ranges")
     CHECK(!broken.findings.empty());
     std::string non_utf8 = "{ name = \"\xff\" }";
     CHECK(!an::analyze(non_utf8, options_for(dir)).loaded);
+}
+
+TEST_CASE("a template file is analyzed with its own schema type")
+{
+    if (schema_root().empty())
+        return;
+    TempDir dir;
+    auto options = options_for(dir, "template.dcon");
+    auto clean = an::analyze("{ name = \"tiny\", variables = { { name = \"title\", default_value = \"x\" } } }", options);
+    CHECK(clean.loaded);
+    CHECK(clean.findings.empty());
+    std::string text = "{ name = \"tiny\", substitute = { \"a[1]\" } }";
+    auto bad = an::analyze(text, options);
+    CHECK(!bad.loaded);
+    REQUIRE(!bad.findings.empty());
+    CHECK(contains(bad.findings[0].message, "not supported in a pattern"));
+    CHECK_EQ(slice(text, bad.findings[0]), std::string{"\"a[1]\""});
+    auto unknown = an::analyze("{ name = \"tiny\", version = \"1.0.0\" }", options);
+    CHECK(!unknown.loaded);
+    CHECK(contains(unknown.findings[0].message, "version"));
 }
 
 TEST_CASE("requires_dcc newer than the running dcc is a warning on that field")

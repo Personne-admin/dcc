@@ -1,0 +1,6 @@
+=== FILE: template.dcon ===
+{ name = "tiny" }
+=== EXPECT-TREE ===
+{
+  name = "tiny",
+}

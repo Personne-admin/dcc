@@ -1,0 +1,19 @@
+=== FILE: template.dcon ===
+{
+    name = "tiny",
+    variables = {
+        { name = "a", kind = VariableKind::Choice, default_value = "x" },
+        { name = "b", kind = VariableKind::Choice, choices = { "x", "x" }, default_value = "x" },
+        { name = "c", kind = VariableKind::Choice, choices = { "has space", "" }, default_value = "x" },
+        { name = "d", choices = { "x" }, default_value = "y" },
+        { name = "e", kind = VariableKind::Choice, choices = { "p", "q" } },
+        { name = "f", kind = VariableKind::Choice, choices = { "p", "q" }, required = true },
+    },
+}
+=== EXPECT-ERRORS ===
+template.dcon:4:9: a Choice variable needs at least one choice
+template.dcon:5:69: duplicate choice 'x'
+template.dcon:6:64: 'has space' is not a valid choice; use letters, digits, '_' and '-'
+template.dcon:6:77: '' is not a valid choice; use letters, digits, '_' and '-'
+template.dcon:7:33: choices apply to Choice variables only
+template.dcon:8:9: a variable that is not required needs a default

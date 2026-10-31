@@ -1,0 +1,4 @@
+=== FILE: template.dcon ===
+{ name = "tiny", hooks = { } }
+=== EXPECT-ERRORS ===
+template.dcon:1:18: unknown field `hooks` in brace literal
