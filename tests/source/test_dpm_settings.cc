@@ -158,7 +158,7 @@ TEST_CASE("a custom profile starts from the defaults of the profile it inherits"
     CHECK(d.optimize == m::Optimize::O1);
     CHECK(d.debug_info == m::Tri::On);
     CHECK(d.bounds_check == m::Tri::On);
-    CHECK(d.whole_program == m::Tri::Default);
+    CHECK(d.whole_program == m::Tri::On);
     auto r = s::effective(project, "releaseish", nullptr);
     CHECK(r.optimize == m::Optimize::O2);
     CHECK(r.whole_program == m::Tri::On);

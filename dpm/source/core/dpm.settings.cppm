@@ -28,6 +28,7 @@ export namespace dpm::settings
         if (profile == "debug")
         {
             s.optimize = Optimize::O0;
+            s.whole_program = Tri::On;
             s.debug_info = Tri::On;
             s.bounds_check = Tri::On;
         }

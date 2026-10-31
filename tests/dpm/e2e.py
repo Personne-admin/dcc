@@ -131,6 +131,19 @@ def scenario_basic():
     check("missing_name" in r.stdout + r.stderr, "compiler diagnostics are passed through", detail(r))
 
 
+def scenario_modules():
+    app = new_app("modules", "return util::count(5);")
+    write(os.path.join(app, "src", "main.dc"), "module main;\n\nimport util;\n\npublic i32 main()\n{\n    return util::count(5);\n}\n")
+    write(os.path.join(app, "src", "util.dc"), "module util;\n\nvolatile i32 sink;\n\npublic i32 count(i32 n)\n{\n    i32 i = 0;\n    while i < n {\n        sink = i;\n        i = i + 1;\n    }\n    return sink;\n}\n")
+    r = dpm(app, "run")
+    check(r.returncode == 4, "a debug build links the project's other modules", detail(r))
+    r = dpm(app, "run", "--profile", "release")
+    check(r.returncode == 4, "and so does a release build", detail(r))
+    dpm(app, "clean")
+    r = dpm(app, "build", "-v")
+    check("-fwhole-program" in r.stdout + r.stderr, "the debug profile compiles the whole import graph", detail(r))
+
+
 def scenario_run_args():
     app = new_app("args", "return 3;")
     r = run_app(app, "--", "a", "b")
@@ -1059,6 +1072,7 @@ def scenario_stamps():
 try:
     scenario_basic()
     scenario_run_args()
+    scenario_modules()
     scenario_path_dependency()
     scenario_git_dependency()
     scenario_offline_and_cache()

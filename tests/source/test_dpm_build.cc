@@ -44,7 +44,7 @@ TEST_CASE("the debug host executable plan")
     auto project = base_project();
     auto plan = b::plan_product(request_for(project), project.products[0]);
     CHECK(plan.argv == strs({"dcc", "src/main.dc", "-o", ".dpm/out/debug/host/app", "-Isrc", "--depfile", ".dpm/out/debug/host/app.d", "--compdb-entry",
-                             ".dpm/out/debug/host/app.compdb.json", "-O0", "-flibdcext", "-g", "-fbounds-check"}));
+                             ".dpm/out/debug/host/app.compdb.json", "-O0", "-fwhole-program", "-flibdcext", "-g", "-fbounds-check"}));
     CHECK_EQ(plan.output.generic_string(), std::string{".dpm/out/debug/host/app"});
 }
 
@@ -84,7 +84,7 @@ TEST_CASE("targets choose the output directory and artifact name")
     auto plan = b::plan_product(request_for(project), project.products[0]);
     CHECK_EQ(plan.output.generic_string(), std::string{".dpm/out/debug/i8086-mz/app.exe"});
     CHECK(plan.argv == strs({"dcc", "src/main.dc", "-o", ".dpm/out/debug/i8086-mz/app.exe", "-Isrc", "--depfile", ".dpm/out/debug/i8086-mz/app.exe.d", "--compdb-entry",
-                             ".dpm/out/debug/i8086-mz/app.exe.compdb.json", "-target=i8086-mz", "-O0", "-g", "-fbounds-check", "-fbase=0800:0100"}));
+                             ".dpm/out/debug/i8086-mz/app.exe.compdb.json", "-target=i8086-mz", "-O0", "-fwhole-program", "-g", "-fbounds-check", "-fbase=0800:0100"}));
     auto flat = base_project();
     flat.products[0].settings.target = m::Target::I8086Binary;
     CHECK_EQ(b::plan_product(request_for(flat), flat.products[0]).output.generic_string(), std::string{".dpm/out/debug/i8086-binary/app.bin"});
@@ -112,7 +112,7 @@ TEST_CASE("shared libraries carry their link flags before the settings and extra
     auto plan = b::plan_product(request_for(project), project.products[0]);
     CHECK_EQ(plan.output.generic_string(), std::string{".dpm/out/debug/host/libapp.so"});
     CHECK(plan.argv == strs({"dcc", "src/main.dc", "-o", ".dpm/out/debug/host/libapp.so", "-Isrc", "--depfile", ".dpm/out/debug/host/libapp.so.d", "--compdb-entry",
-                             ".dpm/out/debug/host/libapp.so.compdb.json", "-shared", "-lm", "-lz", "-O0", "-flibdcext", "-g", "-fbounds-check", "-fno-simd", "-fno-x87"}));
+                             ".dpm/out/debug/host/libapp.so.compdb.json", "-shared", "-lm", "-lz", "-O0", "-fwhole-program", "-flibdcext", "-g", "-fbounds-check", "-fno-simd", "-fno-x87"}));
 }
 
 TEST_CASE("custom profiles inherit and command line overrides win")
@@ -146,7 +146,7 @@ TEST_CASE("test plans compile the test file with dev roots and no product flags"
     r.packages = {{"github.com/u/c", "/cache/src/cc/src", true}};
     auto plan = b::plan_test(r, "tests/basic.dc");
     CHECK(plan.argv == strs({"dcc", "tests/basic.dc", "-o", ".dpm/out/debug/host/tests/basic", "-I/cache/src/cc/src", "-Isrc", "--depfile",
-                             ".dpm/out/debug/host/tests/basic.d", "--compdb-entry", ".dpm/out/debug/host/tests/basic.compdb.json", "-O0", "-flibdcext", "-g", "-fbounds-check"}));
+                             ".dpm/out/debug/host/tests/basic.d", "--compdb-entry", ".dpm/out/debug/host/tests/basic.compdb.json", "-O0", "-fwhole-program", "-flibdcext", "-g", "-fbounds-check"}));
 }
 
 TEST_CASE("targets parse from triples")

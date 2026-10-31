@@ -120,7 +120,10 @@ public struct Settings
     Model model = Model::Default;
     /// Optimization level.
     Optimize optimize = Optimize::Default;
-    /// Whole-program compilation (`-fwhole-program`).
+    /// Whole-program compilation (`-fwhole-program`). dpm compiles a product with one
+    /// dcc command, which includes the other modules of the import graph only in
+    /// whole-program mode, so the debug and release profiles turn it on; `Off` is
+    /// only useful for programs of a single module.
     Tri whole_program = Tri::Default;
     /// libdcext variant.
     Libdcext libdcext = Libdcext::Default;
