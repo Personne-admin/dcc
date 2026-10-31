@@ -249,9 +249,25 @@ export namespace dcc::ctfe
 
         bool question_operand_seen(types::TypePtr type) const { return type && m_question_operand_types.find(type) != m_question_operand_types.end(); }
 
+        static bool pointer_converts_by_qualification_only(types::TypePtr target, types::TypePtr source)
+        {
+            auto const* tp = types::type_cast<types::PointerType>(target);
+            auto const* sp = types::type_cast<types::PointerType>(source);
+            return tp && sp && tp->pointee == sp->pointee && tp->flavor == sp->flavor && tp->segment == sp->segment && tp->byte_size == sp->byte_size;
+        }
+
+        static bool slice_converts_by_qualification_only(types::TypePtr target, types::TypePtr source)
+        {
+            auto const* ts = types::type_cast<types::SliceType>(target);
+            auto const* ss = types::type_cast<types::SliceType>(source);
+            return ts && ss && ts->element == ss->element && ts->flavor == ss->flavor && ts->segment == ss->segment && ts->byte_size == ss->byte_size;
+        }
+
         static bool converts_cleanly(comptime::Value const& value, types::TypePtr target)
         {
-            return value.kind() != Kind::Unknown || !target || !value.type || target == value.type;
+            if (value.kind() != Kind::Unknown || !target || !value.type || target == value.type)
+                return true;
+            return pointer_converts_by_qualification_only(target, value.type) || slice_converts_by_qualification_only(target, value.type);
         }
 
         Result require_truth(comptime::Value const* value, std::string message)

@@ -945,6 +945,38 @@ public i32 dcc_main() {
     CHECK(region.find("bump") != std::string::npos);
 }
 
+TEST_CASE("unknown value converts to a const qualified parameter")
+{
+    Fixture fx(R"dc(
+struct Node {
+    u32 value;
+}
+
+u32 read_node(const Node* node) {
+    return node.value;
+}
+
+u32 probe(Node* node, u32 k) {
+    return read_node(node) + k;
+}
+
+@nomangle
+public i32 dcc_main() {
+    Node node = {value = 4};
+    return probe(&node, 5) as i32;
+}
+)dc");
+    REQUIRE(fx.ok());
+    irc::IrContext ir_ctx;
+    lower::Lowerer lowerer(ir_ctx, &fx.sema->spec_registry(), &fx.sema->graph(), false, &fx.sm, &fx.sema->types(), false, true);
+    auto* ir_mod = lowerer.lower_module(*fx.mod);
+    auto text = irc::IrSerializer::dump(ir_mod);
+    CHECK(lowerer.specialize_stats().succeeded > 0u);
+    auto region = slice_function_region(text, "probe");
+    REQUIRE(!region.empty());
+    CHECK(region.find("read_node") != std::string::npos);
+}
+
 TEST_CASE("money format over literal specializes to straight-line writes")
 {
     REQUIRE(std::getenv("DCC_TEST_LIBDCEXT_SRC") != nullptr);
