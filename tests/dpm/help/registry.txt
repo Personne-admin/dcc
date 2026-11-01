@@ -6,6 +6,8 @@ the usual way to add a version.
 commands:
   init                      create an empty registry in DIR
   alias                     reserve an alias for a location
+  template                  reserve a name for a template
+  yank-template             mark a template version as yanked
   check                     validate a registry clone
   yank                      mark a version as yanked
 

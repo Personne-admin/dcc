@@ -1,8 +1,9 @@
 usage: dpm registry check [<dir>] [options]
 
-Checks registry.dcon, every alias record and every location pointer: file
-placement, sizes, ordering, unique aliases and locations, and that pointers
-and records agree. Nothing is fetched unless --verify-sources is given.
+Checks registry.dcon, every alias record, every location pointer and every
+template record: file placement, sizes, ordering, unique names and locations,
+and that pointers and records agree. Nothing is fetched unless
+--verify-sources is given.
 
 options:
   --registry-dir <dir>      registry clone to read and write. The default is

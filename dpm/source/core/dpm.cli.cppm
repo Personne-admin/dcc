@@ -214,8 +214,9 @@ export namespace dpm::cli
          false, detail::codes({0, 1, 2, 3, 4, 5}), false},
         {"publish", "", "write the registry entry for the current version",
          "Checks the package (alias, no path dependencies, requires_dcc, a clean git tree, a tag at HEAD, the version at the tag), builds it, computes the "
-         "commit and the tree hash, and writes the alias record and location pointer into a registry clone. It never pushes and runs no git command in "
-         "the registry: it prints the commands for you to run.",
+         "commit and the tree hash, and writes the alias record and location pointer into a registry clone. In a directory that has a template.dcon and "
+         "no project.dcon it publishes the template instead: it must pass 'dpm template check', the version is the one tag (v1.2.3 or 1.2.3) that points at "
+         "HEAD, and the record goes to templates/. It never pushes and runs no git command in the registry: it prints the commands for you to run.",
          detail::publish_opts, 0, 0, false, detail::codes({0, 1, 2, 3, 4, 5}), false},
         {"template", "<command>", "inspect and check project templates", "A template is a directory with a template.dcon and the files to generate; see 'dpm help new'.", {}, 0, 0,
          false, 0, true},
@@ -243,9 +244,17 @@ export namespace dpm::cli
         {"registry alias", "<location> <alias>", "reserve an alias for a location",
          "Writes an alias record without versions and its location pointer. Fails if the alias or the location is already taken.",
          detail::registry_alias_opts, 2, 2, false, detail::codes({0, 1, 2}), false},
+        {"registry template", "<location> <name>", "reserve a name for a template",
+         "Writes a template record without versions. Fails if the name or the location is already taken by another template. Templates have their own names: a "
+         "template and a package alias may share one.",
+         detail::registry_alias_opts, 2, 2, false, detail::codes({0, 1, 2}), false},
+        {"registry yank-template", "<name> <version>", "mark a template version as yanked",
+         "Sets yanked = true on one version of a template record, keeping the rest of the file as it is. New 'dpm new' runs skip a yanked version unless it is "
+         "asked for by name.",
+         detail::registry_yank_opts, 2, 2, false, detail::codes({0, 1, 2}), false},
         {"registry check", "[<dir>]", "validate a registry clone",
-         "Checks registry.dcon, every alias record and every location pointer: file placement, sizes, ordering, unique aliases and locations, and that "
-         "pointers and records agree. Nothing is fetched unless --verify-sources is given.",
+         "Checks registry.dcon, every alias record, every location pointer and every template record: file placement, sizes, ordering, unique names and "
+         "locations, and that pointers and records agree. Nothing is fetched unless --verify-sources is given.",
          detail::registry_check_opts, 0, 1, false, detail::codes({0, 2, 4, 5}), false},
         {"registry yank", "<alias> <version>", "mark a version as yanked",
          "Sets yanked = true on one version of an alias record, keeping the rest of the file as it is. New resolutions skip a yanked version.",

@@ -322,6 +322,198 @@ TEST_CASE("set_yanked edits the record on disk and reports no change when it alr
     CHECK(pub::scan_registry(td.path, context()).problems.empty());
 }
 
+namespace
+{
+    dpm::manifest::RegistryTemplate make_template_record()
+    {
+        dpm::manifest::RegistryTemplate t;
+        t.name = "limine-x86-64";
+        t.location = "github.com/u/tpl";
+        t.description = "a \"quoted\" description";
+        auto first = make_version("1.0.0");
+        first.source = "git+https://github.com/u/tpl.git";
+        auto second = make_version("1.1.0");
+        second.source = "git+https://github.com/u/tpl.git";
+        second.requires_dcc = "0.3.0";
+        second.yanked = true;
+        t.versions = {first, second};
+        return t;
+    }
+
+    std::string template_file(std::string const& name, std::string const& location, std::string const& versions = {})
+    {
+        return std::format("dpm::v1::RegistryTemplate {{ name = \"{}\", location = \"{}\", versions = {{ {} }} }}\n", name, location, versions);
+    }
+
+    std::string template_version_text(std::string const& version, std::string const& source)
+    {
+        return std::format("{{ version = \"{}\", source = \"{}\", commit = \"{}\", hash = \"{}\" }}", version, source, k_commit, k_hash);
+    }
+} // namespace
+
+TEST_CASE("a template record prints canonically and loads back to the same record")
+{
+    if (schema_root().empty())
+        return;
+    auto record = make_template_record();
+    auto text = pub::print_template(record);
+    CHECK(text.starts_with("dpm::v1::RegistryTemplate {\n    name = \"limine-x86-64\",\n"));
+    CHECK(!contains(text, "alias"));
+    dpm::manifest::LoadOptions options;
+    options.schema_root = schema_root();
+    options.kind = dpm::manifest::FileKind::RegistryTemplate;
+    auto loaded = dpm::manifest::load(text, options);
+    if (!loaded.ok)
+        for (auto const& d : loaded.diagnostics)
+            std::println(std::cerr, "{}", d.format());
+    REQUIRE(loaded.ok);
+    REQUIRE(loaded.registry_template.has_value());
+    auto const& back = *loaded.registry_template;
+    CHECK_EQ(back.name, record.name);
+    CHECK_EQ(back.description, record.description);
+    REQUIRE(back.versions.size() == std::size_t{2});
+    CHECK(back.versions[1].yanked);
+    CHECK_EQ(back.versions[1].requires_dcc, std::string{"0.3.0"});
+    CHECK_EQ(pub::print_template(back), text);
+    record.versions.clear();
+    auto empty = dpm::manifest::load(pub::print_template(record), options);
+    REQUIRE(empty.ok);
+    CHECK(empty.registry_template->versions.empty());
+}
+
+TEST_CASE("the registry check reads the templates directory")
+{
+    if (schema_root().empty())
+        return;
+    TempDir td;
+    make_registry(td);
+    td.write(dpm::registry::template_path("limine-x86-64"), pub::print_template(make_template_record()));
+    td.write(dpm::registry::template_path("kernel"), template_file("kernel", "github.com/u/kernel-tpl"));
+    auto scan = pub::scan_registry(td.path, context());
+    CHECK(scan.problems.empty());
+    CHECK_EQ(scan.templates.size(), std::size_t{2});
+    CHECK(scan.templates.contains("kernel"));
+    CHECK_EQ(scan.templates.at("limine-x86-64").versions.size(), std::size_t{2});
+}
+
+TEST_CASE("the registry check reports every kind of template inconsistency")
+{
+    if (schema_root().empty())
+        return;
+    TempDir td;
+    make_registry(td);
+    td.write("templates/zz/zzz.dcon", template_file("other", "github.com/u/a"));
+    td.write(dpm::registry::template_path("kernel"), template_file("kernel", "github.com/u/k"));
+    td.write("templates/ke/kernel2.dcon", template_file("kernel", "github.com/u/k2"));
+    td.write(dpm::registry::template_path("twin"), template_file("twin", "github.com/u/k"));
+    td.write(dpm::registry::template_path("moved"), template_file("moved", "github.com/u/moved", template_version_text("1.0.0", "git+https://evil.example/u/moved.git")));
+    td.write("templates/bd/bad.dcon", "dpm::v1::RegistryTemplate { name = ");
+    td.write("templates/notes.txt", "stray");
+    td.write("templates/ke/readme.md", "stray");
+    td.write(dpm::registry::template_path("ok-one"), template_file("ok-one", "github.com/u/ok"));
+    auto scan = pub::scan_registry(td.path, context());
+    CHECK(has_problem(scan.problems, "templates/zz/zzz.dcon", "does not belong at this path"));
+    CHECK(has_problem(scan.problems, "templates/ke/kernel2.dcon", "does not belong at this path"));
+    CHECK(has_problem(scan.problems, "templates/ke/kernel2.dcon", "is already defined"));
+    bool claimed = has_problem(scan.problems, dpm::registry::template_path("kernel"), "already claimed by template") || has_problem(scan.problems, dpm::registry::template_path("twin"), "already claimed by template");
+    CHECK(claimed);
+    CHECK(has_problem(scan.problems, dpm::registry::template_path("moved"), "does not belong to github.com/u/moved"));
+    CHECK(has_problem(scan.problems, "templates/bd/bad.dcon", ""));
+    CHECK(has_problem(scan.problems, "templates/notes.txt", "unexpected entry"));
+    CHECK(has_problem(scan.problems, "templates/ke/readme.md", "template records must end in .dcon"));
+    CHECK(!has_problem(scan.problems, dpm::registry::template_path("ok-one"), ""));
+}
+
+TEST_CASE("a templates path that is a file is reported")
+{
+    if (schema_root().empty())
+        return;
+    TempDir td;
+    make_registry(td);
+    td.write("templates", "not a directory");
+    auto scan = pub::scan_registry(td.path, context());
+    CHECK(has_problem(scan.problems, "templates", "not a directory"));
+}
+
+TEST_CASE("creating a template writes one record, no pointer, and refuses duplicates")
+{
+    if (schema_root().empty())
+        return;
+    TempDir td;
+    make_registry(td);
+    std::string error;
+    auto first = pub::create_template(td.path, "github.com/u/tpl", "kernel", "a kernel", context(), false, error);
+    REQUIRE(first.has_value());
+    CHECK(first->changed);
+    CHECK_EQ(first->files, std::vector<std::string>{dpm::registry::template_path("kernel")});
+    CHECK(!first->pointer_rel.has_value());
+    CHECK(!fs::exists(td.path / "locations"));
+    CHECK(contains(td.read(dpm::registry::template_path("kernel")), "description = \"a kernel\""));
+    CHECK(pub::scan_registry(td.path, context()).problems.empty());
+    CHECK(!pub::create_template(td.path, "github.com/u/other", "kernel", {}, context(), false, error).has_value());
+    CHECK(contains(error, "already taken"));
+    CHECK(!pub::create_template(td.path, "github.com/u/other", "KERNEL", {}, context(), false, error).has_value());
+    CHECK(!pub::create_template(td.path, "github.com/u/tpl", "second", {}, context(), false, error).has_value());
+    CHECK(contains(error, "already claimed by template 'kernel'"));
+    CHECK(!pub::create_template(td.path, "someothername", "third", {}, context(), false, error).has_value());
+    CHECK(!pub::create_template(td.path, "path:../x", "fourth", {}, context(), false, error).has_value());
+    CHECK(!pub::create_template(td.path, "github.com/u/ok", "Bad Name", {}, context(), false, error).has_value());
+    CHECK(contains(error, "not a valid template name"));
+    CHECK(!fs::exists(td.path / dpm::registry::template_path("second")));
+    auto dry = pub::create_template(td.path, "github.com/u/dry", "dry-run", {}, context(), true, error);
+    REQUIRE(dry.has_value());
+    CHECK(!fs::exists(td.path / dpm::registry::template_path("dry-run")));
+    TempDir not_a_registry;
+    CHECK(!pub::create_template(not_a_registry.path, "github.com/u/x", "kernel", {}, context(), false, error).has_value());
+    CHECK(contains(error, "not a registry"));
+}
+
+TEST_CASE("a template alias and a package alias with the same name live side by side")
+{
+    if (schema_root().empty())
+        return;
+    TempDir td;
+    make_registry(td);
+    std::string error;
+    REQUIRE(pub::create_alias(td.path, "github.com/u/json5", "shared", {}, context(), false, error).has_value());
+    REQUIRE(pub::create_template(td.path, "github.com/u/shared-tpl", "shared", {}, context(), false, error).has_value());
+    auto scan = pub::scan_registry(td.path, context());
+    CHECK(scan.problems.empty());
+    CHECK(scan.aliases.contains("shared"));
+    CHECK(scan.templates.contains("shared"));
+}
+
+TEST_CASE("set_template_yanked edits the record on disk and reports no change when it already matches")
+{
+    if (schema_root().empty())
+        return;
+    TempDir td;
+    make_registry(td);
+    auto record = make_template_record();
+    record.versions[1].yanked = false;
+    td.write(dpm::registry::template_path(record.name), pub::print_template(record));
+    std::string error;
+    auto yanked = pub::set_template_yanked(td.path, record.name, "1.1.0", true, context(), false, error);
+    REQUIRE(yanked.has_value());
+    CHECK(yanked->changed);
+    auto text = td.read(dpm::registry::template_path(record.name));
+    CHECK(contains(text, "yanked = true"));
+    CHECK(pub::scan_registry(td.path, context()).problems.empty());
+    auto again = pub::set_template_yanked(td.path, record.name, "1.1.0", true, context(), false, error);
+    REQUIRE(again.has_value());
+    CHECK(!again->changed);
+    auto undone = pub::set_template_yanked(td.path, record.name, "1.1.0", false, context(), false, error);
+    REQUIRE(undone.has_value());
+    CHECK(undone->changed);
+    CHECK(contains(td.read(dpm::registry::template_path(record.name)), "yanked = false"));
+    auto scan_after = pub::scan_registry(td.path, context());
+    CHECK(scan_after.problems.empty());
+    CHECK(!scan_after.templates.at(record.name).versions[1].yanked);
+    CHECK(!pub::set_template_yanked(td.path, record.name, "9.9.9", true, context(), false, error).has_value());
+    CHECK(!pub::set_template_yanked(td.path, "missing", "1.0.0", true, context(), false, error).has_value());
+    CHECK(contains(error, "is not in"));
+}
+
 TEST_CASE("printed git commands quote every argument and are never run")
 {
     pub::Written written;

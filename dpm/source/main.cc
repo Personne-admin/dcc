@@ -1867,6 +1867,55 @@ namespace
             std::println("    {}", line);
     }
 
+    int cmd_publish_template(Common common, fs::path registry_dir)
+    {
+        bool dry_run = common.dry_run;
+        Session s;
+        s.common = common;
+        s.policy = fetch_policy(common);
+        s.options.schema_root = schema_root();
+        s.options.allow_file_urls = s.policy.allow_file;
+        if (auto failed = load_user_config(s))
+            return *failed;
+        if (s.user.offline)
+            s.policy.offline = true;
+        auto cache_root = dpm::cache::default_root();
+        if (!s.user.cache_dir.empty() && !(std::getenv("DPM_HOME") && *std::getenv("DPM_HOME")))
+            cache_root = s.user.cache_dir;
+        s.cache = dpm::cache::Cache{fs::absolute(cache_root)};
+        dpm::publish::TemplatePublishInput input;
+        input.template_dir = ".";
+        input.registry_dir = registry_dir;
+        input.location = common.location;
+        input.dcc_version = dcc_version();
+        input.cache = s.cache;
+        input.policy = s.policy;
+        input.ctx = publish_context();
+        std::string error;
+        auto prepared = dpm::publish::prepare_template(input, error);
+        if (!prepared)
+        {
+            std::println(std::cerr, "error: {}", error);
+            return resolution_exit(error) == k_exit_network ? k_exit_network : k_exit_failure;
+        }
+        auto written = dpm::publish::write_template_entry(*prepared, input, dry_run, error);
+        if (!written)
+        {
+            std::println(std::cerr, "error: {}", error);
+            return k_exit_failure;
+        }
+        std::println("{} {} -> {}", prepared->name, prepared->entry.version, prepared->location);
+        std::println("  tag {}  commit {}  hash {}", prepared->tag, prepared->entry.commit, prepared->entry.hash);
+        if (!written->changed)
+        {
+            std::println("version {} is already in the registry with these contents", prepared->entry.version);
+            return 0;
+        }
+        print_written(registry_dir, *written, dry_run, std::format("publish-template-{}-{}", prepared->name, prepared->entry.version),
+                      std::format("add template {} {}", prepared->name, prepared->entry.version));
+        return 0;
+    }
+
     int cmd_publish(Common common)
     {
         auto registry_dir = pick_registry_dir(common);
@@ -1875,6 +1924,16 @@ namespace
             std::println(std::cerr, "error: pass --registry-dir DIR (no ./dc-registry here)");
             return k_exit_usage;
         }
+        std::error_code exists_ec;
+        bool const has_project = fs::exists(k_project_file, exists_ec);
+        bool const has_template = fs::exists(dpm::stage::k_template_file, exists_ec);
+        if (has_template && has_project)
+        {
+            std::println(std::cerr, "error: this directory has both project.dcon and template.dcon; publish the package and the template from separate directories");
+            return k_exit_usage;
+        }
+        if (has_template)
+            return cmd_publish_template(std::move(common), *registry_dir);
         bool dry_run = common.dry_run;
         bool no_build = common.no_build;
         auto location = common.location;
@@ -1944,6 +2003,37 @@ namespace
             return 0;
         }
         auto dir = pick_registry_dir(common);
+        if (sub == "template" || sub == "yank-template")
+        {
+            if (!dir)
+            {
+                std::println(std::cerr, "error: pass --registry-dir DIR (no ./dc-registry here)");
+                return k_exit_usage;
+            }
+            bool const create = sub == "template";
+            std::optional<dpm::publish::Written> written;
+            std::string branch;
+            std::string message;
+            if (create)
+            {
+                written = dpm::publish::create_template(*dir, common.positional[0], common.positional[1], {}, ctx, common.dry_run, error);
+                branch = "template-" + common.positional[1];
+                message = "add template " + common.positional[1];
+            }
+            else
+            {
+                written = dpm::publish::set_template_yanked(*dir, common.positional[0], common.positional[1], !common.undo, ctx, common.dry_run, error);
+                branch = std::format("{}-template-{}-{}", common.undo ? "unyank" : "yank", common.positional[0], common.positional[1]);
+                message = std::format("{} template {} {}", common.undo ? "unyank" : "yank", common.positional[0], common.positional[1]);
+            }
+            if (!written)
+            {
+                std::println(std::cerr, "error: {}", error);
+                return k_exit_failure;
+            }
+            print_written(*dir, *written, common.dry_run, branch, message);
+            return 0;
+        }
         if (sub == "alias" || sub == "yank")
         {
             bool const alias = sub == "alias";
@@ -2001,7 +2091,11 @@ namespace
             std::size_t versions = 0;
             for (auto const& [name, record] : scan.aliases)
                 versions += record.versions.size();
-            std::println("{} aliases, {} versions, {} location pointers, {} problems", scan.aliases.size(), versions, scan.pointers.size(), problems.size());
+            std::size_t template_versions = 0;
+            for (auto const& [name, record] : scan.templates)
+                template_versions += record.versions.size();
+            std::println("{} aliases, {} versions, {} location pointers, {} templates, {} template versions, {} problems", scan.aliases.size(), versions,
+                         scan.pointers.size(), scan.templates.size(), template_versions, problems.size());
             return code;
         }
         return k_exit_usage;

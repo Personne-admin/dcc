@@ -29,6 +29,10 @@ commands:
   registry init <dir>       create an empty registry in DIR
   registry alias <location> <alias>
                             reserve an alias for a location
+  registry template <location> <name>
+                            reserve a name for a template
+  registry yank-template <name> <version>
+                            mark a template version as yanked
   registry check [<dir>]    validate a registry clone
   registry yank <alias> <version>
                             mark a version as yanked
@@ -40,3 +44,5 @@ common options (see 'dpm help <command>' for the options of one command):
                             cache
   --refresh                 ignore the 24-hour freshness window of cached
                             registry files
+  --dry-run                 show what would change and write nothing
+  --registry-dir <dir>      registry clone to read and write

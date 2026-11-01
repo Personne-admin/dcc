@@ -227,7 +227,7 @@ export namespace dpm::edit
         {
             Prepared p;
             p.loaded = manifest::load(text, options);
-            if (!p.loaded.ok || !(p.loaded.project || p.loaded.registry_alias))
+            if (!p.loaded.ok || !(p.loaded.project || p.loaded.registry_alias || p.loaded.registry_template))
             {
                 EditResult r;
                 r.diagnostics = p.loaded.diagnostics;
@@ -538,14 +538,15 @@ export namespace dpm::edit
 
     [[nodiscard]] inline EditResult set_registry_yanked(std::string_view text, manifest::LoadOptions options, std::string_view version, bool yanked)
     {
-        options.kind = manifest::FileKind::RegistryAlias;
+        bool const for_template = options.kind == manifest::FileKind::RegistryTemplate;
+        options.kind = for_template ? manifest::FileKind::RegistryTemplate : manifest::FileKind::RegistryAlias;
         auto prepared = detail::prepare(text, options);
         if (auto* failed = std::get_if<EditResult>(&prepared))
             return std::move(*failed);
         auto& p = std::get<detail::Prepared>(prepared);
-        if (!p.loaded.registry_alias)
-            return detail::fail("not an alias record");
-        auto const& versions = p.loaded.registry_alias->versions;
+        if (for_template ? !p.loaded.registry_template : !p.loaded.registry_alias)
+            return detail::fail(for_template ? "not a template record" : "not an alias record");
+        auto const& versions = for_template ? p.loaded.registry_template->versions : p.loaded.registry_alias->versions;
         std::optional<std::size_t> index;
         for (std::size_t i = 0; i < versions.size(); ++i)
             if (versions[i].version == version)
