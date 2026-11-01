@@ -1,0 +1,9 @@
+=== KIND: RegistryTemplate ===
+=== FILE: project.dcon ===
+{ name = "tiny", location = "github.com/u/tpl", versions = { } }
+=== EXPECT-TREE ===
+{
+  name = "tiny",
+  location = "github.com/u/tpl",
+  versions = [],
+}

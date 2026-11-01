@@ -269,6 +269,89 @@ TEST_CASE("an alias record must describe the alias that was asked for and its so
     CHECK(!client.alias("tarloc", error).has_value());
 }
 
+namespace
+{
+    std::string template_text(std::string const& name, std::string const& location, std::vector<std::string> const& versions)
+    {
+        std::string joined;
+        for (auto const& v : versions)
+            joined += (joined.empty() ? "" : ", ") + v;
+        return std::format("dpm::v1::RegistryTemplate {{ name = \"{}\", location = \"{}\", versions = {{ {} }} }}\n", name, location, joined);
+    }
+} // namespace
+
+TEST_CASE("template record paths are derived from the template name and live apart from aliases")
+{
+    CHECK_EQ(reg::template_path("limine-x86-64"), std::string{"templates/li/limine-x86-64.dcon"});
+    CHECK_EQ(reg::template_path("ab"), std::string{"templates/ab/ab.dcon"});
+    CHECK_EQ(reg::template_path("x"), std::string{"templates/_x/x.dcon"});
+    CHECK(reg::template_path("json5") != reg::alias_path("json5"));
+}
+
+TEST_CASE("a template is read from the templates directory, not from the aliases")
+{
+    if (schema_root().empty())
+        return;
+    TempDir registry;
+    TempDir home;
+    registry.write("registry.dcon", std::string{k_config});
+    std::string const git = "git+https://github.com/u/tpl.git";
+    registry.write(reg::template_path("kernel"), template_text("kernel", "github.com/u/tpl", {version_text("1.0.0", git), version_text("1.1.0", git, k_hash, ", yanked = true")}));
+    put_alias(registry, "kernel", "github.com/u/some-package", {version_text("2.0.0", "git+https://github.com/u/some-package.git")});
+    reg::Client client{dpm::cache::Cache{home.path}, make_config(registry, home)};
+    std::string error;
+    auto hit = client.tmpl("kernel", error);
+    REQUIRE(hit.has_value());
+    CHECK_EQ(hit->record.location, std::string{"github.com/u/tpl"});
+    CHECK_EQ(hit->record.versions.size(), std::size_t{2});
+    CHECK_EQ(hit->registry, "file://" + registry.path.string());
+    auto package = client.alias("kernel", error);
+    REQUIRE(package.has_value());
+    CHECK_EQ(package->record.location, std::string{"github.com/u/some-package"});
+    CHECK(!client.tmpl("absent", error).has_value());
+    CHECK(error.find("template 'absent' is not in any registry") != std::string::npos);
+    CHECK(!client.alias("absent", error).has_value());
+    CHECK(error.find("alias 'absent' is not in any registry") != std::string::npos);
+    CHECK_EQ(reg::latest_version(hit->record.versions, std::nullopt).value_or(""), std::string{"1.0.0"});
+}
+
+TEST_CASE("a template record must describe the template that was asked for and its sources must belong to its location")
+{
+    if (schema_root().empty())
+        return;
+    TempDir registry;
+    TempDir home;
+    registry.write("registry.dcon", std::string{k_config});
+    registry.write(reg::template_path("liar"), template_text("other-name", "github.com/u/tpl", {version_text("1.0.0", "git+https://github.com/u/tpl.git")}));
+    registry.write(reg::template_path("moved"), template_text("moved", "github.com/u/moved", {version_text("1.0.0", "git+https://evil.example/u/moved.git")}));
+    registry.write(reg::template_path("broken"), "dpm::v1::RegistryTemplate { name = \"broken\" }\n");
+    registry.write(reg::template_path("alias-file"), alias_text("alias-file", "github.com/u/p", {}));
+    reg::Client client{dpm::cache::Cache{home.path}, make_config(registry, home)};
+    std::string error;
+    CHECK(!client.tmpl("liar", error).has_value());
+    CHECK(error.find("describes template 'other-name'") != std::string::npos);
+    CHECK(!client.tmpl("moved", error).has_value());
+    CHECK(error.find("does not belong to github.com/u/moved") != std::string::npos);
+    CHECK(!client.tmpl("broken", error).has_value());
+    CHECK(!client.tmpl("alias-file", error).has_value());
+}
+
+TEST_CASE("a template lookup is remembered, and a registry without templates simply has none")
+{
+    if (schema_root().empty())
+        return;
+    TempDir registry;
+    TempDir home;
+    registry.write("registry.dcon", std::string{k_config});
+    reg::Client client{dpm::cache::Cache{home.path}, make_config(registry, home)};
+    std::string error;
+    CHECK(!client.tmpl("kernel", error).has_value());
+    registry.write(reg::template_path("kernel"), template_text("kernel", "github.com/u/tpl", {}));
+    CHECK(!client.tmpl("kernel", error).has_value());
+    reg::Client fresh{dpm::cache::Cache{home.path}, make_config(registry, home)};
+    CHECK(fresh.tmpl("kernel", error).has_value());
+}
+
 TEST_CASE("registry files larger than the limit are refused")
 {
     if (schema_root().empty())

@@ -210,7 +210,9 @@ def scenario_new():
     r = dpm(parent, "new", "x", "--template", "builtin:nope")
     check(r.returncode == 2 and "no built-in template" in r.stderr, "an unknown built-in template", detail(r))
     r = dpm(parent, "new", "x", "--template", "sample")
-    check(r.returncode == 2 and "not a built-in template" in r.stderr, "a bare word is not a path", detail(r))
+    check(r.returncode == 4 and "no registry is configured" in r.stderr, "a bare word is a registry template name", detail(r))
+    r = dpm(parent, "new", "x", "--template", "Not_A_Name")
+    check(r.returncode == 2 and "not a built-in template" in r.stderr, "a word that is no template name is not looked up", detail(r))
     version = subprocess.run([DPM, "--version"], capture_output=True, text=True, env=ENV)
     dcc_version = subprocess.run([DCC, "--version"], capture_output=True, text=True, env=ENV).stdout.split()[1]
     check(version.returncode == 0 and re.fullmatch(r"dpm %s \(\S+\)\n" % re.escape(dcc_version), version.stdout) is not None, "dpm --version prints the toolchain version", version.stdout)
@@ -415,6 +417,88 @@ def scenario_new_fetch():
     check(r.returncode == 3 and "has no template.dcon" in r.stderr and not os.path.exists(os.path.join(parent, "notpl")), "a repository without template.dcon is a template error", detail(r))
     leftovers = [n for n in os.listdir(parent) if n.startswith(".dpm-new")]
     check(leftovers == [], "no staging directory is left behind by fetched templates")
+
+
+def scenario_new_registry():
+    parent = os.path.join(ROOT, "newreg")
+    os.makedirs(parent)
+    repo = make_template_repo("regtpl", [("v1.0.0", "First Edition"), ("v1.1.0", "Second Edition"), ("v2.0.0", "Third Edition")])
+    facts = {}
+    for version in ("1.0.0", "1.1.0", "2.0.0"):
+        r = dpm(parent, "template", "info", "git+file://%s@%s" % (repo, version))
+        m = FETCH_LINE.search(r.stdout)
+        check(r.returncode == 0 and m is not None, "probe the template at " + version, detail(r))
+        facts[version] = (m.group(2), m.group(3))
+
+    def record(name, location, versions, extra=None):
+        entries = []
+        for version in versions:
+            commit, digest = facts[version]
+            entry = '{ version = "%s", source = "git+file://%s", commit = "%s", hash = "%s"%s }' % (version, repo, commit, digest, (extra or {}).get(version, ""))
+            entries.append(entry)
+        return 'dpm::v1::RegistryTemplate { name = "%s", location = "git+file://%s", versions = { %s } }\n' % (name, location, ", ".join(entries))
+
+    reg = Registry("tpls")
+    write(os.path.join(reg.dir, "templates", "sa", "sample.dcon"), record("sample", repo, ["1.0.0", "1.1.0", "2.0.0"], {"1.1.0": ", yanked = true"}))
+    env = {"DPM_REGISTRY": reg.url}
+
+    r = dpm(parent, "new", "latest", "--template", "sample", "--set", "owner=me", env=env)
+    check(r.returncode == 0 and "template sample@2.0.0 from %s commit %s hash %s" % (reg.url, facts["2.0.0"][0], facts["2.0.0"][1]) in r.stdout and "was not pinned" not in r.stderr,
+          "a registry template is fetched at the latest version that is not yanked", detail(r))
+    check(read(os.path.join(parent, "latest", "README.md")).startswith("# Third Edition\n"), "the registry's version supplies the files")
+    r = dpm(parent, "new", "older", "--template", "sample@1.0.0", "--set", "owner=me", env=env)
+    check(r.returncode == 0 and read(os.path.join(parent, "older", "README.md")).startswith("# First Edition\n"), "name@version selects a version", detail(r))
+    r = dpm(parent, "new", "yanked", "--template", "sample@1.1.0", "--set", "owner=me", env=env)
+    check(r.returncode == 0 and "sample@1.1.0 is yanked" in r.stderr, "a yanked version can still be asked for, with a warning", detail(r))
+    r = dpm(parent, "new", "pinned", "--template", "sample", "--set", "owner=me", "--pin", facts["2.0.0"][1], env=env)
+    check(r.returncode == 0, "a --pin equal to the record's hash is accepted", detail(r))
+    r = dpm(parent, "new", "wrongpin", "--template", "sample", "--set", "owner=me", "--pin", "sha256:" + "2" * 64, env=env)
+    check(r.returncode == 4 and "the registry lists" in r.stderr and not os.path.exists(os.path.join(parent, "wrongpin")), "a --pin that differs from the record is an integrity error", detail(r))
+    r = dpm(parent, "new", "withref", "--template", "sample", "--ref", "main", env=env)
+    check(r.returncode == 2 and "--ref applies to git locations" in r.stderr, "--ref does not apply to registry templates", detail(r))
+    r = dpm(parent, "new", "novers", "--template", "sample@9.9.9", "--set", "owner=me", env=env)
+    check(r.returncode == 4 and "has no version 9.9.9 (published: 1.0.0, 1.1.0, 2.0.0)" in r.stderr, "an unpublished version is refused with the list", detail(r))
+    r = dpm(parent, "new", "absent", "--template", "nosuchtpl", "--set", "owner=me", env=env)
+    check(r.returncode == 4 and "template 'nosuchtpl' is not in any registry" in r.stderr, "an unknown template name", detail(r))
+    r = dpm(parent, "new", "noreg", "--template", "sample", "--set", "owner=me")
+    check(r.returncode == 4 and "no registry is configured" in r.stderr, "a bare name needs a registry", detail(r))
+    r = dpm(parent, "template", "info", "sample", env=env)
+    check(r.returncode == 0 and "template sample" in r.stdout and "owner (string, required)" in r.stdout, "template info resolves registry names", detail(r))
+
+    bad_hash = record("sample", repo, ["2.0.0"]).replace(facts["2.0.0"][1], "sha256:" + "3" * 64)
+    other = Registry("badtpls")
+    write(os.path.join(other.dir, "templates", "sa", "sample.dcon"), bad_hash)
+    r = dpm(parent, "new", "lying", "--template", "sample", "--set", "owner=me", env={"DPM_REGISTRY": other.url, "DPM_HOME": os.path.join(ROOT, "lying-home")})
+    check(r.returncode == 4 and "hash mismatch" in r.stderr and not os.path.exists(os.path.join(parent, "lying")), "a record whose hash does not match the fetched tree is refused", detail(r))
+
+    claim = Registry("claimtpls")
+    write(os.path.join(claim.dir, "templates", "ot", "other.dcon"), record("other", repo, ["2.0.0"]))
+    r = dpm(parent, "new", "claimed", "--template", "other", "--set", "owner=me", env={"DPM_REGISTRY": claim.url})
+    check(r.returncode == 4 and "is named 'sample', but the registry lists it as 'other'" in r.stderr and not os.path.exists(os.path.join(parent, "claimed")),
+          "a template that does not claim its registry name is refused", detail(r))
+
+    misnamed = Registry("misnamed")
+    write(os.path.join(misnamed.dir, "templates", "sa", "sample.dcon"), record("sample", repo, ["2.0.0"]).replace('name = "sample"', 'name = "different"'))
+    r = dpm(parent, "new", "misnamed", "--template", "sample", "--set", "owner=me", env={"DPM_REGISTRY": misnamed.url})
+    check(r.returncode == 4 and "describes template 'different'" in r.stderr, "a record for another name is refused", detail(r))
+
+    with_alias = Registry("both")
+    write(os.path.join(with_alias.dir, "templates", "sa", "sample.dcon"), record("sample", repo, ["2.0.0"]))
+    libs = make_lib_repo("samplelib", [("1.0.0", 5)])
+    with_alias.add_alias("sample", libs, [{"version": "1.0.0"}])
+    r = dpm(parent, "new", "tplside", "--template", "sample", "--set", "owner=me", env={"DPM_REGISTRY": with_alias.url})
+    check(r.returncode == 0 and os.path.isfile(os.path.join(parent, "tplside", "README.md")), "a template and a package may share a name", detail(r))
+    app = new_app("aliasside")
+    write(os.path.join(app, "src", "main.dc"), import_main("samplelib"))
+    r = dpm(app, "add", "sample", env={"DPM_REGISTRY": with_alias.url})
+    check(r.returncode == 0 and 'location = "sample"' in read(os.path.join(app, "project.dcon")), "and dpm add still finds the package", detail(r))
+
+    home = os.path.join(ROOT, "offline-home")
+    r = dpm(parent, "new", "warm", "--template", "sample", "--set", "owner=me", env={"DPM_REGISTRY": reg.url, "DPM_HOME": home})
+    r2 = dpm(parent, "new", "cold", "--template", "sample", "--set", "owner=me", "--offline", env={"DPM_REGISTRY": reg.url, "DPM_HOME": home})
+    check(r.returncode == 0 and r2.returncode == 0, "offline uses the cached record and tree", detail(r2))
+    r = dpm(parent, "new", "never", "--template", "sample", "--set", "owner=me", "--offline", env={"DPM_REGISTRY": reg.url, "DPM_HOME": os.path.join(ROOT, "empty-home")})
+    check(r.returncode == 5 and not os.path.exists(os.path.join(parent, "never")), "offline with an empty cache is a network error", detail(r))
 
 
 def scenario_run_args():
@@ -1348,6 +1432,7 @@ try:
     scenario_modules()
     scenario_new()
     scenario_new_fetch()
+    scenario_new_registry()
     scenario_path_dependency()
     scenario_git_dependency()
     scenario_offline_and_cache()

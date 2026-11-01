@@ -1,0 +1,5 @@
+=== KIND: RegistryTemplate ===
+=== FILE: project.dcon ===
+{ name = "tiny", location = "github.com/u/tpl", versions = { { version = "1.0.0", source = "git+https://github.com/u/tpl.git", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:62: a git source needs a full commit of 40 lowercase hex digits

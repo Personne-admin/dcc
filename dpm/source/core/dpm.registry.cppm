@@ -121,6 +121,12 @@ export namespace dpm::registry
         return std::format("aliases/{}/{}.dcon", shard, alias);
     }
 
+    [[nodiscard]] inline std::string template_path(std::string_view name)
+    {
+        auto shard = name.size() >= 2 ? std::string{name.substr(0, 2)} : "_" + std::string{name};
+        return std::format("templates/{}/{}.dcon", shard, name);
+    }
+
     [[nodiscard]] inline std::optional<std::string> location_path(std::string_view location)
     {
         static constexpr std::array<std::string_view, 5> hosts{"github.com", "gitlab.com", "codeberg.org", "bitbucket.org", "sr.ht"};
@@ -451,6 +457,12 @@ export namespace dpm::registry
         std::string registry;
     };
 
+    struct TemplateHit
+    {
+        manifest::RegistryTemplate record;
+        std::string registry;
+    };
+
     [[nodiscard]] inline std::optional<std::string> expected_git_source(std::string_view location, fetch::Policy const& policy)
     {
         std::string ignored;
@@ -460,20 +472,25 @@ export namespace dpm::registry
         return "git+" + spec->url + (spec->subdir.empty() ? std::string{} : "#" + spec->subdir);
     }
 
-    [[nodiscard]] inline std::optional<std::string> record_problem(manifest::RegistryAlias const& record, bool allow_file)
+    [[nodiscard]] inline std::optional<std::string> versions_problem(std::string const& location, std::vector<manifest::RegistryVersion> const& versions, bool allow_file)
     {
         fetch::Policy policy;
         policy.allow_file = allow_file;
-        bool const tarball_location = fetch::is_tarball_location(record.location, policy);
-        auto expected = expected_git_source(record.location, policy);
-        for (auto const& v : record.versions)
+        bool const tarball_location = fetch::is_tarball_location(location, policy);
+        auto expected = expected_git_source(location, policy);
+        for (auto const& v : versions)
         {
             if (!v.source.starts_with("git+"))
                 continue;
             if (tarball_location || !expected || v.source != *expected)
-                return std::format("version {} has source {}, which does not belong to {}", v.version, v.source, record.location);
+                return std::format("version {} has source {}, which does not belong to {}", v.version, v.source, location);
         }
         return std::nullopt;
+    }
+
+    [[nodiscard]] inline std::optional<std::string> record_problem(manifest::RegistryAlias const& record, bool allow_file)
+    {
+        return versions_problem(record.location, record.versions, allow_file);
     }
 
     class Client
@@ -504,6 +521,26 @@ export namespace dpm::registry
             if (!result)
                 alias_errors_[name] = error;
             aliases_[name] = result;
+            return result;
+        }
+
+        std::optional<TemplateHit> tmpl(std::string const& name, std::string& error)
+        {
+            if (auto it = templates_.find(name); it != templates_.end())
+            {
+                if (!it->second)
+                    error = template_errors_[name];
+                return it->second;
+            }
+            auto rel = template_path(name);
+            auto found = lookup_record<manifest::RegistryTemplate>(
+                "template", name, rel, error, [&](std::string const& text, std::optional<manifest::RegistryTemplate>& out) { return load_template(text, name, rel, out); });
+            std::optional<TemplateHit> result;
+            if (found)
+                result = TemplateHit{std::move(found->first), std::move(found->second)};
+            else
+                template_errors_[name] = error;
+            templates_[name] = result;
             return result;
         }
 
@@ -579,6 +616,20 @@ export namespace dpm::registry
             return std::nullopt;
         }
 
+        std::optional<std::string> load_template(std::string const& text, std::string const& name, std::string const& rel, std::optional<manifest::RegistryTemplate>& out) const
+        {
+            manifest::LoadResult loaded;
+            if (auto bad = load_file(text, manifest::FileKind::RegistryTemplate, rel, loaded))
+                return bad;
+            auto const& record = *loaded.registry_template;
+            if (record.name != name)
+                return std::format("{} describes template '{}', not '{}'", rel, record.name, name);
+            if (auto problem = versions_problem(record.location, record.versions, config_.allow_file))
+                return std::format("{}: {}", rel, *problem);
+            out = record;
+            return std::nullopt;
+        }
+
         std::optional<std::string> load_alias(std::string const& text, std::string const& name, std::string const& rel, std::optional<manifest::RegistryAlias>& out) const
         {
             manifest::LoadResult loaded;
@@ -616,14 +667,14 @@ export namespace dpm::registry
             return ok;
         }
 
-        std::optional<AliasHit> lookup_alias(std::string const& name, std::string& error)
+        template <class Record, class Load>
+        std::optional<std::pair<Record, std::string>> lookup_record(std::string const& what, std::string const& name, std::string const& rel, std::string& error, Load load)
         {
             if (config_.urls.empty())
             {
                 error = "no registry is configured";
                 return std::nullopt;
             }
-            auto rel = alias_path(name);
             std::vector<std::string> problems;
             for (auto const& base : config_.urls)
             {
@@ -632,8 +683,8 @@ export namespace dpm::registry
                     problems.push_back(std::format("{}: {}", base, unusable_[base]));
                     continue;
                 }
-                std::optional<manifest::RegistryAlias> record;
-                auto got = transport_.get(base, rel, [&](std::string const& text) { return load_alias(text, name, rel, record); });
+                std::optional<Record> record;
+                auto got = transport_.get(base, rel, [&](std::string const& text) { return load(text, record); });
                 if (got.outcome == Outcome::Missing)
                     continue;
                 if (got.outcome == Outcome::Failed)
@@ -646,17 +697,27 @@ export namespace dpm::registry
                     error = std::format("{}: cannot read {}", base, rel);
                     return std::nullopt;
                 }
-                return AliasHit{std::move(*record), base};
+                return std::pair<Record, std::string>{std::move(*record), base};
             }
             if (problems.empty())
-                error = std::format("alias '{}' is not in any registry", name);
+                error = std::format("{} '{}' is not in any registry", what, name);
             else
             {
-                error = std::format("alias '{}' could not be looked up", name);
+                error = std::format("{} '{}' could not be looked up", what, name);
                 for (auto const& p : problems)
                     error += "; " + p;
             }
             return std::nullopt;
+        }
+
+        std::optional<AliasHit> lookup_alias(std::string const& name, std::string& error)
+        {
+            auto rel = alias_path(name);
+            auto found = lookup_record<manifest::RegistryAlias>("alias", name, rel, error,
+                                                                [&](std::string const& text, std::optional<manifest::RegistryAlias>& out) { return load_alias(text, name, rel, out); });
+            if (!found)
+                return std::nullopt;
+            return AliasHit{std::move(found->first), std::move(found->second)};
         }
 
         Transport transport_;
@@ -664,17 +725,19 @@ export namespace dpm::registry
         std::map<std::string, std::optional<AliasHit>> aliases_;
         std::map<std::string, std::string> alias_errors_;
         std::map<std::string, std::optional<AliasHit>> pointers_;
+        std::map<std::string, std::optional<TemplateHit>> templates_;
+        std::map<std::string, std::string> template_errors_;
         std::map<std::string, bool> usable_;
         std::map<std::string, std::string> unusable_;
         std::vector<std::string> warnings_;
         std::vector<std::string> seen_;
     };
 
-    [[nodiscard]] inline std::optional<std::string> latest_version(manifest::RegistryAlias const& record, std::optional<semver::Series> within)
+    [[nodiscard]] inline std::optional<std::string> latest_version(std::span<manifest::RegistryVersion const> versions, std::optional<semver::Series> within)
     {
         std::optional<semver::Version> best;
         std::string best_text;
-        for (auto const& v : record.versions)
+        for (auto const& v : versions)
         {
             if (v.yanked)
                 continue;
@@ -692,6 +755,11 @@ export namespace dpm::registry
         if (!best)
             return std::nullopt;
         return best_text;
+    }
+
+    [[nodiscard]] inline std::optional<std::string> latest_version(manifest::RegistryAlias const& record, std::optional<semver::Series> within)
+    {
+        return latest_version(std::span<manifest::RegistryVersion const>{record.versions}, within);
     }
 
     class RegistrySource : public resolve::RequirementSource

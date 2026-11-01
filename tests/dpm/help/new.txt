@@ -5,10 +5,12 @@ empty) from a template and prints what to do next. Without --template the
 built-in executable template is used, or the library template with --lib. The
 template is a directory (path:DIR, ./DIR or /DIR), a git location
 (github.com/user/repo[/subdir], git+https://host/repo.git[#subdir], optionally
-followed by @version) or an https .tar.gz. A fetched template is checked like
-a dependency, cached by tree hash, and its commit and hash are printed. A
-template is data: nothing in it is run. The project is written into a
-temporary directory first and moved into place only when everything succeeded.
+followed by @version), an https .tar.gz, or the name of a registry template
+(name[@version]). A fetched template is checked like a dependency, cached by
+tree hash, and its commit and hash are printed; a registry template is fetched
+at the commit and hash its registry record lists. A template is data: nothing
+in it is run. The project is written into a temporary directory first and
+moved into place only when everything succeeded.
 
 options:
   --template <source>       generate the project from this template. A
@@ -34,6 +36,8 @@ options:
                             cache. The same as DPM_OFFLINE=1. Something that
                             is missing from the cache is an error (exit code
                             5).
+  --refresh                 ignore the 24-hour freshness window of cached
+                            registry files
 
 exit codes:
   0                         success

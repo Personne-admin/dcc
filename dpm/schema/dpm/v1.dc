@@ -297,6 +297,19 @@ public struct RegistryAlias
     []const RegistryVersion versions;
 }
 
+/// A registry template record, `templates/<prefix>/<name>.dcon`.
+public struct RegistryTemplate
+{
+    /// The template name, as `dpm new --template <name>` writes it.
+    []const char name;
+    /// Canonical location of the template repository.
+    []const char location;
+    /// One-line description.
+    []const char description = "";
+    /// Published versions, ascending. A template version has no dependencies.
+    []const RegistryVersion versions;
+}
+
 /// A registry location pointer, `locations/<host>/<owner>/<repo>.dcon`.
 public struct RegistryLocation
 {

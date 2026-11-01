@@ -1,0 +1,5 @@
+=== KIND: RegistryTemplate ===
+=== FILE: project.dcon ===
+{ name = "tiny", location = "github.com/u/tpl", versions = { { version = "1.0.0", source = "git+https://github.com/u/tpl.git", commit = "cccccccccccccccccccccccccccccccccccccccc", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", dependencies = { { location = "github.com/u/dep", version = "1.0.0" } } } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:278: a template version has no dependencies

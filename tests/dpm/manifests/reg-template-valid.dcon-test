@@ -1,0 +1,24 @@
+=== KIND: RegistryTemplate ===
+=== FILE: project.dcon ===
+dpm::v1::RegistryTemplate { name = "limine-x86-64", location = "github.com/u/tpl", description = "d", versions = { { version = "1.0.0", source = "git+https://github.com/u/tpl.git", commit = "cccccccccccccccccccccccccccccccccccccccc", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, { version = "1.1.0", source = "git+https://github.com/u/tpl.git", commit = "cccccccccccccccccccccccccccccccccccccccc", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", yanked = true } } }
+=== EXPECT-TREE ===
+{
+  name = "limine-x86-64",
+  location = "github.com/u/tpl",
+  description = "d",
+  versions = [
+    {
+      version = "1.0.0",
+      source = "git+https://github.com/u/tpl.git",
+      commit = "cccccccccccccccccccccccccccccccccccccccc",
+      hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    },
+    {
+      version = "1.1.0",
+      source = "git+https://github.com/u/tpl.git",
+      commit = "cccccccccccccccccccccccccccccccccccccccc",
+      hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      yanked = true,
+    },
+  ],
+}

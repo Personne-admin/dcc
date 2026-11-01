@@ -1,0 +1,5 @@
+=== KIND: RegistryTemplate ===
+=== FILE: project.dcon ===
+{ name = "Bad_Name", location = "github.com/u/tpl", versions = { } }
+=== EXPECT-ERRORS ===
+project.dcon:1:10: 'Bad_Name' is not a valid template name; use 2 to 32 lowercase letters, digits, '_' or '-', starting with a letter

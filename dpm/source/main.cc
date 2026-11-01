@@ -1121,6 +1121,132 @@ namespace
         return out;
     }
 
+    bool registry_template_name(std::string_view source)
+    {
+        auto split = split_version(source);
+        return !dpm::manifest::detail::template_name_error(split.location).has_value();
+    }
+
+    std::optional<TemplateSource> fetch_registry_template(Common const& common, std::string_view source, int& code, std::string& error)
+    {
+        code = k_exit_usage;
+        if (!common.ref.empty())
+        {
+            error = "--ref applies to git locations; a registry template is fetched at the commit its record lists";
+            return std::nullopt;
+        }
+        auto split = split_version(source);
+        Session s;
+        s.common = common;
+        s.policy = fetch_policy(common);
+        s.options.schema_root = schema_root();
+        s.options.file_name = std::string{k_project_file};
+        s.options.allow_file_urls = s.policy.allow_file;
+        if (auto failed = load_user_config(s))
+        {
+            code = *failed;
+            error = "cannot read the user configuration";
+            return std::nullopt;
+        }
+        if (s.user.offline)
+            s.policy.offline = true;
+        auto cache_root = dpm::cache::default_root();
+        if (!s.user.cache_dir.empty() && !(std::getenv("DPM_HOME") && *std::getenv("DPM_HOME")))
+            cache_root = s.user.cache_dir;
+        s.cache = dpm::cache::Cache{fs::absolute(cache_root)};
+        auto* client = registry_client(s, error);
+        if (!client)
+            return std::nullopt;
+        auto hit = client->tmpl(split.location, error);
+        print_warnings(client->take_warnings());
+        if (!hit)
+        {
+            code = resolution_exit(error);
+            return std::nullopt;
+        }
+        auto const& record = hit->record;
+        dpm::manifest::RegistryVersion const* chosen = nullptr;
+        if (!split.version.empty())
+        {
+            for (auto const& v : record.versions)
+                if (v.version == split.version)
+                    chosen = &v;
+            if (!chosen)
+            {
+                std::string published;
+                for (auto const& v : record.versions)
+                    published += (published.empty() ? "" : ", ") + v.version;
+                error = std::format("template '{}' has no version {} (published: {})", record.name, split.version, published.empty() ? std::string{"none"} : published);
+                code = k_exit_resolution;
+                return std::nullopt;
+            }
+            if (chosen->yanked)
+                print_warnings({std::format("{}@{} is yanked", record.name, chosen->version)});
+        }
+        else if (auto latest = dpm::registry::latest_version(std::span<dpm::manifest::RegistryVersion const>{record.versions}, std::nullopt))
+        {
+            for (auto const& v : record.versions)
+                if (v.version == *latest)
+                    chosen = &v;
+        }
+        else
+        {
+            error = std::format("template '{}' has no version that can be used; pick one with {}@<version>", record.name, record.name);
+            code = k_exit_resolution;
+            return std::nullopt;
+        }
+        if (!common.pin.empty() && !dpm::hash::is_hash_string(common.pin))
+        {
+            error = std::format("--pin needs a hash like sha256:<64 hex digits>, got '{}'", common.pin);
+            return std::nullopt;
+        }
+        if (!common.pin.empty() && common.pin != chosen->hash)
+        {
+            error = std::format("hash mismatch: the registry lists {} for {}@{}, but --pin is {}", chosen->hash, record.name, chosen->version, common.pin);
+            code = k_exit_resolution;
+            return std::nullopt;
+        }
+        dpm::fetch::Fetched fetched;
+        if (chosen->source.starts_with("git+"))
+        {
+            std::string parse_error;
+            auto spec = dpm::fetch::parse_git_location(chosen->source, s.policy, parse_error);
+            if (!spec)
+            {
+                error = std::format("{}@{}: {}", record.name, chosen->version, parse_error);
+                code = k_exit_resolution;
+                return std::nullopt;
+            }
+            dpm::fetch::GitRequest request;
+            request.spec = *spec;
+            request.commit = chosen->commit;
+            request.hash = chosen->hash;
+            request.tags = dpm::publish::detail::tag_candidates(spec->subdir, chosen->version);
+            request.allow_cached = true;
+            fetched = dpm::fetch::fetch_git(s.cache, request, s.policy);
+        }
+        else
+            fetched = dpm::fetch::fetch_tarball(s.cache, chosen->source, chosen->hash, s.policy, true);
+        if (!fetched.ok)
+        {
+            error = fetched.error;
+            code = resolution_exit(fetched.error);
+            return std::nullopt;
+        }
+        TemplateSource out;
+        out.loaded = dpm::stage::load_template(fetched.path, template_load_options());
+        if (out.loaded.ok() && out.loaded.tmpl.name != record.name)
+        {
+            error = std::format("the template at {} is named '{}', but the registry lists it as '{}'", record.location, out.loaded.tmpl.name, record.name);
+            code = k_exit_resolution;
+            return std::nullopt;
+        }
+        out.label = out.loaded.ok() ? out.loaded.tmpl.name : std::string{source};
+        std::println("template {}@{} from {} commit {} hash {}", record.name, chosen->version, hit->registry, chosen->commit.empty() ? std::string{"-"} : chosen->commit,
+                     chosen->hash);
+        return out;
+    }
+
     std::optional<TemplateSource> open_template(Common const& common, int& code, std::string& error)
     {
         code = k_exit_usage;
@@ -1161,6 +1287,18 @@ namespace
         }
         if (remote_template_source(source))
             return fetch_template(common, source, code, error);
+        if (registry_template_name(source))
+        {
+            auto found = fetch_registry_template(common, source, code, error);
+            std::error_code dir_ec;
+            bool const missing = error.find("is not in any registry") != std::string::npos || error.find("no registry is configured") != std::string::npos;
+            if (!found && missing && fs::is_directory(split_version(source).location, dir_ec))
+            {
+                error += std::format("; '{0}' is also a directory: write ./{0} or path:{0} to use it as a template", split_version(source).location);
+                code = k_exit_usage;
+            }
+            return found;
+        }
         std::error_code ec;
         if (fs::is_directory(source, ec))
             error = std::format("'{0}' is a directory; write ./{0} or path:{0} to use it as a template", source);

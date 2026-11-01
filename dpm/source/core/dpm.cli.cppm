@@ -128,8 +128,8 @@ export namespace dpm::cli
         }
 
         inline constexpr Opt init_opts[] = {Opt::Lib, Opt::Name};
-        inline constexpr Opt new_opts[] = {Opt::Template, Opt::Set, Opt::Lib, Opt::Name, Opt::Ref, Opt::Pin, Opt::Offline};
-        inline constexpr Opt template_info_opts[] = {Opt::Ref, Opt::Pin, Opt::Offline};
+        inline constexpr Opt new_opts[] = {Opt::Template, Opt::Set, Opt::Lib, Opt::Name, Opt::Ref, Opt::Pin, Opt::Offline, Opt::Refresh};
+        inline constexpr Opt template_info_opts[] = {Opt::Ref, Opt::Pin, Opt::Offline, Opt::Refresh};
         inline constexpr Opt add_opts[] = {Opt::ManifestPath, Opt::Dev, Opt::Offline, Opt::Refresh};
         inline constexpr Opt update_opts[] = {Opt::ManifestPath, Opt::DryRun, Opt::Offline, Opt::Refresh};
         inline constexpr Opt lock_opts[] = {Opt::ManifestPath, Opt::Check, Opt::Offline, Opt::Refresh};
@@ -167,8 +167,9 @@ export namespace dpm::cli
         {"new", "[DIR]", "create a project from a template",
          "Generates a project in DIR (default: the current directory, which must be empty) from a template and prints what to do next. Without --template "
          "the built-in executable template is used, or the library template with --lib. The template is a directory (path:DIR, ./DIR or /DIR), a git "
-         "location (github.com/user/repo[/subdir], git+https://host/repo.git[#subdir], optionally followed by @version) or an https .tar.gz. A fetched "
-         "template is checked like a dependency, cached by tree hash, and its commit and hash are printed. A template is data: nothing in it is run. The "
+         "location (github.com/user/repo[/subdir], git+https://host/repo.git[#subdir], optionally followed by @version), an https .tar.gz, or the name "
+         "of a registry template (name[@version]). A fetched template is checked like a dependency, cached by tree hash, and its commit and hash are "
+         "printed; a registry template is fetched at the commit and hash its registry record lists. A template is data: nothing in it is run. The "
          "project is written into a temporary directory first and moved into place only when everything succeeded.",
          detail::new_opts, 0, 1, false, detail::codes({0, 1, 2, 3, 4, 5}), false},
         {"add", "<location>[@version]", "add a dependency",

@@ -29,6 +29,7 @@ export namespace dpm::manifest
         RegistryConfig,
         UserConfig,
         Template,
+        RegistryTemplate,
     };
 
     [[nodiscard]] constexpr std::string_view type_name(FileKind kind) noexcept
@@ -49,6 +50,8 @@ export namespace dpm::manifest
                 return "UserConfig";
             case FileKind::Template:
                 return "Template";
+            case FileKind::RegistryTemplate:
+                return "RegistryTemplate";
         }
         return "Project";
     }
@@ -339,6 +342,14 @@ export namespace dpm::manifest
         std::vector<RegistryVersion> versions;
     };
 
+    struct RegistryTemplate
+    {
+        std::string name;
+        std::string location;
+        std::string description;
+        std::vector<RegistryVersion> versions;
+    };
+
     struct RegistryLocation
     {
         std::string alias;
@@ -411,6 +422,7 @@ export namespace dpm::manifest
         std::optional<Project> project;
         std::optional<Lock> lock;
         std::optional<RegistryAlias> registry_alias;
+        std::optional<RegistryTemplate> registry_template;
         std::optional<RegistryLocation> registry_location;
         std::optional<RegistryConfig> registry_config;
         std::optional<UserConfig> user_config;
@@ -983,6 +995,15 @@ export namespace dpm::manifest
             if (parts[0] == "sr.ht" && !parts[1].starts_with('~'))
                 return "sr.ht owners start with '~'";
             return std::nullopt;
+        }
+
+        inline std::optional<std::string> template_name_error(std::string_view name)
+        {
+            bool shaped = name.size() >= 2 && name.size() <= 32 && name.front() >= 'a' && name.front() <= 'z' &&
+                          std::ranges::all_of(name, [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'; });
+            if (shaped)
+                return std::nullopt;
+            return std::format("'{}' is not a valid template name; use 2 to 32 lowercase letters, digits, '_' or '-', starting with a letter", name);
         }
 
         inline constexpr std::array<std::string_view, 5> k_reserved_library_names{"std", "core", "assert", "dcext", "dpm"};
@@ -1601,12 +1622,8 @@ export namespace dpm::manifest
                 t.requires_dpm = str(root, "requires_dpm");
                 t.requires_dcc = str(root, "requires_dcc");
                 if (auto const* n = root.find("name"))
-                {
-                    bool shaped = t.name.size() >= 2 && t.name.size() <= 32 && t.name.front() >= 'a' && t.name.front() <= 'z' &&
-                                  std::ranges::all_of(t.name, [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'; });
-                    if (!shaped)
-                        error(*n, std::format("'{}' is not a valid template name; use 2 to 32 lowercase letters, digits, '_' or '-', starting with a letter", t.name));
-                }
+                    if (auto message = template_name_error(t.name))
+                        error(*n, *message);
                 if (auto const* n = root.find("root"); n && !is_relative_subpath(t.root))
                     error(*n, "root must be a relative path inside the template");
                 check_globs(root, "substitute");
@@ -1624,6 +1641,43 @@ export namespace dpm::manifest
                             error(*n, std::format("duplicate variable '{}'", v.name));
                         t.variables.push_back(std::move(v));
                     }
+                return t;
+            }
+
+            RegistryTemplate registry_template(Node const& root)
+            {
+                RegistryTemplate t;
+                t.name = str(root, "name");
+                t.location = str(root, "location");
+                t.description = str(root, "description");
+                if (auto const* n = root.find("name"))
+                    if (auto message = template_name_error(t.name))
+                        error(*n, *message);
+                if (auto const* n = root.find("location"))
+                {
+                    if (auto message = location_error(t.location, allow_file))
+                        error(*n, *message);
+                    else if (is_alias(t.location) || t.location.starts_with("path:"))
+                        error(*n, "the location of a template must be a canonical location");
+                }
+                if (auto const* list = field(root, "versions"))
+                {
+                    std::optional<dpm::semver::Version> previous;
+                    for (auto const& item : list->items)
+                    {
+                        auto v = registry_version(item);
+                        auto parsed = dpm::semver::parse(v.version);
+                        if (parsed && previous && dpm::semver::compare(*parsed, *previous) <= 0)
+                            if (auto const* n = item.find("version"))
+                                error(*n, "versions must be unique and ascending");
+                        if (parsed)
+                            previous = parsed;
+                        if (!v.dependencies.empty())
+                            if (auto const* n = item.find("dependencies"))
+                                error(*n, "a template version has no dependencies");
+                        t.versions.push_back(std::move(v));
+                    }
+                }
                 return t;
             }
 
@@ -1840,7 +1894,7 @@ export namespace dpm::manifest
         }
         if (segments.size() != 3 || segments[0] != "dpm" || i >= tokens.size() || tokens[i].kind != detail::TokenKind::LBrace)
             return fallback;
-        for (auto kind : {FileKind::Project, FileKind::Lock, FileKind::RegistryAlias, FileKind::RegistryLocation, FileKind::RegistryConfig, FileKind::UserConfig, FileKind::Template})
+        for (auto kind : {FileKind::Project, FileKind::Lock, FileKind::RegistryAlias, FileKind::RegistryLocation, FileKind::RegistryConfig, FileKind::UserConfig, FileKind::Template, FileKind::RegistryTemplate})
             if (segments[2] == type_name(kind))
                 return kind;
         return fallback;
@@ -2032,6 +2086,9 @@ export namespace dpm::manifest
                     break;
                 case FileKind::Template:
                     result.project_template = decoder.template_def(result.tree);
+                    break;
+                case FileKind::RegistryTemplate:
+                    result.registry_template = decoder.registry_template(result.tree);
                     break;
                 default:
                     break;

@@ -82,7 +82,7 @@ namespace
     [[nodiscard]] std::optional<dpm::manifest::FileKind> kind_from(std::string_view name)
     {
         using K = dpm::manifest::FileKind;
-        for (auto kind : {K::Project, K::Lock, K::RegistryAlias, K::RegistryLocation, K::RegistryConfig, K::UserConfig, K::Template})
+        for (auto kind : {K::Project, K::Lock, K::RegistryAlias, K::RegistryLocation, K::RegistryConfig, K::UserConfig, K::Template, K::RegistryTemplate})
             if (dpm::manifest::type_name(kind) == name)
                 return kind;
         return std::nullopt;

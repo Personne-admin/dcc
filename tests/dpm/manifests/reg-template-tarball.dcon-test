@@ -1,0 +1,15 @@
+=== KIND: RegistryTemplate ===
+=== FILE: project.dcon ===
+{ name = "tiny", location = "https://example.com/t.tar.gz", versions = { { version = "1.0.0", source = "https://example.com/t-1.0.0.tar.gz", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } } }
+=== EXPECT-TREE ===
+{
+  name = "tiny",
+  location = "https://example.com/t.tar.gz",
+  versions = [
+    {
+      version = "1.0.0",
+      source = "https://example.com/t-1.0.0.tar.gz",
+      hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    },
+  ],
+}

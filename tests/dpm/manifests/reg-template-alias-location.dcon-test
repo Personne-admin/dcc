@@ -1,0 +1,5 @@
+=== KIND: RegistryTemplate ===
+=== FILE: project.dcon ===
+{ name = "tiny", location = "otheralias", versions = { } }
+=== EXPECT-ERRORS ===
+project.dcon:1:29: the location of a template must be a canonical location

@@ -1,0 +1,5 @@
+=== KIND: RegistryTemplate ===
+=== FILE: project.dcon ===
+{ name = "tiny", location = "github.com/u/tpl", versions = { }, alias = "x" }
+=== EXPECT-ERRORS ===
+project.dcon:1:65: unknown field `alias` in brace literal

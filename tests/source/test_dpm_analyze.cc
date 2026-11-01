@@ -176,6 +176,7 @@ TEST_CASE("the schema scanner agrees with the fields the loader decodes")
         {"RegistryLocation", {dpm::manifest::FileKind::RegistryLocation, "{ alias = \"json5\" }"}},
         {"UserConfig", {dpm::manifest::FileKind::UserConfig, "{ }"}},
         {"Template", {dpm::manifest::FileKind::Template, "{ name = \"tiny\" }"}},
+        {"RegistryTemplate", {dpm::manifest::FileKind::RegistryTemplate, "{ name = \"tiny\", location = \"github.com/u/p\", versions = {} }"}},
         {"RegistryAlias", {dpm::manifest::FileKind::RegistryAlias, "{ alias = \"json5\", location = \"github.com/u/p\", versions = {} }"}},
     };
     for (auto const& [type_name, entry] : cases)
