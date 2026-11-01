@@ -191,42 +191,30 @@ public import std::fmt;
 public import std::result;
 import std::slice;
 
-std::fmt::Status(std::fmt::FmtError) format(
-    const char* str, std::fmt::ErasedWriter* w, const std::fmt::Options* o
-) {
+public std::fmt::Status(std::fmt::WriterError(W)) format(W)(
+    const char* str, W* w, const std::fmt::Options* o
+) if std::fmt::Writer(W) {
     usize len = 0;
     while str[len] != 0 as char { len++; }
     [] const char bytes = std::slice::from_raw_const(str as const char*, len);
-    std::fmt::Status(std::fmt::FormatError(std::fmt::FmtError)) rendered = std::fmt::format_value(w, bytes, o);
-    if rendered.is_ok() {
-        return std::fmt::Status::Ok;
-    }
-
-    match rendered.unwrap_err() {
-        std::fmt::FormatError::Write(e) => return e,
-        _ => return std::fmt::FmtError::BadFormat,
-    }
+    return std::fmt::write_padded(w, bytes, o);
 }
 
-public std::result::Status(std::fmt::FormatError(std::fmt::FmtError)) print(T...)(
-    std::fmt::ErasedWriter* w, [] const char fmt, T args
-) {
+public std::result::Status(std::fmt::FormatError(std::fmt::WriterError(W))) print(W, T...)(
+    W* w, [] const char fmt, T args
+) if std::fmt::Writer(W) {
     return w.format(fmt as [] const char, args...);
 }
 
-public std::result::Status(std::fmt::FormatError(std::fmt::FmtError)) println(T...)(
-    std::fmt::ErasedWriter* w, [] const char fmt, T args
-) {
-    std::result::Status(std::fmt::FormatError(std::fmt::FmtError)) written = print(w, fmt, args...);
+public std::result::Status(std::fmt::FormatError(std::fmt::WriterError(W))) println(W, T...)(
+    W* w, [] const char fmt, T args
+) if std::fmt::Writer(W) {
+    std::result::Status(std::fmt::FormatError(std::fmt::WriterError(W))) written = print(w, fmt, args...);
     if !written.is_ok() {
         return written;
     }
 
-    match w.write_all("\n") {
-        std::result::Status::Err(e) => return std::result::Status::Err(std::fmt::FormatError::Write(e)),
-        _ => {},
-    }
-
+    w.write_all("\n") ?;
     return std::result::Status::Ok;
 }
 )");
@@ -239,21 +227,19 @@ import std::mem;
 public i32 main() {
     char[256] bytes;
     std::fmt::BufferWriter sink = std::fmt::BufferWriter::new(bytes);
-    std::fmt::ErasedWriter w = sink.writer();
     char[4] name = {'d', 'c', 'c', 0 as char};
     char* arg = &name[0];
     const char* constant = arg;
     const char* empty = &name[3];
-    if !print::println(&w, "argc: {}", 1).is_ok() { return 1; }
-    if !print::println(&w, "invalid usage: {} [input] [output]", arg).is_ok() { return 2; }
-    if !print::println(&w, "{:>5}|{:<5}|{}", constant, arg, empty).is_ok() { return 3; }
+    if !print::println(&sink, "argc: {}", 1).is_ok() { return 1; }
+    if !print::println(&sink, "invalid usage: {} [input] [output]", arg).is_ok() { return 2; }
+    if !print::println(&sink, "{:>5}|{:<5}|{}", constant, arg, empty).is_ok() { return 3; }
     if !std::mem::equal(sink.written_slice(), "argc: 1\ninvalid usage: dcc [input] [output]\n  dcc|dcc  |\n" as [] const char) {
         return 4;
     }
     char[1] small;
     std::fmt::BufferWriter short_sink = std::fmt::BufferWriter::new(small);
-    std::fmt::ErasedWriter short_writer = short_sink.writer();
-    if print::println(&short_writer, "{}", arg).is_ok() { return 5; }
+    if print::println(&short_sink, "{}", arg).is_ok() { return 5; }
     return 0;
 }
 )");

@@ -328,20 +328,21 @@ i32 test_files() {
         return 18;
     }
     file::FileWriter failed = file::new_file_writer(f);
-    fmt::ErasedWriter sink = failed.writer();
-    fmt::Status(fmt::FormatError(fmt::FmtError)) render = fmt::format(&sink, "{}", 42);
-    if render.is_ok() || render.unwrap_err() != fmt::FormatError::Write(fmt::FmtError::SinkFailed)
-        || failed.status().unwrap_err() != Error::BadHandle
-    {
-        return 19;
+    match fmt::format(&failed, "{}", 42) {
+        fmt::Status::Err(err) => match err {
+            fmt::FormatError::Write(inner) => {
+                if inner != Error::BadHandle {
+                    return 19;
+                }
+            },
+            _ => return 19,
+        },
+        _ => return 19,
     }
     file::FileWriter fw = file::new_file_writer(
         file::create("formatted").unwrap()
     );
-    sink = fw.writer();
-    if !fmt::format(&sink, "{} {:x} {:04}", 42, 255 as u32, 7).is_ok()
-        || !fw.status().is_ok()
-    {
+    if !fmt::format(&fw, "{} {:x} {:04}", 42, 255 as u32, 7).is_ok() {
         return 20;
     }
     fw.file.close();
@@ -828,5 +829,18 @@ i32 test_pipes() {
     }
     ep.reader.close();
     ep.writer.close();
+    pipe::Pipe formatted = pipe::create().unwrap();
+    if !fmt::format(&formatted.writer, "{}", 42).is_ok() {
+        return 89;
+    }
+    formatted.writer.close();
+    u8[4] formatted_bytes;
+    [] u8 formatted_view = slice::from_raw(&formatted_bytes[0], 4);
+    if formatted.reader.read_all(formatted_view).unwrap() != 2 as usize
+        || !mem::equal(formatted_view[0..2], "42")
+    {
+        return 90;
+    }
+    formatted.reader.close();
     return 0;
 }

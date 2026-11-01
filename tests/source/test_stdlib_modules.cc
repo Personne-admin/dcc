@@ -945,6 +945,56 @@ TEST_CASE("format renderers match an independent oracle")
         }
 }
 
+TEST_CASE("json emitter writes through the writer concept")
+{
+    static constexpr std::string_view source = (R"DCC(module main;
+
+import std::json;
+import std::fmt;
+import std::mem;
+
+public i32 main() {
+    char[128] compact_bytes = {};
+    std::fmt::BufferWriter compact = std::fmt::new_buffer_writer(compact_bytes[0..128]);
+    std::json::Emitter(std::fmt::BufferWriter) e = std::json::new_emitter(&compact, 0);
+    if !e.begin_object().is_ok() { return 1; }
+    if !e.key("n").is_ok() { return 2; }
+    if !e.integer(7).is_ok() { return 3; }
+    if !e.key("ok").is_ok() { return 4; }
+    if !e.boolean(true).is_ok() { return 5; }
+    if !e.key("text").is_ok() { return 6; }
+    if !e.string("a\"b").is_ok() { return 7; }
+    if !e.end_object().is_ok() { return 8; }
+    if !std::mem::equal(
+        std::fmt::written_slice(&compact),
+        "{\"n\":7,\"ok\":true,\"text\":\"a\\\"b\"}" as [] const char
+    ) { return 9; }
+
+    char[128] spaced_bytes = {};
+    std::fmt::BufferWriter spaced = std::fmt::new_buffer_writer(spaced_bytes[0..128]);
+    std::json::Emitter(std::fmt::BufferWriter) s = std::json::new_emitter(&spaced, 2);
+    if !s.begin_object().is_ok() { return 10; }
+    if !s.key("n").is_ok() { return 11; }
+    if !s.integer(7).is_ok() { return 12; }
+    if !s.end_object().is_ok() { return 13; }
+    if !std::mem::equal(
+        std::fmt::written_slice(&spaced),
+        "{\n  \"n\": 7\n}" as [] const char
+    ) { return 14; }
+
+    std::fmt::CountingWriter counter = std::fmt::new_counting_writer();
+    std::json::Emitter(std::fmt::CountingWriter) c = std::json::new_emitter(&counter, 0);
+    if !c.begin_array().is_ok() { return 15; }
+    if !c.integer(1).is_ok() { return 16; }
+    if !c.integer(22).is_ok() { return 17; }
+    if !c.end_array().is_ok() { return 18; }
+    if counter.count != 6 { return 19; }
+    return 0;
+}
+)DCC");
+    CHECK_EQ(build_and_run(source), 0);
+}
+
 TEST_CASE("tuple constructs through Tuple::make and reads elements back")
 {
     constexpr std::string_view source = R"(module main;

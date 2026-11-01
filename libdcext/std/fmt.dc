@@ -39,13 +39,6 @@ public enum FormatError(E) {
     @implicit_construction Write(E),
 }
 
-/// the erased writer's errors. transitional, removed with the record.
-public enum FmtError : u8 {
-    OutOfSpace,
-    SinkFailed,
-    BadFormat,
-}
-
 public enum BufferError : u8 {
     OutOfSpace,
 }
@@ -64,25 +57,6 @@ public enum ParseError : u8 {
 /// a format string wider or more precise than this would need unbounded
 /// stack space in the float staging buffer.
 using usize MAX_PRECISION = 64;
-
-//!
-//! Erased writer (transitional)
-//!
-//! kept for the file, JSON and TOML hooks that still name a writer record.
-//! it satisfies the same concept as any other writer, so the generic
-//! entry serves it unchanged until the last consumer moves.
-//!
-
-public using WriteFn = Status(FmtError)(*)(void* ctx, [] const char bytes);
-
-public struct ErasedWriter {
-    void* ctx;
-    WriteFn write_fn;
-}
-
-public Status(FmtError) write_all(const ErasedWriter* self, [] const char bytes) {
-    return self.write_fn(self.ctx, bytes);
-}
 
 //!
 //! Chunk writers
@@ -162,18 +136,6 @@ public BufferWriter new_buffer_writer([] char backing) {
 }
 public using BufferWriter::new = new_buffer_writer;
 
-Status(FmtError) buffer_write(void* ctx, [] const char bytes) {
-    BufferWriter* self = ctx as BufferWriter*;
-    return match self.write_all(bytes) {
-        Status::Ok => Status::Ok,
-        Status::Err(_) => FmtError::OutOfSpace,
-    };
-}
-
-public ErasedWriter writer(BufferWriter* self) {
-    return ErasedWriter {ctx = self as void*, write_fn = buffer_write};
-}
-
 /// the bytes written so far.
 public [] const char written_slice(const BufferWriter* self) {
     return self.buffer[0..self.written];
@@ -198,18 +160,6 @@ public CountingWriter new_counting_writer() {
     return CountingWriter {count = 0};
 }
 public using CountingWriter::new = new_counting_writer;
-
-Status(FmtError) counting_write(void* ctx, [] const char bytes) {
-    CountingWriter* self = ctx as CountingWriter*;
-    return match self.write_all(bytes) {
-        Status::Ok => Status::Ok,
-        Status::Err(_) => FmtError::BadFormat,
-    };
-}
-
-public ErasedWriter writer(CountingWriter* self) {
-    return ErasedWriter {ctx = self as void*, write_fn = counting_write};
-}
 
 //!
 //! Format options
@@ -257,7 +207,7 @@ public using Options::default = default_options;
 //! Padding
 //!
 
-Status(WriterError(W)) write_padded(W)(
+public Status(WriterError(W)) write_padded(W)(
     W* w,
     [] const char body,
     const Options* opts

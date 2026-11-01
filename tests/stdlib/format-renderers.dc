@@ -84,8 +84,7 @@ usize build_spec(char* out, const Spec* spec) {
 void dump_escape([] const char text) {
     char[1024] out = {};
     std::fmt::BufferWriter sink = std::fmt::new_buffer_writer(out[0..1024]);
-    std::fmt::ErasedWriter writer = sink.writer();
-    if !std::json::write_escaped(&writer, text).is_ok() {
+    if !std::json::write_escaped(&sink, text).is_ok() {
         emit("<err>" as [] const char);
     } else {
         emit(std::fmt::written_slice(&sink));

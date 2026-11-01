@@ -1256,12 +1256,12 @@ public bool is_null(const Value* self) {
 //!
 //! Emitting
 //!
-//! Over `fmt::ErasedWriter`, so a file, a buffer and a byte counter all work
-//! without this module knowing which it has.
+//! generic over the writer concept, so a file, a pipe, a buffer and a byte
+//! counter all work without this module knowing which it has.
 //!
 
-public struct Emitter {
-    fmt::ErasedWriter out;
+public struct Emitter(W) if fmt::Writer(W) {
+    W* out;
     /// spaces per level; 0 emits compact output with no newlines
     u32 indent;
     usize depth;
@@ -1269,7 +1269,7 @@ public struct Emitter {
     bool suppress_separator;
 }
 
-public Emitter new_emitter(fmt::ErasedWriter out, u32 indent) {
+public Emitter(W) new_emitter(W)(W* out, u32 indent) if fmt::Writer(W) {
     return {
         out = out,
         indent = indent,
@@ -1280,22 +1280,24 @@ public Emitter new_emitter(fmt::ErasedWriter out, u32 indent) {
 }
 public using Emitter::new = new_emitter;
 
-Status(fmt::FmtError) write_newline(Emitter* self) {
+Status(fmt::FormatError(fmt::WriterError(W))) write_newline(W)(Emitter(W)* self) if fmt::Writer(W) {
     if self.indent == 0 {
         return Status::Ok;
     }
 
     self.out.write_byte('\n' as char) ?;
-    return self.out.write_repeat(
+    self.out.write_repeat(
         ' ' as char,
         self.depth * self.indent as usize
-    );
+    ) ?;
+    return Status::Ok;
 }
 
 /// emits the comma and indentation that precede a value, if any.
-Status(fmt::FmtError) separate(Emitter* self) {
+Status(fmt::FormatError(fmt::WriterError(W))) separate(W)(Emitter(W)* self) if fmt::Writer(W) {
     if self.suppress_separator {
         self.suppress_separator = false;
+        self.need_comma = true;
         return Status::Ok;
     }
 
@@ -1311,10 +1313,10 @@ Status(fmt::FmtError) separate(Emitter* self) {
     return Status::Ok;
 }
 
-public Status(fmt::FmtError) write_escaped(
-    const fmt::ErasedWriter* w,
+public Status(fmt::FormatError(fmt::WriterError(W))) write_escaped(W)(
+    W* w,
     [] const char text
-) {
+) if fmt::Writer(W) {
     fmt::JsonEscapeCursor cursor = fmt::new_json_escape(text);
 
     bool finished = false;
@@ -1330,7 +1332,7 @@ public Status(fmt::FmtError) write_escaped(
     return Status::Ok;
 }
 
-public Status(fmt::FmtError) begin_object(Emitter* self) {
+public Status(fmt::FormatError(fmt::WriterError(W))) begin_object(W)(Emitter(W)* self) if fmt::Writer(W) {
     separate(self) ?;
     self.out.write_byte('{' as char) ?;
     self.depth = self.depth + 1;
@@ -1338,7 +1340,7 @@ public Status(fmt::FmtError) begin_object(Emitter* self) {
     return Status::Ok;
 }
 
-public Status(fmt::FmtError) end_object(Emitter* self) {
+public Status(fmt::FormatError(fmt::WriterError(W))) end_object(W)(Emitter(W)* self) if fmt::Writer(W) {
     bool empty = !self.need_comma;
     self.depth = self.depth - 1;
 
@@ -1351,7 +1353,7 @@ public Status(fmt::FmtError) end_object(Emitter* self) {
     return Status::Ok;
 }
 
-public Status(fmt::FmtError) begin_array(Emitter* self) {
+public Status(fmt::FormatError(fmt::WriterError(W))) begin_array(W)(Emitter(W)* self) if fmt::Writer(W) {
     separate(self) ?;
     self.out.write_byte('[' as char) ?;
     self.depth = self.depth + 1;
@@ -1359,7 +1361,7 @@ public Status(fmt::FmtError) begin_array(Emitter* self) {
     return Status::Ok;
 }
 
-public Status(fmt::FmtError) end_array(Emitter* self) {
+public Status(fmt::FormatError(fmt::WriterError(W))) end_array(W)(Emitter(W)* self) if fmt::Writer(W) {
     bool empty = !self.need_comma;
     self.depth = self.depth - 1;
 
@@ -1374,9 +1376,9 @@ public Status(fmt::FmtError) end_array(Emitter* self) {
 
 /// writes a member name. the value that follows joins it on the same
 /// line rather than starting a new one.
-public Status(fmt::FmtError) key(Emitter* self, [] const char name) {
+public Status(fmt::FormatError(fmt::WriterError(W))) key(W)(Emitter(W)* self, [] const char name) if fmt::Writer(W) {
     separate(self) ?;
-    write_escaped(&self.out, name) ?;
+    write_escaped(self.out, name) ?;
     self.out.write_byte(':' as char) ?;
 
     if self.indent != 0 {
@@ -1388,50 +1390,45 @@ public Status(fmt::FmtError) key(Emitter* self, [] const char name) {
     return Status::Ok;
 }
 
-public Status(fmt::FmtError) string(Emitter* self, [] const char text) {
+public Status(fmt::FormatError(fmt::WriterError(W))) string(W)(Emitter(W)* self, [] const char text) if fmt::Writer(W) {
     separate(self) ?;
-    return write_escaped(&self.out, text);
+    return write_escaped(self.out, text);
 }
 
-public Status(fmt::FmtError) integer(Emitter* self, i64 value) {
+public Status(fmt::FormatError(fmt::WriterError(W))) integer(W)(Emitter(W)* self, i64 value) if fmt::Writer(W) {
     separate(self) ?;
     fmt::Options opts = fmt::Options::default();
-    return fmt::format_signed(&self.out, value, &opts);
+    fmt::format_signed(self.out, value, &opts) ?;
+    return Status::Ok;
 }
 
 static if core::target::FLOAT_AVAILABLE {
-    public Status(fmt::FmtError) float(Emitter* self, f64 value) {
+    public Status(fmt::FormatError(fmt::WriterError(W))) float(W)(Emitter(W)* self, f64 value) if fmt::Writer(W) {
         separate(self) ?;
         fmt::Options opts = fmt::Options::default();
-        fmt::Status(fmt::FormatError(fmt::FmtError)) rendered = fmt::format_float(&self.out, value, &opts);
-        if rendered.is_ok() {
-            return fmt::Status::Ok;
-        }
-
-        match rendered.unwrap_err() {
-            fmt::FormatError::Write(e) => return e,
-            _ => return fmt::FmtError::BadFormat,
-        }
+        return fmt::format_float(self.out, value, &opts);
     }
 }
 
-public Status(fmt::FmtError) boolean(Emitter* self, bool value) {
+public Status(fmt::FormatError(fmt::WriterError(W))) boolean(W)(Emitter(W)* self, bool value) if fmt::Writer(W) {
     separate(self) ?;
-    return self.out.write_all(
+    self.out.write_all(
         if value {
             "true"
         } else {
             "false"
         }
-    );
+    ) ?;
+    return Status::Ok;
 }
 
-public Status(fmt::FmtError) null_value(Emitter* self) {
+public Status(fmt::FormatError(fmt::WriterError(W))) null_value(W)(Emitter(W)* self) if fmt::Writer(W) {
     separate(self) ?;
-    return self.out.write_all("null");
+    self.out.write_all("null") ?;
+    return Status::Ok;
 }
 
-public Status(fmt::FmtError) value(Emitter* self, const Value* item) {
+public Status(fmt::FormatError(fmt::WriterError(W))) value(W)(Emitter(W)* self, const Value* item) if fmt::Writer(W) {
     static if core::target::FLOAT_AVAILABLE {
         return match *item {
             Value::Null => null_value(self),
@@ -1480,15 +1477,16 @@ public Status(fmt::FmtError) value(Emitter* self, const Value* item) {
     }
 }
 
-/// renders `item` to `w`. `indent` of 0 is compact.
-public Status(fmt::FmtError) write(
-    fmt::ErasedWriter w,
+/// renders the value to the writer. indent of 0 is compact.
+public Status(fmt::FormatError(fmt::WriterError(W))) write(W)(
+    W* w,
     const Value* item,
     u32 indent
-) {
-    Emitter e = Emitter::new(w, indent);
+) if fmt::Writer(W) {
+    Emitter(W) e = new_emitter(w, indent);
     return value(&e, item);
 }
+
 
 Optional(usize) json_checked_mul(usize a, usize b) {
     if a != 0 && b > (~(0 as usize)) / a { return Optional::None; }

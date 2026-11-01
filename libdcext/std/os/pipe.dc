@@ -277,6 +277,11 @@ static if core::target::OS != core::target::Os::Freestanding {
 
         return Status::Ok;
     }
+
+    /// the text form the formatter hands to a writer.
+    public Status(Error) write_all(PipeWriter* self, [] const char text) {
+        return write_all(self, text as [] const u8);
+    }
 }
 
 static if core::target::OS != core::target::Os::Freestanding {

@@ -909,47 +909,21 @@ static if core::target::OS != core::target::Os::Freestanding {
 //!
 //! Formatting sink
 //!
-//! Bridges a file to `std::fmt`. `FmtError` cannot carry an `os::Error`,
-//! so the specific failure is parked on the adapter and the writer
-//! reports `SinkFailed`; `status` recovers it afterwards.
+//! A file is a writer in the formatter's sense: writing reports the
+//! operating system's own error rather than erasing it.
 //!
 
 public struct FileWriter {
     File file;
-    Error last_error;
-    bool failed;
 }
 
 public FileWriter new_file_writer(File file) {
-    return {file = file, last_error = Error::Unexpected, failed = false};
+    return {file = file};
 }
 public using FileWriter::new = new_file_writer;
 
 static if core::target::OS != core::target::Os::Freestanding {
-    Status(fmt::FmtError) file_write(void* ctx, [] const char bytes) {
-        FileWriter* self = ctx as FileWriter*;
-
-        Status(Error) st = write_all(&self.file, bytes as [] const u8);
-        if !st.is_ok() {
-            self.failed = true;
-            self.last_error = st.unwrap_err();
-            return fmt::FmtError::SinkFailed;
-        }
-
-        return Status::Ok;
+    public Status(Error) write_all(FileWriter* self, [] const char bytes) {
+        return write_all(&self.file, bytes as [] const u8);
     }
-}
-
-static if core::target::OS != core::target::Os::Freestanding {
-    public fmt::ErasedWriter writer(FileWriter* self) {
-        return fmt::ErasedWriter {ctx = self as void*, write_fn = file_write};
-    }
-}
-
-public Status(Error) status(const FileWriter* self) {
-    if self.failed {
-        return self.last_error;
-    }
-
-    return Status::Ok;
 }

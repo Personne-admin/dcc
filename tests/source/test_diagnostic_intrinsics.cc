@@ -84,7 +84,7 @@ TEST_CASE("fmt rejects unsupported types with one intentional diagnostic")
     auto result = compile(R"(module test;
 public import std::fmt;
 struct Unsupported { i32 value; }
-public void test(std::fmt::ErasedWriter* writer, const std::fmt::Options* options) {
+public void test(std::fmt::BufferWriter* writer, const std::fmt::Options* options) {
     Unsupported value = { 1 };
     std::fmt::format_value(writer, value, options);
 }
@@ -100,7 +100,7 @@ TEST_CASE("supported fmt specialization still lowers")
 {
     auto result = compile(R"(module test;
 public import std::fmt;
-public void test(std::fmt::ErasedWriter* writer, const std::fmt::Options* options) {
+public void test(std::fmt::BufferWriter* writer, const std::fmt::Options* options) {
     std::fmt::format_value(writer, 42 as i32, options);
     std::fmt::format_value(writer, true, options);
     std::fmt::format_value(writer, 1.5 as f64, options);

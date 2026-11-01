@@ -6,7 +6,7 @@ import std::sort;
 import std::slice;
 import std::result;
 using std::{mem, fmt, sha, sort, slice};
-bool is_overflow(fmt::FormatError(fmt::FmtError) err) {
+bool is_overflow(fmt::FormatError(fmt::BufferError) err) {
     return match err {
         fmt::FormatError::WidthOverflow => true,
         _ => false,
@@ -17,22 +17,19 @@ bool is_overflow(fmt::FormatError(fmt::FmtError) err) {
     usize max = (~(0 as usize));
     fmt::CountingWriter counter = fmt::new_counting_writer();
     counter.count = max;
-    fmt::ErasedWriter count = counter.writer();
-    if count.write_all("a").unwrap_err() != fmt::FmtError::BadFormat || counter.count != max { return 1; }
+    if counter.write_all("a").unwrap_err() != fmt::CountError::Overflow || counter.count != max { return 1; }
     char[16] output = {};
     fmt::BufferWriter buffer = fmt::new_buffer_writer(output[0..16]);
     buffer.written = 1;
-    fmt::ErasedWriter w = buffer.writer();
     []const char fake = slice::from_raw_const(&output[0] as const char*, max);
-    if w.write_all(fake).is_ok() || buffer.written != 1 || !buffer.overflowed { return 2; }
+    if buffer.write_all(fake).is_ok() || buffer.written != 1 || !buffer.overflowed { return 2; }
     buffer = fmt::new_buffer_writer(output[0..16]);
-    w = buffer.writer();
-    std::result::Status(fmt::FormatError(fmt::FmtError)) wide = fmt::format(&w, "{:18446744073709551616}", 1 as u16);
+    std::result::Status(fmt::FormatError(fmt::BufferError)) wide = fmt::format(&buffer, "{:18446744073709551616}", 1 as u16);
     if wide.is_ok() || !is_overflow(wide.unwrap_err()) { return 3; }
-    std::result::Status(fmt::FormatError(fmt::FmtError)) precise = fmt::format(&w, "{:.18446744073709551616}", 1 as u16);
+    std::result::Status(fmt::FormatError(fmt::BufferError)) precise = fmt::format(&buffer, "{:.18446744073709551616}", 1 as u16);
     if precise.is_ok() || !is_overflow(precise.unwrap_err()) { return 4; }
     if fmt::default_options().precision != fmt::NO_PRECISION { return 5; }
-    if !fmt::format(&w, "{}", 123 as u16).is_ok() || buffer.written != 3 { return 6; }
+    if !fmt::format(&buffer, "{}", 123 as u16).is_ok() || buffer.written != 3 { return 6; }
     usize huge_len = max / 2 + 1;
     u8[1] digest = {0xAB};
     if sha::hex_encode(slice::from_raw_const!u8(&digest[0] as const u8*, huge_len), output[0..16]).is_ok() { return 7; }
