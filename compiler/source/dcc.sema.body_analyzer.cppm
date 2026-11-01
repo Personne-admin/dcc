@@ -5202,8 +5202,7 @@ export namespace dcc::sema
                                         target_type = resolve_type_node(mod, scope, target_type_ast->type_node);
                                 }
 
-                                bool types_match = target_type && (concrete == target_type ||
-                                                                   (concrete->kind == target_type->kind && concrete->kind != types::TypeKind::Restricted));
+                                bool types_match = target_type && same_static_type(concrete, target_type);
                                 si->taken_branch = types_match ? 0 : 1;
                             }
                         }
@@ -16738,6 +16737,55 @@ export namespace dcc::sema
             return out;
         }
 
+        static bool same_static_type(types::TypePtr a, types::TypePtr b)
+        {
+            if (a == b)
+                return true;
+            if (!a || !b || a->kind != b->kind)
+                return false;
+
+            switch (a->kind)
+            {
+                case types::TypeKind::Bool:
+                case types::TypeKind::Void:
+                case types::TypeKind::NullT:
+                    return true;
+                case types::TypeKind::Char: {
+                    auto const* l = static_cast<types::CharType const*>(a);
+                    auto const* r = static_cast<types::CharType const*>(b);
+                    return l->byte_size == r->byte_size;
+                }
+                case types::TypeKind::Int: {
+                    auto const* l = static_cast<types::IntType const*>(a);
+                    auto const* r = static_cast<types::IntType const*>(b);
+                    return l->bits == r->bits && l->is_signed == r->is_signed;
+                }
+                case types::TypeKind::Float: {
+                    auto const* l = static_cast<types::FloatType const*>(a);
+                    auto const* r = static_cast<types::FloatType const*>(b);
+                    return l->bits == r->bits;
+                }
+                case types::TypeKind::Pointer: {
+                    auto const* l = static_cast<types::PointerType const*>(a);
+                    auto const* r = static_cast<types::PointerType const*>(b);
+                    return l->pointee_quals == r->pointee_quals && l->flavor == r->flavor && l->segment == r->segment &&
+                           same_static_type(l->pointee, r->pointee);
+                }
+                case types::TypeKind::Slice: {
+                    auto const* l = static_cast<types::SliceType const*>(a);
+                    auto const* r = static_cast<types::SliceType const*>(b);
+                    return l->element_quals == r->element_quals && l->flavor == r->flavor && l->segment == r->segment &&
+                           l->byte_size == r->byte_size && same_static_type(l->element, r->element);
+                }
+                case types::TypeKind::Array: {
+                    auto const* l = static_cast<types::ArrayType const*>(a);
+                    auto const* r = static_cast<types::ArrayType const*>(b);
+                    return l->count == r->count && same_static_type(l->element, r->element);
+                }
+                default:
+                    return false;
+            }
+        }
         detail::StmtResult analyze_static_type_if(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::StaticIfStmt& si, int loop_depth,
                                                   std::uint32_t& next_off, ConstEnv const* const_env)
         {
@@ -16839,9 +16887,7 @@ export namespace dcc::sema
 
             bool scrutinee_unresolved =
                 !scrutinee_type || scrutinee_type->kind == types::TypeKind::TemplateParam || scrutinee_type->kind == types::TypeKind::Error;
-            bool types_match =
-                !scrutinee_unresolved && target_type && scrutinee_type &&
-                (target_type == scrutinee_type || (target_type->kind == scrutinee_type->kind && target_type->kind != types::TypeKind::Restricted));
+            bool types_match = !scrutinee_unresolved && same_static_type(target_type, scrutinee_type);
             bool take_then = scrutinee_unresolved || types_match;
 
             si.taken_branch = take_then ? 0 : 1;

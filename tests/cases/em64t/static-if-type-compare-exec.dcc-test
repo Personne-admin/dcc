@@ -1,0 +1,48 @@
+=== FILE: test.dc ===
+module test;
+
+u32 slice_then_usize(T)(T value) {
+    static if T == [] const char {
+        return 0;
+    } else static if T == usize {
+        return 1;
+    } else {
+        return 2;
+    }
+}
+
+u32 slice_then_u64(T)(T value) {
+    static if T == [] u8 {
+        return 0;
+    } else static if T == u64 {
+        return 1;
+    } else {
+        return 2;
+    }
+}
+
+@nomangle
+public i32 dcc_main() {
+    if slice_then_usize("x") != 0 {
+        return 1;
+    }
+    if slice_then_usize(7 as usize) != 1 {
+        return 2;
+    }
+    if slice_then_usize(-7 as i32) != 2 {
+        return 3;
+    }
+    if slice_then_usize(7 as u32) != 2 {
+        return 4;
+    }
+    if slice_then_u64(-7 as i64) != 2 {
+        return 5;
+    }
+    if slice_then_u64(7 as u64) != 1 {
+        return 6;
+    }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
