@@ -1,0 +1,40 @@
+=== FILE: test.dc ===
+module test;
+
+enum Tagged(E) {
+    Empty,
+    @implicit_construction Full(E),
+}
+
+enum Plain : u8 {
+    A,
+    B,
+}
+
+u8 seed = 7;
+u8 other = 8;
+
+@nomangle
+public i32 dcc_main() {
+    Tagged(u8) e = Tagged::Empty;
+    Tagged(u8) e2 = Tagged::Empty;
+    Tagged(u8) f = Tagged::Full(seed);
+    Tagged(u8) f2 = Tagged::Full(other);
+    Tagged(u8) f3 = Tagged::Full(seed);
+    if e != e2 { return 1; }
+    if e == f { return 2; }
+    if !(e != f) { return 3; }
+    if f != f2 { return 4; }
+    if f != f3 { return 5; }
+    Plain p = Plain::A;
+    Plain q = Plain::B;
+    if p == q { return 6; }
+    if p != Plain::A { return 7; }
+    if q != Plain::B { return 8; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0

@@ -5264,6 +5264,33 @@ export namespace dcc::ir::lower
                         return eq;
                     }
                 }
+                else if (auto* et = types::type_cast<types::EnumType>(unw); et && et->is_tagged && et->tagged_layout)
+                {
+                    auto* lhs_val = lower_expr(lhs);
+                    auto* rhs_val = lower_expr(rhs);
+                    auto* disc = et->tagged_layout->discriminant_type;
+                    auto* ir_disc_type = m_ctx.int_t(static_cast<std::uint8_t>(disc->bits), disc->is_signed);
+                    auto extract_tag = [&](IrValue* value) {
+                        auto* tag = m_ctx.extract(ir_disc_type, value, 0);
+                        ident_name();
+                        tag->name = m_name_pool.back();
+                        append_inst(tag);
+                        return tag;
+                    };
+                    auto* eq = m_ctx.cmp_eq(extract_tag(lhs_val), extract_tag(rhs_val));
+                    ident_name();
+                    eq->name = m_name_pool.back();
+                    append_inst(eq);
+                    if (bin->op == dcc::lex::TokenKind::BangEq)
+                    {
+                        auto* ne = m_ctx.xor_(eq->type, eq, m_ctx.bool_const(true));
+                        ident_name();
+                        ne->name = m_name_pool.back();
+                        append_inst(ne);
+                        return ne;
+                    }
+                    return eq;
+                }
             }
             auto* lhs_val = lower_expr(lhs);
             auto* rhs_val = lower_expr(rhs);
