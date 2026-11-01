@@ -1,0 +1,148 @@
+module main;
+
+import std::mem;
+import std::result;
+import std::os::print;
+import std::os::file;
+import std::os::pipe;
+import std::os::thread;
+
+using std::result::{ Result, Status };
+using std::os::print::PrintError;
+
+i32 check_records([] const char text) {
+    bool[32] seen = {};
+    usize i = 0;
+    usize lines = 0;
+
+    while i < text.len {
+        usize j = i;
+        while j < text.len && text[j] != '\n' {
+            j = j + 1;
+        }
+        if j == text.len {
+            return 1;
+        }
+        if j - i != 12 {
+            return 2;
+        }
+        if text[i] != 'r' || text[i + 6] != ' ' || text[i + 9] != ' ' {
+            return 3;
+        }
+        usize t = ((text[i + 7] as u8 - ('0' as u8)) * 10 + (text[i + 8] as u8 - ('0' as u8))) as usize;
+        usize index = ((text[i + 10] as u8 - ('0' as u8)) * 10 + (text[i + 11] as u8 - ('0' as u8))) as usize;
+        if t > 1 || index > 15 {
+            return 4;
+        }
+        usize slot = t * 16 + index;
+        if seen[slot] {
+            return 5;
+        }
+        seen[slot] = true;
+        lines = lines + 1;
+        i = j + 1;
+    }
+
+    if lines != 32 {
+        return 6;
+    }
+
+    for usize k = 0; k < 32; k++ {
+        if !seen[k] {
+            return 7;
+        }
+    }
+
+    return 0;
+}
+
+void record_writer(std::os::pipe::Pipe* shared, u32 thread_index) {
+    std::os::file::File out = {handle = shared.writer.handle};
+    for u32 i = 0; i < 16; i++ {
+        std::os::print::println_to(&out, "record {:02} {:02}", thread_index, i);
+    }
+}
+
+i32 test_concurrent_records() {
+    std::os::pipe::Pipe records = std::os::pipe::create().unwrap();
+    std::os::pipe::ignore_sigpipe();
+
+    std::os::thread::Thread a = std::os::thread::spawn(record_writer, &records, 0 as u32).unwrap();
+    std::os::thread::Thread b = std::os::thread::spawn(record_writer, &records, 1 as u32).unwrap();
+    a.join();
+    b.join();
+    records.writer.close();
+
+    u8[4096] buffer;
+    usize got = records.reader.read_all(buffer[0..4096]).unwrap();
+    records.reader.close();
+    if got == 0 || got >= 4096 {
+        return 8;
+    }
+
+    return check_records(buffer[0..got] as [] const char);
+}
+
+i32 main() {
+    match std::os::print::println("stderr ok {}", 1 as u32) {
+        Result::Ok(n) => {
+            if n != 12 {
+                return 1;
+            }
+        },
+        Result::Err(_) => return 2,
+    }
+
+    std::os::file::File out = std::os::file::stdout();
+    if !std::os::print::println_to(&out, "stdout {} {} {}", 1 as u32, -2 as i32, true).is_ok() {
+        return 3;
+    }
+
+    match std::os::print::print_to(&out, "{:4096}", 1 as u32) {
+        Result::Ok(_) => return 4,
+        Result::Err(e) => {
+            if e != PrintError::TooLong {
+                return 5;
+            }
+        },
+    }
+
+    match std::os::print::print_to(&out, "{} {}", 1 as u32) {
+        Result::Ok(_) => return 6,
+        Result::Err(e) => {
+            if e != PrintError::BadFormat {
+                return 7;
+            }
+        },
+    }
+
+    match std::os::print::print_to(&out, "") {
+        Result::Ok(n) => {
+            if n != 0 {
+                return 8;
+            }
+        },
+        Result::Err(_) => return 9,
+    }
+
+    std::os::pipe::ignore_sigpipe();
+    std::os::pipe::Pipe closed = std::os::pipe::create().unwrap();
+    closed.reader.close();
+    std::os::file::File closed_out = {handle = closed.writer.handle};
+    match std::os::print::println_to(&closed_out, "closed") {
+        Result::Ok(_) => return 10,
+        Result::Err(e) => {
+            if e != PrintError::WriteFailed {
+                return 11;
+            }
+        },
+    }
+    closed.writer.close();
+
+    i32 records = test_concurrent_records();
+    if records != 0 {
+        return 20 + records;
+    }
+
+    return 0;
+}

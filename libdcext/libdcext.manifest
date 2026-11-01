@@ -22,6 +22,7 @@ source all std::os::net std/os/net.dc
 source all std::os::path std/os/path.dc
 source all std::os::pipe std/os/pipe.dc
 source all std::os::process std/os/process.dc
+source all std::os::print std/os/print.dc
 source all std::os::random std/os/random.dc
 source all std::os::thread std/os/thread.dc
 source all std::os::thread_pool std/os/thread_pool.dc

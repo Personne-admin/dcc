@@ -1,0 +1,225 @@
+module std::os::print;
+
+import core;
+import core::target;
+import std::fmt;
+import std::mem;
+import std::result;
+import std::os::error;
+public import std::os::file;
+
+using result::{ Result, Status };
+
+//!
+//! Best-effort standard error output
+//!
+//! print and println format numbers, booleans, text and codepoints into
+//! one stack record and make exactly one write attempt for it. They never
+//! allocate, never take a lock, never touch TLS and never call user format
+//! hooks; coordinated output is the logger's job.
+//!
+//! On a Linux blocking pipe or FIFO a record of at most PIPE_BUF bytes is
+//! not interleaved with other writers. Terminals, sockets, regular files and
+//! Windows handles give no such guarantee, and nothing here promises disk
+//! atomicity or durability. PrintError::TooLong means the record did not
+//! fit in RECORD_MAX bytes; PrintError::WriteFailed means the single write
+//! attempt failed; a short write is reported as the number of bytes the
+//! operating system accepted.
+//!
+
+static if core::target::OS != core::target::Os::Freestanding {
+    public enum PrintError : u8 {
+        TooLong,
+        BadFormat,
+        WriteFailed,
+    }
+
+    /// the largest record print builds on the stack, newline included.
+    public using usize RECORD_MAX = 2048;
+
+    /// the bytes of one record are handed to the operating system in one write
+    /// attempt; this reports the accepted count or the failure.
+    Result(usize, PrintError) write_record(file::File* out, [] const char bytes) {
+        match out.write(bytes as [] const u8) {
+            Result::Ok(n) => return Result::Ok(n),
+            Result::Err(_) => return Result::Err(PrintError::WriteFailed),
+        }
+    }
+
+    /// renders one argument. only the builtin printable types are accepted: a
+    /// user formatting hook is a compile error here, not an allocation.
+    Status(PrintError) write_argument(T)(fmt::BufferWriter* out, T value, const fmt::Options* opts) {
+        Status(fmt::BufferError) written = write_argument_builtin(out, value, opts);
+        if written.is_ok() {
+            return Status::Ok;
+        }
+
+        return Status::Err(PrintError::TooLong);
+    }
+
+    static if core::target::FLOAT_AVAILABLE {
+        Status(fmt::BufferError) write_float_argument(fmt::BufferWriter* out, f64 value, const fmt::Options* opts) {
+            Status(fmt::FormatError(fmt::BufferError)) rendered = fmt::format_float(out, value, opts);
+            if rendered.is_ok() {
+                return Status::Ok;
+            }
+
+            match rendered.unwrap_err() {
+                fmt::FormatError::Write(e) => return e,
+                _ => return Status::Ok,
+            }
+        }
+    }
+
+    Status(fmt::BufferError) write_argument_builtin(T)(fmt::BufferWriter* out, T value, const fmt::Options* opts) {
+        static if T == bool {
+            return fmt::write_padded(out, if value { "true" } else { "false" }, opts);
+        } else static if T == char {
+            if opts.spec == ('c' as char) || opts.spec == '\0' {
+                char[1] one = { value as char };
+                return fmt::write_padded(out, one, opts);
+            }
+            return fmt::format_unsigned(out, value as u64, opts);
+        } else static if T == u8 {
+            return fmt::format_unsigned(out, value as u64, opts);
+        } else static if T == u16 {
+            return fmt::format_unsigned(out, value as u64, opts);
+        } else static if T == u32 {
+            return fmt::format_unsigned(out, value as u64, opts);
+        } else static if T == u64 {
+            return fmt::format_unsigned(out, value as u64, opts);
+        } else static if T == usize {
+            return fmt::format_unsigned(out, value as u64, opts);
+        } else static if T == i8 {
+            return fmt::format_signed(out, value as i64, opts);
+        } else static if T == i16 {
+            return fmt::format_signed(out, value as i64, opts);
+        } else static if T == i32 {
+            return fmt::format_signed(out, value as i64, opts);
+        } else static if T == i64 {
+            return fmt::format_signed(out, value as i64, opts);
+        } else static if T == isize {
+            return fmt::format_signed(out, value as i64, opts);
+        } else static if T == [] const char {
+            return fmt::write_padded(out, value, opts);
+        } else static if T == [] const u8 {
+            return fmt::write_padded(out, value as [] const char, opts);
+        } else static if core::target::FLOAT_AVAILABLE {
+            static if T == f32 {
+                return write_float_argument(out, value as f64, opts);
+            } else static if T == f64 {
+                return write_float_argument(out, value as f64, opts);
+            } else {
+                core::compile_error(
+                    "std::os::print: only numbers, booleans, text and codepoints are printable"
+                );
+            }
+        } else {
+            core::compile_error(
+                "std::os::print: only numbers, booleans, text and codepoints are printable"
+            );
+        }
+    }
+
+    /// formats the format string and the arguments into record and returns the
+    /// used prefix.
+    Result([] const char, PrintError) build_record(T...)(
+        [] char record,
+        [] const char format,
+        T args
+    ) {
+        fmt::BufferWriter out = fmt::BufferWriter::new(record);
+        fmt::FormatCursor cursor = fmt::new_format_cursor(format);
+
+        static for arg in args {
+            bool placed = false;
+            while !placed {
+                Result(fmt::FormatStep, fmt::ParseError) parsed = fmt::next(&cursor);
+                if parsed.is_err() {
+                    return Result::Err(PrintError::BadFormat);
+                }
+
+                fmt::FormatStep step = parsed.unwrap();
+                if step.literal.len > 0 {
+                    if !out.write_all(step.literal).is_ok() {
+                        return Result::Err(PrintError::TooLong);
+                    }
+                }
+
+                if step.placeholder {
+                    Status(PrintError) written = write_argument(&out, arg, &step.opts);
+                    if !written.is_ok() {
+                        return Result::Err(written.unwrap_err());
+                    }
+                    placed = true;
+                } else if step.done {
+                    placed = true;
+                }
+            }
+        }
+
+        bool finished = false;
+        while !finished {
+            Result(fmt::FormatStep, fmt::ParseError) parsed = fmt::next(&cursor);
+            if parsed.is_err() {
+                return Result::Err(PrintError::BadFormat);
+            }
+
+            fmt::FormatStep step = parsed.unwrap();
+            if step.literal.len > 0 {
+                if !out.write_all(step.literal).is_ok() {
+                    return Result::Err(PrintError::TooLong);
+                }
+            }
+
+            if step.placeholder {
+                return Result::Err(PrintError::BadFormat);
+            }
+
+            finished = step.done;
+        }
+
+        return Result::Ok(out.written_slice());
+    }
+
+    Result(usize, PrintError) print_to_impl(T...)(file::File* out, [] const char format, bool newline, T args) {
+        char[RECORD_MAX] record;
+        match build_record(record[0..RECORD_MAX], format, args...) {
+            Result::Ok(rendered) => {
+                usize used = rendered.len;
+                if newline {
+                    if used >= RECORD_MAX {
+                        return Result::Err(PrintError::TooLong);
+                    }
+                    record[used] = '\n' as char;
+                    used = used + 1;
+                }
+                return write_record(out, record[0..used]);
+            },
+            Result::Err(e) => return Result::Err(e),
+        }
+    }
+
+    /// formats one record and makes one write attempt on out.
+    public Result(usize, PrintError) print_to(T...)(file::File* out, [] const char format, T args) {
+        return print_to_impl(out, format, false, args...);
+    }
+
+    /// formats one record plus a newline and makes one write attempt on out.
+    public Result(usize, PrintError) println_to(T...)(file::File* out, [] const char format, T args) {
+        return print_to_impl(out, format, true, args...);
+    }
+
+    /// formats one record and makes one write attempt on standard error.
+    public Result(usize, PrintError) print(T...)([] const char format, T args) {
+        file::File err = file::stderr();
+        return print_to_impl(&err, format, false, args...);
+    }
+
+    /// formats one record plus a newline and makes one write attempt on
+    /// standard error.
+    public Result(usize, PrintError) println(T...)([] const char format, T args) {
+        file::File err = file::stderr();
+        return print_to_impl(&err, format, true, args...);
+    }
+}

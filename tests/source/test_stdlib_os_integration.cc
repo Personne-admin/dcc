@@ -33,6 +33,36 @@ TEST_CASE("os::time civil calendar passes on the execution target")
     CHECK_EQ(os_test::run(os_test::fixture("time-civil.dc"), windows()).status, 0);
 }
 
+TEST_CASE("os::print is a best-effort single-write path")
+{
+    auto r = os_test::run(os_test::fixture("print.dc"), windows());
+    CHECK_EQ(r.status, 0);
+    CHECK(r.out.contains("stdout 1 -2 true"));
+    CHECK(r.err.contains("stderr ok 1"));
+}
+
+TEST_CASE("os::print rejects user formatting hooks")
+{
+    auto r = os_test::run(R"(module main;
+import std::fmt;
+import std::os::print;
+
+struct Custom {
+    i32 value;
+}
+
+void format(const Custom* self, fmt::BufferWriter* out, const fmt::Options* opts) {
+    fmt::write_padded(out, "custom", opts);
+}
+
+i32 main() {
+    Custom value = {value = 1};
+    std::os::print::println("{} {}", 1 as u32, value);
+    return 0;
+}
+)", windows());
+    CHECK_EQ(r.status, -1);
+}
 TEST_CASE("os::path lexical helpers pass on the execution target")
 {
     CHECK_EQ(os_test::run(os_test::fixture("path-lexical.dc"), windows()).status, 0);
