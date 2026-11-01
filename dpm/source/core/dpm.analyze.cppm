@@ -125,6 +125,26 @@ export namespace dpm::analyze
             return o.cache_root.empty() ? cache::default_root() : o.cache_root;
         }
 
+        inline void template_findings(manifest::LoadResult const& loaded, Options const& o, std::vector<Finding>& out)
+        {
+            auto const& tmpl = *loaded.project_template;
+            if (o.dcc_version.empty())
+                return;
+            auto have = semver::parse(o.dcc_version);
+            if (!have)
+                return;
+            manifest::Range scratch;
+            for (auto const& [field, value, tool] : {std::tuple{"requires_dpm", &tmpl.requires_dpm, "dpm"}, std::tuple{"requires_dcc", &tmpl.requires_dcc, "dcc"}})
+            {
+                if (value->empty())
+                    continue;
+                auto need = semver::parse(*value);
+                if (need && semver::compare(*have, *need) < 0)
+                    if (auto const* r = field_range(loaded.tree, field, scratch))
+                        add_finding(out, Severity::Warning, *r, std::format("requires {} {}, but this is {} {}", tool, *value, tool, o.dcc_version));
+            }
+        }
+
         inline void project_findings(manifest::LoadResult const& loaded, Options const& o, std::vector<Finding>& out)
         {
             auto const& project = *loaded.project;
@@ -250,6 +270,8 @@ export namespace dpm::analyze
             detail::project_findings(loaded, options, result.findings);
         else if (loaded.ok && result.kind == manifest::FileKind::Lock && loaded.lock)
             detail::lock_findings(loaded, options, result.findings);
+        else if (loaded.ok && result.kind == manifest::FileKind::Template && loaded.project_template)
+            detail::template_findings(loaded, options, result.findings);
         std::ranges::stable_sort(result.findings, [](Finding const& a, Finding const& b) { return std::tie(a.begin, a.end) < std::tie(b.begin, b.end); });
         return result;
     }

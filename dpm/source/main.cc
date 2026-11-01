@@ -973,6 +973,32 @@ namespace
 
     std::string dcc_version();
 
+    std::string toolchain_version()
+    {
+#ifdef DCC_VERSION
+        std::string version{DCC_VERSION};
+#else
+        std::string version;
+#endif
+        return dpm::semver::parse(version) ? version : std::string{};
+    }
+
+    std::string toolchain_hash()
+    {
+#ifdef DCC_GIT_HASH
+        return DCC_GIT_HASH;
+#else
+        return "unknown";
+#endif
+    }
+
+    bool toolchain_too_old(std::string const& required)
+    {
+        auto have = dpm::semver::parse(toolchain_version());
+        auto need = dpm::semver::parse(required);
+        return have && need && dpm::semver::compare(*have, *need) < 0;
+    }
+
     m::LoadOptions template_load_options()
     {
         m::LoadOptions options;
@@ -1185,6 +1211,11 @@ namespace
             return k_exit_manifest;
         }
         auto const& tmpl = source->loaded.tmpl;
+        if (!tmpl.requires_dpm.empty() && toolchain_too_old(tmpl.requires_dpm))
+        {
+            std::println(std::cerr, "dpm new: the template requires dpm {} but this is dpm {}", tmpl.requires_dpm, toolchain_version());
+            return k_exit_failure;
+        }
         if (!tmpl.requires_dcc.empty())
         {
             auto have = dcc_version();
@@ -1290,8 +1321,12 @@ namespace
         std::println("  name (identifier, default: from DIR): the package name; --name is the same as --set name=");
         for (auto const& v : tmpl.variables)
             std::println("  {} ({}){}{}", v.name, variable_summary(v), v.description.empty() ? "" : ": ", v.description);
+        if (!tmpl.requires_dpm.empty() || !tmpl.requires_dcc.empty())
+            std::println();
+        if (!tmpl.requires_dpm.empty())
+            std::println("needs dpm {} or newer", tmpl.requires_dpm);
         if (!tmpl.requires_dcc.empty())
-            std::println("\nneeds dcc {} or newer", tmpl.requires_dcc);
+            std::println("needs dcc {} or newer", tmpl.requires_dcc);
         return 0;
     }
 
@@ -1853,6 +1888,11 @@ auto main(int argc, char** argv) -> int
     if (parsed->help)
     {
         std::print("{}", dpm::cli::help_text(parsed->help_topic, dcc::help::terminal_width()));
+        return 0;
+    }
+    if (parsed->version)
+    {
+        std::println("dpm {} ({})", toolchain_version().empty() ? std::string{"unknown"} : toolchain_version(), toolchain_hash());
         return 0;
     }
     auto const command = parsed->command;

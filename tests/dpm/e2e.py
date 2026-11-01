@@ -204,6 +204,26 @@ def scenario_new():
     check(r.returncode == 2 and "no built-in template" in r.stderr, "an unknown built-in template", detail(r))
     r = dpm(parent, "new", "x", "--template", "sample")
     check(r.returncode == 2 and "not a built-in template" in r.stderr, "a bare word is not a path", detail(r))
+    version = subprocess.run([DPM, "--version"], capture_output=True, text=True, env=ENV)
+    dcc_version = subprocess.run([DCC, "--version"], capture_output=True, text=True, env=ENV).stdout.split()[1]
+    check(version.returncode == 0 and re.fullmatch(r"dpm %s \(\S+\)\n" % re.escape(dcc_version), version.stdout) is not None, "dpm --version prints the toolchain version", version.stdout)
+
+    def versioned(name, field, value):
+        root = os.path.join(ROOT, "versioned", name)
+        write(os.path.join(root, "template.dcon"), 'dpm::v1::Template { name = "ver", %s = "%s" }\n' % (field, value))
+        write(os.path.join(root, "files", "a.txt"), "x\n")
+        return root
+
+    for field, tool in (("requires_dpm", "dpm"), ("requires_dcc", "dcc")):
+        newer = versioned(field + "-newer", field, "99.0.0")
+        r = dpm(parent, "new", "tooold_" + field, "--template", "path:" + newer)
+        check(r.returncode == 1 and "requires %s 99.0.0" % tool in r.stderr and not os.path.exists(os.path.join(parent, "tooold_" + field)), "a template needing a newer %s is refused" % tool, detail(r))
+        r = dpm(parent, "template", "info", "path:" + newer)
+        check(r.returncode == 0 and "needs %s 99.0.0 or newer" % tool in r.stdout, "template info shows the %s requirement" % tool, detail(r))
+        okay = versioned(field + "-ok", field, dcc_version)
+        r = dpm(parent, "new", "fine_" + field, "--template", "path:" + okay)
+        check(r.returncode == 0, "a template needing exactly this %s is accepted" % tool, detail(r))
+
     shutil.copytree(sample, os.path.join(parent, "tpl"))
     r = dpm(parent, "new", "x", "--template", "tpl")
     check(r.returncode == 2 and "write ./tpl or path:tpl" in r.stderr, "a relative directory needs ./ or path:", detail(r))

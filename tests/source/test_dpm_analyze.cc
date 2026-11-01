@@ -236,6 +236,27 @@ TEST_CASE("manifest errors become findings with exact byte ranges")
     CHECK(!an::analyze(non_utf8, options_for(dir)).loaded);
 }
 
+TEST_CASE("a template that needs a newer dpm or dcc is a warning on that field")
+{
+    if (schema_root().empty())
+        return;
+    TempDir dir;
+    auto options = options_for(dir, "template.dcon");
+    std::string text = "{ name = \"tiny\", requires_dpm = \"9.0.0\", requires_dcc = \"8.0.0\" }";
+    auto result = an::analyze(text, options);
+    CHECK(result.loaded);
+    REQUIRE(result.findings.size() == std::size_t{2});
+    CHECK(result.findings[0].severity == an::Severity::Warning);
+    CHECK(contains(result.findings[0].message, "requires dpm 9.0.0, but this is dpm 0.3.0"));
+    CHECK_EQ(slice(text, result.findings[0]), std::string{"\"9.0.0\""});
+    CHECK(contains(result.findings[1].message, "requires dcc 8.0.0, but this is dcc 0.3.0"));
+    auto fine = an::analyze("{ name = \"tiny\", requires_dpm = \"0.3.0\", requires_dcc = \"0.1.0\" }", options);
+    CHECK(fine.loaded);
+    CHECK(fine.findings.empty());
+    options.dcc_version.clear();
+    CHECK(an::analyze(text, options).findings.empty());
+}
+
 TEST_CASE("a template file is analyzed with its own schema type")
 {
     if (schema_root().empty())

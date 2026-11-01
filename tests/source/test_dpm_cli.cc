@@ -321,6 +321,20 @@ TEST_CASE("arguments, values and pass-through arguments are collected")
     CHECK_EQ(many->positional.size(), std::size_t{3});
 }
 
+TEST_CASE("--version is a request of its own")
+{
+    auto parsed = run({"--version"});
+    REQUIRE(parsed.has_value());
+    CHECK(parsed->version);
+    CHECK(!parsed->help);
+    CHECK(parsed->command.empty());
+    auto plain = run({"build"});
+    REQUIRE(plain.has_value());
+    CHECK(!plain->version);
+    CHECK(!run({"build", "--version"}).has_value());
+    CHECK(cli::help_text("", 80).find("dpm --version") != std::string::npos);
+}
+
 TEST_CASE("new collects repeated --set values in order and the template source")
 {
     auto parsed = run({"new", "proj", "--template", "path:t", "--set", "a=1", "--name", "kern", "--set", "b=two words", "--set", "a=3"});

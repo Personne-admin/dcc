@@ -260,6 +260,7 @@ export namespace dpm::cli
         std::vector<std::string> passthrough;
         std::vector<std::string> sets;
         bool help{};
+        bool version{};
         std::string help_topic;
 
         [[nodiscard]] bool has(Opt o) const { return flags.contains(o) || values.contains(o) || (o == Opt::Set && !sets.empty()); }
@@ -340,6 +341,11 @@ export namespace dpm::cli
             parsed.help_topic = detail::join_words(words);
             if (!parsed.help_topic.empty() && !find_command(parsed.help_topic))
                 return std::unexpected{Failure{std::format("dpm: no help for '{}' (see 'dpm --help')", parsed.help_topic), ""}};
+            return parsed;
+        }
+        if (first == "--version")
+        {
+            parsed.version = true;
             return parsed;
         }
         if (first.starts_with('-'))
@@ -474,7 +480,7 @@ export namespace dpm::cli
 
     [[nodiscard]] inline std::string overview(int width)
     {
-        std::string out = "usage: dpm <command> [options]\n       dpm help <command>\n       dpm <command> --help\n\ncommands:\n";
+        std::string out = "usage: dpm <command> [options]\n       dpm help <command>\n       dpm <command> --help\n       dpm --version\n\ncommands:\n";
         std::vector<dcc::help::Row> rows;
         for (auto const& c : k_commands)
             if (!c.group)

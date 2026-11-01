@@ -1,6 +1,7 @@
 usage: dpm <command> [options]
        dpm help <command>
        dpm <command> --help
+       dpm --version
 
 commands:
   init [DIR]                create a package in DIR (default: the current
