@@ -1,0 +1,58 @@
+=== FILE: test.dc ===
+module test;
+
+enum Inner(E) {
+    Write(E),
+    Closed,
+}
+
+enum Outer(E) {
+    BadFormat,
+    @implicit_construction Write(E),
+}
+
+u8 seed = 5;
+
+Outer(u8) convert(Inner(u8) err) {
+    return match err {
+        Inner::Write(e) => return match e {
+            0 => Outer::BadFormat,
+            _ => e,
+        },
+        _ => Outer::BadFormat,
+    };
+}
+
+Outer(u8) pick(bool b, u8 e) {
+    return if b { Outer::BadFormat } else { e };
+}
+
+@nomangle
+public i32 dcc_main() {
+    Outer(u8) a = convert(Inner(u8)::Write(seed));
+    match a {
+        Outer::Write(v) => { if v != seed { return 1; } },
+        _ => return 2,
+    }
+    Outer(u8) b = convert(Inner(u8)::Write(0));
+    match b {
+        Outer::BadFormat => {},
+        _ => return 3,
+    }
+    Outer(u8) c = pick(false, seed);
+    match c {
+        Outer::Write(v) => { if v != seed { return 4; } },
+        _ => return 5,
+    }
+    Outer(u8) d = pick(true, seed);
+    match d {
+        Outer::BadFormat => {},
+        _ => return 6,
+    }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0

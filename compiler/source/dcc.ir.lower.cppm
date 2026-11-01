@@ -6357,7 +6357,7 @@ export namespace dcc::ir::lower
                     lower_stmt(stmt);
 
                 if (ie->then_block.tail && !current_block_terminated())
-                    then_val = lower_expr(ie->then_block.tail);
+                    then_val = lower_implicit_enum_construction(ie->then_block.tail, [&]() { return lower_expr(ie->then_block.tail); });
 
                 pop_scope();
             }
@@ -6380,20 +6380,23 @@ export namespace dcc::ir::lower
                         lower_stmt(stmt);
 
                     if (block_expr->body.tail && !current_block_terminated())
-                        else_val = lower_expr(block_expr->body.tail);
+                        else_val = lower_implicit_enum_construction(block_expr->body.tail,
+                                                                    [&]() { return lower_expr(block_expr->body.tail); });
 
                     pop_scope();
                 }
                 else if (ie->else_branch->kind == ast::ExprKind::If)
                 {
                     push_scope();
-                    else_val = lower_if_expr(static_cast<ast::IfExpr const*>(ie->else_branch));
+                    else_val = lower_implicit_enum_construction(ie->else_branch, [&]() {
+                        return lower_if_expr(static_cast<ast::IfExpr const*>(ie->else_branch));
+                    });
                     pop_scope();
                 }
                 else
                 {
                     push_scope();
-                    else_val = lower_expr(ie->else_branch);
+                    else_val = lower_implicit_enum_construction(ie->else_branch, [&]() { return lower_expr(ie->else_branch); });
                     pop_scope();
                 }
             }
@@ -6951,7 +6954,8 @@ export namespace dcc::ir::lower
                     }
 
                     if (arm.body)
-                        arm_blocks[i].result = lower_expr(arm.body);
+                        arm_blocks[i].result =
+                            lower_implicit_enum_construction(arm.body, [&]() { return lower_expr(arm.body); });
 
                     arm_blocks[i].terminated = current_block_terminated() || (arm.body && arm.body->sema.is_diverging);
 
@@ -6999,7 +7003,8 @@ export namespace dcc::ir::lower
 
                     if (arm.body)
                     {
-                        arm_blocks[i].result = lower_expr(arm.body);
+                        arm_blocks[i].result =
+                            lower_implicit_enum_construction(arm.body, [&]() { return lower_expr(arm.body); });
                     }
                     arm_blocks[i].terminated = current_block_terminated() || (arm.body && arm.body->sema.is_diverging);
 
