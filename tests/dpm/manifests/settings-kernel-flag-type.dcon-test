@@ -1,0 +1,4 @@
+=== FILE: project.dcon ===
+{ name = "k", version = "1.0.0", settings = { red_zone = Optimize::O2 } }
+=== EXPECT-ERRORS ===
+project.dcon:1:47: field `red_zone` type mismatch: expected `Tri`, got `Optimize`

@@ -70,13 +70,44 @@ TEST_CASE("every field maps to its dcc flag")
     st.restricted_check = m::Tri::Off;
     st.far_check = m::Tri::On;
     st.pic = m::Tri::Off;
+    st.red_zone = m::Tri::Off;
+    st.simd = m::Tri::Off;
+    st.x87 = m::Tri::Off;
+    st.stack_protector = m::Tri::Off;
+    st.partial_eval = m::Tri::On;
     st.base = "?:0x100";
     st.stack_reserve = "512";
     st.extra_flags = {"-fno-simd"};
     auto expected = strs({"-target=i8086-mz", "-fbackend=custom", "-farch=i386", "-mcmodel=unreal", "-Os", "-fwhole-program", "-flibdcext=freestanding", "-g0",
-                          "-fbounds-check", "-fno-restricted-check", "-ffar-check", "-fno-pic", "-fbase=?:0x100", "-fstack-reserve=512", "-fno-simd"});
+                          "-fbounds-check", "-fno-restricted-check", "-ffar-check", "-fno-pic", "-fno-red-zone", "-fno-simd", "-fno-x87", "-fno-stack-protector",
+                          "-fpartial-eval", "-fbase=?:0x100", "-fstack-reserve=512", "-fno-simd"});
     CHECK(s::dcc_flags(st) == expected);
     CHECK(dcc_accepts(s::dcc_flags(st)));
+}
+
+TEST_CASE("the kernel settings map to their flags in both directions and Default passes nothing")
+{
+    m::Settings on;
+    on.target = m::Target::X86_64Elf;
+    on.red_zone = m::Tri::On;
+    on.simd = m::Tri::On;
+    on.x87 = m::Tri::On;
+    on.stack_protector = m::Tri::On;
+    on.partial_eval = m::Tri::Off;
+    CHECK(s::dcc_flags(on) == strs({"-target=x86_64-elf", "-fred-zone", "-fsimd", "-fx87", "-fstack-protector", "-fno-partial-eval"}));
+    CHECK(dcc_accepts(s::dcc_flags(on)));
+    m::Settings off;
+    off.target = m::Target::X86_64Elf;
+    off.red_zone = m::Tri::Off;
+    off.simd = m::Tri::Off;
+    off.x87 = m::Tri::Off;
+    off.stack_protector = m::Tri::Off;
+    off.partial_eval = m::Tri::On;
+    CHECK(s::dcc_flags(off) == strs({"-target=x86_64-elf", "-fno-red-zone", "-fno-simd", "-fno-x87", "-fno-stack-protector", "-fpartial-eval"}));
+    CHECK(dcc_accepts(s::dcc_flags(off)));
+    m::Settings none;
+    none.target = m::Target::X86_64Elf;
+    CHECK(s::dcc_flags(none) == strs({"-target=x86_64-elf"}));
 }
 
 TEST_CASE("the default libdcext links the hosted variant only for the host target")
@@ -123,7 +154,17 @@ TEST_CASE("layers override from the lowest to the highest and extra flags concat
     product.settings.whole_program = m::Tri::Off;
     product.settings.extra_flags = {"-c"};
 
+    project.settings.red_zone = m::Tri::Off;
+    project.settings.partial_eval = m::Tri::On;
+    product.settings.red_zone = m::Tri::On;
+    product.settings.simd = m::Tri::Off;
+    fast.settings.stack_protector = m::Tri::Off;
+    project.profiles.back().settings.stack_protector = m::Tri::Off;
+
     auto base = s::effective(project, "debug", nullptr);
+    CHECK(base.red_zone == m::Tri::Off);
+    CHECK(base.partial_eval == m::Tri::On);
+    CHECK(base.simd == m::Tri::Default);
     CHECK(base.optimize == m::Optimize::O1);
     CHECK(base.debug_info == m::Tri::On);
     CHECK(base.bounds_check == m::Tri::On);
@@ -132,6 +173,10 @@ TEST_CASE("layers override from the lowest to the highest and extra flags concat
     auto layered = s::effective(project, "fast", &product);
     CHECK(layered.optimize == m::Optimize::O2);
     CHECK(layered.whole_program == m::Tri::Off);
+    CHECK(layered.red_zone == m::Tri::On);
+    CHECK(layered.simd == m::Tri::Off);
+    CHECK(layered.stack_protector == m::Tri::Off);
+    CHECK(layered.partial_eval == m::Tri::On);
     CHECK(layered.extra_flags == strs({"-a", "-b", "-c"}));
 
     auto release = s::effective(m::Project{}, "release", nullptr);
@@ -270,6 +315,11 @@ TEST_CASE("drift: every emitted flag name exists in the dcc option table")
     st.restricted_check = m::Tri::On;
     st.far_check = m::Tri::Off;
     st.pic = m::Tri::On;
+    st.red_zone = m::Tri::Off;
+    st.simd = m::Tri::On;
+    st.x87 = m::Tri::Off;
+    st.stack_protector = m::Tri::On;
+    st.partial_eval = m::Tri::Off;
     st.base = "1:0";
     st.stack_reserve = "1";
     m::Product product;

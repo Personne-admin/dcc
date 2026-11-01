@@ -63,6 +63,11 @@ export namespace dpm::settings
         detail::override_if(lower.restricted_check, higher.restricted_check);
         detail::override_if(lower.far_check, higher.far_check);
         detail::override_if(lower.pic, higher.pic);
+        detail::override_if(lower.red_zone, higher.red_zone);
+        detail::override_if(lower.simd, higher.simd);
+        detail::override_if(lower.x87, higher.x87);
+        detail::override_if(lower.stack_protector, higher.stack_protector);
+        detail::override_if(lower.partial_eval, higher.partial_eval);
         detail::override_if(lower.base, higher.base);
         detail::override_if(lower.stack_reserve, higher.stack_reserve);
         lower.extra_flags.insert(lower.extra_flags.end(), higher.extra_flags.begin(), higher.extra_flags.end());
@@ -204,6 +209,11 @@ export namespace dpm::settings
         detail::tri_flag(out, s.restricted_check, "-frestricted-check", "-fno-restricted-check");
         detail::tri_flag(out, s.far_check, "-ffar-check", "-fno-far-check");
         detail::tri_flag(out, s.pic, "-fpic", "-fno-pic");
+        detail::tri_flag(out, s.red_zone, "-fred-zone", "-fno-red-zone");
+        detail::tri_flag(out, s.simd, "-fsimd", "-fno-simd");
+        detail::tri_flag(out, s.x87, "-fx87", "-fno-x87");
+        detail::tri_flag(out, s.stack_protector, "-fstack-protector", "-fno-stack-protector");
+        detail::tri_flag(out, s.partial_eval, "-fpartial-eval", "-fno-partial-eval");
         if (!s.base.empty())
             out.push_back("-fbase=" + s.base);
         if (!s.stack_reserve.empty())

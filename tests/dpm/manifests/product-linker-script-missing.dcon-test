@@ -1,0 +1,6 @@
+=== FILE: project.dcon ===
+{ name = "k", version = "1.0.0", products = { { name = "k", entry = "src/main.dc", linker_script = "link/missing.ld" } } }
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:1:100: linker script 'link/missing.ld' does not exist

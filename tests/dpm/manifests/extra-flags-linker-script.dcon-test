@@ -1,0 +1,8 @@
+=== FILE: project.dcon ===
+{ name = "k", version = "1.0.0", settings = { extra_flags = { "-T", "-Tx.ld", "-fno-simd" } }, products = { { name = "k", entry = "src/main.dc", settings = { extra_flags = { "-T" } } } } }
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:1:63: '-T' is set by dpm from linker_script; use that field of the product
+project.dcon:1:69: '-Tx.ld' is set by dpm from linker_script; use that field of the product
+project.dcon:1:175: '-T' is set by dpm from linker_script; use that field of the product

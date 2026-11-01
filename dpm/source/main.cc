@@ -613,6 +613,8 @@ namespace
         auto inputs = dpm::stamp::parse_depfile(*depfile);
         if (inputs.empty())
             return;
+        for (auto const& extra : plan.extra_inputs)
+            inputs.push_back(extra);
         if (auto stamp = dpm::stamp::record(std::move(key), plan.output, inputs, built_at))
             (void)dpm::stamp::write(stamp_path, *stamp);
     }

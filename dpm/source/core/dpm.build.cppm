@@ -37,6 +37,7 @@ export namespace dpm::build
         std::filesystem::path output;
         std::filesystem::path depfile;
         std::filesystem::path compdb_entry;
+        std::vector<std::filesystem::path> extra_inputs;
         Settings settings;
     };
 
@@ -134,7 +135,18 @@ export namespace dpm::build
         auto effective = settings::effective(*request.project, request.profile, &product, request.overrides);
         auto output = output_dir(request.profile, effective.target) / artifact_name(product, effective.target);
         auto entry = (std::filesystem::path{request.project_root} / product.entry).lexically_normal().generic_string();
-        return detail::compose(request, effective, entry, output, settings::product_flags(product));
+        auto flags = settings::product_flags(product);
+        std::vector<std::filesystem::path> extra_inputs;
+        if (!product.linker_script.empty())
+        {
+            auto script = (std::filesystem::path{request.project_root} / product.linker_script).lexically_normal();
+            flags.emplace_back("-T");
+            flags.push_back(script.generic_string());
+            extra_inputs.push_back(script);
+        }
+        auto plan = detail::compose(request, effective, entry, output, flags);
+        plan.extra_inputs = std::move(extra_inputs);
+        return plan;
     }
 
     [[nodiscard]] inline Plan plan_test(Request const& request, std::filesystem::path const& test_file)

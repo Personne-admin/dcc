@@ -1,0 +1,14 @@
+=== FILE: project.dcon ===
+{ name = "k", version = "1.0.0", settings = { red_zone = Tri::Off, simd = Tri::Off, x87 = Tri::Off, stack_protector = Tri::Off, partial_eval = Tri::On } }
+=== EXPECT-TREE ===
+{
+  name = "k",
+  version = "1.0.0",
+  settings = {
+    red_zone = Tri::Off,
+    simd = Tri::Off,
+    x87 = Tri::Off,
+    stack_protector = Tri::Off,
+    partial_eval = Tri::On,
+  },
+}

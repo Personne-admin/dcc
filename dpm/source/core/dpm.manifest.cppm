@@ -249,6 +249,11 @@ export namespace dpm::manifest
         Tri restricted_check{Tri::Default};
         Tri far_check{Tri::Default};
         Tri pic{Tri::Default};
+        Tri red_zone{Tri::Default};
+        Tri simd{Tri::Default};
+        Tri x87{Tri::Default};
+        Tri stack_protector{Tri::Default};
+        Tri partial_eval{Tri::Default};
         std::string base;
         std::string stack_reserve;
         std::vector<std::string> extra_flags;
@@ -268,6 +273,7 @@ export namespace dpm::manifest
         std::string entry;
         Settings settings;
         std::vector<std::string> link;
+        std::string linker_script;
         Range range;
     };
 
@@ -1240,6 +1246,11 @@ export namespace dpm::manifest
                 s.restricted_check = tri(n, "restricted_check");
                 s.far_check = tri(n, "far_check");
                 s.pic = tri(n, "pic");
+                s.red_zone = tri(n, "red_zone");
+                s.simd = tri(n, "simd");
+                s.x87 = tri(n, "x87");
+                s.stack_protector = tri(n, "stack_protector");
+                s.partial_eval = tri(n, "partial_eval");
                 s.base = str(n, "base");
                 s.stack_reserve = str(n, "stack_reserve");
                 s.extra_flags = strs(n, "extra_flags");
@@ -1253,11 +1264,13 @@ export namespace dpm::manifest
                 for (auto const& item : flags.items)
                 {
                     auto const& flag = item.text;
-                    bool owned = flag == "-o" || flag == "-c" || flag == "-S" || flag == "--depfile" || flag.starts_with("-I") || flag.starts_with("-l") ||
+                    bool owned = flag.starts_with("-T") || flag == "-o" || flag == "-c" || flag == "-S" || flag == "--depfile" || flag.starts_with("-I") || flag.starts_with("-l") ||
                                  flag.starts_with("-o") || flag.starts_with("--depfile=") || flag == "--compdb-entry" || flag.starts_with("--compdb-entry=");
                     if (s.target != Target::Host && (flag == "-target" || flag.starts_with("-target=") || flag == "--target"))
                         owned = true;
-                    if (owned)
+                    if (flag.starts_with("-T"))
+                        error(item, std::format("'{}' is set by dpm from linker_script; use that field of the product", flag));
+                    else if (owned)
                         error(item, std::format("'{}' is set by dpm and cannot be passed in extra_flags", flag));
                 }
             }
@@ -1780,6 +1793,7 @@ export namespace dpm::manifest
                         pr.kind = enumerator<Kind>(item, "kind", kinds);
                         pr.entry = str(item, "entry");
                         pr.link = strs(item, "link");
+                        pr.linker_script = str(item, "linker_script");
                         if (auto const* s = field(item, "settings"))
                             pr.settings = settings(*s);
                         if (auto const* n = item.find("name"))
@@ -1788,6 +1802,16 @@ export namespace dpm::manifest
                                 error(*n, std::format("'{}' is not a valid product name", pr.name));
                             else if (!product_names.insert(pr.name).second)
                                 error(*n, std::format("duplicate product '{}'", pr.name));
+                        }
+                        if (auto const* n = item.find("linker_script"); n && !pr.linker_script.empty())
+                        {
+                            check_entry_path(*n, pr.linker_script, "linker_script");
+                            if (!project_root.empty() && is_relative_subpath(pr.linker_script))
+                            {
+                                std::error_code ec;
+                                if (!std::filesystem::is_regular_file(project_root / pr.linker_script, ec))
+                                    error(*n, std::format("linker script '{}' does not exist", pr.linker_script));
+                            }
                         }
                         if (auto const* n = item.find("entry"))
                         {

@@ -638,6 +638,70 @@ def scenario_publish_template():
     check(r.returncode == 0 and os.path.isfile(os.path.join(parent, "frommono", "project.dcon")), "and is consumed", detail(r))
 
 
+def elf_entry(path):
+    import struct
+    with open(path, "rb") as f:
+        header = f.read(64)
+    return struct.unpack_from("<Q", header, 24)[0]
+
+
+def scenario_kernel_build():
+    app = new_app("kern")
+    write(os.path.join(app, "project.dcon"), """dpm::v1::Project {
+    name = "kern",
+    version = "0.1.0",
+    products = {
+        {
+            name = "kern",
+            entry = "src/main.dc",
+            linker_script = "link/kernel.ld",
+            settings = {
+                target = Target::X86_64Elf,
+                model = Model::Kernel,
+                libdcext = Libdcext::Freestanding,
+                red_zone = Tri::Off,
+                simd = Tri::Off,
+                x87 = Tri::Off,
+                stack_protector = Tri::Off,
+                partial_eval = Tri::On,
+            },
+        },
+    },
+}
+""")
+    write(os.path.join(app, "src", "main.dc"), "module main;\n\nimport ticks;\n\n@nomangle\npublic void kmain()\n{\n    while ticks::count(3) != 0 {}\n}\n")
+    write(os.path.join(app, "src", "ticks.dc"), "module ticks;\n\nvolatile i32 sink;\n\npublic i32 count(i32 n)\n{\n    i32 i = 0;\n    while i < n {\n        sink = i;\n        i = i + 1;\n    }\n    return sink - 2;\n}\n")
+    script = os.path.join(app, "link", "kernel.ld")
+    def lds(base):
+        return "ENTRY(kmain)\nSECTIONS\n{\n    . = %s;\n    .text : { *(.text .text.*) }\n    .rodata : { *(.rodata .rodata.*) }\n    .data : { *(.data .data.*) }\n    .bss : { *(.bss .bss.*) *(COMMON) }\n}\n" % base
+    write(script, lds("0xffffffff80000000"))
+    r = dpm(app, "build", "-v")
+    out = os.path.join(app, ".dpm", "out", "debug", "x86_64-elf", "kern")
+    check(r.returncode == 0 and os.path.isfile(out), "a kernel product with a linker script and kernel settings builds", detail(r))
+    check("-T link/kernel.ld" in r.stderr, "dcc gets -T with the script", r.stderr)
+    for flag in ("-mcmodel=kernel", "-fno-red-zone", "-fno-simd", "-fno-x87", "-fno-stack-protector", "-fpartial-eval", "-flibdcext=freestanding"):
+        check(flag in r.stderr, "dcc gets " + flag, r.stderr)
+    first = elf_entry(out)
+    check(first >= 0xffffffff80000000 and first < 0xffffffff80100000, "the program is linked at the script's address", hex(first))
+    r = dpm(app, "build")
+    check(r.returncode == 0 and "Fresh kern" in r.stdout, "an unchanged kernel is fresh", detail(r))
+    write(script, lds("0xffffffff90000000"))
+    r = dpm(app, "build")
+    check(r.returncode == 0 and "Building kern" in r.stdout, "editing the linker script rebuilds", detail(r))
+    second = elf_entry(out)
+    check(second >= 0xffffffff90000000 and second < 0xffffffff90100000, "and the new script is used", hex(second))
+    r = dpm(app, "build")
+    check("Fresh kern" in r.stdout, "the rebuilt kernel is fresh again", detail(r))
+    os.remove(script)
+    r = dpm(app, "build")
+    check(r.returncode == 3 and "linker script 'link/kernel.ld' does not exist" in r.stderr, "a missing linker script is a manifest error", detail(r))
+    write(script, lds("0xffffffff80000000"))
+    text = read(os.path.join(app, "project.dcon"))
+    write(os.path.join(app, "project.dcon"), text.replace("partial_eval = Tri::On,", "partial_eval = Tri::On,\n                extra_flags = { \"-T\", \"other.ld\" },"))
+    r = dpm(app, "build")
+    check(r.returncode == 3 and "set by dpm from linker_script" in r.stderr, "-T in extra_flags is refused", detail(r))
+
+
 def scenario_run_args():
     app = new_app("args", "return 3;")
     r = run_app(app, "--", "a", "b")
@@ -1567,6 +1631,7 @@ try:
     scenario_basic()
     scenario_run_args()
     scenario_modules()
+    scenario_kernel_build()
     scenario_new()
     scenario_new_fetch()
     scenario_new_registry()

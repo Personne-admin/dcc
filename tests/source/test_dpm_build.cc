@@ -48,6 +48,36 @@ TEST_CASE("the debug host executable plan")
     CHECK_EQ(plan.output.generic_string(), std::string{".dpm/out/debug/host/app"});
 }
 
+TEST_CASE("a linker script becomes -T before the settings and is tracked as an extra input")
+{
+    auto project = base_project();
+    project.products[0].linker_script = "link/kernel.ld";
+    project.products[0].settings.target = m::Target::X86_64Elf;
+    project.products[0].settings.red_zone = m::Tri::Off;
+    auto plan = b::plan_product(request_for(project), project.products[0]);
+    CHECK(plan.argv == strs({"dcc", "src/main.dc", "-o", ".dpm/out/debug/x86_64-elf/app", "-Isrc", "--depfile", ".dpm/out/debug/x86_64-elf/app.d", "--compdb-entry",
+                             ".dpm/out/debug/x86_64-elf/app.compdb.json", "-T", "link/kernel.ld", "-target=x86_64-elf", "-O0", "-fwhole-program", "-g", "-fbounds-check",
+                             "-fno-red-zone"}));
+    REQUIRE(plan.extra_inputs.size() == std::size_t{1});
+    CHECK_EQ(plan.extra_inputs[0].generic_string(), std::string{"link/kernel.ld"});
+    auto without = b::plan_product(request_for(base_project()), base_project().products[0]);
+    CHECK(without.extra_inputs.empty());
+    CHECK(std::ranges::find(without.argv, "-T") == without.argv.end());
+}
+
+TEST_CASE("a linker script is resolved against the project root and normalized")
+{
+    auto project = base_project();
+    project.products[0].linker_script = "./a/../link/k.ld";
+    auto r = request_for(project);
+    r.project_root = "/work/proj";
+    auto plan = b::plan_product(r, project.products[0]);
+    auto at = std::ranges::find(plan.argv, "-T");
+    REQUIRE(at != plan.argv.end());
+    CHECK_EQ(*(at + 1), std::string{"/work/proj/link/k.ld"});
+    CHECK_EQ(plan.extra_inputs[0].generic_string(), std::string{"/work/proj/link/k.ld"});
+}
+
 TEST_CASE("the release plan uses release defaults")
 {
     auto project = base_project();

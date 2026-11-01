@@ -137,6 +137,18 @@ public struct Settings
     Tri far_check = Tri::Default;
     /// Position-independent code (`-fPIC`).
     Tri pic = Tri::Default;
+    /// Red zone below the stack pointer (`-fno-red-zone` when `Off`). Kernels and
+    /// interrupt handlers need it off.
+    Tri red_zone = Tri::Default;
+    /// SIMD instructions (`-fno-simd` when `Off`). Freestanding code that has not
+    /// enabled SIMD state needs it off.
+    Tri simd = Tri::Default;
+    /// x87 floating point (`-fno-x87` when `Off`).
+    Tri x87 = Tri::Default;
+    /// Stack protector (`-fno-stack-protector` when `Off`).
+    Tri stack_protector = Tri::Default;
+    /// Call-site partial evaluation (`-fpartial-eval` when `On`).
+    Tri partial_eval = Tri::Default;
     /// i8086 load address as `SEG:OFF` (`-fbase`). Empty for none.
     []const char base = "";
     /// i8086 stack reservation (`-fstack-reserve`). Empty for none.
@@ -172,6 +184,10 @@ public struct Product
     Settings settings = {};
     /// Libraries to link (`dcc -l`).
     []const []const char link = {};
+    /// Linker script (`-T`), relative to the package root; the file must exist.
+    /// dpm passes the flag and rebuilds when the script changes, so `-T` cannot
+    /// be written in `extra_flags`.
+    []const char linker_script = "";
 }
 
 /// The built-in profile a custom profile starts from.

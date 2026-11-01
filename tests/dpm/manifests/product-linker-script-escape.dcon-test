@@ -1,0 +1,8 @@
+=== FILE: project.dcon ===
+{ name = "k", version = "1.0.0", products = { { name = "k", entry = "src/main.dc", linker_script = "/etc/k.ld" }, { name = "j", entry = "src/main.dc", linker_script = "../k.ld" }, { name = "i", entry = "src/main.dc", linker_script = "link/../../k.ld" } } }
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:1:100: linker_script must be a relative path inside the package
+project.dcon:1:168: linker_script must be a relative path inside the package
+project.dcon:1:234: linker_script must be a relative path inside the package

@@ -1,0 +1,18 @@
+=== FILE: project.dcon ===
+{ name = "k", version = "1.0.0", products = { { name = "k", entry = "src/main.dc", linker_script = "link/kernel.ld" } } }
+=== FILE: src/main.dc ===
+module main;
+=== FILE: link/kernel.ld ===
+ENTRY(kmain)
+=== EXPECT-TREE ===
+{
+  name = "k",
+  version = "1.0.0",
+  products = [
+    {
+      name = "k",
+      entry = "src/main.dc",
+      linker_script = "link/kernel.ld",
+    },
+  ],
+}
