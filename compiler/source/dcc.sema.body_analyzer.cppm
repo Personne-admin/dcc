@@ -8875,11 +8875,48 @@ export namespace dcc::sema
             {
                 auto const errors_before = m_diag.error_count();
                 auto ret_ty = fn.return_type ? get_canonical(fn.return_type->sema) : m_types.m_voidt();
-                auto res = analyze_block(mod, &fn, *root, *fn.body, 0, frame_off, nullptr, root_consts, ret_ty == m_types.m_voidt());
+                bool const checks_return = ret_ty && ret_ty != m_types.m_voidt() && !has_error(ret_ty) && !contains_template_param(ret_ty);
+                auto res = analyze_block(mod, &fn, *root, *fn.body, 0, frame_off, checks_return ? ret_ty : nullptr, root_consts,
+                                         ret_ty == m_types.m_voidt());
                 fn.sema.is_diverging = !res.falls_through;
                 if (fn.sema.is_noreturn && (res.falls_through || res.has_return))
                     error(fn.range, "noreturn function `{}` can return", fn.name);
-                if (ret_ty && ret_ty != m_types.m_voidt() && res.falls_through && !fn.body->tail)
+                bool tail_yields_value = false;
+                bool tail_reported = false;
+                if (checks_return && fn.body->tail)
+                {
+                    auto* tail_type = get_resolved_type(fn.body->tail->sema);
+                    if (!tail_type || has_error(tail_type))
+                        tail_reported = true;
+                    else if (tail_type != m_types.m_voidt())
+                    {
+                        tail_yields_value = can_assign_return(ret_ty, tail_type);
+                        if (!tail_yields_value)
+                        {
+                            ast::EnumVariant const* implicit_enum_var = nullptr;
+                            auto* conv = try_implicit_enum_conversion(ret_ty, tail_type, mod, *root, &implicit_enum_var);
+                            if (!conv)
+                            {
+                                error(fn.body->tail->range, "return type mismatch: expected `{}`, got `{}`", format_type_str(ret_ty),
+                                      format_type_str(tail_type));
+                                tail_reported = true;
+                            }
+                            else if (has_error(conv))
+                            {
+                                error(fn.body->tail->range, "ambiguous implicit enum construction");
+                                tail_reported = true;
+                            }
+                            else
+                            {
+                                fn.body->tail->sema.construction_kind = ast::ExprSema::ConstructionKind::Enum;
+                                fn.body->tail->sema.constructed_variant = implicit_enum_var;
+                                set_resolved_type(fn.body->tail->sema, ret_ty);
+                                tail_yields_value = true;
+                            }
+                        }
+                    }
+                }
+                if (checks_return && res.falls_through && !tail_yields_value && !tail_reported)
                     error(fn.range, "missing return in function `{}`", fn.name);
                 if (fn.template_params.empty() && m_diag.error_count() == errors_before)
                     report_unresolved_pack_accesses(*fn.body);

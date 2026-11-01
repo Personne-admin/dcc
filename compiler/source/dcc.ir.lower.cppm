@@ -1048,26 +1048,23 @@ export namespace dcc::ir::lower
 
             if (decl->body)
             {
-                if (is_lambda_func(decl))
+                auto* tail_val = lower_block_body(*decl->body, true);
+                if (tail_val && ir_ret_type->kind != IrTypeKind::Void && decl->body->tail)
                 {
-                    auto* tail_val = lower_block_body(*decl->body);
-                    if (tail_val && ir_ret_type->kind != IrTypeKind::Void && decl->body->tail)
-                    {
-                        auto* ret_sema_type = get_canonical_type(decl->return_type);
-                        auto* val_sema_type = get_sema_resolved_type(decl->body->tail);
-                        tail_val = coerce_array_decay(decl->body->tail, tail_val, val_sema_type, ret_sema_type);
-                    }
-
-                    if (!current_block_terminated())
-                    {
-                        if (ir_ret_type->kind == IrTypeKind::Void)
-                            emit_ret();
-                        else if (tail_val)
-                            emit_ret(tail_val);
-                    }
+                    auto* ret_sema_type = get_canonical_type(decl->return_type);
+                    auto* val_sema_type = get_sema_resolved_type(decl->body->tail);
+                    tail_val = coerce_array_decay(decl->body->tail, tail_val, val_sema_type, ret_sema_type);
                 }
-                else
-                    lower_block(*decl->body);
+
+                if (!current_block_terminated())
+                {
+                    if (ir_ret_type->kind == IrTypeKind::Void)
+                        emit_ret();
+                    else if (tail_val)
+                        emit_ret(tail_val);
+                    else
+                        emit_unreachable();
+                }
             }
 
             if (!current_block_terminated())
@@ -1657,7 +1654,7 @@ export namespace dcc::ir::lower
             }
         }
 
-        IrValue* lower_block_body(ast::Block const& block)
+        IrValue* lower_block_body(ast::Block const& block, bool tail_yields_value = false)
         {
             SourceRangeGuard guard(*this, block.range);
             push_scope();
@@ -1666,7 +1663,12 @@ export namespace dcc::ir::lower
 
             IrValue* tail_val = nullptr;
             if (block.tail && !current_block_terminated())
-                tail_val = lower_expr(block.tail);
+            {
+                if (tail_yields_value)
+                    tail_val = lower_implicit_enum_construction(block.tail, [&]() { return lower_expr(block.tail); });
+                else
+                    tail_val = lower_expr(block.tail);
+            }
 
             pop_scope();
             return tail_val;

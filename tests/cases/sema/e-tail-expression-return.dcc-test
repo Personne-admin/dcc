@@ -1,0 +1,31 @@
+=== FILE: main.dc ===
+module m;
+
+i32 tail_if_without_else(bool x) {
+    if x { return 1; }
+}
+
+i32 tail_value(bool x) {
+    if x { 1 } else { 2 }
+}
+
+i32 tail_void_call() {
+    helper();
+}
+
+void helper() {}
+
+i32 tail_diverges(bool x) {
+    if x { return 1; } else { return 2; }
+}
+
+bool tail_match_all_return(bool x) {
+    match x {
+        true => return false,
+        false => return true,
+    }
+}
+
+=== EXPECT-ERRORS ===
+main.dc:3: missing return in function `tail_if_without_else`
+main.dc:11: missing return in function `tail_void_call`

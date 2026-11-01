@@ -34,4 +34,5 @@ void@_DC0F1.4.test6.caller0v() {
 linkonce_odr i32@_DC0S1.4.test1.f2i32sf64.i32sX2ti32stf64.(i32, f64) {
 %entry(i32 %args_0, f64 %args_1):
   call fn(@_DC0F1.4.test8.take_i321i32sv)(i32 %args_0)
+  ret i32 %args_0
 }

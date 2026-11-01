@@ -1,0 +1,42 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+i32 positive = 1;
+i32 negative = -1;
+
+i32 pick(i32 x) {
+    if x > 0 { 7 } else { 9 }
+}
+
+i32 after(i32 x) {
+    return 100;
+}
+
+bool flip(bool x) {
+    match x {
+        true => false,
+        false => true,
+    }
+}
+
+i32 after2(i32 x) {
+    return 200;
+}
+
+@nomangle
+public i32 dcc_main() {
+    if pick(positive) != 7 { return 1; }
+    if pick(negative) != 9 { return 2; }
+    if !flip(false) { return 3; }
+    if flip(true) { return 4; }
+    return 0;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-EXECUTABLE ===
+RUN-EXIT: 0
