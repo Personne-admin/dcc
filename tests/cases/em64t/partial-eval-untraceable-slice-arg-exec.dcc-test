@@ -1,0 +1,66 @@
+=== FILE: test.dc ===
+module test;
+
+public import std::result;
+import core::meta;
+
+using std::result::{ Status, Result };
+
+public enum SinkError : u8 {
+    Full,
+}
+
+public using WriteStatus(W) = typeof((null as W*).write_all(""));
+public using WriterError(W) = core::meta::type_argument(WriteStatus(W), 0);
+public using Writer(W) = compiles (W* writer, [] const char bytes) {
+    Status(WriterError(W)) result = writer.write_all(bytes);
+};
+
+public struct Sink {
+    u32 count;
+}
+
+public Status(SinkError) write_all(Sink* self, [] const char bytes) {
+    if self.count > 1000 {
+        return Status::Err(SinkError::Full);
+    }
+    self.count = self.count + bytes.len as u32;
+    return Status::Ok;
+}
+
+Status(WriterError(W)) inner(W)(W* w, [] const char bytes) if Writer(W) {
+    w.write_all(bytes[0..2]) ?;
+    return Status::Ok;
+}
+
+Status(WriterError(W)) do_fold(W)(W* w) if Writer(W) {
+    char[8] buf;
+    [] char view = buf;
+    return inner(w, view);
+}
+
+Status(WriterError(W)) pipeline(W)(W* w, usize seed) if Writer(W) {
+    return do_fold(w);
+}
+
+Status(WriterError(W)) entry(W)(W* w) if Writer(W) {
+    return pipeline(w, 2 as usize);
+}
+
+@nomangle
+public i32 dcc_main() {
+    Sink sink = {count = 0};
+    match entry(&sink) {
+        Status::Ok => {},
+        Status::Err(_) => return 2,
+    }
+    return if sink.count == 2 { 0 } else { 1 };
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -fpartial-eval ===
+LINK-STD: true
+RUN-EXIT: 0

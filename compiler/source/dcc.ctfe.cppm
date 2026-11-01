@@ -319,6 +319,7 @@ export namespace dcc::ctfe
                 auto detached = detach(value);
                 if (detached.flow == Flow::Normal && detached.value)
                     return append_value(*detached.value);
+                return std::nullopt;
             }
             return append_value(value);
         }

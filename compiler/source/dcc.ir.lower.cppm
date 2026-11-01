@@ -373,6 +373,8 @@ export namespace dcc::ir::lower
                 return false;
             if (value.kind() == Kind::Pointer)
                 return value.is_null_ptr();
+            if (value.kind() == Kind::Slice && value.slice_is_ref())
+                return false;
             if (value.kind() == Kind::Aggregate || (value.kind() == Kind::Slice && !value.slice_is_ref()))
             {
                 for (std::size_t i = 0; i < value.size(); ++i)
@@ -3573,7 +3575,11 @@ export namespace dcc::ir::lower
             auto const& node = m_residual_trace->nodes[index];
             IrValue* out = nullptr;
             if (node.kind == dcc::ctfe::Residual::Kind::Value)
+            {
+                if (!residual_value_materializable(node.value))
+                    lower_panic("residual value cannot be materialized");
                 out = materialize_comptime(node.value, node.value.type);
+            }
             else if (node.kind == dcc::ctfe::Residual::Kind::Emit)
             {
                 out = lower_residual_emit(index);
