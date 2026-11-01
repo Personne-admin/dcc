@@ -326,6 +326,14 @@ namespace
     }
 } // namespace
 
+TEST_CASE("the names of the shipped libraries are reserved")
+{
+    for (std::string_view name : {"std", "core", "assert", "dcext", "dpm"})
+        CHECK(dpm::manifest::is_reserved_library_name(name));
+    for (std::string_view name : {"Std", "std_ext", "stdx", "my_std", "", "cor", "dcc", "app"})
+        CHECK(!dpm::manifest::is_reserved_library_name(name));
+}
+
 TEST_CASE("string values use a restricted character set")
 {
     using VK = dpm::manifest::VariableKind;

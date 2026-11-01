@@ -1,0 +1,7 @@
+=== FILE: project.dcon ===
+{ name = "Std", version = "1.0.0" }
+=== EXPECT-TREE ===
+{
+  name = "Std",
+  version = "1.0.0",
+}

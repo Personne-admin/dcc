@@ -1,0 +1,4 @@
+=== FILE: project.dcon ===
+{ name = "std", version = "1.0.0" }
+=== EXPECT-ERRORS ===
+project.dcon:1:10: 'std' is the namespace of a library that ships with dcc and cannot be a package name

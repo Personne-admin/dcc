@@ -191,6 +191,8 @@ export namespace dpm::scaffold
             out.problems.push_back({"", 0, "variable 'name' is required"});
         else if (auto bad = manifest::template_value_error(name_variable, it->second))
             out.problems.push_back({"", 0, std::format("variable 'name': {}", *bad)});
+        else if (manifest::is_reserved_library_name(it->second))
+            out.problems.push_back({"", 0, std::format("variable 'name': '{}' is the namespace of a library that ships with dcc", it->second)});
         else
             out.files["name"] = it->second;
         for (auto const& v : tmpl.variables)

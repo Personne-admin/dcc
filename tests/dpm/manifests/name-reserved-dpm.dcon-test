@@ -1,0 +1,4 @@
+=== FILE: project.dcon ===
+{ name = "dpm", version = "1.0.0" }
+=== EXPECT-ERRORS ===
+project.dcon:1:10: 'dpm' is the namespace of a library that ships with dcc and cannot be a package name

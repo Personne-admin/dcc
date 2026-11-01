@@ -109,6 +109,13 @@ def scenario_basic():
     check(again.returncode == 2, "init refuses to overwrite", detail(again))
     odd = dpm(os.path.dirname(app), "init", "oddname", "--lib", "--name", "../escape")
     check(odd.returncode == 2 and "not usable" in odd.stderr, "init rejects a name that is not a path-safe identifier", detail(odd))
+    for reserved in ("std", "core", "assert", "dcext", "dpm"):
+        odd = dpm(os.path.dirname(app), "init", "res_" + reserved, "--name", reserved)
+        check(odd.returncode == 2 and "cannot be a package name" in odd.stderr and not os.path.exists(os.path.join(os.path.dirname(app), "res_" + reserved, "project.dcon")),
+              "init refuses the reserved name " + reserved, detail(odd))
+        odd = dpm(os.path.dirname(app), "new", "newres_" + reserved, "--name", reserved)
+        check(odd.returncode == 2 and "namespace of a library" in odd.stderr and not os.path.exists(os.path.join(os.path.dirname(app), "newres_" + reserved)),
+              "new refuses the reserved name " + reserved, detail(odd))
     odd = dpm(os.path.dirname(app), "init", "oddname2", "--name", "1abc")
     check(odd.returncode == 2 and "not usable" in odd.stderr, "init rejects a name that is not an identifier", detail(odd))
     r = dpm(app, "build")

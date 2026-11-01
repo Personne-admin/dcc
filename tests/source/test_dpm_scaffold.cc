@@ -224,6 +224,19 @@ TEST_CASE("a name that is not an identifier is refused")
         CHECK(t::resolve(tmpl, {{"name", good}}, "d").ok());
 }
 
+TEST_CASE("the name of a shipped library is refused as a package name")
+{
+    auto tmpl = make_template();
+    for (std::string bad : {"std", "core", "assert", "dcext", "dpm"})
+    {
+        auto r = t::resolve(tmpl, {{"name", bad}}, "d");
+        CHECK(!r.ok());
+        CHECK(mentions(r.problems, "namespace of a library that ships with dcc"));
+    }
+    for (std::string good : {"Std", "std_ext", "app"})
+        CHECK(t::resolve(tmpl, {{"name", good}}, "d").ok());
+}
+
 TEST_CASE("sample values satisfy every required variable")
 {
     auto a = var("a");

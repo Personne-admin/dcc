@@ -985,14 +985,15 @@ export namespace dpm::manifest
             return std::nullopt;
         }
 
+        inline constexpr std::array<std::string_view, 5> k_reserved_library_names{"std", "core", "assert", "dcext", "dpm"};
+
         inline std::optional<std::string> alias_error(std::string_view name)
         {
             bool shape = name.size() >= 2 && name.size() <= 32 && name[0] >= 'a' && name[0] <= 'z' &&
                          std::ranges::all_of(name, [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
             if (!shape)
                 return std::format("'{}' is not a valid alias; use 2 to 32 characters from [a-z][a-z0-9_]", name);
-            static constexpr std::array<std::string_view, 5> reserved{"std", "core", "assert", "dcext", "dpm"};
-            if (std::ranges::find(reserved, name) != reserved.end() || is_reserved_word(name))
+            if (std::ranges::find(k_reserved_library_names, name) != k_reserved_library_names.end() || is_reserved_word(name))
                 return std::format("'{}' is a reserved name", name);
             return std::nullopt;
         }
@@ -1694,6 +1695,8 @@ export namespace dpm::manifest
                 p.registry = str(root, "registry");
                 if (auto const* n = root.find("name"); n && (!is_identifier(p.name) || is_reserved_word(p.name)))
                     error(*n, std::format("'{}' is not a valid package name; use a single identifier", p.name));
+                else if (auto const* r = root.find("name"); r && std::ranges::find(k_reserved_library_names, p.name) != k_reserved_library_names.end())
+                    error(*r, std::format("'{}' is the namespace of a library that ships with dcc and cannot be a package name", p.name));
                 if (auto const* n = root.find("version"); n && !dpm::semver::is_valid(p.version))
                     error(*n, std::format("'{}' is not a valid version", p.version));
                 if (auto const* n = root.find("requires_dcc"); n && !p.requires_dcc.empty() && !dpm::semver::is_valid(p.requires_dcc))
@@ -1770,6 +1773,11 @@ export namespace dpm::manifest
             }
         };
     } // namespace detail
+
+    [[nodiscard]] inline bool is_reserved_library_name(std::string_view name)
+    {
+        return std::ranges::find(detail::k_reserved_library_names, name) != detail::k_reserved_library_names.end();
+    }
 
     [[nodiscard]] inline std::optional<std::string> template_value_error(TemplateVariable const& variable, std::string_view value)
     {
