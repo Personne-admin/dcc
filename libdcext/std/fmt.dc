@@ -68,16 +68,17 @@ public Status(WriterError(W)) write_byte(W)(W* self, char byte) if Writer(W) {
 }
 
 public Status(FormatError(WriterError(W))) write_codepoint(W)(W* self, u32 cp) if Writer(W) {
+    Render render = new_render();
     char[4] buf;
     [] char view = buf;
+    render_codepoint(&render, view, cp);
 
-    return match utf8::encode(cp, view) {
-        Result::Ok(n) => {
-            self.write_all(view[0..n]) ?;
-            Status::Ok
-        },
-        Result::Err(_) => Status::Err(FormatError::BadFormat),
-    };
+    if render.failure == RENDER_BAD_FORMAT {
+        return Status::Err(FormatError::BadFormat);
+    }
+
+    emit_render(self, &render, view) ?;
+    return Status::Ok;
 }
 
 using usize REPEAT_CHUNK = 32;
@@ -204,6 +205,162 @@ public Options default_options() {
 public using Options::default = default_options;
 
 //!
+//! Argument rendering
+//!
+//! Rendering an argument describes a bounded sequence of chunks (the body
+//! bytes in the caller's staging buffer plus the fill, sign and zero
+//! padding around it) without naming a writer; only the hand-off below is
+//! instantiated per writer type.
+//!
+
+using u8 RENDER_NONE = 0;
+using u8 RENDER_BAD_FORMAT = 1;
+using u8 RENDER_WIDTH_OVERFLOW = 2;
+
+/// the staging buffer for one rendered argument: the float text is bounded
+/// by the integral bound and MAX_PRECISION digits; integer digits, short
+/// bodies and encoded codepoints fit as well.
+using usize STAGE_SCRATCH = 512;
+
+/// one rendered argument, in writing order: fill, sign, zeros, body, fill.
+/// the body bytes are the caller's scratch buffer at start..start+len, or
+/// the argument itself for a string argument.
+struct Render {
+    usize start;
+    usize len;
+    char sign;
+    char fill;
+    usize before;
+    usize zeros;
+    usize after;
+    u8 failure;
+}
+
+Render new_render() {
+    return {
+        start = 0,
+        len = 0,
+        sign = '\0',
+        fill = ' ',
+        before = 0,
+        zeros = 0,
+        after = 0,
+        failure = RENDER_NONE,
+    };
+}
+
+void render_text(Render* self, usize len, const Options* opts) {
+    self.len = len;
+
+    if len >= opts.width {
+        return;
+    }
+
+    usize slack = opts.width - len;
+    self.fill = opts.fill;
+
+    if opts.align == Align::Left {
+        self.after = slack;
+    } else if opts.align == Align::Center {
+        self.before = slack / 2;
+        self.after = slack - slack / 2;
+    } else {
+        self.before = slack;
+    }
+}
+
+void render_scratch_text(Render* self, [] char scratch, [] const char body, const Options* opts) {
+    for usize i = 0; i < body.len; i++ {
+        scratch[i] = body[i];
+    }
+    self.start = 0;
+    render_text(self, body.len, opts);
+}
+
+void render_codepoint(Render* self, [] char scratch, u32 cp) {
+    match utf8::encode(cp, scratch) {
+        Result::Ok(n) => {
+            self.start = 0;
+            self.len = n;
+        },
+        Result::Err(_) => {
+            self.failure = RENDER_BAD_FORMAT;
+        },
+    }
+}
+
+/// renders one argument value of a type the formatter understands. the
+/// builtin argument types are dispatched here, once per type, not once per
+/// writer.
+void render_value(T)(Render* self, [] char scratch, T value, const Options* opts) {
+    static if T == bool {
+        render_scratch_text(self, scratch, if value { "true" } else { "false" }, opts);
+    } else static if T == char {
+        if opts.spec == ('c' as char) || opts.spec == '\0' {
+            scratch[0] = value as char;
+            self.start = 0;
+            render_text(self, 1, opts);
+        } else {
+            render_unsigned_value(self, scratch, value as u64, opts);
+        }
+    } else static if T == u8 {
+        render_unsigned_value(self, scratch, value as u64, opts);
+    } else static if T == u16 {
+        render_unsigned_value(self, scratch, value as u64, opts);
+    } else static if T == u32 {
+        render_unsigned_value(self, scratch, value as u64, opts);
+    } else static if T == u64 {
+        render_unsigned_value(self, scratch, value as u64, opts);
+    } else static if T == usize {
+        render_unsigned_value(self, scratch, value as u64, opts);
+    } else static if T == i8 {
+        render_signed_value(self, scratch, value as i64, opts);
+    } else static if T == i16 {
+        render_signed_value(self, scratch, value as i64, opts);
+    } else static if T == i32 {
+        render_signed_value(self, scratch, value as i64, opts);
+    } else static if T == i64 {
+        render_signed_value(self, scratch, value as i64, opts);
+    } else static if T == isize {
+        render_signed_value(self, scratch, value as i64, opts);
+    } else static if T == [] const char {
+        render_text(self, value.len, opts);
+    } else static if T == [] const u8 {
+        render_text(self, value.len, opts);
+    } else static if core::target::FLOAT_AVAILABLE {
+        static if T == f32 {
+            render_float_value(self, scratch, value as f64, opts);
+        } else static if T == f64 {
+            render_float_value(self, scratch, value as f64, opts);
+        }
+    }
+}
+
+/// the only per-writer part of formatting: hand each chunk of a rendered
+/// argument to the writer, projecting its error with ?.
+Status(WriterError(W)) emit_render(W)(W* w, const Render* self, [] const char source) if Writer(W) {
+    if self.before > 0 {
+        w.write_repeat(self.fill, self.before) ?;
+    }
+
+    if self.sign != '\0' {
+        w.write_byte(self.sign) ?;
+    }
+
+    if self.zeros > 0 {
+        w.write_repeat('0' as char, self.zeros) ?;
+    }
+
+    w.write_all(source[self.start..self.start + self.len]) ?;
+
+    if self.after > 0 {
+        w.write_repeat(self.fill, self.after) ?;
+    }
+
+    return Status::Ok;
+}
+
+//!
 //! Padding
 //!
 
@@ -212,29 +369,9 @@ public Status(WriterError(W)) write_padded(W)(
     [] const char body,
     const Options* opts
 ) if Writer(W) {
-    if body.len >= opts.width {
-        return w.write_all(body);
-    }
-
-    usize slack = opts.width - body.len;
-
-    match opts.align {
-        Align::Left => {
-            w.write_all(body) ?;
-            w.write_repeat(opts.fill, slack) ?;
-        },
-        Align::Right => {
-            w.write_repeat(opts.fill, slack) ?;
-            w.write_all(body) ?;
-        },
-        Align::Center => {
-            w.write_repeat(opts.fill, slack / 2) ?;
-            w.write_all(body) ?;
-            w.write_repeat(opts.fill, slack - slack / 2) ?;
-        },
-    }
-
-    return Status::Ok;
+    Render render = new_render();
+    render_text(&render, body.len, opts);
+    return emit_render(w, &render, body);
 }
 
 //!
@@ -288,7 +425,7 @@ struct IntegerPlan {
 void plan_unsigned(IntegerPlan* self, [] char scratch, u64 value, const Options* opts) {
     [] char rendered = render_unsigned(value, scratch, opts);
     self.len = rendered.len;
-    self.start = INTEGER_SCRATCH - rendered.len;
+    self.start = scratch.len - rendered.len;
     self.sign = '\0';
     self.fill = opts.fill;
     self.fill_before = 0;
@@ -320,7 +457,7 @@ void plan_signed(IntegerPlan* self, [] char scratch, i64 value, const Options* o
 
     [] char rendered = render_unsigned(magnitude, scratch, opts);
     self.len = rendered.len;
-    self.start = INTEGER_SCRATCH - rendered.len;
+    self.start = scratch.len - rendered.len;
     self.sign = if negative {
         '-' as char
     } else {
@@ -372,28 +509,28 @@ void plan_signed(IntegerPlan* self, [] char scratch, i64 value, const Options* o
     }
 }
 
-Status(WriterError(W)) emit_integer(W)(W* w, const IntegerPlan* self, [] const char digits) if Writer(W) {
-    if self.fill_before > 0 {
-        w.write_repeat(self.fill, self.fill_before) ?;
-    }
+void render_unsigned_value(Render* self, [] char scratch, u64 value, const Options* opts) {
+    IntegerPlan plan;
+    plan_unsigned(&plan, scratch, value, opts);
+    self.start = plan.start;
+    self.len = plan.len;
+    self.sign = plan.sign;
+    self.fill = plan.fill;
+    self.before = plan.fill_before;
+    self.zeros = plan.zeros;
+    self.after = plan.fill_after;
+}
 
-    if self.sign != '\0' {
-        w.write_byte(self.sign) ?;
-    }
-
-    if self.zeros > 0 {
-        w.write_repeat('0' as char, self.zeros) ?;
-    }
-
-    if self.len > 0 {
-        w.write_all(digits[self.start..self.start + self.len]) ?;
-    }
-
-    if self.fill_after > 0 {
-        w.write_repeat(self.fill, self.fill_after) ?;
-    }
-
-    return Status::Ok;
+void render_signed_value(Render* self, [] char scratch, i64 value, const Options* opts) {
+    IntegerPlan plan;
+    plan_signed(&plan, scratch, value, opts);
+    self.start = plan.start;
+    self.len = plan.len;
+    self.sign = plan.sign;
+    self.fill = plan.fill;
+    self.before = plan.fill_before;
+    self.zeros = plan.zeros;
+    self.after = plan.fill_after;
 }
 
 public Status(WriterError(W)) format_unsigned(W)(
@@ -401,11 +538,11 @@ public Status(WriterError(W)) format_unsigned(W)(
     u64 value,
     const Options* opts
 ) if Writer(W) {
-    IntegerPlan plan;
+    Render render = new_render();
     char[INTEGER_SCRATCH] scratch;
     [] char view = scratch;
-    plan_unsigned(&plan, view, value, opts);
-    return emit_integer(w, &plan, view);
+    render_unsigned_value(&render, view, value, opts);
+    return emit_render(w, &render, view);
 }
 
 public Status(WriterError(W)) format_signed(W)(
@@ -413,11 +550,11 @@ public Status(WriterError(W)) format_signed(W)(
     i64 value,
     const Options* opts
 ) if Writer(W) {
-    IntegerPlan plan;
+    Render render = new_render();
     char[INTEGER_SCRATCH] scratch;
     [] char view = scratch;
-    plan_signed(&plan, view, value, opts);
-    return emit_integer(w, &plan, view);
+    render_signed_value(&render, view, value, opts);
+    return emit_render(w, &render, view);
 }
 
 //!
@@ -427,24 +564,20 @@ public Status(WriterError(W)) format_signed(W)(
 public using usize DEFAULT_PRECISION = 6;
 
 static if core::target::FLOAT_AVAILABLE {
-    Status(WriterError(W)) write_special(W)(W* w, f64 value, const Options* opts) if Writer(W) {
+    [] const char special_text(f64 value, const Options* opts) {
         if math::is_nan(value) {
-            return write_padded(w, "nan", opts);
+            return "nan";
         }
 
         if math::signbit(value) {
-            return write_padded(w, "-inf", opts);
+            return "-inf";
         }
 
-        return write_padded(
-            w,
-            if opts.plus_sign {
-                "+inf"
-            } else {
-                "inf"
-            },
-            opts
-        );
+        return if opts.plus_sign {
+            "+inf"
+        } else {
+            "inf"
+        };
     }
 
     /// stages the whole float text in the buffer. the buffer is sized for
@@ -509,31 +642,47 @@ static if core::target::FLOAT_AVAILABLE {
         return Status::Ok;
     }
 
+    void render_float_value(Render* self, [] char scratch, f64 value, const Options* opts) {
+        if !math::is_finite(value) {
+            render_scratch_text(self, scratch, special_text(value, opts), opts);
+            return;
+        }
+
+        BufferWriter sink = BufferWriter::new(scratch);
+
+        usize precision = if opts.precision == NO_PRECISION { DEFAULT_PRECISION } else { opts.precision };
+        if precision > MAX_PRECISION {
+            self.failure = RENDER_WIDTH_OVERFLOW;
+            return;
+        }
+
+        match stage_float(&sink, value, opts, precision) {
+            Status::Ok => {},
+            Status::Err(_) => {
+                self.failure = RENDER_WIDTH_OVERFLOW;
+                return;
+            },
+        }
+
+        self.start = 0;
+        render_text(self, sink.written, opts);
+    }
+
     public Status(FormatError(WriterError(W))) format_float(W)(
         W* w,
         f64 value,
         const Options* opts
     ) if Writer(W) {
-        if !math::is_finite(value) {
-            write_special(w, value, opts) ?;
-            return Status::Ok;
-        }
-
-        char[512] scratch;
+        Render render = new_render();
+        char[STAGE_SCRATCH] scratch;
         [] char view = scratch;
-        BufferWriter sink = BufferWriter::new(view);
+        render_float_value(&render, view, value, opts);
 
-        usize precision = if opts.precision == NO_PRECISION { DEFAULT_PRECISION } else { opts.precision };
-        if precision > MAX_PRECISION {
+        if render.failure == RENDER_WIDTH_OVERFLOW {
             return Status::Err(FormatError::WidthOverflow);
         }
 
-        match stage_float(&sink, value, opts, precision) {
-            Status::Ok => {},
-            Status::Err(_) => return Status::Err(FormatError::WidthOverflow),
-        }
-
-        write_padded(w, sink.written_slice(), opts) ?;
+        emit_render(w, &render, view) ?;
         return Status::Ok;
     }
 
@@ -712,78 +861,91 @@ public [] const char next(JsonEscapeCursor* self) {
 //! Value dispatch
 //!
 
+Status(FormatError(WriterError(W))) format_render(W, T)(W* w, T value, const Options* opts) if Writer(W) {
+    Render render = new_render();
+    char[STAGE_SCRATCH] scratch;
+    [] char view = scratch;
+    render_value(&render, view, value, opts);
+
+    if render.failure == RENDER_WIDTH_OVERFLOW {
+        return Status::Err(FormatError::WidthOverflow);
+    }
+
+    if render.failure == RENDER_BAD_FORMAT {
+        return Status::Err(FormatError::BadFormat);
+    }
+
+    [] const char source = view;
+    static if T == [] const char {
+        source = value;
+    } else static if T == [] const u8 {
+        source = value as [] const char;
+    }
+
+    emit_render(w, &render, source) ?;
+    return Status::Ok;
+}
+
+Status(FormatError(WriterError(W))) format_hook(W, T)(W* w, T value, const Options* opts) if Writer(W) {
+    value.format(w, opts) ?;
+    return Status::Ok;
+}
+
 public Status(FormatError(WriterError(W))) format_value(W, T)(
     W* w,
     T value,
     const Options* opts
 ) if Writer(W) {
-    static if T == bool || T == u8 || T == u16 || T == u32 || T == u64 || T == usize || T == char || T == i8 || T == i16 || T == i32 || T == i64 || T == isize {
-        static if T == bool {
-            format_builtin_unsigned(w, value, opts) ?;
-        } else static if compiles (T t) {
-            t as u64;
-            t - t;
-        } {
-            // unsigned when subtracting cannot produce a negative
-            static if T == u8 || T == u16 || T == u32 || T == u64 || T == usize || T == char {
-                format_builtin_unsigned(w, value, opts) ?;
-            } else {
-                format_signed(w, value as i64, opts) ?;
-            }
-        } else {
-            format_signed(w, value as i64, opts) ?;
-        }
+    static if T == bool {
+        return format_render(w, value, opts);
+    } else static if T == char {
+        return format_render(w, value, opts);
+    } else static if T == u8 {
+        return format_render(w, value, opts);
+    } else static if T == u16 {
+        return format_render(w, value, opts);
+    } else static if T == u32 {
+        return format_render(w, value, opts);
+    } else static if T == u64 {
+        return format_render(w, value, opts);
+    } else static if T == usize {
+        return format_render(w, value, opts);
+    } else static if T == i8 {
+        return format_render(w, value, opts);
+    } else static if T == i16 {
+        return format_render(w, value, opts);
+    } else static if T == i32 {
+        return format_render(w, value, opts);
+    } else static if T == i64 {
+        return format_render(w, value, opts);
+    } else static if T == isize {
+        return format_render(w, value, opts);
+    } else static if T == [] const char {
+        return format_render(w, value, opts);
+    } else static if T == [] const u8 {
+        return format_render(w, value, opts);
     } else static if core::target::FLOAT_AVAILABLE {
-        static if T == f32 || T == f64 {
-            format_float(w, value as f64, opts) ?;
+        static if T == f32 {
+            return format_render(w, value, opts);
+        } else static if T == f64 {
+            return format_render(w, value, opts);
+        } else static if compiles (T t, W* q, const Options* o) {
+            t.format(q, o);
+        } {
+            return format_hook(w, value, opts);
         } else {
-            format_other(w, value, opts) ?;
+            core::compile_error(
+                "type is not formattable: add format(const T*, W*, const Options*)"
+            );
         }
-    } else {
-        format_other(w, value, opts) ?;
-    }
-    return Status::Ok;
-}
-
-Status(WriterError(W)) format_other(W, T)(W* w, T value, const Options* opts) if Writer(W) {
-    static if T == [] const char {
-        write_padded(w, value as [] const char, opts) ?;
     } else static if compiles (T t, W* q, const Options* o) {
         t.format(q, o);
     } {
-        value.format(w, opts) ?;
+        return format_hook(w, value, opts);
     } else {
         core::compile_error(
             "type is not formattable: add format(const T*, W*, const Options*)"
         );
-    }
-
-    return Status::Ok;
-}
-
-Status(WriterError(W)) format_builtin_unsigned(W, T)(
-    W* w,
-    T value,
-    const Options* opts
-) if Writer(W) {
-    static if T == bool {
-        return write_padded(
-            w,
-            if value {
-                "true"
-            } else {
-                "false"
-            },
-            opts
-        );
-    } else static if T == char {
-        if opts.spec == ('c' as char) || opts.spec == '\0' {
-            char[1] one = { value as char };
-            return write_padded(w, one, opts);
-        }
-        return format_unsigned(w, value as u64, opts);
-    } else {
-        return format_unsigned(w, value as u64, opts);
     }
 }
 
