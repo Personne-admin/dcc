@@ -2592,8 +2592,8 @@ namespace
                     for (std::size_t i = 0; i < tpl_non_pack_count; ++i)
                     {
                         auto const& tp = template_fn->template_params[i];
-                        auto param_ty =
-                            type_ctx.template_param_t(const_cast<dcc::ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                        auto param_ty = type_ctx.template_param_t(const_cast<dcc::ast::TemplateParam*>(std::addressof(tp)), tp.name,
+                                                                  static_cast<std::uint32_t>(i), tp.is_pack);
 
                         if (tp.value_type)
                         {
@@ -2634,7 +2634,7 @@ namespace
                     {
                         auto const& tp = template_fn->template_params.back();
                         auto* param_ty_ptr = type_ctx.template_param_t(const_cast<dcc::ast::TemplateParam*>(std::addressof(tp)), tp.name,
-                                                                       static_cast<std::uint32_t>(tpl_non_pack_count));
+                                                                       static_cast<std::uint32_t>(tpl_non_pack_count), tp.is_pack);
                         auto const* pack_param_ty = static_cast<dcc::types::TemplateParamType const*>(param_ty_ptr);
 
                         if (tp.value_type)

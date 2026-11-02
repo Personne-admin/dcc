@@ -12,7 +12,7 @@ namespace
 {
     types::TypePtr tparam(types::TypeContext& ctx, int& tag, std::string_view name, std::uint32_t index)
     {
-        return ctx.template_param_t(&tag, name, index);
+        return ctx.template_param_t(&tag, name, index, false);
     }
 
     types::TypePtr ptr(types::TypeContext& ctx, types::TypePtr inner, types::Qual q = types::Qual::None)
@@ -140,6 +140,93 @@ TEST_CASE("nominal template arity mismatch fails")
     auto r = ib.deduce(pattern, actual);
     CHECK(!r);
     CHECK_EQ(r.error, infer::DeductionError::ArityMismatch);
+}
+
+TEST_CASE("nominal deduction ignores the opaque token's pack flag")
+{
+    types::TypeContext ctx;
+    infer::TemplateBindings ib{ctx};
+    int vector_decl{};
+
+    dcc::ast::TemplateParam token;
+    token.name = "T";
+    token.is_pack = true;
+    types::TemplateParamType T{&token, token.name, 0};
+    auto i32 = ctx.int_t(32, true);
+
+    std::array<types::TypePtr, 1> pat_args{&T};
+    std::array<types::TypePtr, 1> actual_args{i32};
+
+    auto pattern = nominal(ctx, types::TypeKind::Struct, vector_decl, pat_args);
+    auto actual = nominal(ctx, types::TypeKind::Struct, vector_decl, actual_args);
+
+    REQUIRE(ib.deduce(pattern, actual));
+    CHECK_EQ(ib.lookup(&T), i32);
+    CHECK_EQ(ib.substitute(pattern), actual);
+}
+
+TEST_CASE("nominal arity mismatch ignores the opaque token's pack flag")
+{
+    types::TypeContext ctx;
+    infer::TemplateBindings ib{ctx};
+    int vector_decl{};
+
+    dcc::ast::TemplateParam token;
+    token.name = "T";
+    token.is_pack = true;
+    types::TemplateParamType T{&token, token.name, 0};
+    auto i32 = ctx.int_t(32, true);
+
+    std::array<types::TypePtr, 1> pat_args{&T};
+    std::array<types::TypePtr, 2> actual_args{i32, i32};
+
+    auto pattern = nominal(ctx, types::TypeKind::Struct, vector_decl, pat_args);
+    auto actual = nominal(ctx, types::TypeKind::Struct, vector_decl, actual_args);
+
+    auto r = ib.deduce(pattern, actual);
+    CHECK(!r);
+    CHECK_EQ(r.error, infer::DeductionError::ArityMismatch);
+}
+
+TEST_CASE("deduces nominal trailing pack arguments")
+{
+    types::TypeContext ctx;
+    infer::TemplateBindings ib{ctx};
+    int vector_decl{};
+
+    dcc::ast::TemplateParam pack;
+    pack.name = "T";
+    pack.is_pack = true;
+    auto* T = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&pack, pack.name, 0, pack.is_pack));
+    auto i32 = ctx.int_t(32, true);
+    auto f64 = ctx.float_t(64);
+
+    std::array<types::TypePtr, 2> actual_args{i32, f64};
+    std::array<types::TypePtr, 1> pat_args{T};
+
+    auto pattern = nominal(ctx, types::TypeKind::Struct, vector_decl, pat_args);
+    auto actual = nominal(ctx, types::TypeKind::Struct, vector_decl, actual_args);
+
+    REQUIRE(ib.deduce(pattern, actual));
+    auto const* bound = ib.lookup_pack(T);
+    REQUIRE(bound);
+    std::vector<types::TypePtr> expected{i32, f64};
+    CHECK(*bound == expected);
+    CHECK_EQ(ib.substitute(pattern), actual);
+}
+
+TEST_CASE("template parameter pack flag is part of type identity")
+{
+    types::TypeContext ctx;
+    dcc::ast::TemplateParam token;
+    token.name = "T";
+
+    auto plain = ctx.template_param_t(&token, token.name, 0, false);
+    auto pack = ctx.template_param_t(&token, token.name, 0, true);
+
+    CHECK(plain != pack);
+    CHECK_EQ(ctx.template_param_t(&token, token.name, 0, false), plain);
+    CHECK_EQ(ctx.template_param_t(&token, token.name, 0, true), pack);
 }
 
 SECTION("infer: record shapes");
@@ -380,7 +467,7 @@ TEST_CASE("function pointer splice deduction binds either direction and preserve
     dcc::ast::TemplateParam pack;
     pack.name = "T";
     pack.is_pack = true;
-    auto* t = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&pack, "T", 0));
+    auto* t = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&pack, "T", 0, pack.is_pack));
     auto i32 = ctx.int_t(32, true);
     auto f64 = ctx.float_t(64);
     for (auto const& suffix : std::vector<std::vector<types::TypePtr>>{{}, {f64}, {f64, ctx.m_boolt()}})
@@ -413,9 +500,9 @@ TEST_CASE("function pointer splice rejection rolls back return prefix and pack d
     pack.is_pack = true;
     dcc::ast::TemplateParam ret;
     dcc::ast::TemplateParam prefix;
-    auto* t = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&pack, "T", 0));
-    auto* r = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&ret, "R", 1));
-    auto* p = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&prefix, "P", 2));
+    auto* t = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&pack, "T", 0, pack.is_pack));
+    auto* r = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&ret, "R", 1, ret.is_pack));
+    auto* p = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&prefix, "P", 2, prefix.is_pack));
     auto i32 = ctx.int_t(32, true);
     auto f64 = ctx.float_t(64);
     std::array<types::TypePtr, 3> pattern_params{p, ctx.m_boolt(), t};

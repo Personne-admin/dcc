@@ -352,11 +352,7 @@ export namespace dcc::sema
             return false;
 
         if (auto const* tpt = types::type_cast<types::TemplateParamType>(type))
-        {
-            if (auto* tp = static_cast<ast::TemplateParam*>(tpt->param))
-                return tp->is_pack;
-            return false;
-        }
+            return tpt->is_pack;
 
         if (auto const* type_pack = types::type_cast<types::TypePackType>(type))
             return is_pack_indexable_type(type_pack->element);

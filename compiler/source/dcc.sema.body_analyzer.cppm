@@ -2726,7 +2726,8 @@ export namespace dcc::sema
                 if (tp.name != name)
                     continue;
 
-                auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                auto* param_ty =
+                    m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
                 if (!param_ty)
                     return nullptr;
 
@@ -2804,7 +2805,8 @@ export namespace dcc::sema
                         auto const& tp = params[i];
                         if (tp.value_type)
                             continue;
-                        auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                        auto* param_ty =
+                            m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
                         if (!param_ty)
                             continue;
                         auto* dummy_type = m_ast_ctx.make<ast::PrimitiveType>(tp.range, lex::TokenKind::KwVoid);
@@ -3144,7 +3146,8 @@ export namespace dcc::sema
                 if (tp.value_type)
                     continue;
 
-                auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                auto* param_ty =
+                    m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
                 if (!param_ty)
                     continue;
 
@@ -3711,7 +3714,8 @@ export namespace dcc::sema
                     ok = false;
                     break;
                 }
-                auto param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                auto param_ty =
+                    m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
                 if (!param_ty)
                 {
                     ok = false;
@@ -3997,7 +4001,8 @@ export namespace dcc::sema
                         return std::nullopt;
 
                     auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(concept_decl->template_params[i])),
-                                                              concept_decl->template_params[i].name, static_cast<std::uint32_t>(i));
+                                                              concept_decl->template_params[i].name, static_cast<std::uint32_t>(i),
+                                                              concept_decl->template_params[i].is_pack);
                     if (!param_ty || !concept_bindings.deduce(param_ty, actual))
                         return std::nullopt;
                 }
@@ -4006,7 +4011,7 @@ export namespace dcc::sema
                 {
                     auto const& pack_tp = concept_decl->template_params.back();
                     auto* pack_param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(pack_tp)), pack_tp.name,
-                                                                   static_cast<std::uint32_t>(non_pack_count));
+                                                                   static_cast<std::uint32_t>(non_pack_count), pack_tp.is_pack);
                     if (!pack_param_ty)
                         return std::nullopt;
 
@@ -4031,7 +4036,7 @@ export namespace dcc::sema
                                     if (ep.name == pack_name && ep.is_pack)
                                     {
                                         auto* env_param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(ep)), ep.name,
-                                                                                      static_cast<std::uint32_t>(&ep - env_params.data()));
+                                                                                      static_cast<std::uint32_t>(&ep - env_params.data()), ep.is_pack);
                                         if (auto const* eptp = types::type_cast<types::TemplateParamType>(env_param_ty))
                                         {
                                             if (auto const* pack = bindings.lookup_pack(eptp))
@@ -4117,7 +4122,8 @@ export namespace dcc::sema
                 for (std::size_t i = 0; i < concept_decl.template_params.size(); ++i)
                 {
                     auto const& tp = concept_decl.template_params[i];
-                    auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                    auto* param_ty =
+                        m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
                     if (param_ty)
                     {
                         auto concrete = bindings.lookup(static_cast<types::TemplateParamType const*>(param_ty));
@@ -4177,7 +4183,8 @@ export namespace dcc::sema
                 for (std::size_t i = 0; i < f.template_params.size(); ++i)
                 {
                     auto const& tp = f.template_params[i];
-                    auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                    auto* param_ty =
+                        m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
                     if (param_ty)
                     {
                         auto concrete = bindings.lookup(static_cast<types::TemplateParamType const*>(param_ty));
@@ -4237,7 +4244,8 @@ export namespace dcc::sema
                 for (std::size_t i = 0; i < template_params.size(); ++i)
                 {
                     auto const& tp = template_params[i];
-                    auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                    auto* param_ty =
+                        m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
                     if (param_ty)
                     {
                         auto concrete = bindings.lookup(static_cast<types::TemplateParamType const*>(param_ty));
@@ -4308,7 +4316,8 @@ export namespace dcc::sema
                 if (i >= type_args.size())
                     break;
 
-                auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                auto* param_ty =
+                    m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
                 if (!param_ty || !bindings.deduce(param_ty, type_args[i]))
                     return false;
             }
@@ -4724,7 +4733,8 @@ export namespace dcc::sema
             {
                 auto const& tp = f.template_params[i];
                 auto const& arg = template_args[i];
-                auto param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                auto param_ty =
+                    m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
 
                 if (tp.value_type)
                 {
@@ -4792,7 +4802,8 @@ export namespace dcc::sema
             for (; i < non_pack_count; ++i)
             {
                 auto const& tp = f.template_params[i];
-                auto param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                auto param_ty =
+                    m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
                 if (tp.default_type && tp.default_type->sema.canonical)
                 {
                     auto actual = bindings.substitute(get_canonical(tp.default_type->sema));
@@ -4871,8 +4882,8 @@ export namespace dcc::sema
                         pack_values.push_back(*analyzed.constant);
                     }
 
-                    auto pack_param_ty =
-                        m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(non_pack_count));
+                    auto pack_param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
+                                                                  static_cast<std::uint32_t>(non_pack_count), tp.is_pack);
 
                     std::ignore = bindings.bind_value_pack(static_cast<types::TemplateParamType const*>(pack_param_ty), std::move(pack_values));
                 }
@@ -4898,8 +4909,8 @@ export namespace dcc::sema
                         pack_types.push_back(actual);
                     }
 
-                    auto pack_param_ty =
-                        m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(non_pack_count));
+                    auto pack_param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
+                                                                  static_cast<std::uint32_t>(non_pack_count), tp.is_pack);
 
                     std::ignore = bindings.bind_pack(static_cast<types::TemplateParamType const*>(pack_param_ty), pack_types);
                 }
@@ -5109,8 +5120,8 @@ export namespace dcc::sema
                 auto const& tp = f.template_params[i];
                 if (!tp.value_type)
                 {
-                    type_param_key =
-                        static_cast<types::TemplateParamType const*>(m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, i));
+                    type_param_key = static_cast<types::TemplateParamType const*>(
+                        m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, i, tp.is_pack));
                     break;
                 }
             }
@@ -5175,7 +5186,7 @@ export namespace dcc::sema
                             if (tp.name == scrutinee_ident->name)
                             {
                                 param_type = static_cast<types::TemplateParamType const*>(
-                                    m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, idx));
+                                    m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, idx, tp.is_pack));
                                 break;
                             }
                             ++idx;
@@ -5669,7 +5680,7 @@ export namespace dcc::sema
                 if (tp.is_pack)
                     continue;
                 auto* key = static_cast<types::TemplateParamType const*>(
-                    m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i)));
+                    m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack));
                 if (tp.value_type)
                 {
                     if (bindings.lookup_value(key))
@@ -5848,7 +5859,8 @@ export namespace dcc::sema
                 }
 
                 {
-                    auto* pty = m_types.template_param_t(const_cast<ast::TemplateParam*>(vtparam), vtparam->name, static_cast<std::uint32_t>(vi));
+                    auto* pty =
+                        m_types.template_param_t(const_cast<ast::TemplateParam*>(vtparam), vtparam->name, static_cast<std::uint32_t>(vi), vtparam->is_pack);
                     if (pty)
                         b.bind_value(static_cast<types::TemplateParamType const*>(pty), *r.constant);
                 }
@@ -6027,7 +6039,7 @@ export namespace dcc::sema
                 {
                     auto const& tp = func->template_params.back();
                     auto* pack_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
-                                                             static_cast<std::uint32_t>(func->template_params.size() - 1));
+                                                             static_cast<std::uint32_t>(func->template_params.size() - 1), tp.is_pack);
                     if (pack_ty)
                     {
                         bool has_any_value =
@@ -6297,7 +6309,8 @@ export namespace dcc::sema
 
                 if (r.constant)
                 {
-                    auto* pty = m_types.template_param_t(const_cast<ast::TemplateParam*>(vtparam), vtparam->name, static_cast<std::uint32_t>(vi));
+                    auto* pty =
+                        m_types.template_param_t(const_cast<ast::TemplateParam*>(vtparam), vtparam->name, static_cast<std::uint32_t>(vi), vtparam->is_pack);
                     if (pty)
                         b.bind_value(static_cast<types::TemplateParamType const*>(pty), *r.constant);
                 }
@@ -6476,7 +6489,7 @@ export namespace dcc::sema
                 {
                     auto const& tp = f.template_params.back();
                     auto* pack_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
-                                                             static_cast<std::uint32_t>(f.template_params.size() - 1));
+                                                             static_cast<std::uint32_t>(f.template_params.size() - 1), tp.is_pack);
                     if (pack_ty)
                     {
                         bool has_any_value =
@@ -6717,7 +6730,8 @@ export namespace dcc::sema
 
                 if (r.constant)
                 {
-                    auto* pty = m_types.template_param_t(const_cast<ast::TemplateParam*>(vtparam), vtparam->name, static_cast<std::uint32_t>(vi));
+                    auto* pty =
+                        m_types.template_param_t(const_cast<ast::TemplateParam*>(vtparam), vtparam->name, static_cast<std::uint32_t>(vi), vtparam->is_pack);
                     if (pty)
                         b.bind_value(static_cast<types::TemplateParamType const*>(pty), *r.constant);
                 }
@@ -6944,7 +6958,7 @@ export namespace dcc::sema
                 {
                     auto const& tp = f.template_params.back();
                     auto* pack_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
-                                                             static_cast<std::uint32_t>(f.template_params.size() - 1));
+                                                             static_cast<std::uint32_t>(f.template_params.size() - 1), tp.is_pack);
                     if (pack_ty)
                     {
                         bool has_any_value =
@@ -15763,8 +15777,8 @@ export namespace dcc::sema
                             for (std::size_t i = 0; i < enum_decl->template_params.size(); ++i)
                             {
                                 auto const& tp = enum_decl->template_params[i];
-                                auto* param_ty =
-                                    m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                                auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
+                                                                          static_cast<std::uint32_t>(i), tp.is_pack);
                                 auto resolved = opt_bindings->substitute(param_ty);
                                 if (resolved && !contains_template_param(resolved))
                                     concrete_args.push_back(resolved);
@@ -16166,7 +16180,8 @@ export namespace dcc::sema
                 }
 
                 {
-                    auto* pty = m_types.template_param_t(const_cast<ast::TemplateParam*>(vtparam), vtparam->name, static_cast<std::uint32_t>(vi));
+                    auto* pty =
+                        m_types.template_param_t(const_cast<ast::TemplateParam*>(vtparam), vtparam->name, static_cast<std::uint32_t>(vi), vtparam->is_pack);
                     if (pty)
                         b.bind_value(static_cast<types::TemplateParamType const*>(pty), *r.constant);
                 }
@@ -16327,7 +16342,7 @@ export namespace dcc::sema
                 {
                     auto const& tp = f.template_params.back();
                     auto* pack_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
-                                                             static_cast<std::uint32_t>(f.template_params.size() - 1));
+                                                             static_cast<std::uint32_t>(f.template_params.size() - 1), tp.is_pack);
                     if (pack_ty)
                     {
                         bool has_any_value =
@@ -16684,7 +16699,7 @@ export namespace dcc::sema
             {
                 if (tp.name == param_name)
                 {
-                    scrutinee_type = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, param_index);
+                    scrutinee_type = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, param_index, tp.is_pack);
                     break;
                 }
                 ++param_index;
@@ -16727,7 +16742,8 @@ export namespace dcc::sema
                                         std::uint32_t ci = 0;
                                         for (auto const& ctp : use->template_params)
                                         {
-                                            auto param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(ctp)), ctp.name, ci);
+                                            auto param_ty =
+                                                m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(ctp)), ctp.name, ci, ctp.is_pack);
                                             std::ignore = concept_bindings.deduce(param_ty, scrutinee_type);
                                             ++ci;
                                         }
@@ -16870,7 +16886,7 @@ export namespace dcc::sema
                 {
                     if (tp.name == param_name)
                     {
-                        scrutinee_type = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, param_index);
+                        scrutinee_type = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, param_index, tp.is_pack);
                         break;
                     }
                     ++param_index;
@@ -18579,8 +18595,8 @@ export namespace dcc::sema
                     for (std::size_t i = 0; i < enum_decl.template_params.size(); ++i)
                         if (enum_decl.template_params[i].name == name)
                         {
-                            auto* param_ty =
-                                m_types.template_param_t(const_cast<ast::TemplateParam*>(&enum_decl.template_params[i]), name, static_cast<std::uint32_t>(i));
+                            auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(&enum_decl.template_params[i]), name,
+                                                                      static_cast<std::uint32_t>(i), enum_decl.template_params[i].is_pack);
                             if (param_ty && context_enum_type)
                                 return substitute_in_nominal_context(param_ty, context_enum_type);
                             return param_ty;
@@ -18619,8 +18635,8 @@ export namespace dcc::sema
                         for (std::size_t i = 0; i < enum_decl.template_params.size(); ++i)
                         {
                             auto const& tp = enum_decl.template_params[i];
-                            auto* param_ty =
-                                m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                            auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
+                                                                      static_cast<std::uint32_t>(i), tp.is_pack);
                             if (!param_ty)
                                 return std::nullopt;
                             if (auto r = bindings.deduce(param_ty, ctx_enum->template_args[i]); !r)
@@ -18655,7 +18671,8 @@ export namespace dcc::sema
             for (std::size_t i = 0; i < enum_decl.template_params.size(); ++i)
             {
                 auto const& tp = enum_decl.template_params[i];
-                auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                auto* param_ty =
+                    m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
                 pattern_args.push_back(param_ty);
             }
 
@@ -19045,8 +19062,8 @@ export namespace dcc::sema
                                 for (std::size_t i = 0; i < resolved_args.size(); ++i)
                                 {
                                     auto const& tp = template_params[i];
-                                    auto* key =
-                                        m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                                    auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
+                                                                         static_cast<std::uint32_t>(i), tp.is_pack);
                                     std::ignore = bindings.deduce(key, resolved_args[i]);
                                 }
                                 for (std::size_t i = resolved_args.size(); i < fixed_count; ++i)
@@ -19060,8 +19077,8 @@ export namespace dcc::sema
                                     auto actual = bindings.substitute(get_canonical(tp.default_type->sema));
                                     std::ignore = diagnose_unselected_default_allocator(m_types, m_diag, actual, nt->range);
                                     resolved_args.push_back(actual);
-                                    auto* key =
-                                        m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                                    auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
+                                                                         static_cast<std::uint32_t>(i), tp.is_pack);
                                     std::ignore = bindings.deduce(key, actual);
                                 }
                             }
@@ -19119,7 +19136,7 @@ export namespace dcc::sema
                             {
                                 auto const& tp = u->template_params[i];
                                 auto* key = static_cast<types::TemplateParamType const*>(
-                                    m_types.template_param_t(const_cast<ast::TemplateParam*>(&tp), tp.name, static_cast<std::uint32_t>(i)));
+                                    m_types.template_param_t(const_cast<ast::TemplateParam*>(&tp), tp.name, static_cast<std::uint32_t>(i), tp.is_pack));
                                 if (variadic && i + 1 == u->template_params.size())
                                     std::ignore = bindings.bind_pack(key, {resolved_args.begin() + static_cast<std::ptrdiff_t>(i), resolved_args.end()});
                                 else

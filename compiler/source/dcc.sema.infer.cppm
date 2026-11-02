@@ -123,12 +123,7 @@ export namespace dcc::infer
 
         [[nodiscard]] bool has_pack_binding(types::TemplateParamType const* param) const { return lookup_pack(param) != nullptr; }
 
-        [[nodiscard]] static bool is_pack_param(types::TemplateParamType const* param) noexcept
-        {
-            if (!param || !param->param)
-                return false;
-            return static_cast<ast::TemplateParam const*>(param->param)->is_pack;
-        }
+        [[nodiscard]] static bool is_pack_param(types::TemplateParamType const* param) noexcept { return param && param->is_pack; }
 
         [[nodiscard]] static types::TemplateParamType const* trailing_pack(std::span<types::TypePtr const> params)
         {
@@ -1158,7 +1153,7 @@ export namespace dcc::infer
         for (std::size_t i = 0; i < fixed_count; ++i)
         {
             auto const& tp = *template_params[i];
-            auto param_ty = types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+            auto param_ty = types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
             if (auto r = bindings->deduce(param_ty, args[i]); !r)
                 return std::nullopt;
         }
@@ -1166,7 +1161,7 @@ export namespace dcc::infer
         {
             auto const& tp = *template_params.back();
             auto param_ty = static_cast<types::TemplateParamType const*>(
-                types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(fixed_count)));
+                types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(fixed_count), tp.is_pack));
             std::vector<types::TypePtr> pack_elements;
             pack_elements.reserve(args.size() - fixed_count);
             for (std::size_t i = fixed_count; i < args.size(); ++i)

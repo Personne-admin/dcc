@@ -414,8 +414,12 @@ export namespace dcc::types
         void* param{};
         std::string_view name;
         std::uint32_t index;
+        bool is_pack{};
 
-        TemplateParamType(void* p, std::string_view n, std::uint32_t i) : Type(Kind), param(p), name(n), index(i) { is_complete = false; }
+        TemplateParamType(void* p, std::string_view n, std::uint32_t i, bool pack = false) : Type(Kind), param(p), name(n), index(i), is_pack(pack)
+        {
+            is_complete = false;
+        }
     };
 
     struct TypeResolution
@@ -930,13 +934,13 @@ export namespace dcc::types
             return result;
         }
 
-        [[nodiscard]] TypePtr template_param_t(void* param, std::string_view name, std::uint32_t index)
+        [[nodiscard]] TypePtr template_param_t(void* param, std::string_view name, std::uint32_t index, bool is_pack)
         {
             for (auto const* t : m_template_params)
-                if (t->param == param)
+                if (t->param == param && t->is_pack == is_pack)
                     return t;
 
-            auto* t = make<TemplateParamType>(param, name, index);
+            auto* t = make<TemplateParamType>(param, name, index, is_pack);
             m_template_params.push_back(t);
             return t;
         }

@@ -201,7 +201,8 @@ export namespace dcc::sema
             {
                 auto& tp = params[i];
                 if (!tp.value_type)
-                    std::ignore = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                    std::ignore =
+                        m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
             }
         }
 
@@ -595,8 +596,8 @@ export namespace dcc::sema
             {
                 auto const& tp = params[i];
                 if (!tp.value_type)
-                    env.types.emplace(tp.name,
-                                      m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i)));
+                    env.types.emplace(tp.name, m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
+                                                                        static_cast<std::uint32_t>(i), tp.is_pack));
             }
             return env;
         }
@@ -973,7 +974,8 @@ export namespace dcc::sema
                 for (std::size_t i = 0; i < resolved_args.size(); ++i)
                 {
                     auto const& tp = template_params[i];
-                    auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                    auto* key =
+                        m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
                     std::ignore = bindings.deduce(key, resolved_args[i]);
                 }
                 for (std::size_t i = resolved_args.size(); i < fixed_count; ++i)
@@ -992,7 +994,8 @@ export namespace dcc::sema
                     else
                         std::ignore = diagnose_unselected_default_allocator(m_types, m_diag, actual, range);
                     resolved_args.push_back(actual);
-                    auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                    auto* key =
+                        m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
                     std::ignore = bindings.deduce(key, actual);
                 }
             }
@@ -1159,7 +1162,8 @@ export namespace dcc::sema
                 for (std::size_t i = 0; i < u.template_params.size(); ++i)
                 {
                     auto const& tp = u.template_params[i];
-                    auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                    auto* key =
+                        m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i), tp.is_pack);
                     inst_env.types[tp.name] = key;
                     if (variadic && i == fixed)
                     {

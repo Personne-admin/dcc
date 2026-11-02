@@ -415,7 +415,7 @@ TEST_CASE("mangle_type RangeInclusive of f64")
 TEST_CASE("mangle_type TemplateParam index=0 name=T")
 {
     types::TypeContext ctx;
-    auto s = mangle::mangle_type(ctx.template_param_t(nullptr, "T", 0));
+    auto s = mangle::mangle_type(ctx.template_param_t(nullptr, "T", 0, false));
     CHECK_EQ(s, "_DC0TZ1.T0");
     mangle::DemangledName d;
     REQUIRE(mangle::demangle(d, s));
@@ -1534,8 +1534,8 @@ TEST_CASE("pack-spliced function pointer substitution interns and mangles expand
     ast::TemplateParam second;
     second.name = "U";
     second.is_pack = true;
-    auto* t = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&first, first.name, 0));
-    auto* u = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&second, second.name, 0));
+    auto* t = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&first, first.name, 0, first.is_pack));
+    auto* u = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&second, second.name, 0, second.is_pack));
     auto* symbol = make_func(actx, "consume");
     for (auto const& pack : std::vector<std::vector<types::TypePtr>>{{}, {i32(ctx)}, {i32(ctx), f64(ctx)}})
     {
