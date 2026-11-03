@@ -411,5 +411,8 @@ TEST_CASE("golden help output")
     CHECK_EQ(cli::help_text("new", 80), read_golden("new.txt"));
     CHECK_EQ(cli::help_text("template", 80), read_golden("template.txt"));
     CHECK_EQ(cli::help_text("task", 80), read_golden("task.txt"));
+    CHECK_EQ(cli::help_text("run", 80), read_golden("run.txt"));
+    CHECK_EQ(cli::help_text("lock", 80), read_golden("lock.txt"));
+    CHECK_EQ(cli::help_text("fetch", 80), read_golden("fetch.txt"));
     CHECK(!read_golden("overview.txt").empty());
 }

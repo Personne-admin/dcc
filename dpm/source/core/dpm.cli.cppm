@@ -171,7 +171,8 @@ export namespace dpm::cli
          "location (github.com/user/repo[/subdir], git+https://host/repo.git[#subdir], optionally followed by @version), an https .tar.gz, or the name "
          "of a registry template (name[@version]). A fetched template is checked like a dependency, cached by tree hash, and its commit and hash are "
          "printed; a registry template is fetched at the commit and hash its registry record lists. A template is data: nothing in it is run. The "
-         "project is written into a temporary directory first and moved into place only when everything succeeded.",
+         "project is written into a temporary directory first and moved into place only when everything succeeded. Afterwards dpm lists the tasks and "
+         "assets the new project declares; review project.dcon before running a task.",
          detail::new_opts, 0, 1, false, detail::codes({0, 1, 2, 3, 4, 5}), false},
         {"add", "<location>[@version]", "add a dependency",
          "Resolves the requirement, edits project.dcon in place (comments and layout are kept), writes project.lock.dcon and fetches the package. "
@@ -186,11 +187,11 @@ export namespace dpm::cli
          "project.lock.dcon. Registry aliases are looked up in the registry, locations in the repository's tags.",
          detail::update_opts, 0, k_unlimited, false, detail::codes({0, 1, 2, 3, 4, 5}), false},
         {"lock", "", "write project.lock.dcon",
-         "Resolves the dependencies in project.dcon and writes project.lock.dcon, fetching and checking every package. Versions already in the lock "
-         "keep the commit and hash they were locked with.",
+         "Resolves the dependencies and assets in project.dcon and writes project.lock.dcon, fetching and checking every package and asset. Versions "
+         "and assets already in the lock keep the commit and hash they were locked with.",
          detail::lock_opts, 0, 0, false, detail::codes({0, 1, 2, 3, 4, 5}), false},
         {"fetch", "", "download every locked package",
-         "Downloads and verifies the packages named in project.lock.dcon so that later builds work offline.",
+         "Downloads and verifies the packages and assets named in project.lock.dcon so that later builds and tasks work offline.",
          detail::fetch_opts, 0, 0, false, detail::codes({0, 1, 2, 3, 4, 5}), false},
         {"check", "[<file>]", "validate a manifest, lock or registry file",
          "Loads the file (default: project.dcon) the way dpm does and prints diagnostics. The kind of file comes from its typed prefix, else from its name. "
@@ -216,7 +217,7 @@ export namespace dpm::cli
          detail::task_opts, 0, 1, true, detail::codes({0, 1, 2, 3, 4, 5}), false},
         {"clean", "", "remove .dpm/out and .dpm/tasks", "Removes the build output and the task directories and stamps of this package. The cache is not touched; see 'dpm cache clean'.", detail::manifest_only, 0, 0, false,
          detail::codes({0, 1, 2}), false},
-        {"tree", "", "print the resolved dependency graph", "Resolves the dependencies and prints the build list as a tree.", detail::graph_opts, 0, 0, false,
+        {"tree", "", "print the resolved dependency graph", "Resolves the dependencies and prints the build list as a tree, followed by the assets and their pins from project.lock.dcon.", detail::graph_opts, 0, 0, false,
          detail::codes({0, 2, 3, 4, 5}), false},
         {"why", "<location>", "explain why a package is in the build list", "Prints the requirement paths that led to the package.", detail::graph_opts, 1, 1,
          false, detail::codes({0, 1, 2, 3, 4, 5}), false},

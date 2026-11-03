@@ -1,0 +1,29 @@
+usage: dpm lock [options]
+
+Resolves the dependencies and assets in project.dcon and writes
+project.lock.dcon, fetching and checking every package and asset. Versions and
+assets already in the lock keep the commit and hash they were locked with.
+
+options:
+  --manifest-path <file>    use this project.dcon instead of the one in the
+                            current directory. The file must be named
+                            project.dcon; dpm works in its directory.
+  --check                   exit with code 4 instead of writing when the lock
+                            would change
+  --offline                 never use the network; use only what is in the
+                            cache. The same as DPM_OFFLINE=1. Something that
+                            is missing from the cache is an error (exit code
+                            5).
+  --refresh                 ignore the 24-hour freshness window of cached
+                            registry files
+
+exit codes:
+  0                         success
+  1                         a build or test failed, a precondition was not
+                            met, or a file could not be written
+  2                         usage error
+  3                         invalid manifest, lock or configuration file
+  4                         resolution or integrity error (conflicting
+                            versions, hash mismatch, registry problems)
+  5                         network error, or something is missing from the
+                            cache while offline

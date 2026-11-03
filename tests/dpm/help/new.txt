@@ -10,7 +10,9 @@ followed by @version), an https .tar.gz, or the name of a registry template
 tree hash, and its commit and hash are printed; a registry template is fetched
 at the commit and hash its registry record lists. A template is data: nothing
 in it is run. The project is written into a temporary directory first and
-moved into place only when everything succeeded.
+moved into place only when everything succeeded. Afterwards dpm lists the
+tasks and assets the new project declares; review project.dcon before running
+a task.
 
 options:
   --template <source>       generate the project from this template. A

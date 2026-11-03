@@ -1,0 +1,43 @@
+usage: dpm run [<product>] [-- <args>...] [options]
+
+Builds the product, then runs it with the arguments after --. The exit code is
+the program's own when it ran. Programs for a target other than the host need
+--runner. A product whose run field names a task is built and then that task
+runs instead, as 'dpm task <name> -- <args>' would.
+
+options:
+  --manifest-path <file>    use this project.dcon instead of the one in the
+                            current directory. The file must be named
+                            project.dcon; dpm works in its directory.
+  --profile <name>          build profile (debug, release, or one defined in
+                            project.dcon) [default: debug]
+  --target <triple>         override the target of every product (one of:
+                            host, x86_64-elf, x86_64-coff, x86-elf, x86-coff,
+                            i8086-binary, i8086-mz) [default: from the
+                            manifest]
+  -O <level>                override the optimization level (one of: 0, 1, 2,
+                            s) [default: from the profile]
+  --offline                 never use the network; use only what is in the
+                            cache. The same as DPM_OFFLINE=1. Something that
+                            is missing from the cache is an error (exit code
+                            5).
+  --refresh                 ignore the 24-hour freshness window of cached
+                            registry files
+  --locked                  fail instead of updating project.lock.dcon when it
+                            is missing or out of date
+  -v                        print the dcc command lines
+  --runner <command>        run programs through this command. Required for
+                            products whose target is not the host. The command
+                            is split at spaces (no quoting) and gets the
+                            program as its last argument.
+
+exit codes:
+  0                         success
+  1                         a build or test failed, a precondition was not
+                            met, or a file could not be written
+  2                         usage error
+  3                         invalid manifest, lock or configuration file
+  4                         resolution or integrity error (conflicting
+                            versions, hash mismatch, registry problems)
+  5                         network error, or something is missing from the
+                            cache while offline
