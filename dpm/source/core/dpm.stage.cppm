@@ -175,6 +175,8 @@ export namespace dpm::stage
         std::vector<std::string> problems;
         std::vector<std::string> warnings;
         std::size_t files{};
+        std::vector<manifest::Task> tasks;
+        std::vector<manifest::Asset> assets;
 
         [[nodiscard]] bool ok() const { return problems.empty(); }
     };
@@ -229,6 +231,11 @@ export namespace dpm::stage
                     out.problems.push_back("generated " + d.format());
                 if (loaded.diagnostics.empty())
                     out.problems.push_back("the generated project.dcon is not valid");
+            }
+            else if (loaded.project)
+            {
+                out.tasks = loaded.project->tasks;
+                out.assets = loaded.project->assets;
             }
         }
         return out;

@@ -1668,6 +1668,26 @@ namespace
             return k_exit_failure;
         }
         std::println("created {} from {} ({} files)", given["name"], source->label, checked.files);
+        if (!checked.tasks.empty())
+        {
+            std::println("\nthis project declares {} task{}; nothing was run. Review project.dcon before running one with 'dpm task NAME':", checked.tasks.size(),
+                         checked.tasks.size() == 1 ? "" : "s");
+            std::size_t width = 0;
+            for (auto const& t : checked.tasks)
+                width = std::max(width, t.name.size());
+            for (auto const& t : checked.tasks)
+                std::println("  {:<{}}  {}", t.name, width, join_command(t.command));
+        }
+        if (!checked.assets.empty())
+        {
+            std::println("\nthe first 'dpm lock' (or a build or task that writes the lock) downloads and pins {} asset{}:", checked.assets.size(),
+                         checked.assets.size() == 1 ? "" : "s");
+            std::size_t width = 0;
+            for (auto const& a : checked.assets)
+                width = std::max(width, a.name.size());
+            for (auto const& a : checked.assets)
+                std::println("  {:<{}}  {}", a.name, width, a.location);
+        }
         if (!generated.next_steps.empty())
             std::println("\n{}", generated.next_steps);
         return 0;
