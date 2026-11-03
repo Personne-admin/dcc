@@ -1,0 +1,223 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module main;
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+public enum Result(T, E) {
+    Ok(T),
+    @implicit_construction Err(E),
+}
+
+bool is_ok(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(_) => true,
+        _ => false,
+    };
+}
+
+T unwrap(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(value) => value,
+        _ => self.unwrap(),
+    };
+}
+
+E unwrap_err(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Err(error) => error,
+        _ => self.unwrap_err(),
+    };
+}
+
+enum Fault : u8 { Lift = 1, Shape = 2 }
+
+enum Outer {
+    Other,
+    @implicit_construction Wrap(Fault),
+}
+
+struct Shaper {
+    u32 calls;
+}
+
+u32 lift_calls = 0;
+u32 cleanups = 0;
+
+Result(u32, Fault) lift(u32 x) {
+    lift_calls = lift_calls + 1;
+    if x == 0 {
+        return Fault::Lift;
+    }
+    return Result::Ok(x + 1);
+}
+
+Result(u32, Fault) shape(Shaper* self, u32 v) {
+    self.calls = self.calls + 1;
+    if v == 100 {
+        return Fault::Shape;
+    }
+    return Result::Ok(v * 2);
+}
+
+Result(u32, Fault) shape3(Shaper* self, u32 a, u32 b, u32 c) {
+    self.calls = self.calls + 1;
+    if a == 100 || b == 100 || c == 100 {
+        return Fault::Shape;
+    }
+    return Result::Ok(a * 10000 + b * 100 + c);
+}
+
+Result(u32, Fault) free_shape(u32 v) {
+    if v == 100 {
+        return Fault::Shape;
+    }
+    return Result::Ok(v * 3);
+}
+
+Result(u32, Fault) gshape(T)(Shaper* self, T v) {
+    self.calls = self.calls + 1;
+    if v == 100 {
+        return Fault::Shape;
+    }
+    return Result::Ok(v * 5);
+}
+
+u32 twice(u32 self) {
+    return self * 2;
+}
+
+Result(u32, Fault) nested(Shaper* self, u32 x) {
+    defer cleanups = cleanups + 1;
+    u32 r = self.shape(lift(x) ?) ?;
+    return Result::Ok(r);
+}
+
+Result(u32, Fault) split(Shaper* self, u32 x) {
+    u32 t = lift(x) ?;
+    u32 r = self.shape(t) ?;
+    return Result::Ok(r);
+}
+
+Result(u32, Fault) unwrapped_outer(Shaper* self, u32 x) {
+    return self.shape(lift(x) ?);
+}
+
+Result(u32, Fault) free_nested(u32 x) {
+    return Result::Ok(free_shape(lift(x) ?) ?);
+}
+
+Result(u32, Fault) first(Shaper* self, u32 x) {
+    return Result::Ok(self.shape3(lift(x) ?, 2, 3) ?);
+}
+
+Result(u32, Fault) middle(Shaper* self, u32 x) {
+    return Result::Ok(self.shape3(1, lift(x) ?, 3) ?);
+}
+
+Result(u32, Fault) last(Shaper* self, u32 x) {
+    return Result::Ok(self.shape3(1, 2, lift(x) ?) ?);
+}
+
+Result(u32, Fault) generic_method(Shaper* self, u32 x) {
+    return Result::Ok(self.gshape(lift(x) ?) ?);
+}
+
+Result(u32, Fault) generic_caller(T)(Shaper* self, T x) {
+    return Result::Ok(self.shape(lift(x) ?) ?);
+}
+
+Result(u32, Fault) receiver(u32 x) {
+    return Result::Ok(lift(x) ?.twice());
+}
+
+Result(u32, Outer) converted(Shaper* self, u32 x) {
+    return Result::Ok(self.shape(lift(x) ?) ?);
+}
+
+u32 fault_code(Fault fault) {
+    return match fault {
+        Fault::Lift => 1,
+        Fault::Shape => 2,
+    };
+}
+
+u32 code(Result(u32, Fault) r) {
+    return match r {
+        Result::Ok(v) => v,
+        Result::Err(fault) => 1000 + fault_code(fault),
+    };
+}
+
+u32 outer_code(Result(u32, Outer) r) {
+    return match r {
+        Result::Ok(v) => v,
+        Result::Err(outer) => match outer {
+            Outer::Wrap(fault) => 2000 + fault_code(fault),
+            _ => 2999,
+        },
+    };
+}
+
+bool counts(Shaper* s, u32 lifts, u32 calls) {
+    bool ok = lift_calls == lifts && s.calls == calls;
+    lift_calls = 0;
+    s.calls = 0;
+    return ok;
+}
+
+@nomangle
+public i32 dcc_main() {
+    Shaper s = {calls = 0};
+
+    if code(nested(&s, 3)) != 8 || !counts(&s, 1, 1) || cleanups != 1 { return 1; }
+    if code(nested(&s, 0)) != 1001 || !counts(&s, 1, 0) || cleanups != 2 { return 2; }
+    if code(nested(&s, 99)) != 1002 || !counts(&s, 1, 1) || cleanups != 3 { return 3; }
+
+    if code(split(&s, 3)) != 8 || !counts(&s, 1, 1) { return 4; }
+    if code(split(&s, 0)) != 1001 || !counts(&s, 1, 0) { return 5; }
+    if code(split(&s, 99)) != 1002 || !counts(&s, 1, 1) { return 6; }
+
+    if code(unwrapped_outer(&s, 4)) != 10 || !counts(&s, 1, 1) { return 7; }
+    if code(unwrapped_outer(&s, 0)) != 1001 || !counts(&s, 1, 0) { return 8; }
+    if code(unwrapped_outer(&s, 99)) != 1002 || !counts(&s, 1, 1) { return 9; }
+
+    if code(free_nested(3)) != 12 || !counts(&s, 1, 0) { return 10; }
+    if code(free_nested(0)) != 1001 || !counts(&s, 1, 0) { return 11; }
+    if code(free_nested(99)) != 1002 || !counts(&s, 1, 0) { return 12; }
+
+    if code(first(&s, 3)) != 40203 || !counts(&s, 1, 1) { return 13; }
+    if code(first(&s, 0)) != 1001 || !counts(&s, 1, 0) { return 14; }
+    if code(first(&s, 99)) != 1002 || !counts(&s, 1, 1) { return 15; }
+    if code(middle(&s, 3)) != 10403 || !counts(&s, 1, 1) { return 16; }
+    if code(middle(&s, 0)) != 1001 || !counts(&s, 1, 0) { return 17; }
+    if code(middle(&s, 99)) != 1002 || !counts(&s, 1, 1) { return 18; }
+    if code(last(&s, 3)) != 10204 || !counts(&s, 1, 1) { return 19; }
+    if code(last(&s, 0)) != 1001 || !counts(&s, 1, 0) { return 20; }
+    if code(last(&s, 99)) != 1002 || !counts(&s, 1, 1) { return 21; }
+
+    if code(generic_method(&s, 3)) != 20 || !counts(&s, 1, 1) { return 22; }
+    if code(generic_method(&s, 0)) != 1001 || !counts(&s, 1, 0) { return 23; }
+    if code(generic_method(&s, 99)) != 1002 || !counts(&s, 1, 1) { return 24; }
+
+    if code(generic_caller(&s, 3 as u32)) != 8 || !counts(&s, 1, 1) { return 25; }
+    if code(generic_caller(&s, 0 as u32)) != 1001 || !counts(&s, 1, 0) { return 26; }
+    if code(generic_caller(&s, 99 as u32)) != 1002 || !counts(&s, 1, 1) { return 27; }
+
+    if code(receiver(3)) != 8 || !counts(&s, 1, 0) { return 28; }
+    if code(receiver(0)) != 1001 || !counts(&s, 1, 0) { return 29; }
+
+    if outer_code(converted(&s, 3)) != 8 || !counts(&s, 1, 1) { return 30; }
+    if outer_code(converted(&s, 0)) != 2001 || !counts(&s, 1, 0) { return 31; }
+    if outer_code(converted(&s, 99)) != 2002 || !counts(&s, 1, 1) { return 32; }
+
+    return 0;
+}
+
+=== EXPECT-EXECUTABLE FLAGS: -O0 ===
+RUN-EXIT: 0
+
+=== EXPECT-EXECUTABLE FLAGS: -O2 ===
+RUN-EXIT: 0

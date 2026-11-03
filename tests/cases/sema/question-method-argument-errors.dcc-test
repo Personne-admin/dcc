@@ -1,0 +1,75 @@
+=== FILE: main.dc ===
+module main;
+
+public enum Result(T, E) {
+    Ok(T),
+    @implicit_construction Err(E),
+}
+
+bool is_ok(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(_) => true,
+        _ => false,
+    };
+}
+
+T unwrap(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(value) => value,
+        _ => self.unwrap(),
+    };
+}
+
+E unwrap_err(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Err(error) => error,
+        _ => self.unwrap_err(),
+    };
+}
+
+struct Shaper {
+    u32 calls;
+}
+
+Result(u32, u8) lift(u32 x) {
+    return Result::Ok(x);
+}
+
+Result(u32, u8) shape(Shaper* self, u32 v) {
+    return Result::Ok(v);
+}
+
+u32 twice(u32 self) {
+    return self * 2;
+}
+
+bool wrong_return(Shaper* self, u32 x) {
+    u32 r = self.shape(lift(x) ?) ?;
+    return r == 0;
+}
+
+void void_return(Shaper* self, u32 x) {
+    self.shape(lift(x) ?);
+}
+
+Result(u32, u8) not_unwrappable(Shaper* self, u32 x) {
+    return Result::Ok(self.shape(x ?) ?);
+}
+
+bool receiver_wrong_return(u32 x) {
+    return lift(x) ?.twice() == 0;
+}
+
+Shaper global_shaper = {calls = 0};
+u32 module_scope = global_shaper.shape(lift(1) ?).unwrap();
+
+public i32 main() {
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:63: cannot use `?` outside a function
+main.dc:46: ? operator: error type `u8` cannot be propagated into return type `bool`
+main.dc:51: ? operator: error type `u8` cannot be propagated into return type `void`
+main.dc:55: type `u32` is not Unwrappable: no visible `.is_ok()` method
+main.dc:59: ? operator: error type `u8` cannot be propagated into return type `bool`

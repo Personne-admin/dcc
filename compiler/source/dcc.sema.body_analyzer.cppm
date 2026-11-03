@@ -6109,11 +6109,13 @@ export namespace dcc::sema
             return out;
         }
 
-        [[nodiscard]] std::optional<RankedCandidate>
-        probe_ufcs_candidate(ModuleInfo& mod, Scope& scope, Symbol const& sym, ast::Expr& object, std::span<ast::Expr* const> arg_exprs, std::uint32_t next_off,
-                             int loop_depth, ConstEnv const* const_env, bool* had_suppressed_errors = nullptr, bool* had_constraint_failure = nullptr,
-                             bool* had_non_constraint_failure = nullptr, types::TypePtr expected_type = nullptr, std::string* rejection_reason = nullptr,
-                             detail::ExprResult const* preanalyzed_receiver = nullptr, CallRejectionInfo* rejection_info = nullptr)
+        [[nodiscard]] std::optional<RankedCandidate> probe_ufcs_candidate(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, Symbol const& sym,
+                                                                          ast::Expr& object, std::span<ast::Expr* const> arg_exprs, std::uint32_t next_off,
+                                                                          int loop_depth, ConstEnv const* const_env, bool* had_suppressed_errors = nullptr,
+                                                                          bool* had_constraint_failure = nullptr, bool* had_non_constraint_failure = nullptr,
+                                                                          types::TypePtr expected_type = nullptr, std::string* rejection_reason = nullptr,
+                                                                          detail::ExprResult const* preanalyzed_receiver = nullptr,
+                                                                          CallRejectionInfo* rejection_info = nullptr)
         {
             if (!sym.decl || sym.decl->kind != ast::DeclKind::Func)
                 return std::nullopt;
@@ -6224,7 +6226,7 @@ export namespace dcc::sema
 
             auto param0 = b.substitute(params[0]);
             auto receiver =
-                preanalyzed_receiver ? *preanalyzed_receiver : analyze_expr(mod, nullptr, *probe_scope, object, loop_depth, probe_off, param0, const_env);
+                preanalyzed_receiver ? *preanalyzed_receiver : analyze_expr(mod, fn, *probe_scope, object, loop_depth, probe_off, param0, const_env);
             if (has_error(receiver.type))
             {
                 if (had_suppressed_errors)
@@ -6290,7 +6292,7 @@ export namespace dcc::sema
                 }
 
                 auto vt_type = get_canonical(vtparam->value_type->sema);
-                auto r = analyze_expr(mod, nullptr, *probe_scope, *arg_exprs[vi], loop_depth, probe_off, vt_type, const_env);
+                auto r = analyze_expr(mod, fn, *probe_scope, *arg_exprs[vi], loop_depth, probe_off, vt_type, const_env);
                 if (has_error(r.type))
                 {
                     if (had_suppressed_errors)
@@ -6333,7 +6335,7 @@ export namespace dcc::sema
                 if (is_contextual_construction(*arg_exprs[func_arg_start + i]))
                     continue;
 
-                auto r = analyze_expr(mod, nullptr, *probe_scope, *arg_exprs[func_arg_start + i], loop_depth, probe_off, param_ty, const_env);
+                auto r = analyze_expr(mod, fn, *probe_scope, *arg_exprs[func_arg_start + i], loop_depth, probe_off, param_ty, const_env);
                 if (has_error(r.type))
                 {
                     if (had_suppressed_errors)
@@ -6356,7 +6358,7 @@ export namespace dcc::sema
             for (std::size_t i = 0; i < provided_after_receiver; ++i)
             {
                 auto param_ty = b.substitute(params[i + 1]);
-                auto r = analyze_expr(mod, nullptr, *probe_scope, *arg_exprs[func_arg_start + i], loop_depth, probe_off, param_ty, const_env);
+                auto r = analyze_expr(mod, fn, *probe_scope, *arg_exprs[func_arg_start + i], loop_depth, probe_off, param_ty, const_env);
                 if (has_error(r.type))
                 {
                     if (had_suppressed_errors)
@@ -6386,7 +6388,7 @@ export namespace dcc::sema
                     else if (auto const* tp = types::type_cast<types::TemplateParamType>(pack_param_ty))
                         expected_ty = tp;
 
-                    auto r = analyze_expr(mod, nullptr, *probe_scope, *arg_exprs[func_arg_start + i], loop_depth, probe_off, expected_ty, const_env);
+                    auto r = analyze_expr(mod, fn, *probe_scope, *arg_exprs[func_arg_start + i], loop_depth, probe_off, expected_ty, const_env);
                     if (has_error(r.type))
                     {
                         if (had_suppressed_errors)
@@ -6677,7 +6679,7 @@ export namespace dcc::sema
             infer::TemplateBindings b{m_types};
 
             auto param0 = b.substitute(params[0]);
-            auto receiver = preanalyzed_receiver ? *preanalyzed_receiver : analyze_expr(mod, nullptr, scope, object, loop_depth, next_off, param0, const_env);
+            auto receiver = preanalyzed_receiver ? *preanalyzed_receiver : analyze_expr(mod, fn, scope, object, loop_depth, next_off, param0, const_env);
             if (has_error(receiver.type))
             {
                 auto diag_obj = diag::Diagnostic{diag::Severity::Error,
@@ -15954,9 +15956,9 @@ export namespace dcc::sema
                     std::string rejection_reason;
                     CallRejectionInfo probe_rejection;
 
-                    if (auto probe =
-                            probe_ufcs_candidate(mod, scope, *sym, *f.object, args, next_off, loop_depth, const_env, &probe_error, &probe_constraint_failure,
-                                                 &probe_non_constraint_failure, expected_type, &rejection_reason, preanalyzed_receiver, &probe_rejection);
+                    if (auto probe = probe_ufcs_candidate(mod, fn, scope, *sym, *f.object, args, next_off, loop_depth, const_env, &probe_error,
+                                                          &probe_constraint_failure, &probe_non_constraint_failure, expected_type, &rejection_reason,
+                                                          preanalyzed_receiver, &probe_rejection);
                         probe)
                         ranked.push_back(std::move(*probe));
                     else if (!rejection_reason.empty())
@@ -16014,7 +16016,7 @@ export namespace dcc::sema
                     auto const probe_mark = pending_lambda_mark();
                     ErrorSuppressionGuard probe_suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
                     auto* probe_scope = make_probe_scope(scope);
-                    auto r = analyze_expr(mod, nullptr, *probe_scope, *arg, loop_depth, next_off, nullptr, const_env);
+                    auto r = analyze_expr(mod, fn, *probe_scope, *arg, loop_depth, next_off, nullptr, const_env);
                     rollback_non_spec_lambdas(probe_mark);
                     if (has_error(r.type) && probe_suppress.had_suppressed_errors())
                     {
@@ -16041,7 +16043,7 @@ export namespace dcc::sema
                     {
                         auto const lambda_mark = pending_lambda_mark();
                         auto* probe_scope = make_probe_scope(scope);
-                        auto receiver_r = analyze_expr(mod, nullptr, *probe_scope, *f.object, loop_depth, next_off, nullptr, const_env);
+                        auto receiver_r = analyze_expr(mod, fn, *probe_scope, *f.object, loop_depth, next_off, nullptr, const_env);
                         rollback_non_spec_lambdas(lambda_mark);
                         std::string receiver_ctx;
                         if (receiver_r.type && receiver_r.type->kind != types::TypeKind::Error)
