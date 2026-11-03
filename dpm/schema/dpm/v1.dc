@@ -231,6 +231,10 @@ public struct Asset
     /// Release tag to fetch for a git location; without it the latest release
     /// tag is used. Informational for a tarball.
     []const char version = "";
+    /// Largest unpacked size of the asset in bytes. 0 keeps the limit every
+    /// download has (256 MiB); a larger value, at most 1 GiB, applies to this
+    /// asset only, for releases that ship big firmware images.
+    i64 max_size = 0;
 }
 
 /// An environment variable set for a task.

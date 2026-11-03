@@ -293,11 +293,14 @@ export namespace dpm::manifest
         Range range;
     };
 
+    inline constexpr std::int64_t k_max_asset_size = 1ll << 30;
+
     struct Asset
     {
         std::string name;
         std::string location;
         std::string version;
+        std::int64_t max_size{};
         Range range;
     };
 
@@ -1550,6 +1553,14 @@ export namespace dpm::manifest
                     a.name = str(item, "name");
                     a.location = str(item, "location");
                     a.version = str(item, "version");
+                    a.max_size = integer_of(item, "max_size");
+                    if (auto const* n = item.find("max_size"))
+                    {
+                        if (a.max_size < 0 || a.max_size > k_max_asset_size)
+                            error(*n, std::format("max_size must be 0 (the default limit) or a number of bytes up to {} (1 GiB)", k_max_asset_size));
+                        else if (a.max_size > 0 && a.location.starts_with("path:"))
+                            error(*n, "a path asset is read in place and has no size limit");
+                    }
                     if (auto const* n = item.find("name"))
                     {
                         if (!is_asset_name(a.name))

@@ -1400,6 +1400,57 @@ TEST_CASE("a tampered or changed asset is fatal against the lock")
     (void)commit;
 }
 
+TEST_CASE("max_size raises the unpacked size limit for that asset only, up to the hard cap")
+{
+    auto schema_root = env_path("DCC_TEST_DPM_SCHEMA");
+    if (schema_root.empty())
+        return;
+    Env env;
+    TarBuilder b;
+    b.dir("fw/").file("fw/code.fd", std::string(3000, 'x'));
+    auto archive = make_archive(env.home, "fw", b.finish());
+    TarBuilder p;
+    p.dir("big-1.0.0/").file("big-1.0.0/project.dcon", project_text("big", "1.0.0")).file("big-1.0.0/blob", std::string(3000, 'y'));
+    auto package = make_archive(env.home, "big-1.0.0", p.finish());
+    auto policy = test_policy();
+    policy.limits.max_bytes = 1000;
+    dpm::manifest::Project project;
+    project.name = "k";
+    project.version = "1.0.0";
+    project.assets.push_back(asset("fw", "file://" + archive.string()));
+    auto limited = dpm::fetch::resolve_assets(env.cache, project, policy, env.home.path, nullptr);
+    CHECK(!limited.ok);
+    REQUIRE(limited.errors.size() == 1);
+    CHECK(contains(limited.errors[0], "more than 1000 bytes"));
+    project.assets[0].max_size = 5000;
+    auto raised = dpm::fetch::resolve_assets(env.cache, project, policy, env.home.path, nullptr);
+    for (auto const& e : raised.errors)
+        std::println(std::cerr, "{}", e);
+    REQUIRE(raised.ok);
+    auto lock = load_lock(lock_text(project, raised.assets), schema_root);
+    REQUIRE(lock.has_value());
+    Env fresh;
+    CHECK(!dpm::fetch::fetch_locked(fresh.cache, *lock, policy, {}, &*lock).ok);
+    CHECK(dpm::fetch::fetch_locked(fresh.cache, *lock, policy, {}, &*lock, &project).ok);
+    auto capped = dpm::fetch::asset_policy(policy, std::int64_t{1} << 40);
+    CHECK_EQ(capped.limits.max_bytes, static_cast<std::uint64_t>(dpm::manifest::k_max_asset_size));
+    CHECK_EQ(dpm::fetch::asset_policy(policy, 0).limits.max_bytes, std::uint64_t{1000});
+
+    dpm::manifest::Project consumer;
+    consumer.name = "app";
+    consumer.version = "1.0.0";
+    dpm::manifest::Dependency d;
+    d.location = "file://" + package.string();
+    d.version = "1.0.0";
+    consumer.dependencies.push_back(d);
+    consumer.assets = project.assets;
+    dpm::fetch::FetchSource source{env.cache, policy, env.home.path, schema_root, nullptr};
+    auto r = dpm::resolve::resolve(consumer, source, {});
+    CHECK(!r.ok);
+    REQUIRE(!r.errors.empty());
+    CHECK(contains(r.errors[0], "more than 1000 bytes"));
+}
+
 TEST_CASE("a missing path asset and an unusable location are errors that name the asset")
 {
     Env env;

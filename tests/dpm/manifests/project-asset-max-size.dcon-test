@@ -1,0 +1,6 @@
+=== FILE: project.dcon ===
+{ name = "k", version = "1.0.0", assets = { { name = "a", location = "https://e.com/a.tar.gz", max_size = 536870912 }, { name = "b", location = "https://e.com/b.tar.gz", max_size = 1073741825 }, { name = "c", location = "https://e.com/c.tar.gz", max_size = -1 }, { name = "d", location = "path:d", max_size = 1 }, { name = "e", location = "github.com/u/e", max_size = 1073741824 } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:182: max_size must be 0 (the default limit) or a number of bytes up to 1073741824 (1 GiB)
+project.dcon:1:258: max_size must be 0 (the default limit) or a number of bytes up to 1073741824 (1 GiB)
+project.dcon:1:310: a path asset is read in place and has no size limit

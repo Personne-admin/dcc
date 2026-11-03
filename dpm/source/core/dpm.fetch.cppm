@@ -957,8 +957,16 @@ export namespace dpm::fetch
         }
     } // namespace detail
 
+    [[nodiscard]] inline Policy asset_policy(Policy policy, std::int64_t max_size)
+    {
+        if (max_size > 0)
+            policy.limits.max_bytes = static_cast<std::uint64_t>(std::min(max_size, manifest::k_max_asset_size));
+        return policy;
+    }
+
     [[nodiscard]] inline FetchAllResult fetch_locked(cache::Cache const& cache, manifest::Lock const& lock, Policy const& policy,
-                                                     std::filesystem::path const& schema_root = {}, manifest::Lock const* pinned = nullptr)
+                                                     std::filesystem::path const& schema_root = {}, manifest::Lock const* pinned = nullptr,
+                                                     manifest::Project const* project = nullptr)
     {
         FetchAllResult all;
         for (auto const& p : lock.packages)
@@ -1045,9 +1053,15 @@ export namespace dpm::fetch
                 for (auto const& q : pinned->assets)
                     if (q.name == a.name && q.source == a.source && q.version == a.version && q.commit == a.commit && q.hash == a.hash)
                         already_pinned = true;
+            std::int64_t max_size = 0;
+            if (project)
+                for (auto const& declared : project->assets)
+                    if (declared.name == a.name)
+                        max_size = declared.max_size;
+            auto policy_for_asset = asset_policy(policy, max_size);
             Fetched f;
-            if (is_tarball_location(a.source, policy))
-                f = fetch_tarball(cache, a.source, a.hash, policy, already_pinned);
+            if (is_tarball_location(a.source, policy_for_asset))
+                f = fetch_tarball(cache, a.source, a.hash, policy_for_asset, already_pinned);
             else
             {
                 std::string error;
@@ -1064,7 +1078,7 @@ export namespace dpm::fetch
                 request.hash = a.hash;
                 request.allow_cached = already_pinned;
                 request.tags = detail::version_tags(spec->subdir, a.version);
-                f = fetch_git(cache, request, policy);
+                f = fetch_git(cache, request, policy_for_asset);
             }
             if (!f.ok)
             {
@@ -1107,7 +1121,7 @@ export namespace dpm::fetch
         return "git+" + spec->url + (spec->subdir.empty() ? "" : "#" + spec->subdir);
     }
 
-    [[nodiscard]] inline AssetResolution resolve_assets(cache::Cache const& cache, manifest::Project const& project, Policy const& policy,
+    [[nodiscard]] inline AssetResolution resolve_assets(cache::Cache const& cache, manifest::Project const& project, Policy const& base_policy,
                                                         std::filesystem::path const& root, manifest::Lock const* previous)
     {
         AssetResolution out;
@@ -1122,6 +1136,7 @@ export namespace dpm::fetch
                 out.errors.push_back(std::format("asset {}: {}", asset->name, message));
                 out.ok = false;
             };
+            auto policy = asset_policy(base_policy, asset->max_size);
             std::string error;
             auto source = asset_source(*asset, policy, error);
             if (!source)

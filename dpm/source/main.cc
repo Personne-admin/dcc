@@ -408,7 +408,7 @@ namespace
         }
         if (fetch_sources)
         {
-            auto fetched = dpm::fetch::fetch_locked(s.cache, r.lock, s.policy, s.options.schema_root, s.previous ? &*s.previous : nullptr);
+            auto fetched = dpm::fetch::fetch_locked(s.cache, r.lock, s.policy, s.options.schema_root, s.previous ? &*s.previous : nullptr, &project);
             if (!report_fetch_errors(fetched, code) || !check_namespaces(s, fetched, code))
                 return std::nullopt;
         }
@@ -456,7 +456,7 @@ namespace
             }
             p.lock = std::move(r->lock);
         }
-        auto fetched = dpm::fetch::fetch_locked(s.cache, p.lock, s.policy, s.options.schema_root, s.previous ? &*s.previous : nullptr);
+        auto fetched = dpm::fetch::fetch_locked(s.cache, p.lock, s.policy, s.options.schema_root, s.previous ? &*s.previous : nullptr, &s.project);
         if (!report_fetch_errors(fetched, code) || !check_namespaces(s, fetched, code))
             return std::nullopt;
         p.assets = std::move(fetched.assets);
@@ -1843,7 +1843,7 @@ namespace
             std::println(std::cerr, "dpm: cannot read {} (run dpm lock)", dpm::lock::k_lock_file);
             return k_exit_manifest;
         }
-        auto result = dpm::fetch::fetch_locked(s.cache, *s.previous, s.policy, s.options.schema_root, &*s.previous);
+        auto result = dpm::fetch::fetch_locked(s.cache, *s.previous, s.policy, s.options.schema_root, &*s.previous, &s.project);
         int code = 0;
         report_fetch_errors(result, code);
         if (result.ok)
