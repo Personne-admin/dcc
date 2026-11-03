@@ -1,0 +1,106 @@
+=== FILE: pol.dc ===
+module pol;
+public struct Empty {}
+public struct Wide { u64 a; u32 b; }
+
+=== FILE: gen.dc ===
+module gen;
+public struct Vec(T, A) { A alloc; [] T storage; usize count; }
+public struct Box(T) { T value; u64 tag; }
+
+=== FILE: test.dc ===
+module test;
+import pol;
+import gen;
+
+struct Pair {
+    u64 before;
+    gen::Vec(u32, pol::Empty) a;
+    gen::Vec(u8, pol::Empty) b;
+    u64 after;
+}
+
+struct Mixed {
+    u8 head;
+    gen::Box(pol::Wide) w;
+    gen::Box(Late) l;
+    Slot(Late) s;
+    u16 tail;
+}
+
+enum Slot(T) {
+    Empty,
+    Full(T),
+}
+
+struct Late {
+    u32 x;
+    u64 y;
+}
+
+usize at(usize base, usize field) {
+    return field - base;
+}
+
+@nomangle
+public i32 dcc_main() {
+    Pair p;
+    if at(&p as usize, &p.a as usize) != 8 || at(&p as usize, &p.a as usize) != offsetof(Pair, a) { return 1; }
+    if at(&p as usize, &p.b as usize) != 32 || at(&p as usize, &p.b as usize) != offsetof(Pair, b) { return 2; }
+    if at(&p as usize, &p.after as usize) != 56 || at(&p as usize, &p.after as usize) != offsetof(Pair, after) { return 3; }
+    if sizeof(Pair) != 64 { return 4; }
+
+    u32[4] wide_items = {1, 2, 3, 4};
+    u8[2] narrow_items = {5, 6};
+    p.before = 0x1111111111111111;
+    p.after = 0x2222222222222222;
+    gen::Vec(u32, pol::Empty) va = {};
+    va.storage = wide_items[0..4];
+    va.count = 3;
+    p.a = va;
+    if p.before != 0x1111111111111111 || p.after != 0x2222222222222222 { return 5; }
+    gen::Vec(u8, pol::Empty) vb = {};
+    vb.storage = narrow_items[0..2];
+    vb.count = 2;
+    p.b = vb;
+    if p.a.count != 3 || p.a.storage.len != 4 || p.a.storage[3] != 4 { return 6; }
+    if p.b.count != 2 || p.b.storage.len != 2 || p.b.storage[1] != 6 { return 7; }
+    if p.before != 0x1111111111111111 || p.after != 0x2222222222222222 { return 8; }
+
+    Mixed m;
+    if at(&m as usize, &m.w as usize) != 8 || at(&m as usize, &m.w as usize) != offsetof(Mixed, w) { return 10; }
+    if at(&m as usize, &m.l as usize) != 32 || at(&m as usize, &m.l as usize) != offsetof(Mixed, l) { return 11; }
+    if at(&m as usize, &m.s as usize) != 56 || at(&m as usize, &m.s as usize) != offsetof(Mixed, s) { return 12; }
+    if at(&m as usize, &m.tail as usize) != 80 || at(&m as usize, &m.tail as usize) != offsetof(Mixed, tail) { return 13; }
+    if sizeof(Mixed) != 88 { return 14; }
+
+    m.head = 0x5A;
+    m.tail = 0xA5A5;
+    m.w.value.a = 0x3333333333333333;
+    m.w.value.b = 0x44444444;
+    m.w.tag = 0x5555555555555555;
+    m.l.value.x = 0x66666666;
+    m.l.value.y = 0x7777777777777777;
+    m.l.tag = 0x8888888888888888;
+    Late late = {};
+    late.x = 0x99999999;
+    late.y = 0xAAAAAAAAAAAAAAAA;
+    m.s = Slot::Full(late);
+    if m.head != 0x5A || m.tail != 0xA5A5 { return 15; }
+    if m.w.value.a != 0x3333333333333333 || m.w.value.b != 0x44444444 || m.w.tag != 0x5555555555555555 { return 16; }
+    if m.l.value.x != 0x66666666 || m.l.value.y != 0x7777777777777777 || m.l.tag != 0x8888888888888888 { return 17; }
+    match m.s {
+        Slot::Full(v) => {
+            if v.x != 0x99999999 || v.y != 0xAAAAAAAAAAAAAAAA { return 18; }
+        },
+        Slot::Empty => return 19,
+    }
+    return 0;
+}
+
+=== ENTRY: test.dc ===
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0

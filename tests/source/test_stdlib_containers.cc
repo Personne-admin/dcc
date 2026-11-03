@@ -431,3 +431,14 @@ TEST_CASE("map rehash releases temporary allocations on failure")
                 CHECK_EQ(build_and_run(source, name, backend, opt), 0);
     }
 }
+
+TEST_CASE("array fields of a struct declared before their allocator keep separate storage")
+{
+    auto root = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path().parent_path().parent_path();
+    std::ifstream in{root / "tests/stdlib/array-fields.dc"};
+    std::string source{std::istreambuf_iterator<char>{in}, {}};
+    REQUIRE(!source.empty());
+    for (auto backend : {"llvm", "custom"})
+        for (auto opt : {"-O0", "-O2"})
+            CHECK_EQ(build_and_run(source, "array-fields", backend, opt), 0);
+}

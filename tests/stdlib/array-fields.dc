@@ -1,0 +1,87 @@
+module main;
+
+public import std::alloc;
+public import std::array;
+public import std::result;
+
+using std::alloc::{ AllocError };
+using std::array::{ Array };
+using std::result::{ Result };
+
+struct Two {
+    u64 before;
+    Array(u32, Pool) a;
+    Array(u8, Pool) b;
+    u64 after;
+}
+
+u8[2048] pool_bytes;
+usize pool_used;
+usize pool_live;
+usize pool_bad_frees;
+
+public struct Pool {}
+
+public Result([] u8, AllocError) allocate(const Pool* self, usize len, usize align) {
+    usize start = (pool_used + 15) & ~(15 as usize);
+    if start + len > 2048 {
+        return AllocError::OutOfMemory;
+    }
+    pool_used = start + len;
+    pool_live += 1;
+    return Result::Ok(pool_bytes[start..start + len]);
+}
+
+public bool resize_in_place(const Pool* self, [] u8 block, usize new_len, usize align) {
+    return false;
+}
+
+public void free(const Pool* self, [] u8 block, usize align) {
+    usize low = &pool_bytes[0] as usize;
+    usize start = block.ptr as usize;
+    if start < low || start + block.len > low + 2048 || pool_live == 0 {
+        pool_bad_frees += 1;
+        return;
+    }
+    pool_live -= 1;
+}
+
+i32 check(Two* t, usize count) {
+    if t.before != 0x1111111111111111 || t.after != 0x2222222222222222 { return 20; }
+    if t.a.len() != count || t.b.len() != count { return 21; }
+    for usize i = 0; i < count; i += 1 {
+        if t.a.items()[i] != (i as u32) * 1000 + 7 { return 22; }
+        if t.b.items()[i] != (i as u8) + 100 { return 23; }
+    }
+    return 0;
+}
+
+public i32 main() {
+    Pool pool = {};
+    Two t;
+    t.before = 0x1111111111111111;
+    t.after = 0x2222222222222222;
+    if (&t.a as usize) - (&t as usize) != 8 { return 1; }
+    if (&t.b as usize) - (&t as usize) != 8 + sizeof(Array(u32, Pool)) { return 2; }
+    if (&t.after as usize) - (&t as usize) != 8 + 2 * sizeof(Array(u32, Pool)) { return 3; }
+
+    t.a = std::array::new_array(pool);
+    t.b = std::array::new_array(pool);
+    if t.a.reserve(4).is_ok() == false { return 4; }
+    if t.a.capacity() < 4 { return 5; }
+    if t.b.capacity() != 0 { return 6; }
+
+    for usize i = 0; i < 40; i += 1 {
+        if t.a.push((i as u32) * 1000 + 7).is_ok() == false { return 7; }
+        if t.b.push((i as u8) + 100).is_ok() == false { return 8; }
+        i32 bad = check(&t, i + 1);
+        if bad != 0 { return bad; }
+    }
+
+    t.a.deinit();
+    if t.b.len() != 40 || t.b.items()[39] != 139 { return 9; }
+    t.b.deinit();
+    if pool_bad_frees != 0 { return 10; }
+    if pool_live != 0 { return 11; }
+    return 0;
+}

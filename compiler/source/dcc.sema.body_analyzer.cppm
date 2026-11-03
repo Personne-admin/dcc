@@ -19504,9 +19504,27 @@ export namespace dcc::sema
 
     void complete_templated_union(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc, types::UnionType const* ut);
 
+    void request_decl_layout(types::TypeContext& types, types::TypePtr ty)
+    {
+        if (!ty || ty->is_complete || !types.decl_layout_query)
+            return;
+        void const* decl = nullptr;
+        if (auto* st = types::type_cast<types::StructType>(ty))
+            decl = st->decl;
+        else if (auto* ut = types::type_cast<types::UnionType>(ty))
+            decl = ut->decl;
+        else if (auto* et = types::type_cast<types::EnumType>(ty))
+            decl = et->decl;
+        if (decl)
+            types.decl_layout_query(decl);
+    }
+
     void complete_layout_type(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc, types::TypePtr ty)
     {
         if (!ty || ty->is_complete)
+            return;
+        request_decl_layout(types, ty);
+        if (ty->is_complete)
             return;
         if (auto* arr = types::type_cast<types::ArrayType>(ty))
         {
@@ -19860,6 +19878,9 @@ export namespace dcc::sema
 
                 if (payload_type && is_concrete_void_type(payload_type))
                     payload_type = nullptr;
+
+                if (payload_type && !payload_type->is_complete)
+                    request_decl_layout(types, payload_type);
 
                 if (payload_type && !payload_type->is_complete)
                 {

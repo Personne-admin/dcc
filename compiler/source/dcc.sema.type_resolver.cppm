@@ -115,6 +115,7 @@ export namespace dcc::sema
                         return;
                     }
             };
+            m_previous_decl_layout_query = std::exchange(m_types.decl_layout_query, [this](void const* decl) { ensure_decl_finalized(static_cast<ast::Decl const*>(decl)); });
             prepare_placeholders();
 
             for (auto const& m : m_modules)
@@ -128,12 +129,17 @@ export namespace dcc::sema
             }
         }
 
-        ~TypeResolver() { *m_signature_query = {}; }
+        ~TypeResolver()
+        {
+            *m_signature_query = {};
+            m_types.decl_layout_query = std::move(m_previous_decl_layout_query);
+        }
 
     private:
         ast::AstContext& m_ast_ctx;
         SpecializationRegistry& m_reg;
         std::shared_ptr<SignatureQuery> m_signature_query = std::make_shared<SignatureQuery>();
+        std::function<void(void const*)> m_previous_decl_layout_query;
         std::span<std::unique_ptr<ModuleInfo> const> m_modules;
         diag::DiagnosticEngine& m_diag;
         types::TypeContext& m_types;

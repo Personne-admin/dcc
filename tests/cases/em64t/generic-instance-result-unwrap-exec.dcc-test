@@ -1,0 +1,57 @@
+=== FILE: test.dc ===
+module test;
+
+enum Res(T, F) {
+    Ok(T),
+    Err(F),
+}
+
+enum Failure : u8 {
+    Missing,
+}
+
+@noreturn
+void stop() {
+    while true {}
+}
+
+T unwrap(T, F)(const Res(T, F)* self) {
+    match *self {
+        Res::Ok(value) => return value,
+        Res::Err(e) => stop(),
+    }
+}
+
+struct Holder(T) {
+    T value;
+    u64 count;
+}
+
+struct Manifest {
+    u64 head;
+    Holder(Sheet) sheet;
+}
+
+struct Sheet {
+    u32 views;
+}
+
+Res(Manifest, Failure) load() {
+    return Res::Err(Failure::Missing);
+}
+
+@nomangle
+public i32 dcc_main() {
+    Res(Manifest, Failure) r = load();
+    match r {
+        Res::Err(e) => return 0,
+        Res::Ok(v) => {},
+    }
+    Manifest m = r.unwrap();
+    return 1;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0

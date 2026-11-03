@@ -1,0 +1,85 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module test;
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+enum Res(T, F) {
+    Ok(T),
+    Err(F),
+}
+
+enum Failure : u8 {
+    Missing,
+}
+
+T unwrap(T, F)(const Res(T, F)* self) {
+    match *self {
+        Res::Ok(value) => return value,
+        Res::Err(e) => {},
+    }
+    T fallback = {};
+    return fallback;
+}
+
+struct Holder(T) {
+    T value;
+    u64 count;
+}
+
+struct Manifest {
+    u64 head;
+    Holder(Sheet) sheet;
+    u32 tail;
+}
+
+struct Clip {
+    u32 frames;
+    u32[2] durations;
+}
+
+struct Sheet {
+    u32 views;
+    Clip[2] clips;
+}
+
+bool fail_load = true;
+u32 load_seed = 9;
+
+Res(Manifest, Failure) load(bool fail, u32 seed) {
+    if fail {
+        return Res::Err(Failure::Missing);
+    }
+    Manifest m = {};
+    m.head = 0x1111111111111111;
+    m.sheet.value.views = seed;
+    m.sheet.value.clips[1].durations[1] = seed + 1;
+    m.sheet.count = 0x3333333333333333;
+    m.tail = 0x44444444;
+    return Res::Ok(m);
+}
+
+@nomangle
+public i32 dcc_main() {
+    Manifest layout;
+    if (&layout.sheet as usize) - (&layout as usize) != 8 || (&layout.tail as usize) - (&layout as usize) != 48 { return 1; }
+    if sizeof(Manifest) != 56 { return 6; }
+    Res(Manifest, Failure) failed = load(fail_load, 0);
+    Manifest none = failed.unwrap();
+    if none.head != 0 || none.tail != 0 { return 2; }
+    fail_load = false;
+    Res(Manifest, Failure) r = load(fail_load, load_seed);
+    Manifest m = r.unwrap();
+    if m.head != 0x1111111111111111 || m.tail != 0x44444444 { return 3; }
+    if m.sheet.value.views != 9 || m.sheet.value.clips[1].durations[1] != 10 { return 4; }
+    if m.sheet.count != 0x3333333333333333 { return 5; }
+    return 0;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-EXECUTABLE FLAGS: -O0 ===
+RUN-EXIT: 0
+=== EXPECT-EXECUTABLE FLAGS: -O2 ===
+RUN-EXIT: 0
