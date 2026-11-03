@@ -217,6 +217,12 @@ export namespace dccd::dcon
                     case dpm::analyze::Completion::Kind::Alias:
                         item.kind = protocol::CompletionItemKind::Module;
                         break;
+                    case dpm::analyze::Completion::Kind::Token:
+                        item.kind = protocol::CompletionItemKind::Variable;
+                        break;
+                    case dpm::analyze::Completion::Kind::Name:
+                        item.kind = protocol::CompletionItemKind::Reference;
+                        break;
                 }
                 protocol::TextEdit edit;
                 edit.range = replace;

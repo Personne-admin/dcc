@@ -550,6 +550,179 @@ TEST_CASE("completion offers missing fields, qualified enumerators, constants an
     CHECK(complete_at("|").items.empty());
 }
 
+TEST_CASE("assets are compared with the lock: missing, changed, not cached and no longer required")
+{
+    auto root = schema_root();
+    if (root.empty())
+        return;
+    TempDir dir;
+    std::string text = "{ name = \"a\", version = \"1.0.0\", assets = { { name = \"fw\", location = \"https://example.com/fw.tar.gz\" }, { name = \"lim\", location = "
+                       "\"github.com/u/lim\", version = \"1.0.0\" }, { name = \"gone\", location = \"https://example.com/g.tar.gz\" } } }";
+    auto project = project_of(text);
+    REQUIRE(project.assets.size() == 3);
+    dpm::manifest::Lock lock;
+    lock.manifest = dpm::lock::fingerprint(project);
+    dpm::manifest::LockedAsset fw{"fw", "https://example.com/fw.tar.gz", "", "", k_hash, {}};
+    dpm::manifest::LockedAsset lim{"lim", "git+https://github.com/u/lim.git", "0.9.0", std::string(40, 'c'), k_hash, {}};
+    dpm::manifest::LockedAsset old{"old", "https://example.com/o.tar.gz", "", "", k_hash, {}};
+    lock.assets = {fw, lim, old};
+    dir.write("project.lock.dcon", dpm::lock::print(lock));
+    auto result = an::analyze(text, options_for(dir));
+    auto const* missing = find_message(result, "asset gone has no lock entry");
+    REQUIRE(missing != nullptr);
+    CHECK(missing->severity == an::Severity::Warning);
+    CHECK(contains(slice(text, *missing), "\"gone\""));
+    auto const* changed = find_message(result, "asset lim is locked for another location or version");
+    REQUIRE(changed != nullptr);
+    auto const* uncached = find_message(result, "asset fw is not in the dpm cache");
+    REQUIRE(uncached != nullptr);
+    CHECK(uncached->severity == an::Severity::Information);
+    dir.write("cache/src/" + std::string(64, 'a') + "/x", "x");
+    CHECK(find_message(an::analyze(text, options_for(dir)), "asset fw is not in the dpm cache") == nullptr);
+
+    dir.write("project.dcon", text);
+    auto lock_print = dpm::lock::print(lock);
+    auto lock_result = an::analyze(lock_print, options_for(dir, "project.lock.dcon"));
+    auto const* unused = find_message(lock_result, "lock entry for asset old is no longer required");
+    REQUIRE(unused != nullptr);
+    CHECK(unused->severity == an::Severity::Hint);
+    CHECK(find_message(lock_result, "lock entry for asset fw") == nullptr);
+
+    std::string only_assets = "{ name = \"a\", version = \"1.0.0\", assets = { { name = \"fw\", location = \"https://example.com/fw2.tar.gz\" } } }";
+    auto stale = an::analyze(only_assets, options_for(dir));
+    auto const* fingerprint = find_message(stale, "fingerprint differs");
+    REQUIRE(fingerprint != nullptr);
+    CHECK(contains(slice(only_assets, *fingerprint), "fw2.tar.gz"));
+}
+
+TEST_CASE("task errors from the loader are findings with exact ranges")
+{
+    auto root = schema_root();
+    if (root.empty())
+        return;
+    TempDir dir;
+    std::string text = "{ name = \"a\", version = \"1.0.0\", tasks = { { name = \"t\", command = { \"x\", \"${asset:nope}\" }, needs = { \"t\" } } } }";
+    auto result = an::analyze(text, options_for(dir));
+    auto const* token = find_message(result, "names no asset");
+    REQUIRE(token != nullptr);
+    CHECK(token->severity == an::Severity::Error);
+    CHECK_EQ(slice(text, *token), std::string{"\"${asset:nope}\""});
+    CHECK(find_message(result, "needs itself") != nullptr);
+}
+
+TEST_CASE("hover explains tokens in task strings and names in needs, build and run")
+{
+    auto root = schema_root();
+    if (root.empty())
+        return;
+    auto schema = an::load_schema(root);
+    REQUIRE(schema.has_value());
+    TempDir dir;
+    std::string const body = "{ name = \"k\", version = \"1.0.0\", products = { { name = \"kern\", entry = \"src/k.dc\", run = \"boot\" } }, assets = { { name = \"lim\", location = "
+                             "\"https://example.com/l.tar.gz\", version = \"v1\" } }, tasks = { { name = \"tool\", description = \"Build the tool\", command = { \"cc\", "
+                             "\"${asset:lim}/l.c\", \"${out:kern}\", \"${task_dir}\", \"${task_dir:tool}\", \"${target:kern}\", \"$$x\", \"${root}\" }, cwd = \"${profile}\", "
+                             "env = { { name = \"D\", value = \"${dcc}\" } } }, { name = \"boot\", command = { \"q\" }, needs = { \"tool\" }, build = { \"kern\" } } } }";
+    auto hover_on = [&](std::string const& needle, std::size_t skip = 3) -> std::optional<an::Hover>
+    {
+        auto at = body.find(needle);
+        if (at == std::string::npos)
+            return std::nullopt;
+        return an::hover(body, options_for(dir), *schema, static_cast<std::uint32_t>(at + skip));
+    };
+    auto asset = hover_on("${asset:lim}");
+    REQUIRE(asset.has_value());
+    CHECK(contains(asset->markdown, "read-only directory of asset `lim`"));
+    CHECK(contains(asset->markdown, "https://example.com/l.tar.gz"));
+    CHECK(contains(asset->markdown, "version `v1`"));
+    CHECK(contains(asset->markdown, "Not locked"));
+    CHECK_EQ(body.substr(asset->begin, asset->end - asset->begin), std::string{"${asset:lim}"});
+    auto out = hover_on("${out:kern}");
+    REQUIRE(out.has_value());
+    CHECK(contains(out->markdown, "output file of product `kern`"));
+    CHECK(contains(out->markdown, "src/k.dc"));
+    CHECK(contains(hover_on("${task_dir}\"")->markdown, "scratch directory of this task"));
+    CHECK(contains(hover_on("${task_dir:tool}")->markdown, "Build the tool"));
+    CHECK(contains(hover_on("${target:kern}")->markdown, "target of product `kern`"));
+    CHECK(contains(hover_on("$$x", 1)->markdown, "literal `$`"));
+    CHECK(contains(hover_on("${root}")->markdown, "project root"));
+    CHECK(contains(hover_on("${profile}")->markdown, "selected profile"));
+    CHECK(contains(hover_on("${dcc}")->markdown, "dcc that dpm runs"));
+    CHECK(!hover_on("\"cc\"", 1).has_value());
+    auto need = hover_on("needs = { \"tool\"", 12);
+    REQUIRE(need.has_value());
+    CHECK(contains(need->markdown, "Task `tool`: Build the tool"));
+    auto build = hover_on("build = { \"kern\"", 12);
+    REQUIRE(build.has_value());
+    CHECK(contains(build->markdown, "Product `kern`"));
+    auto run = hover_on("run = \"boot\"", 8);
+    REQUIRE(run.has_value());
+    CHECK(contains(run->markdown, "Task `boot`"));
+
+    auto project = project_of(body);
+    REQUIRE(project.assets.size() == 1);
+    dpm::manifest::Lock lock;
+    lock.manifest = dpm::lock::fingerprint(project);
+    lock.assets = {{"lim", "https://example.com/l.tar.gz", "v1", "", k_hash, {}}};
+    dir.write("project.lock.dcon", dpm::lock::print(lock));
+    auto locked_asset = hover_on("${asset:lim}");
+    REQUIRE(locked_asset.has_value());
+    CHECK(contains(locked_asset->markdown, "Locked: hash " + k_hash));
+    CHECK(contains(locked_asset->markdown, "not in the dpm cache"));
+    auto unknown = an::hover("{ tasks = { { name = \"t\", command = { \"${asset:zz}\" } } } }", options_for(dir), *schema, 40);
+    REQUIRE(unknown.has_value());
+    CHECK(contains(unknown->markdown, "No asset `zz` is declared"));
+}
+
+TEST_CASE("completion offers tokens and declared names inside task strings")
+{
+    auto root = schema_root();
+    if (root.empty())
+        return;
+    auto schema = an::load_schema(root);
+    REQUIRE(schema.has_value());
+    TempDir dir;
+    std::string const head = "{ name = \"k\", version = \"1.0.0\", products = { { name = \"kern\" }, { name = \"kmod\" } }, assets = { { name = \"lim\", location = \"path:l\" } }, "
+                             "tasks = { { name = \"tool\", description = \"Build it\", command = { \"x\" } }, { name = \"iso\", command = { \"x\" }, ";
+    auto complete_at = [&](std::string source) { auto m = mark(std::move(source)); return std::pair{an::complete(m.text, options_for(dir), *schema, m.offset), m}; };
+    auto labels = [](an::CompletionList const& list)
+    {
+        std::vector<std::string> out;
+        for (auto const& c : list.items)
+            out.push_back(c.label);
+        return out;
+    };
+    auto [tokens, m1] = complete_at(head + "cwd = \"${|\" } } }");
+    CHECK_EQ(labels(tokens.items.empty() ? an::CompletionList{} : tokens),
+             (std::vector<std::string>{"${root}", "${profile}", "${dcc}", "${task_dir}", "${out:", "${target:", "${asset:", "${task_dir:"}));
+    CHECK_EQ(m1.text.substr(tokens.begin, tokens.end - tokens.begin), std::string{"${"});
+    REQUIRE(!tokens.items.empty());
+    CHECK(tokens.items[0].kind == an::Completion::Kind::Token);
+    auto [partial, m2] = complete_at(head + "command = { \"cc\", \"a/${pr|\" } } } }");
+    CHECK_EQ(labels(partial), std::vector<std::string>{"${profile}"});
+    CHECK_EQ(m2.text.substr(partial.begin, partial.end - partial.begin), std::string{"${pr"});
+    auto [products, m3] = complete_at(head + "inputs = { \"${out:k|\" } } } }");
+    CHECK_EQ(labels(products), (std::vector<std::string>{"${out:kern}", "${out:kmod}"}));
+    CHECK(products.items[0].kind == an::Completion::Kind::Name);
+    auto [assets, m4] = complete_at(head + "env = { { name = \"A\", value = \"${asset:|\" } } } } }");
+    CHECK_EQ(labels(assets), std::vector<std::string>{"${asset:lim}"});
+    auto [task_dirs, m5] = complete_at(head + "outputs = { \"${task_dir:t|\" } } } }");
+    CHECK_EQ(labels(task_dirs), std::vector<std::string>{"${task_dir:tool}"});
+    auto [closed, m6] = complete_at(head + "command = { \"${root}/|\" } } } }");
+    CHECK(closed.items.empty());
+    auto [needs, m7] = complete_at(head + "needs = { \"t|\" } } } }");
+    CHECK_EQ(labels(needs), std::vector<std::string>{"tool"});
+    CHECK_EQ(m7.text.substr(needs.begin, needs.end - needs.begin), std::string{"t"});
+    CHECK_EQ(needs.items[0].documentation, std::string{"Build it"});
+    auto [build, m8] = complete_at(head + "build = { \"|\" } } } }");
+    CHECK_EQ(labels(build), (std::vector<std::string>{"kern", "kmod"}));
+    auto [fields, m9] = complete_at(head + "| } } }");
+    auto field_names = labels(fields);
+    CHECK(std::ranges::find(field_names, "outputs") != field_names.end());
+    CHECK(std::ranges::find(field_names, "command") == field_names.end());
+    auto [other, m10] = complete_at("{ name = \"k\", description = \"${|\" }");
+    CHECK(other.items.empty());
+}
+
 TEST_CASE("go to definition points into the schema file")
 {
     auto root = schema_root();
@@ -610,5 +783,17 @@ TEST_CASE("analysis tolerates hostile input")
         auto partial = text.substr(0, cut);
         (void)an::analyze(partial, options_for(dir));
         (void)an::complete(partial, options_for(dir), *schema, static_cast<std::uint32_t>(cut));
+    }
+    std::string tasks = "{ name = \"a\", products = { { name = \"p\", run = \"t\" } }, assets = { { name = \"x\", location = \"path:x\" } }, tasks = { { name = "
+                        "\"t\", command = { \"${asset:x}/${\", \"$$${out:p}}\", \"${task_dir:\" }, needs = { \"t\" }, env = { { name = \"A\", value = \"${\" } } } } }";
+    for (std::size_t cut = 0; cut <= tasks.size(); ++cut)
+    {
+        auto partial = tasks.substr(0, cut);
+        auto offset = static_cast<std::uint32_t>(cut);
+        (void)an::analyze(partial, options_for(dir));
+        (void)an::complete(partial, options_for(dir), *schema, offset);
+        (void)an::hover(partial, options_for(dir), *schema, offset);
+        (void)an::complete(tasks, options_for(dir), *schema, offset);
+        (void)an::hover(tasks, options_for(dir), *schema, offset);
     }
 }

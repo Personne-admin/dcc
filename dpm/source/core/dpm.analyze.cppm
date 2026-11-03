@@ -4,6 +4,8 @@ import std;
 import dcc.lex;
 import dcc.session;
 import dpm.cache;
+import dpm.expand;
+import dpm.fetch;
 import dpm.lock;
 import dpm.manifest;
 import dpm.schema;
@@ -167,7 +169,7 @@ export namespace dpm::analyze
             auto lock_loaded = manifest::load(*lock_text, lock_options);
             manifest::Range anchor;
             bool has_anchor = false;
-            for (auto name : {"dependencies", "dev_dependencies"})
+            for (auto name : {"dependencies", "dev_dependencies", "assets"})
                 if (auto const* r = field_range(loaded.tree, name, scratch))
                 {
                     anchor = *r;
@@ -211,6 +213,32 @@ export namespace dpm::analyze
                             add_finding(out, Severity::Information, d.range, std::format("{}@{} is not in the dpm cache: run 'dpm fetch'", d.location, found->version));
                     }
                 }
+            fetch::Policy policy;
+            policy.allow_file = o.allow_file_urls;
+            for (auto const& a : project.assets)
+            {
+                std::string error;
+                auto source = fetch::asset_source(a, policy, error);
+                if (!source)
+                    continue;
+                auto it = std::ranges::find_if(lock.assets, [&](manifest::LockedAsset const& l) { return l.name == a.name; });
+                if (it == lock.assets.end())
+                {
+                    add_finding(out, Severity::Warning, a.range, std::format("asset {} has no lock entry: run 'dpm lock'", a.name));
+                    continue;
+                }
+                if (it->source != *source || it->version != a.version)
+                {
+                    add_finding(out, Severity::Warning, a.range, std::format("asset {} is locked for another location or version: run 'dpm lock'", a.name));
+                    continue;
+                }
+                if (it->hash.size() > 7)
+                {
+                    std::error_code ec;
+                    if (!std::filesystem::exists(cache / "src" / it->hash.substr(7), ec))
+                        add_finding(out, Severity::Information, a.range, std::format("asset {} is not in the dpm cache: run 'dpm fetch'", a.name));
+                }
+            }
         }
 
         inline void lock_findings(manifest::LoadResult const& loaded, Options const& o, std::vector<Finding>& out)
@@ -230,6 +258,9 @@ export namespace dpm::analyze
             if (lock.manifest != dpm::lock::fingerprint(project))
                 if (auto const* r = field_range(loaded.tree, "manifest", scratch))
                     add_finding(out, Severity::Warning, *r, "the lock was made for different dependencies: run 'dpm lock'");
+            for (auto const& a : lock.assets)
+                if (std::ranges::none_of(project.assets, [&](manifest::Asset const& x) { return x.name == a.name; }))
+                    add_finding(out, Severity::Hint, a.range, std::format("lock entry for asset {} is no longer required: run 'dpm lock'", a.name));
             std::set<std::string> wanted;
             bool has_alias = false;
             for (auto const* list : {&project.dependencies, &project.dev_dependencies})
@@ -299,6 +330,8 @@ export namespace dpm::analyze
         bool in_string{};
         bool on_field_name{};
         std::vector<std::string> constants;
+        std::string list_struct;
+        std::string list_field;
     };
 
     namespace detail
@@ -567,6 +600,11 @@ export namespace dpm::analyze
         {
             cursor.where = Where::Value;
             cursor.value_type = top.ctx.type;
+            if (stack.size() >= 2 && stack[stack.size() - 2].ctx.kind == Ctx::Kind::Struct)
+            {
+                cursor.list_struct = stack[stack.size() - 2].ctx.type;
+                cursor.list_field = stack[stack.size() - 2].ctx.current_field;
+            }
         }
         if (cursor.on_field_name)
             std::erase(cursor.present, cursor.field);
@@ -633,6 +671,268 @@ export namespace dpm::analyze
         }
     } // namespace detail
 
+    namespace detail
+    {
+        struct Declared
+        {
+            struct Entry
+            {
+                std::string name;
+                std::string description;
+                std::string location;
+                std::string version;
+                std::string entry;
+            };
+            std::vector<Entry> products;
+            std::vector<Entry> assets;
+            std::vector<Entry> tasks;
+        };
+
+        inline Declared declared(std::string_view text)
+        {
+            Declared out;
+            if (text.size() > k_max_text)
+                return out;
+            manifest::detail::Source src;
+            src.text = std::string{text};
+            auto id = src.session.open_in_memory(std::string{"file://"} + std::string{manifest::k_split_path}, src.text);
+            src.file = src.session.source_manager().get(id);
+            if (!src.file)
+                return out;
+            auto tokens = manifest::detail::lex_tokens(src.session, *src.file);
+            std::string_view view{src.text};
+            std::size_t start = 0;
+            int depth = 0;
+            for (std::size_t i = 0; i < tokens.size(); ++i)
+            {
+                if (manifest::detail::is_open(tokens[i].kind))
+                    ++depth;
+                else if (manifest::detail::is_close(tokens[i].kind))
+                    --depth;
+                else if (tokens[i].kind == TokenKind::Semicolon && depth == 0)
+                    start = i + 1;
+            }
+            std::vector<std::string> stack;
+            std::string pending;
+            for (std::size_t i = start; i < tokens.size(); ++i)
+            {
+                auto const& t = tokens[i];
+                if (manifest::detail::is_open(t.kind))
+                {
+                    stack.push_back(t.kind == TokenKind::LBrace ? pending : std::string{"("});
+                    pending.clear();
+                    if (stack.size() == 3 && stack[2].empty())
+                    {
+                        auto* list = stack[1] == "products" ? &out.products : stack[1] == "assets" ? &out.assets : stack[1] == "tasks" ? &out.tasks : nullptr;
+                        if (list)
+                            list->push_back({});
+                    }
+                    continue;
+                }
+                if (manifest::detail::is_close(t.kind))
+                {
+                    if (!stack.empty())
+                        stack.pop_back();
+                    pending.clear();
+                    continue;
+                }
+                if (t.kind == TokenKind::Identifier && i + 1 < tokens.size() && tokens[i + 1].kind == TokenKind::Eq)
+                {
+                    pending = std::string{slice(view, t)};
+                    if (stack.size() == 3 && i + 2 < tokens.size() && tokens[i + 2].kind == TokenKind::StringLiteral)
+                    {
+                        auto* entry = static_cast<Declared::Entry*>(nullptr);
+                        auto* list = stack[1] == "products" ? &out.products : stack[1] == "assets" ? &out.assets : stack[1] == "tasks" ? &out.tasks : nullptr;
+                        if (list && !list->empty() && stack[2].empty())
+                            entry = &list->back();
+                        if (entry)
+                        {
+                            auto value = slice(view, tokens[i + 2]);
+                            std::string text_value{value.size() >= 2 ? value.substr(1, value.size() - 2) : std::string_view{}};
+                            if (pending == "name")
+                                entry->name = text_value;
+                            else if (pending == "description")
+                                entry->description = text_value;
+                            else if (pending == "location")
+                                entry->location = text_value;
+                            else if (pending == "version")
+                                entry->version = text_value;
+                            else if (pending == "entry")
+                                entry->entry = text_value;
+                        }
+                    }
+                    continue;
+                }
+                if (t.kind == TokenKind::Comma)
+                    pending.clear();
+            }
+            for (auto* list : {&out.products, &out.assets, &out.tasks})
+                std::erase_if(*list, [](Declared::Entry const& e) { return e.name.empty(); });
+            return out;
+        }
+
+        inline bool is_task_string(Cursor const& c)
+        {
+            if (!c.in_string || c.where != Where::Value)
+                return false;
+            if (c.struct_type == "Task" && c.field == "cwd")
+                return true;
+            if (c.struct_type == "EnvVar" && c.field == "value")
+                return true;
+            return c.list_struct == "Task" && (c.list_field == "command" || c.list_field == "inputs" || c.list_field == "outputs");
+        }
+
+        inline bool is_task_name_string(Cursor const& c)
+        {
+            return c.in_string && c.where == Where::Value &&
+                   ((c.list_struct == "Task" && c.list_field == "needs") || (c.struct_type == "Product" && c.field == "run"));
+        }
+
+        inline bool is_product_name_string(Cursor const& c)
+        {
+            return c.in_string && c.where == Where::Value && c.list_struct == "Task" && c.list_field == "build";
+        }
+
+        inline std::string string_value(Cursor const& c)
+        {
+            auto const& t = c.token_text;
+            return t.size() >= 2 ? t.substr(1, t.size() - 2) : std::string{};
+        }
+
+        struct TokenAt
+        {
+            std::string body;
+            std::uint32_t begin{};
+            std::uint32_t end{};
+        };
+
+        inline std::optional<TokenAt> token_at(Cursor const& c, std::uint32_t offset)
+        {
+            auto const& t = c.token_text;
+            std::size_t rel = offset - c.token_begin;
+            std::size_t i = 1;
+            while (i + 1 < t.size())
+            {
+                if (t[i] == '$' && t[i + 1] == '$')
+                {
+                    if (rel >= i && rel < i + 2)
+                        return TokenAt{"$", static_cast<std::uint32_t>(c.token_begin + i), static_cast<std::uint32_t>(c.token_begin + i + 2)};
+                    i += 2;
+                    continue;
+                }
+                if (t[i] == '$' && t[i + 1] == '{')
+                {
+                    auto close = t.find('}', i + 2);
+                    if (close == std::string::npos || close + 1 >= t.size())
+                        return std::nullopt;
+                    if (rel >= i && rel <= close)
+                        return TokenAt{t.substr(i + 2, close - i - 2), static_cast<std::uint32_t>(c.token_begin + i), static_cast<std::uint32_t>(c.token_begin + close + 1)};
+                    i = close + 1;
+                    continue;
+                }
+                ++i;
+            }
+            return std::nullopt;
+        }
+
+        inline Declared::Entry const* find_entry(std::vector<Declared::Entry> const& list, std::string_view name)
+        {
+            auto it = std::ranges::find_if(list, [&](Declared::Entry const& e) { return e.name == name; });
+            return it == list.end() ? nullptr : &*it;
+        }
+
+        inline std::string task_markdown(Declared::Entry const& t)
+        {
+            std::string out = std::format("Task `{}`", t.name);
+            if (!t.description.empty())
+                out += ": " + t.description;
+            return out + std::format("\n\nRun with `dpm task {}`.", t.name);
+        }
+
+        inline std::string product_markdown(Declared::Entry const& p)
+        {
+            return std::format("Product `{}`, built from `{}`.", p.name, p.entry.empty() ? std::string{"src/main.dc"} : p.entry);
+        }
+
+        inline std::optional<std::string> token_markdown(std::string const& body, Declared const& d, Options const& o)
+        {
+            if (body == "$")
+                return std::string{"`$$`: a literal `$`."};
+            auto scanned = expand::scan("${" + body + "}");
+            if (!scanned.ok() || scanned.pieces.size() != 1)
+                return std::nullopt;
+            auto const& piece = scanned.pieces[0];
+            switch (piece.kind)
+            {
+                case expand::Kind::Root:
+                    return std::string{"`${root}`: the absolute path of the project root."};
+                case expand::Kind::Profile:
+                    return std::string{"`${profile}`: the selected profile (`--profile`, default `debug`)."};
+                case expand::Kind::Dcc:
+                    return std::string{"`${dcc}`: the path of the dcc that dpm runs."};
+                case expand::Kind::Out:
+                case expand::Kind::Target:
+                {
+                    std::string out = piece.kind == expand::Kind::Out
+                                          ? std::format("`${{out:{}}}`: the output file of product `{}` in the selected profile, under `.dpm/out/<profile>/<target>/`.", piece.text, piece.text)
+                                          : std::format("`${{target:{}}}`: the target of product `{}` (`host`, `x86_64-elf`, ...).", piece.text, piece.text);
+                    if (auto const* p = find_entry(d.products, piece.text))
+                        out += "\n\n" + product_markdown(*p);
+                    else
+                        out += std::format("\n\nNo product `{}` is declared.", piece.text);
+                    return out;
+                }
+                case expand::Kind::TaskDir:
+                {
+                    if (piece.text.empty())
+                        return std::string{"`${task_dir}`: `.dpm/tasks/<task>/`, the scratch directory of this task; created before it runs, removed by `dpm clean`."};
+                    std::string out = std::format("`${{task_dir:{}}}`: `.dpm/tasks/{}/`, the scratch directory of task `{}`.", piece.text, piece.text, piece.text);
+                    if (auto const* t = find_entry(d.tasks, piece.text))
+                        out += "\n\n" + task_markdown(*t);
+                    else
+                        out += std::format("\n\nNo task `{}` is declared.", piece.text);
+                    return out;
+                }
+                case expand::Kind::Asset:
+                {
+                    std::string out = std::format("`${{asset:{}}}`: the read-only directory of asset `{}`.", piece.text, piece.text);
+                    auto const* a = find_entry(d.assets, piece.text);
+                    if (!a)
+                        return out + std::format("\n\nNo asset `{}` is declared.", piece.text);
+                    out += std::format("\n\nLocation: `{}`", a->location);
+                    if (!a->version.empty())
+                        out += std::format(", version `{}`", a->version);
+                    auto dir = directory_of(o);
+                    bool locked = false;
+                    if (!dir.empty())
+                        if (auto lock_text = read_small(dir / lock::k_lock_file))
+                        {
+                            auto loaded = manifest::load(*lock_text, load_options(o, manifest::FileKind::Lock, std::string{lock::k_lock_file}, dir));
+                            if (loaded.ok && loaded.lock)
+                                for (auto const& l : loaded.lock->assets)
+                                    if (l.name == a->name)
+                                    {
+                                        locked = true;
+                                        out += "\n\nLocked: ";
+                                        if (!l.commit.empty())
+                                            out += std::format("commit {}, ", l.commit);
+                                        out += l.hash.empty() ? std::string{"local directory"} : std::format("hash {}", l.hash);
+                                        std::error_code ec;
+                                        if (l.hash.size() > 7 && !std::filesystem::exists(cache_root_of(o) / "src" / l.hash.substr(7), ec))
+                                            out += " (not in the dpm cache: run `dpm fetch`)";
+                                    }
+                        }
+                    if (!locked)
+                        out += "\n\nNot locked: run `dpm lock`.";
+                    return out;
+                }
+                case expand::Kind::Text:
+                    break;
+            }
+            return std::nullopt;
+        }
+    } // namespace detail
+
     [[nodiscard]] inline std::optional<Hover> hover(std::string_view text, Options const& options, schema::Schema const& schema, std::uint32_t offset)
     {
         auto kind = manifest::detect_kind(text, detail::file_label(options));
@@ -665,6 +965,38 @@ export namespace dpm::analyze
                 h.markdown = detail::type_markdown(*type);
                 return h;
             }
+        if (detail::is_task_string(cursor))
+        {
+            auto token = detail::token_at(cursor, offset);
+            if (!token)
+                return std::nullopt;
+            auto markdown = detail::token_markdown(token->body, detail::declared(text), options);
+            if (!markdown)
+                return std::nullopt;
+            h.markdown = std::move(*markdown);
+            h.begin = token->begin;
+            h.end = token->end;
+            return h;
+        }
+        if (detail::is_task_name_string(cursor) || detail::is_product_name_string(cursor))
+        {
+            auto d = detail::declared(text);
+            auto value = detail::string_value(cursor);
+            if (detail::is_task_name_string(cursor))
+            {
+                if (auto const* t = detail::find_entry(d.tasks, value))
+                {
+                    h.markdown = detail::task_markdown(*t);
+                    return h;
+                }
+            }
+            else if (auto const* p = detail::find_entry(d.products, value))
+            {
+                h.markdown = detail::product_markdown(*p);
+                return h;
+            }
+            return std::nullopt;
+        }
         if (cursor.in_string && cursor.where == Where::Value && cursor.struct_type == "Dependency" && cursor.field == "location")
         {
             auto value = cursor.token_text.substr(1, cursor.token_text.size() >= 2 ? cursor.token_text.size() - 2 : 0);
@@ -703,6 +1035,8 @@ export namespace dpm::analyze
             Variant,
             Constant,
             Alias,
+            Token,
+            Name,
         };
         Kind kind{Kind::Field};
         std::string label;
@@ -750,6 +1084,60 @@ export namespace dpm::analyze
         }
         if (cursor.where != Where::Value)
             return list;
+        if (cursor.in_string && (detail::is_task_string(cursor) || detail::is_task_name_string(cursor) || detail::is_product_name_string(cursor)))
+        {
+            auto d = detail::declared(text);
+            auto add = [&](Completion::Kind k, std::string label, std::string detail_text, std::string doc)
+            {
+                Completion c;
+                c.kind = k;
+                c.insert = label;
+                c.label = std::move(label);
+                c.detail = std::move(detail_text);
+                c.documentation = std::move(doc);
+                list.items.push_back(std::move(c));
+            };
+            auto prefix = cursor.prefix.size() >= 1 ? cursor.prefix.substr(1) : std::string{};
+            if (!detail::is_task_string(cursor))
+            {
+                list.begin = cursor.token_begin + 1;
+                list.end = offset;
+                auto const& names = detail::is_product_name_string(cursor) ? d.products : d.tasks;
+                for (auto const& e : names)
+                    if (e.name.starts_with(prefix))
+                        add(Completion::Kind::Name, e.name, detail::is_product_name_string(cursor) ? "product" : "task", e.description);
+                return list;
+            }
+            auto open = prefix.rfind("${");
+            if (open == std::string::npos || prefix.find('}', open) != std::string::npos)
+            {
+                list.items.clear();
+                return list;
+            }
+            auto partial = prefix.substr(open + 2);
+            list.begin = static_cast<std::uint32_t>(cursor.token_begin + 1 + open);
+            list.end = offset;
+            auto colon = partial.find(':');
+            if (colon == std::string::npos)
+            {
+                for (auto token : {"root", "profile", "dcc", "task_dir"})
+                    if (std::string_view{token}.starts_with(partial))
+                        add(Completion::Kind::Token, std::format("${{{}}}", token), "dpm token", detail::token_markdown(token, d, options).value_or(""));
+                for (auto token : {"out", "target", "asset", "task_dir"})
+                    if (std::string_view{token}.starts_with(partial))
+                        add(Completion::Kind::Token, std::format("${{{}:", token), "dpm token", "");
+                return list;
+            }
+            auto kind_name = partial.substr(0, colon);
+            auto name_prefix = partial.substr(colon + 1);
+            auto const* names = kind_name == "out" || kind_name == "target" ? &d.products : kind_name == "asset" ? &d.assets : kind_name == "task_dir" ? &d.tasks : nullptr;
+            if (names)
+                for (auto const& e : *names)
+                    if (e.name.starts_with(name_prefix))
+                        add(Completion::Kind::Name, std::format("${{{}:{}}}", kind_name, e.name), kind_name == "asset" ? "asset" : kind_name == "task_dir" ? "task" : "product",
+                            e.description.empty() ? e.location : e.description);
+            return list;
+        }
         if (cursor.in_string)
         {
             if (cursor.struct_type == "Dependency" && cursor.field == "location")

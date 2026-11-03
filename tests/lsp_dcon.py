@@ -233,6 +233,36 @@ def scenario_hover_completion_definition():
         check(s.result(string_def) is None, "definition of a string is empty")
 
 
+def scenario_tasks_and_assets():
+    with tempfile.TemporaryDirectory(prefix="dccd-dcon-") as directory:
+        root = Path(directory)
+        manifest = root / "project.dcon"
+        (root / "src").mkdir()
+        (root / "src" / "main.dc").write_text("module main;\n")
+        text = ('dpm::v1::Project {\n    name = "k",\n    version = "1.0.0",\n    products = { { name = "k" } },\n'
+                '    assets = { { name = "lim", location = "https://example.com/l.tar.gz" } },\n'
+                '    tasks = {\n        { name = "iso", command = { "sh", "${asset:lim}/x", "${" }, needs = { "" } },\n    },\n}\n')
+        s = Session(root)
+        s.open(manifest, text)
+        line = text.splitlines()[6]
+        token_hover = s.at("textDocument/hover", manifest, 6, line.index("${asset:lim}") + 3)
+        token_completion = s.at("textDocument/completion", manifest, 6, line.index('"${"') + 3)
+        name_completion = s.at("textDocument/completion", manifest, 6, line.index('needs = { ""') + 11)
+        s.run()
+        h = s.result(token_hover)
+        check(h and "read-only directory of asset `lim`" in h["contents"]["value"] and h["range"]["start"]["character"] == line.index("${asset:lim}"),
+              "hover on an asset token", str(h))
+        c = s.result(token_completion)
+        items = {i["label"]: i for i in c["items"]} if c else {}
+        check("${root}" in items and items["${root}"]["kind"] == 6 and items["${root}"]["textEdit"]["range"]["start"]["character"] == line.index('"${"') + 1,
+              "token completion replaces the typed ${", str(c)[:400])
+        n = s.result(name_completion)
+        check(n and [i["label"] for i in n["items"]] == ["iso"] and n["items"][0]["kind"] == 18, "task names complete in needs", str(n)[:300])
+        diagnostics = s.last(manifest)["diagnostics"]
+        check(any("unterminated" in d["message"] for d in diagnostics) and any("is not a task" in d["message"] for d in diagnostics),
+              "task errors are published as diagnostics", str(diagnostics))
+
+
 def scenario_other_requests_and_isolation():
     with tempfile.TemporaryDirectory(prefix="dccd-dcon-") as directory:
         root = Path(directory)
@@ -348,6 +378,7 @@ scenario_diagnostics()
 scenario_utf16_columns()
 scenario_lock()
 scenario_hover_completion_definition()
+scenario_tasks_and_assets()
 scenario_other_requests_and_isolation()
 scenario_environment()
 scenario_no_side_effects()
