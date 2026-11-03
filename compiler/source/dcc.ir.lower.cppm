@@ -7786,6 +7786,7 @@ export namespace dcc::ir::lower
         IrFunction* m_current_func{};
         ast::FuncDecl const* m_current_func_decl{};
         IrBasicBlock* m_current_block{};
+        std::uint32_t m_constant_context_depth{};
         std::uint32_t m_next_local_id{};
         std::uint32_t m_next_block_id{1};
         std::unordered_map<ast::Decl const*, MapEntry> m_value_map;
@@ -8937,6 +8938,13 @@ export namespace dcc::ir::lower
             if (!expr)
                 lower_panic("null expression in constant context");
 
+            ++m_constant_context_depth;
+            struct ConstantContextGuard
+            {
+                std::uint32_t& depth;
+                ~ConstantContextGuard() { --depth; }
+            } constant_context_guard{m_constant_context_depth};
+
             if (target_type && target_type->kind == dcc::types::TypeKind::Pointer)
             {
                 if (auto* decayed = lower_global_array_decay(expr, target_type))
@@ -9773,7 +9781,23 @@ export namespace dcc::ir::lower
                                     auto* payload_val = materialize_comptime(cv.at(1), nullptr);
                                     std::vector<std::uint8_t> bytes(static_cast<std::size_t>(layout->payload_size), 0);
                                     if (!flatten_const_to_bytes(payload_val, bytes.data(), layout->payload_size))
-                                        lower_panic("tagged enum payload is not materializable as bytes");
+                                    {
+                                        if (m_constant_context_depth != 0 || !m_current_block)
+                                            lower_panic("tagged enum payload is not materializable as bytes");
+                                        types::TypePtr variant_payload = nullptr;
+                                        if (cv.at(0).kind() == dcc::comptime::Value::Kind::Int)
+                                            for (std::size_t vi = 0; vi < layout->variant_count; ++vi)
+                                                if (layout->variants[vi].discriminant_value == cv.at(0).get_int())
+                                                    variant_payload = layout->variants[vi].variant_payload_type_or_null;
+                                        if (variant_payload)
+                                            payload_val = materialize_comptime(cv.at(1), variant_payload);
+                                        auto* payload_ir_type = variant_payload ? lower_type(variant_payload) : payload_val->type;
+                                        agg->values.push_back(store_tagged_payload(payload_val, payload_ir_type, layout->payload_size));
+                                        auto name = ident_name();
+                                        agg->name = m_name_pool.back();
+                                        append_inst(agg);
+                                        return agg;
+                                    }
                                     auto* ir_byte = m_ctx.int_t(8, false);
                                     auto* ir_payload_arr_ty = m_ctx.array_t(ir_byte, layout->payload_size);
                                     auto* payload_arr = m_ctx.aggregate(ir_payload_arr_ty);
@@ -11079,6 +11103,33 @@ export namespace dcc::ir::lower
             return val;
         }
 
+        IrValue* store_tagged_payload(IrValue* payload, IrType const* payload_type, std::uint64_t payload_size)
+        {
+            auto* ir_byte = m_ctx.int_t(8, false);
+            auto* ir_payload_arr_ty = m_ctx.array_t(ir_byte, payload_size);
+            auto* ir_payload_ptr_ty = m_ctx.pointer_to(ir_payload_arr_ty);
+
+            auto* payload_buf = m_ctx.alloca(ir_payload_ptr_ty, ir_payload_arr_ty);
+            auto buf_name = ident_name();
+            payload_buf->name = m_name_pool.back();
+            append_inst(payload_buf);
+
+            auto* zero_arr = zero_value(ir_payload_arr_ty);
+            append_inst(m_ctx.store(zero_arr, payload_buf));
+
+            auto* typed_ptr = m_ctx.bitcast(m_ctx.pointer_to(payload_type), payload_buf);
+            auto ptr_name = ident_name();
+            typed_ptr->name = m_name_pool.back();
+            append_inst(typed_ptr);
+            append_inst(m_ctx.store(payload, typed_ptr));
+
+            auto* payload_bytes = m_ctx.load(ir_payload_arr_ty, payload_buf);
+            auto load_name = ident_name();
+            payload_bytes->name = m_name_pool.back();
+            append_inst(payload_bytes);
+            return payload_bytes;
+        }
+
         IrValue* lower_tagged_enum_construction(ast::EnumVariant const* variant, dcc::types::TypePtr enum_type, std::span<IrValue*> payload_args)
         {
             auto* et = types::type_cast<types::EnumType>(enum_type);
@@ -11115,34 +11166,7 @@ export namespace dcc::ir::lower
             }
 
             if (layout->payload_size > 0 && !payload_args.empty() && variant->payload.size() == 1 && payload_sema_canon && payload_sema_canon->byte_size > 0)
-            {
-                auto* ir_byte = m_ctx.int_t(8, false);
-                auto* ir_payload_arr_ty = m_ctx.array_t(ir_byte, layout->payload_size);
-                auto* ir_payload_ptr_ty = m_ctx.pointer_to(ir_payload_arr_ty);
-
-                auto* ir_payload_sema_ty = lower_type(payload_sema_canon);
-
-                auto* payload_buf = m_ctx.alloca(ir_payload_ptr_ty, ir_payload_arr_ty);
-                auto buf_name = ident_name();
-                payload_buf->name = m_name_pool.back();
-                append_inst(payload_buf);
-
-                auto* zero_arr = zero_value(ir_payload_arr_ty);
-                append_inst(m_ctx.store(zero_arr, payload_buf));
-
-                auto* typed_ptr = m_ctx.bitcast(m_ctx.pointer_to(ir_payload_sema_ty), payload_buf);
-                auto ptr_name = ident_name();
-                typed_ptr->name = m_name_pool.back();
-                append_inst(typed_ptr);
-                append_inst(m_ctx.store(payload_args[0], typed_ptr));
-
-                auto* payload_bytes = m_ctx.load(ir_payload_arr_ty, payload_buf);
-                auto load_name = ident_name();
-                payload_bytes->name = m_name_pool.back();
-                append_inst(payload_bytes);
-
-                agg->values.push_back(payload_bytes);
-            }
+                agg->values.push_back(store_tagged_payload(payload_args[0], lower_type(payload_sema_canon), layout->payload_size));
             else if (layout->payload_size > 0)
             {
                 auto* ir_byte = m_ctx.int_t(8, false);
