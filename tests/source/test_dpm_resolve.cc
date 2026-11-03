@@ -566,8 +566,8 @@ TEST_CASE("assets change the fingerprint only when declared, independent of thei
         expected += line;
     CHECK_EQ(dpm::lock::fingerprint(base), "sha256:" + dpm::hash::sha256_hex(expected));
     auto with = base;
-    dpm::manifest::Asset x{"limine", "https://example.com/l.tar.gz", "v1", {}};
-    dpm::manifest::Asset y{"ovmf", "path:../ovmf", "", {}};
+    dpm::manifest::Asset x{"limine", "https://example.com/l.tar.gz", "v1", 0, {}};
+    dpm::manifest::Asset y{"ovmf", "path:../ovmf", "", 0, {}};
     with.assets = {x, y};
     auto fp = dpm::lock::fingerprint(with);
     CHECK_NE(fp, dpm::lock::fingerprint(base));
