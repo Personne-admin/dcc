@@ -229,6 +229,52 @@ public struct Asset
     []const char version = "";
 }
 
+/// An environment variable set for a task.
+public struct EnvVar
+{
+    /// Variable name: uppercase letters, digits and '_', not starting with a
+    /// digit or with `DPM_`.
+    []const char name;
+    /// Value; `${...}` tokens are expanded as in `Task.command`.
+    []const char value;
+}
+
+/// A command the project declares, run only by `dpm task NAME`.
+///
+/// Strings in `command`, `cwd`, `env`, `inputs` and `outputs` may contain
+/// `${root}`, `${profile}`, `${dcc}`, `${out:PRODUCT}`, `${target:PRODUCT}`,
+/// `${asset:NAME}`, `${task_dir}` and `${task_dir:TASK}`; `$$` is a literal
+/// `$`. Nothing is passed to a shell. Tasks of dependencies are never run.
+public struct Task
+{
+    /// Task name: lowercase letters, digits and '-', starting with a letter,
+    /// unique within the project.
+    []const char name;
+    /// One-line description, shown by `dpm task`.
+    []const char description = "";
+    /// Program and arguments, passed to the program as they are. The program
+    /// is a name looked up on PATH or a path inside the project.
+    []const []const char command;
+    /// Working directory, relative to the project root.
+    []const char cwd = ".";
+    /// Variables added to the inherited environment.
+    []const EnvVar env = {};
+    /// Programs that must be on PATH, checked before the task runs.
+    []const []const char tools = {};
+    /// Products built before the task runs.
+    []const []const char build = {};
+    /// Tasks that run first, each at most once per invocation.
+    []const []const char needs = {};
+    /// Files the command reads, relative to the project root; globs allowed.
+    /// With `outputs` they decide whether the task can be skipped.
+    []const []const char inputs = {};
+    /// Files and directories the command produces. A task without outputs
+    /// always runs.
+    []const []const char outputs = {};
+    /// Seconds before the task is stopped; 0 means no limit.
+    i32 timeout = 0;
+}
+
 /// The contents of `project.dcon`: one package.
 public struct Project
 {
@@ -257,6 +303,8 @@ public struct Project
     /// Pinned inputs that are not packages, fetched and locked like
     /// dependencies and read by tasks as `${asset:NAME}`.
     []const Asset assets = {};
+    /// Commands run by `dpm task NAME`. Never run by any other command.
+    []const Task tasks = {};
     /// Directory holding test programs, relative to the package root.
     []const char test_dir = "tests";
     /// Project-wide build settings.

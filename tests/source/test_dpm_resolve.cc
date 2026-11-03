@@ -556,7 +556,7 @@ TEST_CASE("the fingerprint ignores order and formatting but not requirements")
     CHECK_EQ(fp, dpm::lock::fingerprint(renamed));
 }
 
-TEST_CASE("assets change the fingerprint only when declared, independent of their order")
+TEST_CASE("assets change the fingerprint only when declared, independent of their order; tasks never do")
 {
     auto base = project({dep(a, "1.0.0"), dep(b, "1.0.0")}, {dep(c, "1.0.0")});
     std::vector<std::string> sorted{std::format("dep\t{}\t1.0.0\n", a), std::format("dep\t{}\t1.0.0\n", b), std::format("dev\t{}\t1.0.0\n", c)};
@@ -583,6 +583,12 @@ TEST_CASE("assets change the fingerprint only when declared, independent of thei
     auto renamed = with;
     renamed.assets[1].name = "firmware";
     CHECK_NE(fp, dpm::lock::fingerprint(renamed));
+    auto tasks = with;
+    dpm::manifest::Task t;
+    t.name = "iso";
+    t.command = {"sh", "make-iso.sh"};
+    tasks.tasks.push_back(t);
+    CHECK_EQ(fp, dpm::lock::fingerprint(tasks));
 }
 
 TEST_CASE("a printed lock loads back to the same lock and prints identically")

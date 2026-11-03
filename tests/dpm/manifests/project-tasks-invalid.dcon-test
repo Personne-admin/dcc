@@ -1,0 +1,59 @@
+=== FILE: project.dcon ===
+dpm::v1::Project {
+    name = "k",
+    version = "1.0.0",
+    products = { { name = "k" } },
+    assets = { { name = "a", location = "path:a" } },
+    tasks = {
+        { name = "Bad", command = { "x" } },
+        { name = "dup", command = { "x" } },
+        { name = "dup", command = { "x" } },
+        { name = "empty", command = {} },
+        { name = "tokens", command = { "x", "$HOME", "${nope}", "${out:zz}", "${asset:zz}", "${task_dir:zz}", "${root:x}", "${out}", "${profile", "${out:a b}" } },
+        { name = "paths", command = { "/bin/sh" }, cwd = "../x", inputs = { "/etc/passwd", "${root}/../x", "a/${root}", "${dcc}/x", "${root}x", "a/**b/c", "${asset:a}/[x]" }, outputs = { "${asset:a}/x", "out/*.iso", "" } },
+        { name = "progs", command = { "./${root}" } },
+        { name = "env", command = { "x" }, env = { { name = "lower", value = "1" }, { name = "DPM_ROOT", value = "1" }, { name = "A", value = "$" }, { name = "A", value = "" } } },
+        { name = "refs", command = { "x" }, tools = { "/usr/bin/cc", "c c" }, build = { "nothing" }, needs = { "refs", "ghost" }, timeout = -1 },
+        { name = "c1", command = { "x" }, needs = { "c2" } },
+        { name = "c2", command = { "x" }, needs = { "c3" } },
+        { name = "c3", command = { "x" }, needs = { "c1" } },
+    },
+}
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:7:18: 'Bad' is not a valid task name; use [a-z][a-z0-9-]*
+project.dcon:9:18: duplicate task 'dup'
+project.dcon:10:37: a task needs a command
+project.dcon:11:45: a '$' must start a ${...} token; write '$$' for a literal '$'
+project.dcon:11:54: unknown token '${nope}'
+project.dcon:11:65: '${out:zz}' names no product of this project
+project.dcon:11:78: '${asset:zz}' names no asset of this project
+project.dcon:11:93: '${task_dir:zz}' names no task of this project
+project.dcon:11:111: '${root}' takes no argument
+project.dcon:11:124: '${out}' needs a name: ${out:NAME}
+project.dcon:11:134: unterminated '${'
+project.dcon:11:147: '${out:a b}' needs a name of letters, digits, '_' and '-'
+project.dcon:12:39: program: the path must be relative to the project root, or start with ${root}, ${task_dir}, ${out:...} or ${asset:...}
+project.dcon:12:58: cwd: the path must not contain '..'
+project.dcon:12:77: input: the path must be relative to the project root, or start with ${root}, ${task_dir}, ${out:...} or ${asset:...}
+project.dcon:12:92: input: the path must not contain '..'
+project.dcon:12:108: input: '${root}' can only start a path
+project.dcon:12:121: input: '${dcc}' is not a directory
+project.dcon:12:133: input: '${root}' must be followed by '/' or end the path
+project.dcon:12:145: input: '**' must be a whole path component
+project.dcon:12:188: output: '${asset:...}' is read-only and cannot be written or used as a working directory
+project.dcon:12:204: outputs cannot be globs
+project.dcon:12:217: output: the path is empty
+project.dcon:13:39: program: '${root}' can only start a path
+project.dcon:14:61: 'lower' is not a valid variable name; use [A-Z_][A-Z0-9_]*
+project.dcon:14:94: 'DPM_ROOT': names starting with DPM_ are set by dpm
+project.dcon:14:143: a '$' must start a ${...} token; write '$$' for a literal '$'
+project.dcon:14:159: duplicate variable 'A'
+project.dcon:15:55: '/usr/bin/cc' is not a program name; tools are looked up on PATH
+project.dcon:15:70: 'c c' is not a program name; tools are looked up on PATH
+project.dcon:15:89: 'nothing' is not a product of this project
+project.dcon:15:112: task 'refs' needs itself
+project.dcon:15:120: 'ghost' is not a task of this project
+project.dcon:15:141: timeout must be 0 (no limit) or a number of seconds
+project.dcon:16:9: task cycle: c1 -> c2 -> c3 -> c1

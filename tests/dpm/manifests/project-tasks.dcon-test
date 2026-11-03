@@ -1,0 +1,131 @@
+=== FILE: project.dcon ===
+dpm::v1::Project {
+    name = "k",
+    version = "1.0.0",
+    products = { { name = "k" } },
+    assets = { { name = "limine", location = "path:../limine" } },
+    tasks = {
+        {
+            name = "limine-tool",
+            description = "Build the host tool",
+            command = { "cc", "-o", "${task_dir}/limine", "${asset:limine}/limine.c" },
+            tools = { "cc" },
+            inputs = { "${asset:limine}/limine.c", "${asset:limine}/**/*.h" },
+            outputs = { "${task_dir}/limine" },
+        },
+        {
+            name = "iso",
+            command = { "sh", "scripts/make-iso.sh", "${out:k}", "${target:k}", "${profile}", "${task_dir:limine-tool}/limine", "100$$", "${dcc}" },
+            cwd = "${root}",
+            env = { { name = "IMAGE", value = "${task_dir}/k.iso" }, { name = "_X1", value = "" } },
+            build = { "k" },
+            needs = { "limine-tool" },
+            inputs = { "scripts/*.sh", "${out:k}" },
+            outputs = { "${task_dir}/k.iso", "out/${profile}/dir" },
+            timeout = 600,
+        },
+        { name = "self", command = { "${task_dir:iso}/tool" } },
+        { name = "built", command = { "${out:k}", "--flag" }, cwd = "sub/dir" },
+        { name = "compiler", command = { "${dcc}", "--version" } },
+    },
+}
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-TREE ===
+{
+  name = "k",
+  version = "1.0.0",
+  products = [
+    {
+      name = "k",
+    },
+  ],
+  assets = [
+    {
+      name = "limine",
+      location = "path:../limine",
+    },
+  ],
+  tasks = [
+    {
+      name = "limine-tool",
+      description = "Build the host tool",
+      command = [
+        "cc",
+        "-o",
+        "${task_dir}/limine",
+        "${asset:limine}/limine.c",
+      ],
+      tools = [
+        "cc",
+      ],
+      inputs = [
+        "${asset:limine}/limine.c",
+        "${asset:limine}/**/*.h",
+      ],
+      outputs = [
+        "${task_dir}/limine",
+      ],
+    },
+    {
+      name = "iso",
+      command = [
+        "sh",
+        "scripts/make-iso.sh",
+        "${out:k}",
+        "${target:k}",
+        "${profile}",
+        "${task_dir:limine-tool}/limine",
+        "100$$",
+        "${dcc}",
+      ],
+      cwd = "${root}",
+      env = [
+        {
+          name = "IMAGE",
+          value = "${task_dir}/k.iso",
+        },
+        {
+          name = "_X1",
+          value = "",
+        },
+      ],
+      build = [
+        "k",
+      ],
+      needs = [
+        "limine-tool",
+      ],
+      inputs = [
+        "scripts/*.sh",
+        "${out:k}",
+      ],
+      outputs = [
+        "${task_dir}/k.iso",
+        "out/${profile}/dir",
+      ],
+      timeout = 600,
+    },
+    {
+      name = "self",
+      command = [
+        "${task_dir:iso}/tool",
+      ],
+    },
+    {
+      name = "built",
+      command = [
+        "${out:k}",
+        "--flag",
+      ],
+      cwd = "sub/dir",
+    },
+    {
+      name = "compiler",
+      command = [
+        "${dcc}",
+        "--version",
+      ],
+    },
+  ],
+}

@@ -12,6 +12,7 @@ import dcc.session;
 import dcc.types;
 import dcc.comptime;
 import dcc.ctfe;
+import dpm.expand;
 import dpm.semver;
 
 export namespace dpm::manifest
@@ -299,6 +300,28 @@ export namespace dpm::manifest
         Range range;
     };
 
+    struct EnvVar
+    {
+        std::string name;
+        std::string value;
+    };
+
+    struct Task
+    {
+        std::string name;
+        std::string description;
+        std::vector<std::string> command;
+        std::string cwd;
+        std::vector<EnvVar> env;
+        std::vector<std::string> tools;
+        std::vector<std::string> build;
+        std::vector<std::string> needs;
+        std::vector<std::string> inputs;
+        std::vector<std::string> outputs;
+        std::int64_t timeout{};
+        Range range;
+    };
+
     struct Project
     {
         std::string name;
@@ -312,6 +335,7 @@ export namespace dpm::manifest
         std::vector<Dependency> dev_dependencies;
         std::vector<Product> products;
         std::vector<Asset> assets;
+        std::vector<Task> tasks;
         std::string test_dir;
         Settings settings;
         std::vector<Profile> profiles;
@@ -1551,6 +1575,208 @@ export namespace dpm::manifest
                 return out;
             }
 
+            static bool is_task_name(std::string_view s)
+            {
+                if (s.empty() || s.size() > 64 || !(s[0] >= 'a' && s[0] <= 'z'))
+                    return false;
+                return std::ranges::all_of(s, [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'; });
+            }
+
+            static bool is_env_name(std::string_view s)
+            {
+                if (s.empty() || (s[0] >= '0' && s[0] <= '9'))
+                    return false;
+                return std::ranges::all_of(s, [](char c) { return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'; });
+            }
+
+            static bool is_tool_name(std::string_view s)
+            {
+                return !s.empty() && s.size() <= 255 && s != "." && s != ".." &&
+                       std::ranges::all_of(s, [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '_' || c == '-' || c == '+'; });
+            }
+
+            enum class TaskString : std::uint8_t
+            {
+                Argument,
+                Program,
+                Directory,
+                Input,
+                Output,
+            };
+
+            void check_task_string(Node const& at, std::string const& text, TaskString role, Project const& p, std::set<std::string> const& task_names)
+            {
+                auto scanned = dpm::expand::scan(text);
+                if (!scanned.ok())
+                {
+                    error(at, scanned.error);
+                    return;
+                }
+                for (auto const& piece : scanned.pieces)
+                {
+                    if ((piece.kind == dpm::expand::Kind::Out || piece.kind == dpm::expand::Kind::Target) &&
+                        std::ranges::none_of(p.products, [&](Product const& pr) { return pr.name == piece.text; }))
+                        error(at, std::format("'${{{}:{}}}' names no product of this project", dpm::expand::token_name(piece.kind), piece.text));
+                    else if (piece.kind == dpm::expand::Kind::Asset && std::ranges::none_of(p.assets, [&](Asset const& a) { return a.name == piece.text; }))
+                        error(at, std::format("'${{asset:{}}}' names no asset of this project", piece.text));
+                    else if (piece.kind == dpm::expand::Kind::TaskDir && !piece.text.empty() && !task_names.contains(piece.text))
+                        error(at, std::format("'${{task_dir:{}}}' names no task of this project", piece.text));
+                }
+                bool const program_name = role == TaskString::Program && scanned.pieces.size() == 1 && scanned.pieces[0].kind == dpm::expand::Kind::Text &&
+                                          scanned.pieces[0].text.find('/') == std::string::npos;
+                if (role == TaskString::Program && scanned.pieces.size() == 1 && scanned.pieces[0].kind == dpm::expand::Kind::Dcc)
+                    return;
+                if (role == TaskString::Argument || program_name)
+                {
+                    if (role == TaskString::Program && text.empty())
+                        error(at, "the program name is empty");
+                    return;
+                }
+                if (auto problem = dpm::expand::path_problem(scanned, role == TaskString::Input || role == TaskString::Program))
+                    error(at, std::format("{}: {}", role == TaskString::Program ? "program" : role == TaskString::Directory ? "cwd" : role == TaskString::Input ? "input" : "output", *problem));
+            }
+
+            std::vector<Task> tasks(Node const& root, Project const& p)
+            {
+                std::vector<Task> out;
+                auto const* list = field(root, "tasks");
+                if (!list)
+                    return out;
+                std::set<std::string> names;
+                for (auto const& item : list->items)
+                    if (auto const* n = item.find("name"); n && n->kind == Node::Kind::String && is_task_name(n->text))
+                        names.insert(n->text);
+                std::set<std::string> seen;
+                std::map<std::string, Node const*> nodes;
+                for (auto const& item : list->items)
+                {
+                    Task t;
+                    t.range = item.range;
+                    t.name = str(item, "name");
+                    t.description = str(item, "description");
+                    t.command = strs(item, "command");
+                    t.cwd = str(item, "cwd");
+                    t.tools = strs(item, "tools");
+                    t.build = strs(item, "build");
+                    t.needs = strs(item, "needs");
+                    t.inputs = strs(item, "inputs");
+                    t.outputs = strs(item, "outputs");
+                    t.timeout = integer_of(item, "timeout");
+                    if (auto const* n = item.find("name"))
+                    {
+                        if (!is_task_name(t.name))
+                            error(*n, std::format("'{}' is not a valid task name; use [a-z][a-z0-9-]*", t.name));
+                        else if (!seen.insert(t.name).second)
+                            error(*n, std::format("duplicate task '{}'", t.name));
+                        else
+                            nodes[t.name] = &item;
+                    }
+                    auto const* command = item.find("command");
+                    if (command && command->items.empty())
+                        error(*command, "a task needs a command");
+                    if (command)
+                        for (std::size_t i = 0; i < command->items.size(); ++i)
+                            check_task_string(command->items[i], command->items[i].text, i == 0 ? TaskString::Program : TaskString::Argument, p, names);
+                    if (auto const* n = item.find("cwd"))
+                        check_task_string(*n, t.cwd, TaskString::Directory, p, names);
+                    if (auto const* env = item.find("env"))
+                    {
+                        std::set<std::string> env_names;
+                        for (auto const& e : env->items)
+                        {
+                            EnvVar v{str(e, "name"), str(e, "value")};
+                            if (auto const* n = e.find("name"))
+                            {
+                                if (!is_env_name(v.name))
+                                    error(*n, std::format("'{}' is not a valid variable name; use [A-Z_][A-Z0-9_]*", v.name));
+                                else if (v.name.starts_with("DPM_"))
+                                    error(*n, std::format("'{}': names starting with DPM_ are set by dpm", v.name));
+                                else if (!env_names.insert(v.name).second)
+                                    error(*n, std::format("duplicate variable '{}'", v.name));
+                            }
+                            if (auto const* n = e.find("value"))
+                                check_task_string(*n, v.value, TaskString::Argument, p, names);
+                            t.env.push_back(std::move(v));
+                        }
+                    }
+                    if (auto const* tools = item.find("tools"))
+                        for (auto const& tool : tools->items)
+                            if (!is_tool_name(tool.text))
+                                error(tool, std::format("'{}' is not a program name; tools are looked up on PATH", tool.text));
+                    if (auto const* build = item.find("build"))
+                        for (auto const& b : build->items)
+                            if (std::ranges::none_of(p.products, [&](Product const& pr) { return pr.name == b.text; }))
+                                error(b, std::format("'{}' is not a product of this project", b.text));
+                    if (auto const* needs = item.find("needs"))
+                        for (auto const& n : needs->items)
+                        {
+                            if (!names.contains(n.text))
+                                error(n, std::format("'{}' is not a task of this project", n.text));
+                            else if (n.text == t.name)
+                                error(n, std::format("task '{}' needs itself", t.name));
+                        }
+                    if (auto const* inputs = item.find("inputs"))
+                        for (auto const& in : inputs->items)
+                        {
+                            check_task_string(in, in.text, TaskString::Input, p, names);
+                            auto scanned = dpm::expand::scan(in.text);
+                            if (!scanned.ok() || scanned.pieces.empty())
+                                continue;
+                            std::string pattern;
+                            for (std::size_t i = dpm::expand::is_path_token(scanned.pieces[0].kind) ? 1 : 0; i < scanned.pieces.size(); ++i)
+                                pattern += scanned.pieces[i].kind == dpm::expand::Kind::Text ? scanned.pieces[i].text : std::string{"x"};
+                            if (dpm::expand::is_path_token(scanned.pieces[0].kind) && pattern.starts_with('/'))
+                                pattern.erase(0, 1);
+                            if (pattern.empty() || pattern.find_first_of("*?") == std::string::npos)
+                                continue;
+                            if (auto message = glob_error(pattern))
+                                error(in, std::format("input: {}", *message));
+                        }
+                    if (auto const* outputs = item.find("outputs"))
+                        for (auto const& o : outputs->items)
+                        {
+                            check_task_string(o, o.text, TaskString::Output, p, names);
+                            if (o.text.find_first_of("*?") != std::string::npos)
+                                error(o, "outputs cannot be globs");
+                        }
+                    if (auto const* n = item.find("timeout"); n && t.timeout < 0)
+                        error(*n, "timeout must be 0 (no limit) or a number of seconds");
+                    out.push_back(std::move(t));
+                }
+                std::map<std::string, int> state;
+                std::vector<std::string> stack;
+                std::set<std::string> reported;
+                std::function<void(Task const&)> visit = [&](Task const& t)
+                {
+                    state[t.name] = 1;
+                    stack.push_back(t.name);
+                    for (auto const& need : t.needs)
+                    {
+                        auto it = std::ranges::find_if(out, [&](Task const& x) { return x.name == need; });
+                        if (it == out.end() || need == t.name)
+                            continue;
+                        if (state[need] == 1)
+                        {
+                            auto start = std::ranges::find(stack, need);
+                            std::string path;
+                            for (auto i = start; i != stack.end(); ++i)
+                                path += *i + " -> ";
+                            path += need;
+                            if (reported.insert(need).second && nodes.contains(need))
+                                error(*nodes[need], std::format("task cycle: {}", path));
+                        }
+                        else if (state[need] == 0)
+                            visit(*it);
+                    }
+                    stack.pop_back();
+                    state[t.name] = 2;
+                };
+                for (auto const& t : out)
+                    if (nodes.contains(t.name) && state[t.name] == 0)
+                        visit(t);
+                return out;
+            }
+
             std::optional<std::string> alias_name_error(std::string const& name) { return alias_error(name); }
 
             RegistryVersion registry_version(Node const& item)
@@ -1956,6 +2182,7 @@ export namespace dpm::manifest
                         }
                         p.products.push_back(std::move(pr));
                     }
+                p.tasks = tasks(root, p);
                 std::set<std::string> profile_names;
                 if (auto const* list = field(root, "profiles"))
                     for (auto const& item : list->items)
