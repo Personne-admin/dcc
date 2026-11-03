@@ -188,6 +188,10 @@ public struct Product
     /// dpm passes the flag and rebuilds when the script changes, so `-T` cannot
     /// be written in `extra_flags`.
     []const char linker_script = "";
+    /// Name of a task that `dpm run` starts instead of the built program, for
+    /// products that do not run on this machine (kernels, boot images). The
+    /// product is built first; arguments after `--` go to the task.
+    []const char run = "";
 }
 
 /// The built-in profile a custom profile starts from.

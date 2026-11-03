@@ -202,7 +202,7 @@ export namespace dpm::cli
          detail::build_opts, 0, 1, false, detail::codes({0, 1, 2, 3, 4, 5}), false},
         {"run", "[<product>] [-- <args>...]", "build and run an executable product",
          "Builds the product, then runs it with the arguments after --. The exit code is the program's own when it ran. Programs for a target other than "
-         "the host need --runner.",
+         "the host need --runner. A product whose run field names a task is built and then that task runs instead, as 'dpm task <name> -- <args>' would.",
          detail::run_opts, 0, 1, true, detail::codes({0, 1, 2, 3, 4, 5}), false},
         {"test", "[<name>...]", "build and run the test programs",
          "Builds and runs every <test_dir>/*.dc (or the named ones) with the dependencies and dev_dependencies. A test passes when it exits with 0.",

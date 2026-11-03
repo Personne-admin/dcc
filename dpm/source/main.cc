@@ -712,6 +712,8 @@ namespace
         return 0;
     }
 
+    int run_tasks(Session& s, std::string const& name, std::vector<std::string> const& extra);
+
     int cmd_run(Common common)
     {
         Session s;
@@ -731,10 +733,25 @@ namespace
             std::println(std::cerr, "error: '{}' is not an executable product", product->name);
             return k_exit_usage;
         }
+        if (!product->run.empty())
+        {
+            if (!s.common.runner.empty())
+            {
+                std::println(std::cerr, "error: '{}' runs the task '{}'; --runner does not apply", product->name, product->run);
+                return k_exit_usage;
+            }
+            auto prepared = prepare(s, code);
+            if (!prepared)
+                return code;
+            if (!build_products(s, *prepared, {product}, code))
+                return code;
+            return run_tasks(s, product->run, s.common.passthrough);
+        }
         auto effective = dpm::settings::effective(s.project, s.common.profile, product, {s.common.target, s.common.optimize});
         if (effective.target != m::Target::Host && s.common.runner.empty())
         {
-            std::println(std::cerr, "error: '{}' targets {} and cannot run on this machine; pass --runner CMD", product->name, dpm::build::target_dir(effective.target));
+            std::println(std::cerr, "error: '{}' targets {} and cannot run on this machine; pass --runner CMD, or name a task in the product's run field",
+                         product->name, dpm::build::target_dir(effective.target));
             return k_exit_usage;
         }
         auto prepared = prepare(s, code);

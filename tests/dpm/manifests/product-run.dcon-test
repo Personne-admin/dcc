@@ -1,0 +1,6 @@
+=== FILE: project.dcon ===
+{ name = "k", version = "1.0.0", products = { { name = "k", run = "boot" }, { name = "j", run = "nothing" } }, tasks = { { name = "boot", command = { "qemu-system-x86_64" } } } }
+=== FILE: src/main.dc ===
+module main;
+=== EXPECT-ERRORS ===
+project.dcon:1:97: run names 'nothing', which is not a task of this project

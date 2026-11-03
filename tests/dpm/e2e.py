@@ -1042,6 +1042,37 @@ def scenario_tasks():
     check(r.returncode == 0, "a task that needs neither products nor assets ignores the lock", detail(r))
     write(os.path.join(app, "project.dcon"), manifest)
 
+    kern = new_app("runtask", "return 0;")
+    write(os.path.join(kern, "src", "main.dc"), "module main;\n\n@nomangle\npublic void kmain()\n{\n    while true {}\n}\n")
+    write(os.path.join(kern, "link", "kernel.ld"), "ENTRY(kmain)\nSECTIONS\n{\n    . = 0xffffffff80000000;\n    .text : { *(.text .text.*) }\n    .rodata : { *(.rodata .rodata.*) }\n    .data : { *(.data .data.*) }\n    .bss : { *(.bss .bss.*) *(COMMON) }\n}\n")
+    write(os.path.join(kern, "project.dcon"), """dpm::v1::Project {
+    name = "runtask",
+    version = "0.1.0",
+    products = {
+        { name = "runtask", run = "boot", linker_script = "link/kernel.ld", settings = { target = Target::X86_64Elf, model = Model::Kernel, libdcext = Libdcext::Freestanding } },
+        { name = "other", entry = "src/main.dc", run = "crash", linker_script = "link/kernel.ld", settings = { target = Target::X86_64Elf, model = Model::Kernel, libdcext = Libdcext::Freestanding } },
+    },
+    tasks = {
+        { name = "boot", command = { "sh", "-c", "echo booting \\"$$0\\" \\"$$@\\" > booted.txt", "${out:runtask}" } },
+        { name = "crash", command = { "sh", "-c", "exit 5" } },
+    },
+}
+""")
+    r = dpm(kern, "run", "runtask", "--", "-m", "4G")
+    booted = os.path.join(kern, "booted.txt")
+    words = read(booted).split() if os.path.exists(booted) else []
+    check(r.returncode == 0 and "Building runtask" in r.stdout and len(words) == 4 and words[0] == "booting" and os.path.realpath(words[1]) == os.path.realpath(os.path.join(kern, ".dpm/out/debug/x86_64-elf/runtask")) and words[2:] == ["-m", "4G"],
+          "dpm run of a product with run builds it and runs the task with the arguments", detail(r) + str(words))
+    check(os.path.isfile(os.path.join(kern, ".dpm/out/debug/x86_64-elf/runtask")), "the run product was built")
+    r = dpm(kern, "run", "runtask", "--runner", "qemu")
+    check(r.returncode == 2 and "--runner does not apply" in r.stderr, "--runner is refused for a product that runs a task", detail(r))
+    r = dpm(kern, "run", "other")
+    check(r.returncode == 1 and "task crash failed (exit 5)" in r.stderr, "a failing run task fails dpm run", detail(r))
+    text = read(os.path.join(kern, "project.dcon")).replace('run = "boot", ', "")
+    write(os.path.join(kern, "project.dcon"), text)
+    r = dpm(kern, "run", "runtask")
+    check(r.returncode == 2 and "--runner" in r.stderr and "run field" in r.stderr, "a non-host product without run mentions the run field", detail(r))
+
     parent = os.path.join(ROOT, "taskdeps")
     os.makedirs(parent)
     check(dpm(parent, "init", "evil", "--lib").returncode == 0, "init a library with tasks")

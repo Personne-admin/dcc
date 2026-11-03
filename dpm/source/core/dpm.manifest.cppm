@@ -275,6 +275,7 @@ export namespace dpm::manifest
         Settings settings;
         std::vector<std::string> link;
         std::string linker_script;
+        std::string run;
         Range range;
     };
 
@@ -2151,6 +2152,7 @@ export namespace dpm::manifest
                         pr.entry = str(item, "entry");
                         pr.link = strs(item, "link");
                         pr.linker_script = str(item, "linker_script");
+                        pr.run = str(item, "run");
                         if (auto const* s = field(item, "settings"))
                             pr.settings = settings(*s);
                         if (auto const* n = item.find("name"))
@@ -2183,6 +2185,11 @@ export namespace dpm::manifest
                         p.products.push_back(std::move(pr));
                     }
                 p.tasks = tasks(root, p);
+                if (auto const* list = field(root, "products"))
+                    for (auto const& item : list->items)
+                        if (auto const* n = item.find("run"); n && n->kind == Node::Kind::String && !n->text.empty() &&
+                                                              std::ranges::none_of(p.tasks, [&](Task const& t) { return t.name == n->text; }))
+                            error(*n, std::format("run names '{}', which is not a task of this project", n->text));
                 std::set<std::string> profile_names;
                 if (auto const* list = field(root, "profiles"))
                     for (auto const& item : list->items)
