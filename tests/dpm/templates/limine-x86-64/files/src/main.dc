@@ -1,0 +1,102 @@
+module main;
+
+import limine;
+
+@section(".limine_requests_start")
+@nomangle
+volatile u64[4] requests_start = limine::REQUESTS_START_MARKER;
+
+@section(".limine_requests")
+@nomangle
+volatile u64[3] base_revision = limine::base_revision(
+    3
+);
+
+@section(".limine_requests")
+@nomangle
+volatile limine::FramebufferRequest framebuffer_request = {
+    id = limine::FRAMEBUFFER_REQUEST_ID,
+    revision = 0,
+    response = null
+};
+
+@section(".limine_requests_end")
+@nomangle
+volatile u64[2] requests_end = limine::REQUESTS_END_MARKER;
+
+// Halt and catch fire function.
+void hcf() {
+    while true {
+        asm { "hlt" };
+    }
+}
+
+// Scale an 8-bit colour channel value to the size the framebuffer gives the
+// channel and move it into place within a pixel.
+u32 fb_channel(u8 value, u8 mask_size, u8 mask_shift) {
+    u64 max = (1 as u64 << (mask_size as u64)) - 1;
+    return (((value as u64) * max / 255) << (mask_shift as u64)) as u32;
+}
+
+// Build a pixel from 8-bit red, green and blue values following the channel
+// layout of the framebuffer.
+u32 fb_pixel(limine::Framebuffer* fb, u8 red, u8 green, u8 blue) {
+    return fb_channel(red, fb.red_mask_size, fb.red_mask_shift) | fb_channel(
+        green,
+        fb.green_mask_size,
+        fb.green_mask_shift
+    ) | fb_channel(
+        blue,
+        fb.blue_mask_size,
+        fb.blue_mask_shift
+    );
+}
+
+// Print a nice pattern to a framebuffer as an example.
+void fb_pattern(limine::Framebuffer* fb) {
+    volatile u32* fb_ptr = fb.address as volatile u32*;
+
+    for u64 y = 0; y < fb.height; y++ {
+        for u64 x = 0; x < fb.width; x++ {
+            u8 nX = (x * 255 / fb.width) as u8;
+            u8 nY = (y * 255 / fb.height) as u8;
+            fb_ptr[y * (fb.pitch / 4) + x] = fb_pixel(fb, 0, nY, nX);
+        }
+    }
+}
+
+// The following will be our kernel's entry point.
+// If renaming kmain() to something else, make sure to change the
+// linker script accordingly. This function has name mangling disabled
+// so the linker can find the symbol called exactly kmain.
+@nomangle
+public void kmain() {
+    // Ensure the bootloader actually understands our base revision (see spec).
+    if !limine::base_revision_supported(base_revision) {
+        hcf();
+    }
+
+    // Ensure we got a framebuffer.
+    if framebuffer_request.response == null
+        || framebuffer_request.response.framebuffer_count < 1
+    {
+        hcf();
+    }
+
+    // Print the pattern to every framebuffer.
+    for usize i = 0; i < framebuffer_request.response.framebuffer_count as usize; i++ {
+        limine::Framebuffer* framebuffer = framebuffer_request.response.framebuffers[i];
+
+        // Ensure the framebuffer has 32-bit RGB pixels, the only kind we handle.
+        if framebuffer.memory_model != limine::FRAMEBUFFER_RGB
+            || framebuffer.bpp != 32
+        {
+            hcf();
+        }
+
+        fb_pattern(framebuffer);
+    }
+
+    // We're done, just hang...
+    hcf();
+}

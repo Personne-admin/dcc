@@ -1,0 +1,1266 @@
+// SPDX-License-Identifier: 0BSD
+//
+// Copyright (C) 2022-2026 Mintsuki and contributors.
+//
+// Permission to use, copy, modify, and/or distribute this software for any
+// purpose with or without fee is hereby granted.
+//
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+// WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+// SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+// WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+// OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+// CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+//!!
+//!! DC bindings for the Limine boot protocol.
+//!!
+//!! These definitions mirror the ABI exposed by the official Limine protocol.
+//!! This module provides protocol types and constants only; bootloader setup
+//!! and filesystem preparation are handled separately by enclume-limine.
+//!!
+
+module limine;
+
+//!
+//! Common markers and magic
+//!
+
+/// value placed in the `.limine_requests_start_marker` section to mark the
+/// beginning of the executable's Limine request list.
+public using u64[4] REQUESTS_START_MARKER = {
+    0xf6b8f4b39de7d1ae,
+    0xfab91a6940fcb9cf,
+    0x785c6ed015d3e316,
+    0x181e920a7852b9d9
+};
+
+/// value placed in the `.limine_requests_end_marker` section to mark the end
+/// of the executable's Limine request list.
+public using u64[2] REQUESTS_END_MARKER = {
+    0xadc0e0531bb10d03,
+    0x9572709f31764c62
+};
+
+/// first magic word used by a Limine base-revision tag.
+public using u64 BASE_REVISION_MAGIC_0 = 0xf9562b2d5c95a6c8;
+
+/// second magic word used by a Limine base-revision tag.
+public using u64 BASE_REVISION_MAGIC_1 = 0x6a7b384944536bdc;
+
+/// sonstructs a Limine base-revision tag requesting `revision`.
+///
+/// the returned value is normally emitted as a global object inside the
+/// `.limine_requests` section.
+public u64[3] base_revision(u64 revision) {
+    return {
+        BASE_REVISION_MAGIC_0,
+        BASE_REVISION_MAGIC_1,
+        revision
+    };
+}
+
+/// returns whether the requested base revision was accepted by the bootloader.
+public bool base_revision_supported(u64[3] tag) {
+    return tag[2] == 0;
+}
+
+/// returns whether the requested base revision was accepted by the bootloader.
+public bool base_revision_supported(const u64[3]* tag) {
+    return (*tag)[2] == 0;
+}
+
+/// returns whether a loaded-base-revision value was supplied by the bootloader.
+public bool loaded_base_revision_valid(u64[3] tag) {
+    return tag[1] != BASE_REVISION_MAGIC_1;
+}
+
+/// returns whether a loaded-base-revision value was supplied by the bootloader.
+public bool loaded_base_revision_valid(const u64[3]* tag) {
+    return (*tag)[1] != BASE_REVISION_MAGIC_1;
+}
+
+/// returns the base revision selected by the bootloader.
+///
+/// call `loaded_base_revision_valid` before interpreting this value.
+public u64 loaded_base_revision(u64[3] tag) {
+    return tag[1];
+}
+
+/// returns the base revision selected by the bootloader.
+///
+/// call `loaded_base_revision_valid` before interpreting this value.
+public u64 loaded_base_revision(const u64[3]* tag) {
+    return (*tag)[1];
+}
+
+/// first common magic word present in every Limine request identifier.
+public using u64 COMMON_MAGIC_0 = 0xc7b1dd30df4c8b88;
+
+/// second common magic word present in every Limine request identifier.
+public using u64 COMMON_MAGIC_1 = 0x0a82e883a194f07b;
+
+/// common two-word prefix shared by Limine request identifiers.
+public using u64[2] COMMON_MAGIC = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1
+};
+
+//!
+//! UUID
+//!
+
+/// UUID representation used in Limine protocol structures.
+public struct Uuid {
+    u32 a;
+    u16 b;
+    u16 c;
+    u8[8] d;
+}
+
+//!
+//! Files and media
+//!
+
+/// generic block-device or filesystem-backed media.
+public using u32 MEDIA_TYPE_GENERIC = 0;
+
+/// optical media.
+public using u32 MEDIA_TYPE_OPTICAL = 1;
+
+/// network media obtained through TFTP.
+public using u32 MEDIA_TYPE_TFTP = 2;
+
+/// file supplied by the Limine bootloader.
+///
+/// besides the mapped file contents, this structure carries the resource path,
+/// command string, media information, and partition identifiers associated
+/// with the file.
+public struct File {
+    u64 revision;
+
+    /// address of the mapped file contents.
+    void* address;
+
+    /// file size in bytes.
+    u64 size;
+
+    /// limine resource path for the file.
+    char* path;
+
+    /// string associated with the file by the boot configuration.
+    char* string;
+
+    /// one of the `MEDIA_TYPE_*` values.
+    u32 media_type;
+
+    u32 unused;
+
+    /// TFTP server IPv4 address when the file originates from TFTP media.
+    u8[4] tftp_ipv4;
+
+    /// TFTP server port when applicable.
+    u32 tftp_port;
+
+    /// partition index associated with the source media.
+    u32 partition_index;
+
+    /// MBR disk identifier associated with the source media.
+    u32 mbr_disk_id;
+
+    Uuid gpt_disk_uuid;
+    Uuid gpt_part_uuid;
+    Uuid part_uuid;
+}
+
+//!
+//! Bootloader information
+//!
+
+/// request identifier for bootloader information.
+public using u64[4] BOOTLOADER_INFO_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0xf55038d8e2a1202f,
+    0x279426fcf5f59740
+};
+
+/// response containing the bootloader implementation name and version.
+public struct BootloaderInfoResponse {
+    u64 revision;
+
+    /// bootloader implementation name.
+    char* name;
+
+    /// bootloader version string.
+    char* version;
+}
+
+/// requests information about the bootloader implementation.
+public struct BootloaderInfoRequest {
+    u64[4] id;
+    u64 revision;
+    BootloaderInfoResponse* response;
+}
+
+//!
+//! Executable command line
+//!
+
+/// request identifier for the executable command line.
+public using u64[4] EXECUTABLE_CMDLINE_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x4b161536e598651e,
+    0xb390ad4a2f1f303a
+};
+
+/// response containing the command line associated with the executable.
+public struct ExecutableCmdlineResponse {
+    u64 revision;
+
+    /// NUL-terminated executable command line.
+    char* cmdline;
+}
+
+/// requests the command line associated with the executable.
+public struct ExecutableCmdlineRequest {
+    u64[4] id;
+    u64 revision;
+    ExecutableCmdlineResponse* response;
+}
+
+//!
+//! Firmware type
+//!
+
+/// request identifier for firmware-type information.
+public using u64[4] FIRMWARE_TYPE_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x8c2f75d90bef28a8,
+    0x7045a4688eac00c3
+};
+
+/// legacy x86 BIOS firmware.
+public using u64 FIRMWARE_TYPE_X86BIOS = 0;
+
+/// 32-bit EFI firmware.
+public using u64 FIRMWARE_TYPE_EFI32 = 1;
+
+/// 64-bit EFI firmware.
+public using u64 FIRMWARE_TYPE_EFI64 = 2;
+
+/// RISC-V SBI firmware environment.
+public using u64 FIRMWARE_TYPE_SBI = 3;
+
+/// response identifying the firmware environment used to boot the executable.
+public struct FirmwareTypeResponse {
+    u64 revision;
+
+    /// one of the `FIRMWARE_TYPE_*` values.
+    u64 firmware_type;
+}
+
+/// requests the firmware environment used to boot the executable.
+public struct FirmwareTypeRequest {
+    u64[4] id;
+    u64 revision;
+    FirmwareTypeResponse* response;
+}
+
+//!
+//! Stack size
+//!
+
+/// request identifier for selecting the executable's initial stack size.
+public using u64[4] STACK_SIZE_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x224ef0460a8e8926,
+    0xe1cb0fc25f46ea3d
+};
+
+/// response indicating that the requested stack-size feature was processed.
+public struct StackSizeResponse {
+    u64 revision;
+}
+
+/// requests a particular initial stack size for the executable.
+public struct StackSizeRequest {
+    u64[4] id;
+    u64 revision;
+    StackSizeResponse* response;
+
+    /// requested stack size in bytes.
+    u64 stack_size;
+}
+
+//!
+//! HHDM
+//!
+//! Higher Half Direct Map information supplied by the bootloader.
+//!
+
+/// request identifier for the higher-half direct-map offset.
+public using u64[4] HHDM_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x48dcf1cb8ad2b852,
+    0x63984e959a98244b
+};
+
+/// response describing the higher-half direct-map offset.
+public struct HhdmResponse {
+    u64 revision;
+
+    /// offset added to eligible physical addresses to obtain their HHDM
+    /// virtual addresses.
+    u64 offset;
+}
+
+/// requests the bootloader's higher-half direct-map offset.
+public struct HhdmRequest {
+    u64[4] id;
+    u64 revision;
+    HhdmResponse* response;
+}
+
+//!
+//! Framebuffer
+//!
+
+/// request identifier for framebuffer information.
+public using u64[4] FRAMEBUFFER_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x9d5827dcd881dd75,
+    0xa3148604f6fab11b
+};
+
+/// RGB framebuffer memory model.
+public using u8 FRAMEBUFFER_RGB = 1;
+
+/// video mode supported by a Limine framebuffer.
+public struct VideoMode {
+    /// number of bytes between adjacent framebuffer scanlines.
+    u64 pitch;
+
+    u64 width;
+    u64 height;
+
+    /// bits per pixel.
+    u16 bpp;
+
+    u8 memory_model;
+    u8 red_mask_size;
+    u8 red_mask_shift;
+    u8 green_mask_size;
+    u8 green_mask_shift;
+    u8 blue_mask_size;
+    u8 blue_mask_shift;
+}
+
+/// framebuffer exposed by the bootloader.
+public struct Framebuffer {
+    /// address of the framebuffer memory.
+    void* address;
+
+    u64 width;
+    u64 height;
+
+    /// number of bytes between adjacent scanlines.
+    u64 pitch;
+
+    /// bits per pixel.
+    u16 bpp;
+
+    u8 memory_model;
+    u8 red_mask_size;
+    u8 red_mask_shift;
+    u8 green_mask_size;
+    u8 green_mask_shift;
+    u8 blue_mask_size;
+    u8 blue_mask_shift;
+    u8[7] unused;
+
+    /// size in bytes of the EDID data referenced by `edid`.
+    u64 edid_size;
+
+    /// pointer to EDID data when available.
+    void* edid;
+
+    /// number of entries in `modes`.
+    ///
+    /// available starting with framebuffer response revision 1.
+    u64 mode_count;
+
+    /// available video modes.
+    ///
+    /// available starting with framebuffer response revision 1.
+    VideoMode** modes;
+}
+
+/// response containing the framebuffers made available by the bootloader.
+public struct FramebufferResponse {
+    u64 revision;
+
+    /// number of entries in `framebuffers`.
+    u64 framebuffer_count;
+
+    Framebuffer** framebuffers;
+}
+
+/// requests framebuffer information from the bootloader.
+public struct FramebufferRequest {
+    u64[4] id;
+    u64 revision;
+    FramebufferResponse* response;
+}
+
+//!
+//! Flanterm framebuffer initialization parameters
+//!
+
+/// request identifier for Flanterm framebuffer initialization parameters.
+public using u64[4] FLANTERM_FB_INIT_PARAMS_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x3259399fe7c5f126,
+    0xe01c1c8c5db9d1a9
+};
+
+/// no framebuffer rotation.
+public using u64 FLANTERM_FB_ROTATE_0 = 0;
+
+/// rotate the framebuffer by 90 degrees.
+public using u64 FLANTERM_FB_ROTATE_90 = 1;
+
+/// rotate the framebuffer by 180 degrees.
+public using u64 FLANTERM_FB_ROTATE_180 = 2;
+
+/// rotate the framebuffer by 270 degrees.
+public using u64 FLANTERM_FB_ROTATE_270 = 3;
+
+/// flanterm framebuffer initialization parameters supplied by Limine.
+public struct FlantermFbInitParams {
+    u32* canvas;
+    u64 canvas_size;
+    u32[8] ansi_colours;
+    u32[8] ansi_bright_colours;
+    u32 default_bg;
+    u32 default_fg;
+    u32 default_bg_bright;
+    u32 default_fg_bright;
+    void* font;
+    u64 font_width;
+    u64 font_height;
+    u64 font_spacing;
+    u64 font_scale_x;
+    u64 font_scale_y;
+    u64 margin;
+
+    /// one of the `FLANTERM_FB_ROTATE_*` values.
+    u64 rotation;
+}
+
+/// response containing Flanterm initialization parameter sets.
+public struct FlantermFbInitParamsResponse {
+    u64 revision;
+    u64 entry_count;
+    FlantermFbInitParams** entries;
+}
+
+/// requests Flanterm framebuffer initialization parameters.
+public struct FlantermFbInitParamsRequest {
+    u64[4] id;
+    u64 revision;
+    FlantermFbInitParamsResponse* response;
+}
+
+//!
+//! Paging mode
+//!
+
+/// request identifier for selecting and querying the paging mode.
+public using u64[4] PAGING_MODE_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x95c1a0edab0944cb,
+    0xa4e5cb3842f7488a
+};
+
+/// x86_64 four-level paging.
+public using u64 PAGING_MODE_X86_64_4LVL = 0;
+
+/// x86_64 five-level paging.
+public using u64 PAGING_MODE_X86_64_5LVL = 1;
+
+public using u64 PAGING_MODE_X86_64_MIN = PAGING_MODE_X86_64_4LVL;
+public using u64 PAGING_MODE_X86_64_DEFAULT = PAGING_MODE_X86_64_4LVL;
+
+/// AArch64 four-level paging.
+public using u64 PAGING_MODE_AARCH64_4LVL = 0;
+
+/// AArch64 five-level paging.
+public using u64 PAGING_MODE_AARCH64_5LVL = 1;
+
+public using u64 PAGING_MODE_AARCH64_MIN = PAGING_MODE_AARCH64_4LVL;
+public using u64 PAGING_MODE_AARCH64_DEFAULT = PAGING_MODE_AARCH64_4LVL;
+
+/// RISC-V Sv39 paging.
+public using u64 PAGING_MODE_RISCV_SV39 = 0;
+
+/// RISC-V Sv48 paging.
+public using u64 PAGING_MODE_RISCV_SV48 = 1;
+
+/// RISC-V Sv57 paging.
+public using u64 PAGING_MODE_RISCV_SV57 = 2;
+
+public using u64 PAGING_MODE_RISCV_MIN = PAGING_MODE_RISCV_SV39;
+public using u64 PAGING_MODE_RISCV_DEFAULT = PAGING_MODE_RISCV_SV48;
+
+/// LoongArch four-level paging.
+public using u64 PAGING_MODE_LOONGARCH_4LVL = 0;
+
+public using u64 PAGING_MODE_LOONGARCH_MIN = PAGING_MODE_LOONGARCH_4LVL;
+public using u64 PAGING_MODE_LOONGARCH_DEFAULT = PAGING_MODE_LOONGARCH_4LVL;
+
+/// response identifying the paging mode selected by the bootloader.
+public struct PagingModeResponse {
+    u64 revision;
+
+    /// architecture-specific paging-mode value.
+    u64 mode;
+}
+
+/// requests a paging mode within the supplied architecture-specific range.
+public struct PagingModeRequest {
+    u64[4] id;
+    u64 revision;
+    PagingModeResponse* response;
+
+    /// preferred paging mode.
+    u64 mode;
+
+    /// highest paging mode the executable supports.
+    u64 max_mode;
+
+    /// lowest paging mode the executable supports.
+    u64 min_mode;
+}
+
+//!
+//! Multiprocessor
+//!
+//! Architecture-specific structures used by Limine to describe application
+//! processors and their startup entry points.
+//!
+
+/// request identifier for multiprocessor information.
+public using u64[4] MP_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x95a67b819a1b857e,
+    0xa0b61b723b6a73e0
+};
+
+/// indicates that x86_64 MP information uses x2APIC IDs.
+public using u32 MP_RESPONSE_X86_64_X2APIC = 1 << 0;
+
+/// requests x2APIC operation for x86_64 MP startup.
+public using u64 MP_REQUEST_X86_64_X2APIC = 1 << 0;
+
+/// x86_64 processor descriptor returned by the MP feature.
+public struct MpInfoX86_64 {
+    u32 processor_id;
+    u32 lapic_id;
+    u64 reserved;
+
+    /// entry point assigned by the executable to release this processor.
+    GotoAddress goto_address;
+
+    /// value made available to the target processor during startup.
+    u64 extra_argument;
+}
+
+/// x86_64 multiprocessor response.
+public struct MpResponseX86_64 {
+    u64 revision;
+
+    /// MP response flags.
+    u32 flags;
+
+    /// LAPIC ID of the bootstrap processor.
+    u32 bsp_lapic_id;
+
+    u64 cpu_count;
+    MpInfoX86_64** cpus;
+}
+
+/// AArch64 processor descriptor returned by the MP feature.
+public struct MpInfoAarch64 {
+    u32 processor_id;
+    u32 reserved1;
+
+    /// MPIDR value identifying this processor.
+    u64 mpidr;
+
+    u64 reserved;
+    GotoAddress goto_address;
+    u64 extra_argument;
+}
+
+/// AArch64 multiprocessor response.
+public struct MpResponseAarch64 {
+    u64 revision;
+    u32 flags;
+
+    /// MPIDR value of the bootstrap processor.
+    u64 bsp_mpidr;
+
+    u64 cpu_count;
+    MpInfoAarch64** cpus;
+}
+
+/// RISC-V processor descriptor returned by the MP feature.
+public struct MpInfoRiscv64 {
+    u64 processor_id;
+
+    /// hardware thread identifier.
+    u64 hartid;
+
+    u64 reserved;
+    GotoAddress goto_address;
+    u64 extra_argument;
+}
+
+/// RISC-V multiprocessor response.
+public struct MpResponseRiscv64 {
+    u64 revision;
+    u32 flags;
+
+    /// Hart ID of the bootstrap processor.
+    u64 bsp_hartid;
+
+    u64 cpu_count;
+    MpInfoRiscv64** cpus;
+}
+
+/// LoongArch64 processor descriptor returned by the MP feature.
+public struct MpInfoLoongArch64 {
+    u64 processor_id;
+
+    /// architecture-specific physical processor identifier.
+    u64 phys_id;
+
+    u64 reserved;
+    GotoAddress goto_address;
+    u64 extra_argument;
+}
+
+/// LoongArch64 multiprocessor response.
+public struct MpResponseLoongArch64 {
+    u64 revision;
+    u32 flags;
+
+    /// physical identifier of the bootstrap processor.
+    u64 bsp_phys_id;
+
+    u64 cpu_count;
+    MpInfoLoongArch64** cpus;
+}
+
+// TODO arch switches
+
+/// canonical MP processor descriptor used by this binding.
+///
+/// this alias currently selects the x86_64 representation.
+public using MpInfo = MpInfoX86_64;
+
+/// canonical MP response used by this binding.
+///
+/// this alias currently selects the x86_64 representation.
+public using MpResponse = MpResponseX86_64;
+
+/// function pointer written to an MP processor's `goto_address` field.
+///
+/// assigning a non-null entry point releases the corresponding processor.
+public using GotoAddress = void(*)(MpInfo*);
+
+/// requests multiprocessor information.
+public struct MpRequest {
+    u64[4] id;
+    u64 revision;
+    MpResponse* response;
+
+    /// architecture-specific MP request flags.
+    u64 flags;
+}
+
+//!
+//! Memory map
+//!
+
+/// request identifier for the bootloader memory map.
+public using u64[4] MEMMAP_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x67cf3d9d378a806f,
+    0xe304acdfc50c3c62
+};
+
+/// memory available for general use by the executable.
+public using u64 MEMMAP_USABLE = 0;
+
+/// reserved memory.
+public using u64 MEMMAP_RESERVED = 1;
+
+/// ACPI reclaimable memory.
+public using u64 MEMMAP_ACPI_RECLAIMABLE = 2;
+
+/// ACPI non-volatile storage.
+public using u64 MEMMAP_ACPI_NVS = 3;
+
+/// known-bad memory.
+public using u64 MEMMAP_BAD_MEMORY = 4;
+
+/// memory temporarily owned by the bootloader and reclaimable according to
+/// the Limine protocol's lifetime rules.
+public using u64 MEMMAP_BOOTLOADER_RECLAIMABLE = 5;
+
+/// memory occupied by the executable and loaded modules.
+public using u64 MEMMAP_EXECUTABLE_AND_MODULES = 6;
+
+/// memory occupied by framebuffer storage.
+public using u64 MEMMAP_FRAMEBUFFER = 7;
+
+/// reserved memory that remains mapped.
+public using u64 MEMMAP_RESERVED_MAPPED = 8;
+
+/// one physical-memory range in the Limine memory map.
+public struct MemmapEntry {
+    /// physical base address of the range.
+    u64 base;
+
+    /// length of the range in bytes.
+    u64 length;
+
+    /// one of the `MEMMAP_*` memory type values.
+    u64 type;
+}
+
+/// response containing the bootloader-provided physical memory map.
+public struct MemmapResponse {
+    u64 revision;
+
+    /// number of entries in `entries`.
+    u64 entry_count;
+
+    MemmapEntry** entries;
+}
+
+/// requests the bootloader's physical memory map.
+public struct MemmapRequest {
+    u64[4] id;
+    u64 revision;
+    MemmapResponse* response;
+}
+
+//!
+//! Entry point
+//!
+
+/// request identifier for overriding the executable entry point.
+public using u64[4] ENTRY_POINT_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x13d86c035a1cd3e1,
+    0x2b0caa89d8f3026a
+};
+
+/// executable entry-point function type.
+public using EntryPoint = void(*)();
+
+/// response indicating that the requested entry point was accepted.
+public struct EntryPointResponse {
+    u64 revision;
+}
+
+/// requests that Limine transfer control to a specific entry point.
+public struct EntryPointRequest {
+    u64[4] id;
+    u64 revision;
+    EntryPointResponse* response;
+
+    /// entry point that Limine should invoke.
+    EntryPoint entry;
+}
+
+//!
+//! Executable file
+//!
+
+/// request identifier for the executable-file feature.
+public using u64[4] EXECUTABLE_FILE_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0xad97e90e83f1ed67,
+    0x31eb5d1c5ff23b69
+};
+
+/// response containing the file record for the currently running executable.
+public struct ExecutableFileResponse {
+    u64 revision;
+    File* executable_file;
+}
+
+/// requests the file record for the currently running executable.
+public struct ExecutableFileRequest {
+    u64[4] id;
+    u64 revision;
+    ExecutableFileResponse* response;
+}
+
+//!
+//! Modules
+//!
+
+/// request identifier for loaded modules.
+public using u64[4] MODULE_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x3e7e279702be32af,
+    0xca1c4f3bd1280cee
+};
+
+/// marks an internal module as required.
+public using u64 INTERNAL_MODULE_REQUIRED = 1 << 0;
+
+/// marks an internal module as compressed.
+public using u64 INTERNAL_MODULE_COMPRESSED = 1 << 1;
+
+/// module requested directly by the executable.
+public struct InternalModule {
+    /// limine resource path for the requested module.
+    const char* path;
+
+    /// string associated with the requested module.
+    const char* string;
+
+    /// combination of `INTERNAL_MODULE_*` flags.
+    u64 flags;
+}
+
+/// response containing modules loaded for the executable.
+public struct ModuleResponse {
+    u64 revision;
+
+    /// number of entries in `modules`.
+    u64 module_count;
+
+    File** modules;
+}
+
+/// requests modules loaded by the bootloader.
+public struct ModuleRequest {
+    u64[4] id;
+    u64 revision;
+    ModuleResponse* response;
+
+    /// number of entries in `internal_modules`.
+    ///
+    /// available starting with module request revision 1.
+    u64 internal_module_count;
+
+    /// additional modules requested directly by the executable.
+    ///
+    /// available starting with module request revision 1.
+    InternalModule** internal_modules;
+}
+
+//!
+//! RSDP
+//!
+
+/// request identifier for the ACPI Root System Description Pointer.
+public using u64[4] RSDP_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0xc5e77b6b397e7b43,
+    0x27637845accdcf3c
+};
+
+/// response containing the ACPI RSDP address.
+public struct RsdpResponse {
+    u64 revision;
+
+    /// address of the ACPI Root System Description Pointer.
+    void* address;
+}
+
+/// requests the ACPI Root System Description Pointer.
+public struct RsdpRequest {
+    u64[4] id;
+    u64 revision;
+    RsdpResponse* response;
+}
+
+//!
+//! SMBIOS
+//!
+
+/// request identifier for SMBIOS entry points.
+public using u64[4] SMBIOS_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x9e9046f11e095391,
+    0xaa4a520fefbde5ee
+};
+
+/// response containing available SMBIOS entry-point structures.
+public struct SmbiosResponse {
+    u64 revision;
+
+    /// SMBIOS 32-bit entry point, when available.
+    void* entry_32;
+
+    /// SMBIOS 64-bit entry point, when available.
+    void* entry_64;
+}
+
+/// requests SMBIOS entry-point information.
+public struct SmbiosRequest {
+    u64[4] id;
+    u64 revision;
+    SmbiosResponse* response;
+}
+
+//!
+//! EFI system table
+//!
+
+/// request identifier for the EFI system table.
+public using u64[4] EFI_SYSTEM_TABLE_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x5ceba5163eaaf6d6,
+    0x0a6981610cf65fcc
+};
+
+/// response containing the EFI system-table address.
+public struct EfiSystemTableResponse {
+    u64 revision;
+    void* address;
+}
+
+/// requests the EFI system table.
+public struct EfiSystemTableRequest {
+    u64[4] id;
+    u64 revision;
+    EfiSystemTableResponse* response;
+}
+
+//!
+//! TPM event log
+//!
+
+/// request identifier for the TPM event log.
+public using u64[4] TPM_EVENT_LOG_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x98e094fc7e76e979,
+    0xee8d8775c54e1d1f
+};
+
+/// TCG 1.2 event-log format.
+public using u64 TPM_EVENT_LOG_FORMAT_TCG_1_2 = 1;
+
+/// TCG 2 event-log format.
+public using u64 TPM_EVENT_LOG_FORMAT_TCG_2 = 2;
+
+/// response containing the TPM event log.
+public struct TpmEventLogResponse {
+    u64 revision;
+
+    /// one of the `TPM_EVENT_LOG_FORMAT_*` values.
+    u64 format;
+
+    /// size of the event log in bytes.
+    u64 size;
+
+    /// address of the event log.
+    void* address;
+}
+
+/// requests the TPM event log.
+public struct TpmEventLogRequest {
+    u64[4] id;
+    u64 revision;
+    TpmEventLogResponse* response;
+}
+
+//!
+//! EFI memory map
+//!
+
+/// request identifier for the EFI memory map.
+public using u64[4] EFI_MEMMAP_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x7df62a431d6872d5,
+    0xa4fcdfb3e57306c8
+};
+
+/// response containing the firmware's EFI memory map.
+public struct EfiMemmapResponse {
+    u64 revision;
+
+    /// address of the raw EFI memory map.
+    void* memmap;
+
+    /// size of the memory map in bytes.
+    u64 memmap_size;
+
+    /// size of each EFI memory descriptor.
+    u64 desc_size;
+
+    /// EFI memory descriptor version.
+    u64 desc_version;
+}
+
+/// requests the EFI memory map.
+public struct EfiMemmapRequest {
+    u64[4] id;
+    u64 revision;
+    EfiMemmapResponse* response;
+}
+
+//!
+//! Date at boot
+//!
+
+/// request identifier for the boot timestamp.
+public using u64[4] DATE_AT_BOOT_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x502746e184c088aa,
+    0xfbc5ec83e6327893
+};
+
+/// response containing the wall-clock timestamp at boot.
+public struct DateAtBootResponse {
+    u64 revision;
+
+    /// boot timestamp represented by the Limine protocol.
+    i64 timestamp;
+}
+
+/// requests the date and time recorded at boot.
+public struct DateAtBootRequest {
+    u64[4] id;
+    u64 revision;
+    DateAtBootResponse* response;
+}
+
+//!
+//! Executable address
+//!
+
+/// request identifier for executable load addresses.
+public using u64[4] EXECUTABLE_ADDRESS_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x71ba76863cc55f63,
+    0xb2644a48c516a487
+};
+
+/// response describing where the executable was loaded.
+public struct ExecutableAddressResponse {
+    u64 revision;
+
+    /// physical base address of the loaded executable.
+    u64 physical_base;
+
+    /// virtual base address of the loaded executable.
+    u64 virtual_base;
+}
+
+/// requests the executable's physical and virtual load addresses.
+public struct ExecutableAddressRequest {
+    u64[4] id;
+    u64 revision;
+    ExecutableAddressResponse* response;
+}
+
+//!
+//! Device tree blob
+//!
+
+/// request identifier for the flattened device tree blob.
+public using u64[4] DTB_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0xb40ddb48fb54bac7,
+    0x545081493f81ffb7
+};
+
+/// response containing the device tree blob.
+public struct DtbResponse {
+    u64 revision;
+
+    /// address of the flattened device tree.
+    void* dtb_ptr;
+}
+
+/// requests the flattened device tree blob.
+public struct DtbRequest {
+    u64[4] id;
+    u64 revision;
+    DtbResponse* response;
+}
+
+//!
+//! RISC-V BSP hart ID
+//!
+
+/// request identifier for the RISC-V bootstrap hart ID.
+public using u64[4] RISCV_BSP_HARTID_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x1369359f025525f9,
+    0x2ff2a56178391bb6
+};
+
+/// response containing the RISC-V bootstrap hart ID.
+public struct RiscvBspHartidResponse {
+    u64 revision;
+
+    /// hardware thread ID of the bootstrap processor.
+    u64 bsp_hartid;
+}
+
+/// requests the RISC-V bootstrap hart ID.
+public struct RiscvBspHartidRequest {
+    u64[4] id;
+    u64 revision;
+    RiscvBspHartidResponse* response;
+}
+
+//!
+//! Bootloader performance
+//!
+
+/// request identifier for bootloader performance timings.
+public using u64[4] BOOTLOADER_PERFORMANCE_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x6b50ad9bf36d13ad,
+    0xdc4c7e88fc759e17
+};
+
+/// response containing bootloader performance timing information.
+public struct BootloaderPerformanceResponse {
+    u64 revision;
+
+    /// time spent before bootloader initialization, in microseconds.
+    u64 reset_usec;
+
+    /// time spent during bootloader initialization, in microseconds.
+    u64 init_usec;
+
+    /// time spent preparing execution, in microseconds.
+    u64 exec_usec;
+}
+
+/// requests bootloader performance timing information.
+public struct BootloaderPerformanceRequest {
+    u64[4] id;
+    u64 revision;
+    BootloaderPerformanceResponse* response;
+}
+
+//!
+//! x86_64 IOMMU preservation
+//!
+
+/// request identifier for preserving x86_64 IOMMU configuration.
+public using u64[4] X86_64_KEEP_IOMMU_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x8ebaabe51f490179,
+    0x2aa86a59ffb4ab0f
+};
+
+/// response indicating that the x86_64 IOMMU-preservation request was handled.
+public struct X86_64KeepIommuResponse {
+    u64 revision;
+}
+
+/// requests that Limine preserve the x86_64 IOMMU configuration.
+public struct X86_64KeepIommuRequest {
+    u64[4] id;
+    u64 revision;
+    X86_64KeepIommuResponse* response;
+}
+
+//!
+//! TSC frequency
+//!
+
+/// request identifier for the timestamp-counter frequency.
+public using u64[4] TSC_FREQUENCY_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x10f2ee1d87d195e4,
+    0xf747a2b78f6ddb31
+};
+
+/// response containing the timestamp-counter frequency.
+public struct TscFrequencyResponse {
+    u64 revision;
+
+    /// TSC frequency in hertz.
+    u64 frequency;
+}
+
+/// requests the timestamp-counter frequency.
+public struct TscFrequencyRequest {
+    u64[4] id;
+    u64 revision;
+    TscFrequencyResponse* response;
+}
+
+//!
+//! Entropy
+//!
+
+/// request identifier for bootloader-provided entropy.
+public using u64[4] ENTROPY_REQUEST_ID = {
+    COMMON_MAGIC_0,
+    COMMON_MAGIC_1,
+    0x65ea80255d5682c5,
+    0x9117240723f493eb
+};
+
+/// response containing entropy values supplied by the bootloader.
+public struct EntropyResponse {
+    u64 revision;
+
+    /// number of entries in `values`.
+    u64 value_count;
+
+    /// bootloader-provided entropy values.
+    u64* values;
+}
+
+/// requests entropy values from the bootloader.
+public struct EntropyRequest {
+    u64[4] id;
+    u64 revision;
+    EntropyResponse* response;
+
+    /// number of entropy values requested.
+    u64 value_count;
+}

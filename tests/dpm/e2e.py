@@ -1091,6 +1091,113 @@ def scenario_tasks():
     check(r.returncode == 2, "a dependency's task is not a task of the project", detail(r))
 
 
+def elf_loads(path):
+    import struct
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:4] != b"\x7fELF":
+        return None, []
+    entry = struct.unpack_from("<Q", data, 24)[0]
+    phoff = struct.unpack_from("<Q", data, 32)[0]
+    phentsize, phnum = struct.unpack_from("<HH", data, 54)
+    loads = []
+    for i in range(phnum):
+        p_type, p_flags, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_align = struct.unpack_from("<IIQQQQQQ", data, phoff + i * phentsize)
+        if p_type == 1:
+            loads.append((p_vaddr, p_memsz, p_flags))
+    return entry, sorted(loads)
+
+
+def write_tool(directory, name, body):
+    path = os.path.join(directory, name)
+    write(path, "#!/bin/sh\n" + body)
+    os.chmod(path, 0o755)
+
+
+def scenario_limine_template():
+    template = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "limine-x86-64")
+    parent = os.path.join(ROOT, "limine")
+    os.makedirs(parent)
+    r = dpm(parent, "template", "check", template)
+    check(r.returncode == 0 and "limine-x86-64: ok" in r.stdout, "the limine template passes template check", detail(r))
+    r = dpm(parent, "new", "osdev", "--template", "path:" + template, "--set", "title=Test Title")
+    check(r.returncode == 0 and "this project declares 7 tasks; nothing was run" in r.stdout and "limine-tool" in r.stdout and "edk2-ovmf-bins.tar.gz" in r.stdout,
+          "dpm new prints the tasks and assets of the generated project", detail(r))
+    app = os.path.join(parent, "osdev")
+    check("/Test Title" in read(os.path.join(app, "limine.conf")) and 'name = "osdev"' in read(os.path.join(app, "project.dcon")), "the template substitutes the title and the name")
+    check(os.access(os.path.join(app, "scripts", "make-iso.sh"), os.X_OK) and "@@$offset" in read(os.path.join(app, "scripts", "make-hdd.sh")),
+          "scripts are copied byte for byte with their mode")
+    check(not os.path.exists(os.path.join(app, ".dpm")) and not os.path.exists(os.path.join(app, "project.lock.dcon")), "dpm new runs and fetches nothing")
+    r = dpm(app, "task", "iso", "--dry-run")
+    check(r.returncode == 0 and "task limine-tool" in r.stdout and "task iso" in r.stdout and "${asset:limine}/limine.c" in r.stdout and "build osdev" in r.stdout,
+          "a dry run before locking shows the commands with unresolved assets", detail(r))
+    check(not os.path.exists(os.path.join(app, ".dpm")) and not os.path.exists(os.path.join(app, "project.lock.dcon")), "the dry run builds, locks and fetches nothing")
+
+    fake = os.path.join(parent, "fake")
+    limine = os.path.join(fake, "limine-binary")
+    for name in ("limine.c", "limine-bios-hdd.h", "limine-bios.sys", "limine-bios-cd.bin", "limine-uefi-cd.bin", "BOOTX64.EFI", "BOOTIA32.EFI"):
+        write(os.path.join(limine, name), name + "\n")
+    ovmf = os.path.join(fake, "edk2-ovmf-bins")
+    write(os.path.join(ovmf, "ovmf-code-x86_64.fd"), "firmware\n")
+    text = read(os.path.join(app, "project.dcon"))
+    text = re.sub(r'\{ name = "limine", location = "[^"]*", version = "[^"]*" \}', '{ name = "limine", location = "path:../fake/limine-binary" }', text)
+    text = re.sub(r'\{ name = "ovmf", location = "[^"]*", version = "[^"]*", max_size = \d+ \}', '{ name = "ovmf", location = "path:../fake/edk2-ovmf-bins" }', text)
+    check(text.count("path:../fake/") == 2, "the test replaces both assets with local directories", text)
+    write(os.path.join(app, "project.dcon"), text)
+
+    r = dpm(app, "build")
+    elf = os.path.join(app, ".dpm", "out", "debug", "x86_64-elf", "osdev")
+    entry, loads = elf_loads(elf) if os.path.isfile(elf) else (None, [])
+    check(r.returncode == 0 and len(loads) == 3 and loads[0][0] == 0xffffffff80000000 and all(l[0] % 0x1000 == 0 for l in loads) and loads[0][0] <= entry < loads[-1][0] + loads[-1][1],
+          "the debug kernel links with the template's linker script", detail(r) + str((entry, loads)))
+    r = dpm(app, "build", "--profile", "release")
+    rel = os.path.join(app, ".dpm", "out", "release", "x86_64-elf", "osdev")
+    entry, loads = elf_loads(rel) if os.path.isfile(rel) else (None, [])
+    check(r.returncode == 0 and len(loads) == 3 and loads[0][0] == 0xffffffff80000000 and [l[2] for l in loads] == [6, 5, 4],
+          "the release kernel has the RW requests, RX text and R data segments", detail(r) + str((entry, loads)))
+
+    shim = os.path.join(parent, "shim")
+    log = os.path.join(parent, "tools.log")
+    write_tool(shim, "cc", 'out=""\nwhile [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\nprintf \'#!/bin/sh\\necho "limine $*" >> "%s"\\n\' > "$out"\nchmod 755 "$out"\necho "cc $out" >> "%s"\n' % (log, log))
+    write_tool(shim, "xorriso", 'out=""\nstage=""\nprev=""\nfor a in "$@"; do [ "$prev" = -o ] && out=$a; case "$a" in /*) [ -d "$a" ] && stage=$a;; esac; prev=$a; done\n(cd "$stage" && find . -type f | sort) > "$out"\necho "xorriso $out" >> "%s"\n' % log)
+    for tool in ("sgdisk", "mformat", "mmd", "mcopy", "qemu-system-x86_64"):
+        write_tool(shim, tool, 'echo "%s $*" >> "%s"\n' % (tool, log))
+    env = {"PATH": shim + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin")}
+    r = dpm(app, "task", "iso", env=env)
+    iso = os.path.join(app, ".dpm", "tasks", "iso", "template.iso")
+    listing = read(iso) if os.path.isfile(iso) else ""
+    tools = read(log) if os.path.isfile(log) else ""
+    check(r.returncode == 0 and "Running task limine-tool" in r.stdout and "Running task iso" in r.stdout, "dpm task iso runs the tool build and the image task", detail(r) + tools)
+    check(all(x in listing for x in ("./boot/kernel", "./boot/limine/limine.conf", "./boot/limine/limine-bios-cd.bin", "./EFI/BOOT/BOOTX64.EFI", "./EFI/BOOT/BOOTIA32.EFI")),
+          "the ISO staging tree holds the kernel, the config and the Limine files", listing)
+    check("limine bios-install " + iso in tools and 'name = "limine"' in read(os.path.join(app, "project.lock.dcon")), "the built host tool installs the BIOS stages and the assets are locked", tools)
+    r = dpm(app, "task", "iso", env=env)
+    check("Fresh task limine-tool" in r.stdout and "Fresh task iso" in r.stdout and "Fresh osdev" in r.stdout, "a second iso run is fresh", detail(r))
+    write(os.path.join(app, "limine.conf"), read(os.path.join(app, "limine.conf")) + "\n")
+    r = dpm(app, "task", "iso", env=env)
+    check("Fresh task limine-tool" in r.stdout and "Running task iso" in r.stdout, "editing limine.conf rebuilds only the image", detail(r))
+    write(os.path.join(limine, "limine.c"), "changed\n")
+    r = dpm(app, "task", "iso", env=env)
+    check("Running task limine-tool" in r.stdout and "Running task iso" in r.stdout, "a changed Limine source rebuilds the tool and the image", detail(r))
+    r = dpm(app, "task", "hdd", env=env)
+    hdd = os.path.join(app, ".dpm", "tasks", "hdd", "template.hdd")
+    tools = read(log)
+    check(r.returncode == 0 and os.path.getsize(hdd) == 64 << 20 and "sgdisk %s -n 1:2048:" % hdd in tools and "mcopy -i %s@@1048576" % hdd in tools,
+          "dpm task hdd lays out the disk image", detail(r) + tools)
+    r = dpm(app, "run", "--", "-m", "4G", env=env)
+    qemu = [l for l in read(log).splitlines() if l.startswith("qemu-system-x86_64")]
+    check(r.returncode == 0 and qemu and "-cdrom " + iso in qemu[-1] and qemu[-1].endswith("-boot d -m 4G"), "dpm run boots the ISO and passes the arguments to QEMU", detail(r) + str(qemu))
+    r = dpm(app, "task", "run-uefi", env=env)
+    qemu = [l for l in read(log).splitlines() if l.startswith("qemu-system-x86_64")]
+    check(r.returncode == 0 and "file=%s/ovmf-code-x86_64.fd,readonly=on" % os.path.realpath(ovmf) in qemu[-1].replace(os.path.abspath(ovmf), os.path.realpath(ovmf)),
+          "run-uefi passes the OVMF asset to QEMU", detail(r) + str(qemu))
+    r = dpm(app, "task", "run-hdd-uefi", env=env)
+    qemu = [l for l in read(log).splitlines() if l.startswith("qemu-system-x86_64")]
+    check(r.returncode == 0 and "-hda " + hdd in qemu[-1], "run-hdd-uefi boots the disk image", detail(r) + str(qemu))
+    r = dpm(app, "clean")
+    check(r.returncode == 0 and not os.path.exists(os.path.join(app, ".dpm", "tasks")), "dpm clean removes the images", detail(r))
+
+
 def scenario_tests():
     app = new_app("tested")
     write(os.path.join(app, "tests", "good.dc"), "module good;\n\npublic i32 main()\n{\n    return 0;\n}\n")
@@ -1930,6 +2037,7 @@ try:
     scenario_offline_and_cache()
     scenario_assets()
     scenario_tasks()
+    scenario_limine_template()
     scenario_registry_file()
     scenario_registry_dependencies()
     scenario_registry_configuration()

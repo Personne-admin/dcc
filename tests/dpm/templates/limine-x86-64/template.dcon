@@ -1,0 +1,9 @@
+dpm::v1::Template {
+    name = "limine-x86-64",
+    description = "An x86-64 kernel booted by Limine (BIOS and UEFI), runnable under QEMU.",
+    variables = {
+        { name = "title", description = "Boot menu entry title", default_value = "Limine Template", max_length = 48 },
+    },
+    substitute = { "project.dcon", "limine.conf", "README.md" },
+    next_steps = "cd @@dir@@\n  dpm task iso        build the kernel and a bootable ISO\n  dpm run             boot it in QEMU (BIOS)\n  dpm task run-uefi   boot it in QEMU with OVMF",
+}
