@@ -357,4 +357,312 @@ export namespace dpm::stamp
         verdict.state = State::Fresh;
         return verdict;
     }
+    struct Output
+    {
+        std::filesystem::path path;
+        bool directory{};
+        std::uint64_t size{};
+        std::int64_t mtime_ns{};
+        std::string hash;
+    };
+
+    struct TaskStamp
+    {
+        std::string key;
+        std::vector<Output> outputs;
+        std::vector<Input> inputs;
+    };
+
+    [[nodiscard]] inline std::string make_task_key(std::span<std::string const> parts)
+    {
+        hash::Sha256 h;
+        auto add = [&](std::string_view part)
+        {
+            h.update(std::to_string(part.size()));
+            h.update(":");
+            h.update(part);
+            h.update("\n");
+        };
+        add("dpm-stamp-key 2");
+        add(std::to_string(parts.size()));
+        for (auto const& p : parts)
+            add(p);
+        return "sha256:" + h.finish_hex();
+    }
+
+    [[nodiscard]] inline std::optional<Output> observe_output(std::filesystem::path const& path)
+    {
+        std::error_code ec;
+        auto status = std::filesystem::symlink_status(path, ec);
+        if (ec)
+            return std::nullopt;
+        Output out;
+        out.path = path;
+        if (std::filesystem::is_directory(status))
+        {
+            auto tree = hash::tree_hash(path);
+            if (!tree.ok)
+                return std::nullopt;
+            out.directory = true;
+            out.hash = tree.hash;
+            return out;
+        }
+        if (!std::filesystem::is_regular_file(status))
+            return std::nullopt;
+        out.size = std::filesystem::file_size(path, ec);
+        if (ec)
+            return std::nullopt;
+        auto mtime = std::filesystem::last_write_time(path, ec);
+        if (ec)
+            return std::nullopt;
+        out.mtime_ns = to_ns(mtime);
+        return out;
+    }
+
+    [[nodiscard]] inline std::optional<TaskStamp> record_task(std::string key, std::span<std::filesystem::path const> outputs, std::span<std::filesystem::path const> inputs,
+                                                              std::filesystem::file_time_type started_at)
+    {
+        TaskStamp stamp;
+        stamp.key = std::move(key);
+        if (inputs.size() > k_max_inputs || outputs.size() > k_max_inputs)
+            return std::nullopt;
+        std::set<std::filesystem::path> seen;
+        for (auto const& path : outputs)
+        {
+            if (path.string().find('\n') != std::string::npos)
+                return std::nullopt;
+            if (!seen.insert(path).second)
+                continue;
+            auto out = observe_output(path);
+            if (!out)
+                return std::nullopt;
+            stamp.outputs.push_back(std::move(*out));
+        }
+        seen.clear();
+        for (auto const& path : inputs)
+        {
+            if (path.string().find('\n') != std::string::npos)
+                return std::nullopt;
+            if (!seen.insert(path).second)
+                continue;
+            auto in = observe(path, started_at);
+            if (!in)
+                return std::nullopt;
+            stamp.inputs.push_back(std::move(*in));
+        }
+        return stamp;
+    }
+
+    [[nodiscard]] inline std::string print(TaskStamp const& s)
+    {
+        std::string out = "dpm-stamp 2\n";
+        out += std::format("key {}\n", s.key);
+        for (auto const& o : s.outputs)
+        {
+            if (o.directory)
+                out += std::format("output dir {} {}\n", o.hash, o.path.string());
+            else
+                out += std::format("output file {} {} {}\n", o.size, o.mtime_ns, o.path.string());
+        }
+        for (auto const& in : s.inputs)
+            out += std::format("input {} {} {} {} {}\n", in.size, in.mtime_ns, in.racy ? 1 : 0, in.hash, in.path.string());
+        return out;
+    }
+
+    [[nodiscard]] inline std::optional<TaskStamp> parse_task(std::string_view text)
+    {
+        auto next_line = [&]() -> std::optional<std::string_view>
+        {
+            if (text.empty())
+                return std::nullopt;
+            auto end = text.find('\n');
+            if (end == std::string_view::npos)
+                return std::nullopt;
+            auto line = text.substr(0, end);
+            text.remove_prefix(end + 1);
+            return line;
+        };
+        auto number = [](std::string_view s, auto& out)
+        {
+            auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), out);
+            return ec == std::errc{} && ptr == s.data() + s.size();
+        };
+        auto take = [](std::string_view& s) -> std::string_view
+        {
+            auto space = s.find(' ');
+            auto word = s.substr(0, space);
+            s = space == std::string_view::npos ? std::string_view{} : s.substr(space + 1);
+            return word;
+        };
+        auto header = next_line();
+        if (!header || *header != "dpm-stamp 2")
+            return std::nullopt;
+        TaskStamp stamp;
+        auto key_line = next_line();
+        if (!key_line || !key_line->starts_with("key ") || !hash::is_hash_string(key_line->substr(4)))
+            return std::nullopt;
+        stamp.key = std::string{key_line->substr(4)};
+        while (auto line = next_line())
+        {
+            if (stamp.inputs.size() + stamp.outputs.size() >= k_max_inputs)
+                return std::nullopt;
+            if (line->starts_with("output dir "))
+            {
+                auto body = line->substr(11);
+                Output o;
+                o.directory = true;
+                o.hash = std::string{take(body)};
+                if (!hash::is_hash_string(o.hash) || body.empty() || !stamp.inputs.empty())
+                    return std::nullopt;
+                o.path = std::filesystem::path{std::string{body}};
+                stamp.outputs.push_back(std::move(o));
+                continue;
+            }
+            if (line->starts_with("output file "))
+            {
+                auto body = line->substr(12);
+                Output o;
+                if (!number(take(body), o.size) || !number(take(body), o.mtime_ns) || body.empty() || !stamp.inputs.empty())
+                    return std::nullopt;
+                o.path = std::filesystem::path{std::string{body}};
+                stamp.outputs.push_back(std::move(o));
+                continue;
+            }
+            if (!line->starts_with("input "))
+                return std::nullopt;
+            auto body = line->substr(6);
+            Input in;
+            int racy = 0;
+            if (!number(take(body), in.size) || !number(take(body), in.mtime_ns) || !number(take(body), racy) || (racy != 0 && racy != 1))
+                return std::nullopt;
+            in.racy = racy == 1;
+            in.hash = std::string{take(body)};
+            if (in.hash.size() != 64 || body.empty())
+                return std::nullopt;
+            in.path = std::filesystem::path{std::string{body}};
+            stamp.inputs.push_back(std::move(in));
+        }
+        if (!text.empty())
+            return std::nullopt;
+        return stamp;
+    }
+
+    [[nodiscard]] inline std::optional<TaskStamp> read_task(std::filesystem::path const& path)
+    {
+        std::error_code ec;
+        if (!std::filesystem::is_regular_file(path, ec))
+            return std::nullopt;
+        auto size = std::filesystem::file_size(path, ec);
+        if (ec || size > k_max_stamp_size)
+            return std::nullopt;
+        std::ifstream in{path, std::ios::binary};
+        if (!in)
+            return std::nullopt;
+        std::string text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+        return parse_task(text);
+    }
+
+    [[nodiscard]] inline bool write_task(std::filesystem::path const& path, TaskStamp const& stamp)
+    {
+        auto temp = path;
+        temp += std::format(".tmp{}", ::getpid());
+        {
+            std::ofstream out{temp, std::ios::binary | std::ios::trunc};
+            if (!out)
+                return false;
+            auto text = print(stamp);
+            out.write(text.data(), static_cast<std::streamsize>(text.size()));
+            if (!out)
+                return false;
+        }
+        std::error_code ec;
+        std::filesystem::rename(temp, path, ec);
+        if (ec)
+        {
+            std::filesystem::remove(temp, ec);
+            return false;
+        }
+        return true;
+    }
+
+    [[nodiscard]] inline Verdict verify_task(TaskStamp& stamp, std::string_view key, std::span<std::filesystem::path const> outputs,
+                                             std::span<std::filesystem::path const> inputs, std::filesystem::file_time_type now)
+    {
+        Verdict verdict;
+        if (stamp.key != key)
+        {
+            verdict.detail = "the command, its environment or a product or asset it uses changed";
+            return verdict;
+        }
+        std::set<std::filesystem::path> wanted_outputs(outputs.begin(), outputs.end());
+        std::set<std::filesystem::path> recorded_outputs;
+        for (auto const& o : stamp.outputs)
+            recorded_outputs.insert(o.path);
+        if (wanted_outputs != recorded_outputs)
+        {
+            verdict.detail = "the outputs changed";
+            return verdict;
+        }
+        std::set<std::filesystem::path> wanted_inputs(inputs.begin(), inputs.end());
+        std::set<std::filesystem::path> recorded_inputs;
+        for (auto const& in : stamp.inputs)
+            recorded_inputs.insert(in.path);
+        if (wanted_inputs != recorded_inputs)
+        {
+            verdict.state = State::InputChanged;
+            verdict.detail = "the set of input files changed";
+            return verdict;
+        }
+        for (auto const& o : stamp.outputs)
+        {
+            auto now_output = observe_output(o.path);
+            bool const same = now_output && now_output->directory == o.directory &&
+                              (o.directory ? now_output->hash == o.hash : now_output->size == o.size && now_output->mtime_ns == o.mtime_ns);
+            if (!same)
+            {
+                verdict.state = State::OutputChanged;
+                verdict.detail = std::format("{} is missing or was modified", o.path.string());
+                return verdict;
+            }
+        }
+        std::error_code ec;
+        bool refreshed = false;
+        Verdict inner;
+        inner.state = State::Fresh;
+        for (auto& in : stamp.inputs)
+        {
+            auto status = std::filesystem::status(in.path, ec);
+            if (ec || !std::filesystem::is_regular_file(status))
+            {
+                inner.state = State::InputMissing;
+                inner.detail = std::format("{} is gone", in.path.string());
+                break;
+            }
+            auto in_size = std::filesystem::file_size(in.path, ec);
+            auto in_mtime = ec ? std::filesystem::file_time_type{} : std::filesystem::last_write_time(in.path, ec);
+            if (ec)
+            {
+                inner.state = State::InputMissing;
+                inner.detail = std::format("{} cannot be read", in.path.string());
+                break;
+            }
+            bool const unchanged = in_size == in.size && to_ns(in_mtime) == in.mtime_ns;
+            if (unchanged && !in.racy)
+                continue;
+            auto h = in_size == in.size ? hash::hash_file(in.path) : hash::FileHash{};
+            if (in_size != in.size || !h.ok || h.hex != in.hash)
+            {
+                inner.state = State::InputChanged;
+                inner.detail = std::format("{} changed", in.path.string());
+                break;
+            }
+            bool const racy = in_mtime + k_racy_window >= now;
+            if (in.mtime_ns != to_ns(in_mtime) || in.racy != racy)
+                refreshed = true;
+            in.mtime_ns = to_ns(in_mtime);
+            in.racy = racy;
+        }
+        inner.refreshed = refreshed;
+        return inner;
+    }
 } // namespace dpm::stamp

@@ -139,6 +139,7 @@ export namespace dpm::cli
         inline constexpr Opt run_opts[] = {Opt::ManifestPath, Opt::Profile, Opt::Target, Opt::Optimize, Opt::Offline, Opt::Refresh, Opt::Locked, Opt::Verbose, Opt::Runner};
         inline constexpr Opt test_opts[] = {Opt::ManifestPath, Opt::Profile, Opt::Target, Opt::Optimize, Opt::Offline, Opt::Refresh, Opt::Locked, Opt::Verbose,
                                             Opt::Runner, Opt::Timeout, Opt::Jobs};
+        inline constexpr Opt task_opts[] = {Opt::ManifestPath, Opt::Profile, Opt::Target, Opt::Optimize, Opt::Offline, Opt::Refresh, Opt::Locked, Opt::Verbose, Opt::DryRun};
         inline constexpr Opt manifest_only[] = {Opt::ManifestPath};
         inline constexpr Opt graph_opts[] = {Opt::ManifestPath, Opt::Offline, Opt::Refresh};
         inline constexpr Opt cache_clean_opts[] = {Opt::All};
@@ -206,7 +207,14 @@ export namespace dpm::cli
         {"test", "[<name>...]", "build and run the test programs",
          "Builds and runs every <test_dir>/*.dc (or the named ones) with the dependencies and dev_dependencies. A test passes when it exits with 0.",
          detail::test_opts, 0, k_unlimited, false, detail::codes({0, 1, 2, 3, 4, 5}), false},
-        {"clean", "", "remove .dpm/out", "Removes the build output of this package. The cache is not touched; see 'dpm cache clean'.", detail::manifest_only, 0, 0, false,
+        {"task", "[<name>] [-- <args>...]", "run a task declared in project.dcon",
+         "Without a name, lists the tasks of the project. With a name, builds the products the task and the tasks it needs list in build, fetches the "
+         "assets they use, runs the needed tasks first and then the task, with the arguments after -- appended to its command. Commands run directly, "
+         "without a shell, in the user's environment. A task with outputs is skipped while its command, inputs and outputs are unchanged. Only the "
+         "tasks of this project run; tasks of dependencies and templates never do, and no other dpm command runs a task. With --dry-run the expanded "
+         "commands are printed and nothing is built or run.",
+         detail::task_opts, 0, 1, true, detail::codes({0, 1, 2, 3, 4, 5}), false},
+        {"clean", "", "remove .dpm/out and .dpm/tasks", "Removes the build output and the task directories and stamps of this package. The cache is not touched; see 'dpm cache clean'.", detail::manifest_only, 0, 0, false,
          detail::codes({0, 1, 2}), false},
         {"tree", "", "print the resolved dependency graph", "Resolves the dependencies and prints the build list as a tree.", detail::graph_opts, 0, 0, false,
          detail::codes({0, 2, 3, 4, 5}), false},

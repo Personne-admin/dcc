@@ -410,5 +410,6 @@ TEST_CASE("golden help output")
     CHECK_EQ(cli::help_text("registry check", 80), read_golden("registry-check.txt"));
     CHECK_EQ(cli::help_text("new", 80), read_golden("new.txt"));
     CHECK_EQ(cli::help_text("template", 80), read_golden("template.txt"));
+    CHECK_EQ(cli::help_text("task", 80), read_golden("task.txt"));
     CHECK(!read_golden("overview.txt").empty());
 }

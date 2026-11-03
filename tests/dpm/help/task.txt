@@ -1,0 +1,44 @@
+usage: dpm task [<name>] [-- <args>...] [options]
+
+Without a name, lists the tasks of the project. With a name, builds the
+products the task and the tasks it needs list in build, fetches the assets
+they use, runs the needed tasks first and then the task, with the arguments
+after -- appended to its command. Commands run directly, without a shell, in
+the user's environment. A task with outputs is skipped while its command,
+inputs and outputs are unchanged. Only the tasks of this project run; tasks of
+dependencies and templates never do, and no other dpm command runs a task.
+With --dry-run the expanded commands are printed and nothing is built or run.
+
+options:
+  --manifest-path <file>    use this project.dcon instead of the one in the
+                            current directory. The file must be named
+                            project.dcon; dpm works in its directory.
+  --profile <name>          build profile (debug, release, or one defined in
+                            project.dcon) [default: debug]
+  --target <triple>         override the target of every product (one of:
+                            host, x86_64-elf, x86_64-coff, x86-elf, x86-coff,
+                            i8086-binary, i8086-mz) [default: from the
+                            manifest]
+  -O <level>                override the optimization level (one of: 0, 1, 2,
+                            s) [default: from the profile]
+  --offline                 never use the network; use only what is in the
+                            cache. The same as DPM_OFFLINE=1. Something that
+                            is missing from the cache is an error (exit code
+                            5).
+  --refresh                 ignore the 24-hour freshness window of cached
+                            registry files
+  --locked                  fail instead of updating project.lock.dcon when it
+                            is missing or out of date
+  -v                        print the dcc command lines
+  --dry-run                 show what would change and write nothing
+
+exit codes:
+  0                         success
+  1                         a build or test failed, a precondition was not
+                            met, or a file could not be written
+  2                         usage error
+  3                         invalid manifest, lock or configuration file
+  4                         resolution or integrity error (conflicting
+                            versions, hash mismatch, registry problems)
+  5                         network error, or something is missing from the
+                            cache while offline

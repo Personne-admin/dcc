@@ -18,6 +18,7 @@ import dpm.semver;
 import dpm.settings;
 import dpm.stage;
 import dpm.stamp;
+import dpm.task;
 
 namespace
 {
@@ -429,6 +430,7 @@ namespace
     {
         m::Lock lock;
         std::vector<dpm::build::PackageRoot> roots;
+        std::map<std::string, fs::path> assets;
     };
 
     std::optional<Prepared> prepare(Session& s, int& code)
@@ -457,6 +459,7 @@ namespace
         auto fetched = dpm::fetch::fetch_locked(s.cache, p.lock, s.policy, s.options.schema_root, s.previous ? &*s.previous : nullptr);
         if (!report_fetch_errors(fetched, code) || !check_namespaces(s, fetched, code))
             return std::nullopt;
+        p.assets = std::move(fetched.assets);
         std::string error;
         auto roots = dpm::build::package_roots(p.lock, s.cache, ".", s.options.schema_root, s.policy.allow_file, error);
         if (!roots)
@@ -882,14 +885,239 @@ namespace
     int cmd_clean(Common common)
     {
         (void)common;
-        std::error_code ec;
-        fs::remove_all(fs::path{".dpm"} / "out", ec);
-        if (ec)
+        for (auto const& dir : {fs::path{".dpm"} / "out", fs::path{".dpm"} / "tasks"})
         {
-            std::println(std::cerr, "dpm: cannot remove .dpm/out");
-            return k_exit_failure;
+            dpm::cache::detail::remove_tree(dir);
+            std::error_code ec;
+            if (fs::exists(dir, ec))
+            {
+                std::println(std::cerr, "dpm: cannot remove {}", dir.generic_string());
+                return k_exit_failure;
+            }
         }
         return 0;
+    }
+
+    std::string describe_exit(dpm::process::Result const& r)
+    {
+        if (r.signal != 0)
+            return std::format("signal {}", r.signal);
+        return std::format("exit {}", r.exit_code);
+    }
+
+    int run_tasks(Session& s, std::string const& name, std::vector<std::string> const& extra)
+    {
+        auto const* target_task = static_cast<m::Task const*>(nullptr);
+        for (auto const& t : s.project.tasks)
+            if (t.name == name)
+                target_task = &t;
+        if (!target_task)
+        {
+            std::println(std::cerr, "error: project.dcon declares no task '{}' (run 'dpm task' for the list)", name);
+            return k_exit_usage;
+        }
+        if (!profile_known(s.project, s.common.profile))
+        {
+            std::println(std::cerr, "error: unknown profile '{}'", s.common.profile);
+            return k_exit_usage;
+        }
+        auto order = dpm::task::order(s.project, name);
+        auto needs = dpm::task::needs_of(s.project, order);
+        dpm::task::Context ctx;
+        auto root = fs::absolute(".").lexically_normal().generic_string();
+        while (root.size() > 1 && root.ends_with('/'))
+            root.pop_back();
+        ctx.root = root;
+        ctx.profile = s.common.profile;
+        ctx.dcc = fs::absolute(dcc_path()).lexically_normal();
+        ctx.offline = s.policy.offline;
+        dpm::build::Request request;
+        request.project = &s.project;
+        request.project_root = ".";
+        request.profile = s.common.profile;
+        request.overrides.target = s.common.target;
+        request.overrides.optimize = s.common.optimize;
+        request.dcc = dcc_path();
+        for (auto const& p : s.project.products)
+        {
+            auto plan = dpm::build::plan_product(request, p);
+            ctx.outs[p.name] = (ctx.root / plan.output).lexically_normal();
+            ctx.targets[p.name] = dpm::build::target_dir(plan.settings.target);
+        }
+        auto add_asset = [&](std::string const& asset_name, fs::path const& path, std::string const& hash)
+        {
+            ctx.assets[asset_name] = path.is_absolute() ? path.lexically_normal() : (ctx.root / path).lexically_normal();
+            ctx.asset_hashes[asset_name] = hash.empty() ? dpm::hash::tree_hash(ctx.assets[asset_name]).hash : hash;
+        };
+        int code = 0;
+        if (s.common.dry_run)
+        {
+            ctx.keep_unresolved = true;
+            if (s.previous && dpm::lock::is_current(s.project, *s.previous))
+                for (auto const& a : s.previous->assets)
+                {
+                    auto path = a.source.starts_with("path:") ? fs::path{a.source.substr(5)} : s.cache.src_path(a.hash);
+                    ctx.assets[a.name] = path.is_absolute() ? path : (ctx.root / path).lexically_normal();
+                }
+            for (auto const* t : order)
+            {
+                auto expanded = dpm::task::expand_task(*t, ctx, t == order.back() ? std::span<std::string const>{extra} : std::span<std::string const>{});
+                if (!expanded)
+                {
+                    std::println(std::cerr, "error: task {}: {}", t->name, expanded.error());
+                    return k_exit_manifest;
+                }
+                std::println("task {}", t->name);
+                if (!t->build.empty())
+                    std::println("  build {}", join_command(t->build));
+                std::println("  cd {}", expanded->cwd.generic_string());
+                std::println("  {}", join_command(expanded->argv));
+            }
+            return 0;
+        }
+        if (!needs.products.empty() || !needs.assets.empty())
+        {
+            auto prepared = prepare(s, code);
+            if (!prepared)
+                return code;
+            for (auto const& a : prepared->lock.assets)
+                if (needs.assets.contains(a.name))
+                {
+                    auto it = prepared->assets.find(a.name);
+                    if (it != prepared->assets.end())
+                        add_asset(a.name, it->second, a.hash);
+                }
+            std::vector<m::Product const*> products;
+            for (auto const& p : s.project.products)
+                if (std::ranges::find(needs.products, p.name) != needs.products.end())
+                    products.push_back(&p);
+            if (!products.empty() && !build_products(s, *prepared, products, code))
+                return code;
+        }
+        std::string path_value = std::getenv("PATH") ? std::getenv("PATH") : "/usr/local/bin:/usr/bin:/bin";
+        for (auto const* t : order)
+        {
+            auto expanded = dpm::task::expand_task(*t, ctx, t == order.back() ? std::span<std::string const>{extra} : std::span<std::string const>{});
+            if (!expanded)
+            {
+                std::println(std::cerr, "error: task {}: {}", t->name, expanded.error());
+                return k_exit_manifest;
+            }
+            for (auto const& tool : t->tools)
+                if (!dpm::process::detail::find_program(tool, path_value))
+                {
+                    std::println(std::cerr, "error: task {} needs '{}', which is not on PATH", t->name, tool);
+                    return k_exit_failure;
+                }
+            auto stamp_path = dpm::task::stamp_path(ctx, t->name);
+            std::string key;
+            std::vector<fs::path> inputs;
+            if (!t->outputs.empty())
+            {
+                auto collected = dpm::task::collect_inputs(expanded->inputs);
+                if (!collected)
+                {
+                    std::println(std::cerr, "error: task {}: {}", t->name, collected.error());
+                    return k_exit_failure;
+                }
+                inputs = std::move(*collected);
+                key = dpm::task::make_key(*expanded, ctx);
+                if (auto stamp = dpm::stamp::read_task(stamp_path))
+                {
+                    auto verdict = dpm::stamp::verify_task(*stamp, key, expanded->outputs, inputs, fs::file_time_type::clock::now());
+                    if (verdict.state == dpm::stamp::State::Fresh)
+                    {
+                        if (verdict.refreshed)
+                            (void)dpm::stamp::write_task(stamp_path, *stamp);
+                        std::println("    Fresh task {}", t->name);
+                        continue;
+                    }
+                    if (s.common.verbose)
+                        std::println(std::cerr, "dpm: running task {}: {}", t->name, verdict.detail);
+                }
+            }
+            std::error_code ec;
+            fs::create_directories(dpm::task::task_dir(ctx, t->name), ec);
+            dpm::stamp::remove(stamp_path);
+            if (!fs::is_directory(expanded->cwd, ec))
+            {
+                std::println(std::cerr, "error: task {}: the working directory {} does not exist", t->name, expanded->cwd.generic_string());
+                return k_exit_failure;
+            }
+            std::println("    Running task {}", t->name);
+            if (s.common.verbose)
+                std::println(std::cerr, "dpm: {}", join_command(expanded->argv));
+            std::fflush(nullptr);
+            dpm::process::Command cmd;
+            cmd.argv = expanded->argv;
+            cmd.env = expanded->env;
+            cmd.cwd = expanded->cwd;
+            cmd.inherit_env = true;
+            cmd.passthrough = true;
+            cmd.own_group = true;
+            cmd.timeout = t->timeout > 0 ? std::chrono::milliseconds{std::chrono::seconds{t->timeout}} : std::chrono::milliseconds{std::chrono::hours{24 * 365}};
+            auto started_at = fs::file_time_type::clock::now();
+            auto r = dpm::process::run(cmd);
+            if (!r.started)
+            {
+                std::println(std::cerr, "error: task {}: {}", t->name, r.error);
+                return k_exit_failure;
+            }
+            if (r.timed_out)
+            {
+                std::println(std::cerr, "error: task {} timed out after {} s", t->name, t->timeout);
+                return k_exit_failure;
+            }
+            if (r.signal != 0 || r.exit_code != 0)
+            {
+                std::println(std::cerr, "error: task {} failed ({})", t->name, describe_exit(r));
+                return k_exit_failure;
+            }
+            if (t->outputs.empty())
+                continue;
+            auto after = dpm::task::collect_inputs(expanded->inputs);
+            auto stamp = after ? dpm::stamp::record_task(key, expanded->outputs, *after, started_at) : std::nullopt;
+            if (!stamp || !dpm::stamp::write_task(stamp_path, *stamp))
+                std::println(std::cerr, "warning: task {} did not leave all its outputs and inputs in place; it will run again", t->name);
+        }
+        return 0;
+    }
+
+    int cmd_task(Common common)
+    {
+        Session s;
+        auto extra = common.passthrough;
+        auto positional = common.positional;
+        if (auto code = open_session(s, std::move(common)))
+            return *code;
+        if (positional.empty())
+        {
+            if (!extra.empty())
+            {
+                std::println(std::cerr, "usage: dpm task NAME [-- ARGS...]");
+                return k_exit_usage;
+            }
+            if (s.project.tasks.empty())
+            {
+                std::println("project.dcon declares no tasks");
+                return 0;
+            }
+            std::size_t width = 0;
+            for (auto const& t : s.project.tasks)
+                width = std::max(width, t.name.size());
+            for (auto const& t : s.project.tasks)
+            {
+                std::string text = t.description;
+                if (!t.tools.empty())
+                    text += (text.empty() ? "" : " ") + std::format("(tools: {})", join_command(t.tools));
+                auto line = std::format("  {:<{}}  {}", t.name, width, text);
+                while (line.ends_with(' '))
+                    line.pop_back();
+                std::println("{}", line);
+            }
+            return 0;
+        }
+        return run_tasks(s, positional[0], extra);
     }
 
     std::string identifier_from(std::string_view text)
@@ -2215,5 +2443,7 @@ auto main(int argc, char** argv) -> int
         return cmd_test(std::move(common));
     if (command == "clean")
         return cmd_clean(std::move(common));
+    if (command == "task")
+        return cmd_task(std::move(common));
     return k_exit_usage;
 }

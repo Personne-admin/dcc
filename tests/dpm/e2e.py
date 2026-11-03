@@ -919,6 +919,147 @@ def scenario_assets():
     check(r.returncode == 0 and "assets = {" not in read(os.path.join(consumer, "project.lock.dcon")), "assets of dependencies are ignored", detail(r))
 
 
+def set_tasks(app, tasks_text, extra=""):
+    path = os.path.join(app, "project.dcon")
+    text = read(path)
+    text = re.sub(r"\n    tasks = \{.*\n    \},\n", "\n", text, flags=re.S)
+    text = text.rstrip()
+    assert text.endswith("}")
+    text = text[:-1].rstrip().rstrip(",") + ",\n" + extra + "    tasks = {\n" + tasks_text + "\n    },\n}\n"
+    write(path, text)
+
+
+def scenario_tasks():
+    app = new_app("taskapp", "return 9;")
+    log = os.path.join(app, "log.txt")
+    r = dpm(app, "task")
+    check(r.returncode == 0 and "declares no tasks" in r.stdout, "dpm task lists nothing without tasks", detail(r))
+    write(os.path.join(app, "data", "in.txt"), "one\n")
+    write(os.path.join(app, "vendor", "fw", "code.fd"), "firmware\n")
+    set_tasks(app, r"""
+        { name = "first", description = "write the first line", command = { "sh", "-c", "echo first >> log.txt" } },
+        { name = "second", command = { "sh", "-c", "echo second $$1 >> log.txt", "sh" }, needs = { "first" } },
+        { name = "both", command = { "sh", "-c", "echo both \"$$@\" >> log.txt", "sh" }, needs = { "second", "first" } },
+        { name = "copy", description = "copy the input", command = { "cp", "data/in.txt", "${task_dir}/out.txt" }, inputs = { "data/*.txt" }, outputs = { "${task_dir}/out.txt" }, env = { { name = "MODE", value = "a" } } },
+        { name = "env", command = { "sh", "-c", "echo $$DPM_ROOT $$DPM_PROFILE $$DPM_TASK $$DPM_OUT_TASKAPP $$GREETING > env.txt" }, env = { { name = "GREETING", value = "hi ${profile}" } } },
+        { name = "fail", command = { "sh", "-c", "exit 3" } },
+        { name = "killed", command = { "sh", "-c", "kill -9 $$$$" } },
+        { name = "slow", command = { "sleep", "30" }, timeout = 1 },
+        { name = "tool", command = { "true" }, tools = { "no-such-tool-for-dpm" } },
+        { name = "literal", command = { "printf", "%s|%s\n", "a; touch pwned", "$$(touch pwned2)" } },
+        { name = "built", command = { "sh", "-c", "\"$$1\"; echo $$? > built.txt", "sh", "${out:taskapp}" }, build = { "taskapp" } },
+        { name = "asset", command = { "cp", "${asset:fw}/code.fd", "fw.txt" } },
+        { name = "missing-input", command = { "true" }, inputs = { "nothing.txt" }, outputs = { "x" } },
+        { name = "cd", command = { "sh", "-c", "pwd > where.txt" }, cwd = "data" },""", extra='    assets = { { name = "fw", location = "path:vendor/fw" } },\n')
+    r = dpm(app, "task")
+    check(r.returncode == 0 and "first" in r.stdout and "write the first line" in r.stdout and "no-such-tool-for-dpm" in r.stdout, "dpm task lists the tasks", detail(r))
+    r = dpm(app, "task", "both", "--", "x", "y z")
+    check(r.returncode == 0, "a task with needs runs", detail(r))
+    check(read(log) == "first\nsecond\nboth x y z\n", "needs run first, each once, and arguments go to the named task only", read(log) if os.path.exists(log) else "")
+    check(not os.path.exists(os.path.join(app, "project.lock.dcon")), "a task without products or assets does not write the lock")
+    check(not os.path.exists(os.path.join(app, ".dpm", "out")), "and builds nothing")
+
+    r = dpm(app, "task", "copy")
+    check(r.returncode == 0 and "Running task copy" in r.stdout and read(os.path.join(app, ".dpm", "tasks", "copy", "out.txt")) == "one\n", "a task writes into its task directory", detail(r))
+    r = dpm(app, "task", "copy")
+    check(r.returncode == 0 and "Fresh task copy" in r.stdout, "a task with unchanged inputs and outputs is skipped", detail(r))
+    write(os.path.join(app, "data", "in.txt"), "two\n")
+    r = dpm(app, "task", "copy")
+    check("Running task copy" in r.stdout and read(os.path.join(app, ".dpm", "tasks", "copy", "out.txt")) == "two\n", "a changed input reruns the task", detail(r))
+    write(os.path.join(app, "data", "new.txt"), "new\n")
+    r = dpm(app, "task", "copy")
+    check("Running task copy" in r.stdout, "a new file matching an input glob reruns the task", detail(r))
+    check("Fresh task copy" in dpm(app, "task", "copy").stdout, "and then it is fresh again")
+    write(os.path.join(app, ".dpm", "tasks", "copy", "out.txt"), "tampered\n")
+    r = dpm(app, "task", "copy")
+    check("Running task copy" in r.stdout and read(os.path.join(app, ".dpm", "tasks", "copy", "out.txt")) == "two\n", "a modified output reruns the task", detail(r))
+    os.remove(os.path.join(app, ".dpm", "tasks", "copy", "out.txt"))
+    check("Running task copy" in dpm(app, "task", "copy").stdout, "a missing output reruns the task")
+    check("Running task copy" in dpm(app, "task", "copy", "--", "-p").stdout, "different arguments rerun the task")
+    check("Running task copy" in dpm(app, "task", "copy").stdout, "and going back reruns it again")
+    text = read(os.path.join(app, "project.dcon"))
+    write(os.path.join(app, "project.dcon"), text.replace('value = "a" }', 'value = "b" }'))
+    check("Running task copy" in dpm(app, "task", "copy").stdout, "a changed environment variable reruns the task")
+    text = read(os.path.join(app, "project.dcon"))
+    write(os.path.join(app, "project.dcon"), text.replace('command = { "cp", "data/in.txt"', 'command = { "cp", "-f", "data/in.txt"'))
+    check("Running task copy" in dpm(app, "task", "copy").stdout, "a changed command reruns the task")
+    check("Fresh task copy" in dpm(app, "task", "copy").stdout, "and then it is fresh")
+    check("Fresh task copy" in dpm(app, "task", "copy", "--profile", "debug").stdout, "an explicit default profile keeps it fresh")
+
+    r = dpm(app, "task", "env")
+    root = os.path.realpath(app)
+    out = read(os.path.join(app, "env.txt")).split() if os.path.exists(os.path.join(app, "env.txt")) else []
+    check(r.returncode == 0 and len(out) == 6 and os.path.realpath(out[0]) == root and out[1:3] == ["debug", "env"] and out[3].endswith("/.dpm/out/debug/host/taskapp") and out[4:] == ["hi", "debug"],
+          "tasks see DPM_ROOT, DPM_PROFILE, DPM_TASK, DPM_OUT_<PRODUCT> and their own variables", detail(r) + str(out))
+    r = dpm(app, "task", "fail")
+    check(r.returncode == 1 and "task fail failed (exit 3)" in r.stderr, "a failing task exits 1 and names its exit code", detail(r))
+    r = dpm(app, "task", "killed")
+    check(r.returncode == 1 and "task killed failed (signal 9)" in r.stderr, "a task killed by a signal is reported", detail(r))
+    r = dpm(app, "task", "slow")
+    check(r.returncode == 1 and "timed out after 1 s" in r.stderr, "a task that runs too long is stopped", detail(r))
+    r = dpm(app, "task", "tool")
+    check(r.returncode == 1 and "needs 'no-such-tool-for-dpm', which is not on PATH" in r.stderr, "a missing tool is reported before the task starts", detail(r))
+    r = dpm(app, "task", "literal")
+    check(r.returncode == 0 and "a; touch pwned|$(touch pwned2)" in r.stdout and not os.path.exists(os.path.join(app, "pwned")) and not os.path.exists(os.path.join(app, "pwned2")),
+          "arguments are passed without a shell", detail(r))
+    r = dpm(app, "task", "missing-input")
+    check(r.returncode == 1 and "does not exist" in r.stderr, "a missing input is an error", detail(r))
+    r = dpm(app, "task", "cd")
+    check(r.returncode == 0 and os.path.realpath(read(os.path.join(app, "data", "where.txt")).strip()) == os.path.realpath(os.path.join(app, "data")), "cwd is relative to the project root", detail(r))
+    r = dpm(app, "task", "nope")
+    check(r.returncode == 2 and "no task 'nope'" in r.stderr, "an unknown task is a usage error", detail(r))
+
+    r = dpm(app, "task", "built", "--dry-run")
+    check(r.returncode == 0 and "task built" in r.stdout and "build taskapp" in r.stdout and not os.path.exists(os.path.join(app, ".dpm", "out")) and not os.path.exists(os.path.join(app, "built.txt")),
+          "--dry-run prints the commands and builds and runs nothing", detail(r))
+    r = dpm(app, "task", "built")
+    check(r.returncode == 0 and "Building taskapp" in r.stdout and read(os.path.join(app, "built.txt")).strip() == "9", "build products are built before the task and ${out:...} names them", detail(r))
+    r = dpm(app, "build")
+    check(r.returncode == 0 and "Fresh taskapp" in r.stdout, "dpm build after a task rebuilds nothing", detail(r))
+    r = dpm(app, "task", "asset")
+    check(r.returncode == 0 and read(os.path.join(app, "fw.txt")) == "firmware\n" and 'name = "fw"' in read(os.path.join(app, "project.lock.dcon")), "a task reads a locked asset", detail(r))
+    r = dpm(app, "task", "asset", "--dry-run")
+    check(r.returncode == 0 and "vendor/fw/code.fd" in r.stdout, "--dry-run shows locked asset paths", detail(r))
+
+    write(log, "")
+    for args in (["build"], ["lock"], ["fetch"], ["tree"], ["check"], ["test"], ["run"]):
+        dpm(app, *args)
+    check(read(log) == "", "no other command runs a task", read(log))
+    check(os.path.isdir(os.path.join(app, ".dpm", "tasks")), "task directories exist before clean")
+    r = dpm(app, "clean")
+    check(r.returncode == 0 and not os.path.exists(os.path.join(app, ".dpm", "tasks")) and not os.path.exists(os.path.join(app, ".dpm", "out")), "clean removes task directories and stamps", detail(r))
+
+    manifest = read(os.path.join(app, "project.dcon"))
+    write(os.path.join(app, "project.dcon"), manifest.replace('needs = { "first" } }', 'needs = { "both" } }'))
+    r = dpm(app, "task", "both")
+    check(r.returncode == 3 and "task cycle" in r.stderr, "a task cycle is a manifest error", detail(r))
+    write(os.path.join(app, "project.dcon"), manifest)
+    stale = manifest.replace('{ name = "fw", location = "path:vendor/fw" }', '{ name = "fw", location = "path:vendor/fw" }, { name = "fw2", location = "path:vendor/fw" }')
+    write(os.path.join(app, "project.dcon"), stale)
+    r = dpm(app, "task", "built", "--locked")
+    check(r.returncode == 4 and "out of date" in r.stderr, "--locked applies to tasks that need the lock", detail(r))
+    r = dpm(app, "task", "first", "--locked")
+    check(r.returncode == 0, "a task that needs neither products nor assets ignores the lock", detail(r))
+    write(os.path.join(app, "project.dcon"), manifest)
+
+    parent = os.path.join(ROOT, "taskdeps")
+    os.makedirs(parent)
+    check(dpm(parent, "init", "evil", "--lib").returncode == 0, "init a library with tasks")
+    lib = os.path.join(parent, "evil")
+    marker = os.path.join(ROOT, "evil-ran")
+    set_tasks(lib, '        { name = "evil", command = { "touch", "%s" } },\n        { name = "build", command = { "touch", "%s" } },' % (marker, marker))
+    consumer = os.path.join(parent, "user")
+    check(dpm(parent, "init", "user").returncode == 0, "init a consumer of a library with tasks")
+    write(os.path.join(consumer, "src", "main.dc"), "module main;\n\npublic i32 main()\n{\n    return 0;\n}\n")
+    r = dpm(consumer, "add", "path:../evil")
+    check(r.returncode == 0, "add the library with tasks", detail(r))
+    for args in (["build"], ["run"], ["task"], ["task", "evil"], ["task", "build"], ["lock"], ["fetch"]):
+        r = dpm(consumer, *args)
+    check(not os.path.exists(marker), "tasks of dependencies never run")
+    r = dpm(consumer, "task", "evil")
+    check(r.returncode == 2, "a dependency's task is not a task of the project", detail(r))
+
+
 def scenario_tests():
     app = new_app("tested")
     write(os.path.join(app, "tests", "good.dc"), "module good;\n\npublic i32 main()\n{\n    return 0;\n}\n")
@@ -1757,6 +1898,7 @@ try:
     scenario_git_dependency()
     scenario_offline_and_cache()
     scenario_assets()
+    scenario_tasks()
     scenario_registry_file()
     scenario_registry_dependencies()
     scenario_registry_configuration()

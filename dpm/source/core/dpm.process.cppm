@@ -31,6 +31,8 @@ export namespace dpm::process
         std::function<bool(std::string_view)> on_stdout;
         bool passthrough{};
         bool inherit_env{};
+        bool own_group{};
+        std::chrono::milliseconds grace{2000};
     };
 
     struct Result
@@ -50,6 +52,13 @@ export namespace dpm::process
 
     namespace detail
     {
+        inline volatile std::sig_atomic_t s_forward_signal = 0;
+
+        extern "C" inline void record_signal(int sig)
+        {
+            s_forward_signal = sig;
+        }
+
         inline std::optional<std::string> find_program(std::string const& name, std::string const& path_value)
         {
             if (name.find('/') != std::string::npos)
@@ -134,10 +143,24 @@ export namespace dpm::process
             result.error = "cannot fork";
             return result;
         }
+        bool const foreground = cmd.passthrough && cmd.own_group && ::isatty(0) && ::tcgetpgrp(0) == ::getpgrp();
         if (pid == 0)
         {
             if (!cmd.passthrough)
                 ::setsid();
+            else if (cmd.own_group)
+            {
+                ::setpgid(0, 0);
+                if (foreground)
+                {
+                    ::signal(SIGTTOU, SIG_IGN);
+                    ::tcsetpgrp(0, ::getpgrp());
+                }
+                ::signal(SIGTTOU, SIG_DFL);
+                ::signal(SIGINT, SIG_DFL);
+                ::signal(SIGTERM, SIG_DFL);
+                ::signal(SIGHUP, SIG_DFL);
+            }
             if (!cmd.passthrough || !cmd.stdin_file.empty())
             {
                 int in_fd = ::open(cmd.stdin_file.empty() ? "/dev/null" : cmd.stdin_file.c_str(), O_RDONLY);
@@ -204,6 +227,71 @@ export namespace dpm::process
                 killed = true;
             }
         };
+        if (cmd.passthrough && cmd.own_group)
+        {
+            ::setpgid(pid, pid);
+            if (foreground)
+            {
+                auto previous = ::signal(SIGTTOU, SIG_IGN);
+                ::tcsetpgrp(0, pid);
+                ::signal(SIGTTOU, previous);
+            }
+            detail::s_forward_signal = 0;
+            struct sigaction action{};
+            action.sa_handler = detail::record_signal;
+            ::sigemptyset(&action.sa_mask);
+            struct sigaction old_int{};
+            struct sigaction old_term{};
+            struct sigaction old_hup{};
+            ::sigaction(SIGINT, &action, &old_int);
+            ::sigaction(SIGTERM, &action, &old_term);
+            ::sigaction(SIGHUP, &action, &old_hup);
+            int pass_status = 0;
+            std::optional<std::chrono::steady_clock::time_point> kill_at;
+            for (;;)
+            {
+                auto done = ::waitpid(pid, &pass_status, WNOHANG);
+                if (done == pid)
+                    break;
+                if (done < 0 && errno != EINTR)
+                    break;
+                if (int sig = detail::s_forward_signal; sig != 0)
+                {
+                    detail::s_forward_signal = 0;
+                    ::kill(-pid, sig);
+                }
+                auto now = std::chrono::steady_clock::now();
+                if (!kill_at && now >= deadline)
+                {
+                    result.timed_out = true;
+                    ::kill(-pid, SIGTERM);
+                    kill_at = now + cmd.grace;
+                }
+                if (kill_at && now >= *kill_at)
+                {
+                    kill_child();
+                    ::waitpid(pid, &pass_status, 0);
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            if (result.timed_out && !killed)
+                ::kill(-pid, SIGKILL);
+            if (foreground)
+            {
+                auto previous = ::signal(SIGTTOU, SIG_IGN);
+                ::tcsetpgrp(0, ::getpgrp());
+                ::signal(SIGTTOU, previous);
+            }
+            ::sigaction(SIGINT, &old_int, nullptr);
+            ::sigaction(SIGTERM, &old_term, nullptr);
+            ::sigaction(SIGHUP, &old_hup, nullptr);
+            if (WIFEXITED(pass_status))
+                result.exit_code = WEXITSTATUS(pass_status);
+            else if (WIFSIGNALED(pass_status))
+                result.signal = WTERMSIG(pass_status);
+            return result;
+        }
         if (cmd.passthrough)
         {
             int pass_status = 0;

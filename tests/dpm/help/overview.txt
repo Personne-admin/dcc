@@ -17,7 +17,9 @@ commands:
   run [<product>] [-- <args>...]
                             build and run an executable product
   test [<name>...]          build and run the test programs
-  clean                     remove .dpm/out
+  task [<name>] [-- <args>...]
+                            run a task declared in project.dcon
+  clean                     remove .dpm/out and .dpm/tasks
   tree                      print the resolved dependency graph
   why <location>            explain why a package is in the build list
   publish                   write the registry entry for the current version
@@ -40,9 +42,14 @@ commands:
 common options (see 'dpm help <command>' for the options of one command):
   --manifest-path <file>    use this project.dcon instead of the one in the
                             current directory
+  --profile <name>          build profile (debug, release, or one defined in
+                            project.dcon) [default: debug]
   --offline                 never use the network; use only what is in the
                             cache
   --refresh                 ignore the 24-hour freshness window of cached
                             registry files
+  --locked                  fail instead of updating project.lock.dcon when it
+                            is missing or out of date
+  -v                        print the dcc command lines
   --dry-run                 show what would change and write nothing
   --registry-dir <dir>      registry clone to read and write
