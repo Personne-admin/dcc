@@ -1,0 +1,36 @@
+=== KIND: Lock ===
+=== FILE: project.dcon ===
+dpm::v1::Lock {
+    manifest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    packages = {},
+    assets = {
+        { name = "fw", source = "git+https://github.com/u/fw.git", version = "2.1.0", commit = "cccccccccccccccccccccccccccccccccccccccc", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        { name = "limine", source = "https://example.com/limine-binary.tar.gz", version = "v1.0", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        { name = "local", source = "path:../vendor/x", hash = "" },
+    },
+}
+=== EXPECT-TREE ===
+{
+  manifest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  packages = [],
+  assets = [
+    {
+      name = "fw",
+      source = "git+https://github.com/u/fw.git",
+      version = "2.1.0",
+      commit = "cccccccccccccccccccccccccccccccccccccccc",
+      hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    },
+    {
+      name = "limine",
+      source = "https://example.com/limine-binary.tar.gz",
+      version = "v1.0",
+      hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    },
+    {
+      name = "local",
+      source = "path:../vendor/x",
+      hash = "",
+    },
+  ],
+}

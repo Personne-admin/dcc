@@ -883,6 +883,7 @@ export namespace dpm::fetch
         std::size_t fetched{};
         std::size_t present{};
         std::map<std::string, std::string> names;
+        std::map<std::string, std::filesystem::path> assets;
     };
 
     namespace detail
@@ -930,6 +931,21 @@ export namespace dpm::fetch
                 return "the dependencies in its manifest differ from the lock (a registry summary that does not match the package)";
             name = project.name;
             return std::nullopt;
+        }
+
+        inline std::vector<std::string> version_tags(std::string const& subdir, std::string const& version)
+        {
+            std::vector<std::string> tags;
+            if (version.empty())
+                return tags;
+            if (!subdir.empty())
+            {
+                tags.push_back(subdir + "/v" + version);
+                tags.push_back(subdir + "/" + version);
+            }
+            tags.push_back("v" + version);
+            tags.push_back(version);
+            return tags;
         }
 
         [[nodiscard]] inline std::filesystem::path verified_stamp(cache::Cache const& cache, manifest::LockedPackage const& p)
@@ -1017,6 +1033,173 @@ export namespace dpm::fetch
             std::ofstream out{stamp, std::ios::binary | std::ios::trunc};
             out << name;
         }
+        for (auto const& a : lock.assets)
+        {
+            if (a.source.starts_with("path:"))
+            {
+                all.assets[a.name] = std::filesystem::path{a.source.substr(5)};
+                continue;
+            }
+            bool already_pinned = false;
+            if (pinned)
+                for (auto const& q : pinned->assets)
+                    if (q.name == a.name && q.source == a.source && q.version == a.version && q.commit == a.commit && q.hash == a.hash)
+                        already_pinned = true;
+            Fetched f;
+            if (is_tarball_location(a.source, policy))
+                f = fetch_tarball(cache, a.source, a.hash, policy, already_pinned);
+            else
+            {
+                std::string error;
+                auto spec = parse_git_location(a.source, policy, error);
+                if (!spec)
+                {
+                    all.errors.push_back(std::format("asset {}: {}", a.name, error));
+                    all.ok = false;
+                    continue;
+                }
+                GitRequest request;
+                request.spec = *spec;
+                request.commit = a.commit;
+                request.hash = a.hash;
+                request.allow_cached = already_pinned;
+                request.tags = detail::version_tags(spec->subdir, a.version);
+                f = fetch_git(cache, request, policy);
+            }
+            if (!f.ok)
+            {
+                all.errors.push_back(std::format("asset {}: {}", a.name, f.error));
+                all.ok = false;
+                continue;
+            }
+            if (f.hash != a.hash)
+            {
+                all.errors.push_back(std::format("integrity mismatch for asset {}: lock says {}, got {}", a.name, a.hash, f.hash));
+                all.ok = false;
+                continue;
+            }
+            if (f.existed)
+                ++all.present;
+            else
+                ++all.fetched;
+            all.assets[a.name] = f.path;
+        }
         return all;
+    }
+
+    struct AssetResolution
+    {
+        bool ok{true};
+        std::vector<std::string> errors;
+        std::vector<std::string> warnings;
+        std::vector<manifest::LockedAsset> assets;
+    };
+
+    [[nodiscard]] inline std::optional<std::string> asset_source(manifest::Asset const& asset, Policy const& policy, std::string& error)
+    {
+        if (asset.location.starts_with("path:"))
+            return resolve::detail::normalize_path(".", resolve::detail::path_of(asset.location));
+        if (is_tarball_location(asset.location, policy))
+            return asset.location;
+        auto spec = parse_git_location(asset.location, policy, error);
+        if (!spec)
+            return std::nullopt;
+        return "git+" + spec->url + (spec->subdir.empty() ? "" : "#" + spec->subdir);
+    }
+
+    [[nodiscard]] inline AssetResolution resolve_assets(cache::Cache const& cache, manifest::Project const& project, Policy const& policy,
+                                                        std::filesystem::path const& root, manifest::Lock const* previous)
+    {
+        AssetResolution out;
+        std::vector<manifest::Asset const*> order;
+        for (auto const& a : project.assets)
+            order.push_back(&a);
+        std::ranges::sort(order, [](auto const* a, auto const* b) { return a->name < b->name; });
+        for (auto const* asset : order)
+        {
+            auto fail = [&](std::string message)
+            {
+                out.errors.push_back(std::format("asset {}: {}", asset->name, message));
+                out.ok = false;
+            };
+            std::string error;
+            auto source = asset_source(*asset, policy, error);
+            if (!source)
+            {
+                fail(error);
+                continue;
+            }
+            manifest::LockedAsset locked;
+            locked.name = asset->name;
+            locked.source = *source;
+            locked.version = asset->version;
+            if (source->starts_with("path:"))
+            {
+                std::error_code ec;
+                if (!std::filesystem::is_directory(root / source->substr(5), ec))
+                {
+                    fail(std::format("directory '{}' does not exist", source->substr(5)));
+                    continue;
+                }
+                out.assets.push_back(std::move(locked));
+                continue;
+            }
+            manifest::LockedAsset const* pinned = nullptr;
+            if (previous)
+                for (auto const& q : previous->assets)
+                    if (q.name == asset->name && q.source == *source && q.version == asset->version && !q.hash.empty())
+                        pinned = &q;
+            Fetched fetched;
+            if (is_tarball_location(*source, policy))
+                fetched = fetch_tarball(cache, *source, pinned ? pinned->hash : std::string{}, policy, pinned != nullptr);
+            else
+            {
+                auto spec = parse_git_location(*source, policy, error);
+                if (!spec)
+                {
+                    fail(error);
+                    continue;
+                }
+                GitRequest request;
+                request.spec = *spec;
+                std::string version = asset->version;
+                if (pinned)
+                {
+                    request.commit = pinned->commit;
+                    request.hash = pinned->hash;
+                    request.allow_cached = true;
+                }
+                else if (version.empty())
+                {
+                    auto latest = latest_version(cache, *source, policy, std::nullopt, error);
+                    if (!latest)
+                    {
+                        fail(error);
+                        continue;
+                    }
+                    version = *latest;
+                }
+                request.tags = detail::version_tags(spec->subdir, version);
+                fetched = fetch_git(cache, request, policy);
+            }
+            if (!fetched.ok)
+            {
+                fail(fetched.error);
+                continue;
+            }
+            if (pinned && fetched.hash != pinned->hash)
+            {
+                out.errors.push_back(std::format("integrity mismatch for asset {}: lock says {}, got {}", asset->name, pinned->hash, fetched.hash));
+                out.ok = false;
+                continue;
+            }
+            locked.commit = fetched.commit;
+            locked.hash = fetched.hash;
+            if (!pinned)
+                out.warnings.push_back(std::format("new asset {}: {}hash {} (first use; nothing earlier to verify against)", asset->name,
+                                                   locked.commit.empty() ? std::string{} : "commit " + locked.commit + ", ", locked.hash));
+            out.assets.push_back(std::move(locked));
+        }
+        return out;
     }
 } // namespace dpm::fetch

@@ -214,6 +214,21 @@ public struct Profile
     Settings settings = {};
 }
 
+/// A pinned input that is not a package: a downloaded or git source tree that
+/// the project's tasks read but that nothing imports.
+public struct Asset
+{
+    /// Name, unique among the assets of the project. Lowercase letters, digits
+    /// and '_', starting with a letter; tasks use it as `${asset:NAME}`.
+    []const char name;
+    /// Where the tree comes from: an https tarball (`.tar.gz` or `.tgz`), a git
+    /// location as for a dependency, or `path:../dir` for a local directory.
+    []const char location;
+    /// Release tag to fetch for a git location; without it the latest release
+    /// tag is used. Informational for a tarball.
+    []const char version = "";
+}
+
 /// The contents of `project.dcon`: one package.
 public struct Project
 {
@@ -239,6 +254,9 @@ public struct Project
     []const Dependency dev_dependencies = {};
     /// Artifacts to build. A package without products is a source library.
     []const Product products = {};
+    /// Pinned inputs that are not packages, fetched and locked like
+    /// dependencies and read by tasks as `${asset:NAME}`.
+    []const Asset assets = {};
     /// Directory holding test programs, relative to the package root.
     []const char test_dir = "tests";
     /// Project-wide build settings.
@@ -270,6 +288,23 @@ public struct LockedPackage
     Tri dev = Tri::Default;
 }
 
+/// One resolved asset in a lockfile.
+public struct LockedAsset
+{
+    /// Asset name, the same as in project.dcon.
+    []const char name;
+    /// Where the tree was fetched from: `git+https://...`, `https://...tar.gz`
+    /// or `path:../dir`.
+    []const char source;
+    /// Version the asset was resolved for. A changed version is resolved again.
+    []const char version = "";
+    /// Full 40-digit commit for git sources. Empty otherwise.
+    []const char commit = "";
+    /// `sha256:` followed by 64 hex digits, the hash of the tree. Empty only for
+    /// `path:` assets.
+    []const char hash;
+}
+
 /// The contents of `project.lock.dcon`. Written by dpm; hand edits are overwritten.
 public struct Lock
 {
@@ -279,6 +314,8 @@ public struct Lock
     []const char dcc = "";
     /// Resolved packages, sorted by location.
     []const LockedPackage packages;
+    /// Resolved assets, sorted by name.
+    []const LockedAsset assets = {};
 }
 
 /// One published version of a registry package.

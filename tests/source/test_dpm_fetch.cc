@@ -1219,6 +1219,202 @@ TEST_CASE("a tarball package resolves with its own version above the minimum")
     CHECK(!dpm::resolve::resolve(project, too_new, {}).ok);
 }
 
+SECTION("dpm assets");
+
+namespace
+{
+    dpm::manifest::Asset asset(std::string name, std::string location, std::string version = {})
+    {
+        dpm::manifest::Asset a;
+        a.name = std::move(name);
+        a.location = std::move(location);
+        a.version = std::move(version);
+        return a;
+    }
+
+    std::string lock_text(dpm::manifest::Project const& project, std::vector<dpm::manifest::LockedAsset> assets)
+    {
+        dpm::manifest::Lock lock;
+        lock.manifest = dpm::lock::fingerprint(project);
+        lock.assets = std::move(assets);
+        return dpm::lock::print(lock);
+    }
+
+    std::optional<dpm::manifest::Lock> load_lock(std::string const& text, fs::path const& schema_root)
+    {
+        dpm::manifest::LoadOptions options;
+        options.schema_root = schema_root;
+        options.kind = dpm::manifest::FileKind::Lock;
+        options.allow_file_urls = true;
+        auto loaded = dpm::manifest::load(text, options);
+        if (!loaded.ok)
+            for (auto const& diagnostic : loaded.diagnostics)
+                std::println(std::cerr, "{}", diagnostic.format());
+        if (!loaded.ok || !loaded.lock)
+            return std::nullopt;
+        return *loaded.lock;
+    }
+} // namespace
+
+TEST_CASE("tarball, git and path assets resolve into the lock, reload and re-resolve identically")
+{
+    auto schema_root = env_path("DCC_TEST_DPM_SCHEMA");
+    if (schema_root.empty())
+        return;
+    Env env;
+    TarBuilder b;
+    b.dir("limine-binary/").file("limine-binary/limine.c", "int main(void) { return 0; }\n").file("limine-binary/BOOTX64.EFI", std::string("MZ\0\1", 4));
+    auto archive = make_archive(env.home, "limine-binary", b.finish());
+    TempDir repo;
+    init_repo(repo);
+    repo.write("fw.bin", "one");
+    auto old_commit = commit_all(repo, "one");
+    REQUIRE(git(repo.path, {"tag", "v1.0.0"}).ok());
+    repo.write("fw.bin", "two");
+    auto new_commit = commit_all(repo, "two");
+    REQUIRE(git(repo.path, {"tag", "v1.2.0"}).ok());
+    env.home.write("vendor/x/readme", "local");
+
+    dpm::manifest::Project project;
+    project.name = "k";
+    project.version = "1.0.0";
+    project.assets.push_back(asset("limine", "file://" + archive.string(), "v12.9.6"));
+    project.assets.push_back(asset("fw", "git+" + url_of(repo)));
+    project.assets.push_back(asset("fw_old", "git+" + url_of(repo), "1.0.0"));
+    project.assets.push_back(asset("local", "path:vendor/x"));
+
+    auto r = dpm::fetch::resolve_assets(env.cache, project, test_policy(), env.home.path, nullptr);
+    for (auto const& e : r.errors)
+        std::println(std::cerr, "{}", e);
+    REQUIRE(r.ok);
+    REQUIRE(r.assets.size() == 4);
+    CHECK_EQ(r.warnings.size(), std::size_t{3});
+    CHECK(contains(r.warnings[0], "new asset fw: commit " + new_commit));
+    CHECK_EQ(r.assets[0].name, std::string{"fw"});
+    CHECK_EQ(r.assets[0].source, "git+" + url_of(repo));
+    CHECK_EQ(r.assets[0].commit, new_commit);
+    CHECK(r.assets[0].version.empty());
+    CHECK_EQ(r.assets[1].name, std::string{"fw_old"});
+    CHECK_EQ(r.assets[1].commit, old_commit);
+    CHECK_EQ(r.assets[1].version, std::string{"1.0.0"});
+    CHECK_NE(r.assets[0].hash, r.assets[1].hash);
+    CHECK_EQ(r.assets[2].name, std::string{"limine"});
+    CHECK(r.assets[2].commit.empty());
+    CHECK(dpm::hash::is_hash_string(r.assets[2].hash));
+    CHECK_EQ(r.assets[3].source, std::string{"path:vendor/x"});
+    CHECK(r.assets[3].hash.empty());
+
+    auto text = lock_text(project, r.assets);
+    auto loaded = load_lock(text, schema_root);
+    REQUIRE(loaded.has_value());
+    CHECK_EQ(dpm::lock::print(*loaded), text);
+    CHECK(dpm::lock::is_current(project, *loaded));
+
+    auto all = dpm::fetch::fetch_locked(env.cache, *loaded, test_policy(), {}, &*loaded);
+    for (auto const& e : all.errors)
+        std::println(std::cerr, "{}", e);
+    REQUIRE(all.ok);
+    REQUIRE(all.assets.size() == 4);
+    CHECK(fs::is_regular_file(all.assets.at("limine") / "limine.c"));
+    CHECK(fs::is_regular_file(all.assets.at("fw") / "fw.bin"));
+    CHECK(!fs::exists(all.assets.at("fw") / ".git"));
+    CHECK_EQ(all.assets.at("local"), fs::path{"vendor/x"});
+
+    repo.write("fw.bin", "three");
+    commit_all(repo, "three");
+    REQUIRE(git(repo.path, {"tag", "v1.3.0"}).ok());
+    auto again = dpm::fetch::resolve_assets(env.cache, project, test_policy(), env.home.path, &*loaded);
+    REQUIRE(again.ok);
+    CHECK(again.warnings.empty());
+    CHECK_EQ(lock_text(project, again.assets), text);
+
+    auto offline = test_policy();
+    offline.offline = true;
+    auto cached = dpm::fetch::resolve_assets(env.cache, project, offline, env.home.path, &*loaded);
+    CHECK(cached.ok);
+    CHECK_EQ(lock_text(project, cached.assets), text);
+    CHECK(dpm::fetch::fetch_locked(env.cache, *loaded, offline, {}, &*loaded).ok);
+    Env cold;
+    auto miss = dpm::fetch::fetch_locked(cold.cache, *loaded, offline, {}, &*loaded);
+    CHECK(!miss.ok);
+
+    auto changed = project;
+    changed.assets[2].version = "1.2.0";
+    CHECK(!dpm::lock::is_current(changed, *loaded));
+    auto bumped = dpm::fetch::resolve_assets(env.cache, changed, test_policy(), env.home.path, &*loaded);
+    REQUIRE(bumped.ok);
+    CHECK_EQ(bumped.warnings.size(), std::size_t{1});
+    CHECK_EQ(bumped.assets[1].commit, new_commit);
+}
+
+TEST_CASE("a tampered or changed asset is fatal against the lock")
+{
+    auto schema_root = env_path("DCC_TEST_DPM_SCHEMA");
+    if (schema_root.empty())
+        return;
+    Env env;
+    TarBuilder b;
+    b.dir("ovmf/").file("ovmf/code.fd", "firmware");
+    auto archive = make_archive(env.home, "ovmf", b.finish());
+    TempDir repo;
+    init_repo(repo);
+    repo.write("fw.bin", "one");
+    auto commit = commit_all(repo, "one");
+    REQUIRE(git(repo.path, {"tag", "v1.0.0"}).ok());
+    dpm::manifest::Project project;
+    project.name = "k";
+    project.version = "1.0.0";
+    project.assets.push_back(asset("ovmf", "file://" + archive.string()));
+    project.assets.push_back(asset("fw", "git+" + url_of(repo), "1.0.0"));
+    auto r = dpm::fetch::resolve_assets(env.cache, project, test_policy(), env.home.path, nullptr);
+    REQUIRE(r.ok);
+    auto good = load_lock(lock_text(project, r.assets), schema_root);
+    REQUIRE(good.has_value());
+
+    auto tampered = *good;
+    for (auto& a : tampered.assets)
+        a.hash = "sha256:" + std::string(64, '1');
+    Env fresh;
+    auto fetched = dpm::fetch::fetch_locked(fresh.cache, tampered, test_policy(), {}, &tampered);
+    CHECK(!fetched.ok);
+    REQUIRE(fetched.errors.size() == 2);
+    CHECK(contains(fetched.errors[0], "asset fw"));
+    CHECK(contains(fetched.errors[1], "asset ovmf") && contains(fetched.errors[1], "mismatch"));
+    CHECK(fetched.assets.empty());
+    auto again = dpm::fetch::resolve_assets(fresh.cache, project, test_policy(), env.home.path, &tampered);
+    CHECK(!again.ok);
+    CHECK_EQ(again.errors.size(), std::size_t{2});
+    CHECK(again.assets.empty());
+
+    TarBuilder other;
+    other.dir("ovmf/").file("ovmf/code.fd", "replaced upstream");
+    write_binary(env.home.path / "ovmf.tar", other.finish());
+    fs::remove(archive);
+    (void)compress(env.home.path / "ovmf.tar", "gzip", ".gz");
+    Env cold;
+    auto replaced = dpm::fetch::fetch_locked(cold.cache, *good, test_policy(), {}, &*good);
+    CHECK(!replaced.ok);
+    REQUIRE(replaced.errors.size() == 1);
+    CHECK(contains(replaced.errors[0], "asset ovmf") && contains(replaced.errors[0], "mismatch"));
+    CHECK(!fs::exists(cold.cache.src_path(r.assets[1].hash)));
+    (void)commit;
+}
+
+TEST_CASE("a missing path asset and an unusable location are errors that name the asset")
+{
+    Env env;
+    dpm::manifest::Project project;
+    project.name = "k";
+    project.version = "1.0.0";
+    project.assets.push_back(asset("gone", "path:no/such/dir"));
+    project.assets.push_back(asset("bad", "git+https://"));
+    auto r = dpm::fetch::resolve_assets(env.cache, project, test_policy(), env.home.path, nullptr);
+    CHECK(!r.ok);
+    REQUIRE(r.errors.size() == 2);
+    CHECK(contains(r.errors[0], "asset bad"));
+    CHECK(contains(r.errors[1], "asset gone") && contains(r.errors[1], "does not exist"));
+}
+
 SECTION("dpm process runner");
 
 TEST_CASE("the runner captures output, passes only the given environment and reports failures")

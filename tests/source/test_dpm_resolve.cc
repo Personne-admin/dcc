@@ -1,4 +1,5 @@
 import std;
+import dpm.hash;
 import dpm.lock;
 import dpm.manifest;
 import dpm.resolve;
@@ -553,6 +554,35 @@ TEST_CASE("the fingerprint ignores order and formatting but not requirements")
     renamed.name = "other";
     renamed.description = "x";
     CHECK_EQ(fp, dpm::lock::fingerprint(renamed));
+}
+
+TEST_CASE("assets change the fingerprint only when declared, independent of their order")
+{
+    auto base = project({dep(a, "1.0.0"), dep(b, "1.0.0")}, {dep(c, "1.0.0")});
+    std::vector<std::string> sorted{std::format("dep\t{}\t1.0.0\n", a), std::format("dep\t{}\t1.0.0\n", b), std::format("dev\t{}\t1.0.0\n", c)};
+    std::ranges::sort(sorted);
+    std::string expected = "dpm::v1\n";
+    for (auto const& line : sorted)
+        expected += line;
+    CHECK_EQ(dpm::lock::fingerprint(base), "sha256:" + dpm::hash::sha256_hex(expected));
+    auto with = base;
+    dpm::manifest::Asset x{"limine", "https://example.com/l.tar.gz", "v1", {}};
+    dpm::manifest::Asset y{"ovmf", "path:../ovmf", "", {}};
+    with.assets = {x, y};
+    auto fp = dpm::lock::fingerprint(with);
+    CHECK_NE(fp, dpm::lock::fingerprint(base));
+    auto swapped = base;
+    swapped.assets = {y, x};
+    CHECK_EQ(fp, dpm::lock::fingerprint(swapped));
+    auto version = with;
+    version.assets[0].version = "v2";
+    CHECK_NE(fp, dpm::lock::fingerprint(version));
+    auto location = with;
+    location.assets[1].location = "path:../ovmf2";
+    CHECK_NE(fp, dpm::lock::fingerprint(location));
+    auto renamed = with;
+    renamed.assets[1].name = "firmware";
+    CHECK_NE(fp, dpm::lock::fingerprint(renamed));
 }
 
 TEST_CASE("a printed lock loads back to the same lock and prints identically")

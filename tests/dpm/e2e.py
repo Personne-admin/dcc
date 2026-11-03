@@ -802,6 +802,123 @@ def scenario_offline_and_cache():
     check(dpm(app, "build", "--offline").returncode == 0, "offline build after fetch")
 
 
+def make_asset_tarball(name, files):
+    import tarfile
+    import io
+    archive = os.path.join(ROOT, "repos", name + ".tar.gz")
+    os.makedirs(os.path.dirname(archive), exist_ok=True)
+    with tarfile.open(archive, "w:gz") as tar:
+        top = tarfile.TarInfo(name)
+        top.type = tarfile.DIRTYPE
+        top.mode = 0o755
+        tar.addfile(top)
+        for rel, content in files.items():
+            info = tarfile.TarInfo(name + "/" + rel)
+            data = content.encode()
+            info.size = len(data)
+            info.mode = 0o644
+            tar.addfile(info, io.BytesIO(data))
+    return archive
+
+
+def set_assets(app, assets):
+    path = os.path.join(app, "project.dcon")
+    text = read(path)
+    text = re.sub(r",?\s*assets = \{.*?\n\s*\},?\n", "\n", text, flags=re.S)
+    body = "".join("        { name = \"%s\", location = \"%s\"%s },\n" % (n, loc, ', version = "%s"' % v if v else "") for n, loc, v in assets)
+    text = text.rstrip()
+    assert text.endswith("}")
+    text = text[:-1].rstrip().rstrip(",") + ",\n    assets = {\n" + body + "    },\n}\n"
+    write(path, text)
+
+
+def scenario_assets():
+    limine = make_asset_tarball("limine-binary", {"limine.c": "int main(void) { return 0; }\n", "limine-bios.sys": "bios"})
+    fw = os.path.join(ROOT, "repos", "fw")
+    os.makedirs(fw)
+    git(fw, "init", "-q", "--initial-branch=main")
+    write(os.path.join(fw, "code.fd"), "one")
+    git(fw, "add", "-A")
+    git(fw, "commit", "-q", "-m", "one")
+    git(fw, "tag", "v1.0.0")
+    first_commit = git(fw, "rev-parse", "HEAD")
+    app = new_app("assetapp")
+    write(os.path.join(app, "vendor", "data", "x.txt"), "local")
+    before = dpm(app, "lock")
+    check(before.returncode == 0 and "assets = {" not in read(os.path.join(app, "project.lock.dcon")), "a lock without assets has no assets field", detail(before))
+    set_assets(app, [("limine", "file://" + limine, "v12.9.6"), ("fw", "git+file://" + fw, ""), ("local", "path:vendor/data", "")])
+    r = dpm(app, "build", "--locked")
+    check(r.returncode == 4 and "out of date" in r.stderr, "declaring an asset stales the lock for --locked", detail(r))
+    r = dpm(app, "lock")
+    check(r.returncode == 0 and "(0 packages, 3 assets)" in r.stdout, "lock resolves assets", detail(r))
+    check(r.stderr.count("new asset") == 2 and "new asset fw: commit " + first_commit in r.stderr, "first use of an asset is reported with its commit and hash", detail(r))
+    lock = read(os.path.join(app, "project.lock.dcon"))
+    check(lock.index('name = "fw"') < lock.index('name = "limine"') < lock.index('name = "local"'), "lock assets are sorted by name", lock)
+    check('commit = "%s"' % first_commit in lock and 'source = "path:vendor/data"' in lock and 'version = "v12.9.6"' in lock, "lock records commit, source and version", lock)
+    check(dpm(app, "lock", "--check").returncode == 0, "lock --check passes with assets")
+    r = dpm(app, "build", "--locked")
+    check(r.returncode == 0, "build --locked with locked assets", detail(r))
+    r = dpm(app, "tree")
+    check(r.returncode == 0 and "assets:" in r.stdout and "fw git+file://" in r.stdout and first_commit in r.stdout, "tree lists assets with their pins", detail(r))
+
+    write(os.path.join(fw, "code.fd"), "two")
+    git(fw, "add", "-A")
+    git(fw, "commit", "-q", "-m", "two")
+    git(fw, "tag", "v1.1.0")
+    r = dpm(app, "lock")
+    check(r.returncode == 0 and "up to date" in r.stdout and "new asset" not in r.stderr, "a new upstream release does not move a locked asset", detail(r))
+
+    home = os.path.join(ROOT, "asset-home")
+    r = dpm(app, "fetch", env={"DPM_HOME": home})
+    check(r.returncode == 0 and "2 fetched" in r.stdout, "fetch downloads locked assets into an empty cache", detail(r))
+    r = dpm(app, "fetch", "--offline", env={"DPM_HOME": home})
+    check(r.returncode == 0 and "2 already in the cache" in r.stdout, "offline fetch uses cached assets", detail(r))
+    r = dpm(app, "build", "--offline", env={"DPM_HOME": home})
+    check(r.returncode == 0, "offline build after fetching assets", detail(r))
+    r = dpm(app, "fetch", "--offline", env={"DPM_HOME": os.path.join(ROOT, "asset-cold")})
+    check(r.returncode == 5 and "asset" in r.stderr, "offline fetch without cached assets exits 5", detail(r))
+
+    good = read(os.path.join(app, "project.lock.dcon"))
+    limine_hash = re.search(r'name = "limine",\n.*?hash = "(sha256:[0-9a-f]+)"', good, re.S).group(1)
+    write(os.path.join(app, "project.lock.dcon"), good.replace(limine_hash, "sha256:" + "1" * 64))
+    r = dpm(app, "fetch", env={"DPM_HOME": os.path.join(ROOT, "asset-tamper")})
+    check(r.returncode == 4 and "asset limine" in r.stderr and "mismatch" in r.stderr, "a lock hash that does not match the asset is fatal", detail(r))
+    r = dpm(app, "build", env={"DPM_HOME": os.path.join(ROOT, "asset-tamper2")})
+    check(r.returncode == 4 and "mismatch" in r.stderr, "build refuses a mismatching asset", detail(r))
+    write(os.path.join(app, "project.lock.dcon"), good)
+    make_asset_tarball("limine-binary", {"limine.c": "int main(void) { return 1; }\n", "limine-bios.sys": "bios"})
+    r = dpm(app, "fetch", env={"DPM_HOME": os.path.join(ROOT, "asset-replaced")})
+    check(r.returncode == 4 and "asset limine" in r.stderr and "mismatch" in r.stderr, "an asset replaced upstream is detected against the lock", detail(r))
+    check(read(os.path.join(app, "project.lock.dcon")) == good, "a failed fetch leaves the lock alone")
+
+    set_assets(app, [("limine", "file://" + limine, "v12.9.6"), ("fw", "git+file://" + fw, "1.1.0"), ("local", "path:vendor/data", "")])
+    r = dpm(app, "build", "--locked")
+    check(r.returncode == 4, "changing an asset version stales the lock", detail(r))
+    r = dpm(app, "lock")
+    check(r.returncode == 0 and "new asset fw" in r.stderr and "new asset limine" not in r.stderr and git(fw, "rev-parse", "v1.1.0") in read(os.path.join(app, "project.lock.dcon")),
+          "a changed version resolves that asset again and keeps the other pins", detail(r))
+    check(limine_hash in read(os.path.join(app, "project.lock.dcon")), "the pinned tarball stays pinned to its cached hash")
+    set_assets(app, [("fw", "git+file://" + fw, "1.1.0"), ("local", "path:vendor/data", "")])
+    r = dpm(app, "lock")
+    check(r.returncode == 0 and 'name = "limine"' not in read(os.path.join(app, "project.lock.dcon")), "removing an asset removes it from the lock", detail(r))
+    set_assets(app, [("gone", "path:no/such", "")])
+    r = dpm(app, "lock")
+    check(r.returncode == 4 and "asset gone" in r.stderr and "does not exist" in r.stderr, "a missing path asset is an error", detail(r))
+    set_assets(app, [("x", "json5", "")])
+    r = dpm(app, "lock")
+    check(r.returncode == 3 and "registry alias" in r.stderr, "an alias is not an asset location", detail(r))
+
+    parent = os.path.join(ROOT, "assetdeps")
+    os.makedirs(parent)
+    check(dpm(parent, "init", "withassets", "--lib").returncode == 0, "init a library with assets")
+    lib = os.path.join(parent, "withassets")
+    set_assets(lib, [("missing", "path:does/not/exist", "")])
+    consumer = os.path.join(parent, "consumer")
+    check(dpm(parent, "init", "consumer").returncode == 0, "init an asset consumer")
+    r = dpm(consumer, "add", "path:../withassets")
+    check(r.returncode == 0 and "assets = {" not in read(os.path.join(consumer, "project.lock.dcon")), "assets of dependencies are ignored", detail(r))
+
+
 def scenario_tests():
     app = new_app("tested")
     write(os.path.join(app, "tests", "good.dc"), "module good;\n\npublic i32 main()\n{\n    return 0;\n}\n")
@@ -1639,6 +1756,7 @@ try:
     scenario_path_dependency()
     scenario_git_dependency()
     scenario_offline_and_cache()
+    scenario_assets()
     scenario_registry_file()
     scenario_registry_dependencies()
     scenario_registry_configuration()

@@ -1,0 +1,11 @@
+=== KIND: Lock ===
+=== FILE: project.dcon ===
+dpm::v1::Lock { manifest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", packages = {}, assets = { { name = "b", source = "path:b", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, { name = "a", source = "path:a", hash = "" }, { name = "c", source = "git+https://github.com/u/c.git", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, { name = "d", source = "https://example.com/d.tar.gz", commit = "cccccccccccccccccccccccccccccccccccccccc", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, { name = "e", source = "registry:main", hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, { name = "f", source = "https://example.com/f.tar.gz", hash = "sha256:x" }, { name = "f", source = "path:f", hash = "" } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:169: a path asset has no hash
+project.dcon:1:255: assets must be sorted by name; 'a' comes after 'b'
+project.dcon:1:292: a git asset needs a full commit
+project.dcon:1:497: only git sources have a commit
+project.dcon:1:648: asset source must start with git+https://, https:// or path:
+project.dcon:1:811: hash must be 'sha256:' followed by 64 lowercase hex digits
+project.dcon:1:834: duplicate asset 'f'

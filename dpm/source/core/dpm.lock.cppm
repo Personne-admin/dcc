@@ -27,6 +27,12 @@ export namespace dpm::lock
         std::string text = "dpm::v1\n";
         for (auto const& l : lines)
             text += std::format("{}\t{}\t{}\n", l.dev ? "dev" : "dep", l.location, l.version);
+        std::vector<manifest::Asset const*> assets;
+        for (auto const& a : project.assets)
+            assets.push_back(&a);
+        std::ranges::sort(assets, [](auto const* a, auto const* b) { return std::tie(a->name, a->location, a->version) < std::tie(b->name, b->location, b->version); });
+        for (auto const* a : assets)
+            text += std::format("asset\t{}\t{}\t{}\n", a->name, a->location, a->version);
         return "sha256:" + hash::sha256_hex(text);
     }
 
@@ -73,8 +79,31 @@ export namespace dpm::lock
         out += std::format("    manifest = {},\n", detail::quote(lock.manifest));
         if (!lock.dcc.empty())
             out += std::format("    dcc = {},\n", detail::quote(lock.dcc));
+        auto print_assets = [&]
+        {
+            if (lock.assets.empty())
+                return;
+            out += "    assets = {\n";
+            for (auto const& a : lock.assets)
+            {
+                out += "        {\n";
+                out += std::format("            name = {},\n", detail::quote(a.name));
+                out += std::format("            source = {},\n", detail::quote(a.source));
+                if (!a.version.empty())
+                    out += std::format("            version = {},\n", detail::quote(a.version));
+                if (!a.commit.empty())
+                    out += std::format("            commit = {},\n", detail::quote(a.commit));
+                out += std::format("            hash = {},\n", detail::quote(a.hash));
+                out += "        },\n";
+            }
+            out += "    },\n";
+        };
         if (lock.packages.empty())
-            return out + "    packages = {},\n}\n";
+        {
+            out += "    packages = {},\n";
+            print_assets();
+            return out + "}\n";
+        }
         out += "    packages = {\n";
         for (auto const& p : lock.packages)
         {
@@ -96,7 +125,9 @@ export namespace dpm::lock
                 out += "            dev = Tri::On,\n";
             out += "        },\n";
         }
-        return out + "    },\n}\n";
+        out += "    },\n";
+        print_assets();
+        return out + "}\n";
     }
 
     [[nodiscard]] inline bool same_content(manifest::Lock const& a, manifest::Lock const& b)

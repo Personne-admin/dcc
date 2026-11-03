@@ -291,6 +291,14 @@ export namespace dpm::manifest
         Range range;
     };
 
+    struct Asset
+    {
+        std::string name;
+        std::string location;
+        std::string version;
+        Range range;
+    };
+
     struct Project
     {
         std::string name;
@@ -303,6 +311,7 @@ export namespace dpm::manifest
         std::vector<Dependency> dependencies;
         std::vector<Dependency> dev_dependencies;
         std::vector<Product> products;
+        std::vector<Asset> assets;
         std::string test_dir;
         Settings settings;
         std::vector<Profile> profiles;
@@ -321,11 +330,22 @@ export namespace dpm::manifest
         Range range;
     };
 
+    struct LockedAsset
+    {
+        std::string name;
+        std::string source;
+        std::string version;
+        std::string commit;
+        std::string hash;
+        Range range;
+    };
+
     struct Lock
     {
         std::string manifest;
         std::string dcc;
         std::vector<LockedPackage> packages;
+        std::vector<LockedAsset> assets;
     };
 
     struct RegistryVersion
@@ -925,6 +945,13 @@ export namespace dpm::manifest
             return true;
         }
 
+        inline bool is_asset_name(std::string_view text)
+        {
+            if (text.empty() || text.size() > 64 || !(text[0] >= 'a' && text[0] <= 'z'))
+                return false;
+            return std::ranges::all_of(text, [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
+        }
+
         inline bool is_reserved_word(std::string_view text)
         {
             dcc::session::CompilerSession session{{.silent_diagnostics = true}};
@@ -1325,6 +1352,7 @@ export namespace dpm::manifest
                     error(*n, "manifest fingerprint must be 'sha256:' followed by 64 lowercase hex digits");
                 if (auto const* n = root.find("dcc"); n && !l.dcc.empty() && !dpm::semver::is_valid(l.dcc))
                     error(*n, std::format("'{}' is not a valid version", l.dcc));
+                l.assets = locked_assets(root);
                 auto const* list = field(root, "packages");
                 if (!list)
                     return l;
@@ -1419,6 +1447,108 @@ export namespace dpm::manifest
                     l.packages.push_back(std::move(pk));
                 }
                 return l;
+            }
+
+            std::vector<LockedAsset> locked_assets(Node const& root)
+            {
+                std::vector<LockedAsset> out;
+                auto const* list = field(root, "assets");
+                if (!list)
+                    return out;
+                std::string previous;
+                bool have_previous = false;
+                for (auto const& item : list->items)
+                {
+                    LockedAsset a;
+                    a.range = item.range;
+                    a.name = str(item, "name");
+                    a.source = str(item, "source");
+                    a.version = str(item, "version");
+                    a.commit = str(item, "commit");
+                    a.hash = str(item, "hash");
+                    if (auto const* n = item.find("name"))
+                    {
+                        if (!is_asset_name(a.name))
+                            error(*n, std::format("'{}' is not a valid asset name; use [a-z][a-z0-9_]*", a.name));
+                        else if (have_previous && a.name <= previous)
+                            error(*n, a.name == previous ? std::format("duplicate asset '{}'", a.name)
+                                                         : std::format("assets must be sorted by name; '{}' comes after '{}'", a.name, previous));
+                        previous = a.name;
+                        have_previous = true;
+                    }
+                    bool const is_path = a.source.starts_with("path:");
+                    bool const is_git = a.source.starts_with("git+https://") || (allow_file && a.source.starts_with("git+file://"));
+                    bool const is_tarball = a.source.starts_with("https://") || (allow_file && a.source.starts_with("file://"));
+                    if (auto const* n = item.find("source"))
+                    {
+                        if (!is_path && !is_git && !is_tarball)
+                            error(*n, allow_file ? "asset source must start with git+https://, https://, git+file://, file:// or path:"
+                                                 : "asset source must start with git+https://, https:// or path:");
+                        else if (auto message = location_error(a.source, allow_file))
+                            error(*n, *message);
+                    }
+                    if (auto const* n = item.find("commit"))
+                    {
+                        if (!a.commit.empty() && !is_hex40(a.commit))
+                            error(*n, "commit must be 40 lowercase hex digits");
+                        else if (!a.commit.empty() && !is_git)
+                            error(*n, "only git sources have a commit");
+                    }
+                    if (is_git && a.commit.empty())
+                        error(item, "a git asset needs a full commit");
+                    if (auto const* n = item.find("hash"))
+                    {
+                        if (is_path)
+                        {
+                            if (!a.hash.empty())
+                                error(*n, "a path asset has no hash");
+                        }
+                        else if (!is_sha256(a.hash))
+                            error(*n, "hash must be 'sha256:' followed by 64 lowercase hex digits");
+                    }
+                    out.push_back(std::move(a));
+                }
+                return out;
+            }
+
+            std::vector<Asset> assets(Node const& root)
+            {
+                std::vector<Asset> out;
+                auto const* list = field(root, "assets");
+                if (!list)
+                    return out;
+                std::set<std::string> names;
+                for (auto const& item : list->items)
+                {
+                    Asset a;
+                    a.range = item.range;
+                    a.name = str(item, "name");
+                    a.location = str(item, "location");
+                    a.version = str(item, "version");
+                    if (auto const* n = item.find("name"))
+                    {
+                        if (!is_asset_name(a.name))
+                            error(*n, std::format("'{}' is not a valid asset name; use [a-z][a-z0-9_]*", a.name));
+                        else if (!names.insert(a.name).second)
+                            error(*n, std::format("duplicate asset '{}'", a.name));
+                    }
+                    auto const* loc = item.find("location");
+                    auto const* ver = item.find("version");
+                    bool const is_tarball = a.location.starts_with("https://") || a.location.starts_with("file://");
+                    if (auto message = location_error(a.location, allow_file))
+                        error(loc ? *loc : item, *message);
+                    else if (is_alias(a.location))
+                        error(loc ? *loc : item, "an asset location cannot be a registry alias; use a git location, an https tarball or path:");
+                    else if (a.location.starts_with("path:"))
+                    {
+                        if (!a.version.empty())
+                            error(ver ? *ver : item, "path assets take no version");
+                    }
+                    else if (!is_tarball && !a.version.empty() && !dpm::semver::is_valid(a.version))
+                        error(ver ? *ver : item, std::format("'{}' is not a valid version", a.version));
+                    out.push_back(std::move(a));
+                }
+                return out;
             }
 
             std::optional<std::string> alias_name_error(std::string const& name) { return alias_error(name); }
@@ -1780,6 +1910,7 @@ export namespace dpm::manifest
                     error(*n, allow_file ? "registry must be an https:// or file:// URL" : "registry must be an https:// URL");
                 p.dependencies = dependencies(root, "dependencies");
                 p.dev_dependencies = dependencies(root, "dev_dependencies");
+                p.assets = assets(root);
                 if (auto const* s = field(root, "settings"))
                     p.settings = settings(*s);
                 static constexpr std::array<std::string_view, 2> kinds{"Executable", "SharedLibrary"};

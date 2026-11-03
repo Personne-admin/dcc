@@ -1,0 +1,12 @@
+=== FILE: project.dcon ===
+{ name = "k", version = "1.0.0", assets = { { name = "Bad", location = "path:x" }, { name = "a", location = "json5" }, { name = "a", location = "path:y" }, { name = "b", location = "path:z", version = "1.0.0" }, { name = "c", location = "github.com/u/c", version = "latest" }, { name = "d", location = "https://example.com/d.zip" }, { name = "e", location = "ftp://x/e.tar.gz" }, { name = "f", location = "" }, { name = "_g", location = "path:g" } } }
+=== EXPECT-ERRORS ===
+project.dcon:1:54: 'Bad' is not a valid asset name; use [a-z][a-z0-9_]*
+project.dcon:1:109: an asset location cannot be a registry alias; use a git location, an https tarball or path:
+project.dcon:1:129: duplicate asset 'a'
+project.dcon:1:202: path assets take no version
+project.dcon:1:266: 'latest' is not a valid version
+project.dcon:1:303: tarball location must end in .tar.gz or .tgz
+project.dcon:1:359: unrecognized location scheme
+project.dcon:1:406: location is empty
+project.dcon:1:421: '_g' is not a valid asset name; use [a-z][a-z0-9_]*

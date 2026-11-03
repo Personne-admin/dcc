@@ -1,0 +1,36 @@
+=== FILE: project.dcon ===
+dpm::v1::Project {
+    name = "k",
+    version = "1.0.0",
+    assets = {
+        { name = "limine", location = "https://example.com/r/v1.0/limine-binary.tar.gz", version = "v1.0" },
+        { name = "ovmf", location = "https://example.com/o/20261026T212116Z/edk2-ovmf-bins.tgz" },
+        { name = "fw_2", location = "github.com/u/fw", version = "2.1.0" },
+        { name = "local", location = "path:../vendor/x" },
+    },
+}
+=== EXPECT-TREE ===
+{
+  name = "k",
+  version = "1.0.0",
+  assets = [
+    {
+      name = "limine",
+      location = "https://example.com/r/v1.0/limine-binary.tar.gz",
+      version = "v1.0",
+    },
+    {
+      name = "ovmf",
+      location = "https://example.com/o/20261026T212116Z/edk2-ovmf-bins.tgz",
+    },
+    {
+      name = "fw_2",
+      location = "github.com/u/fw",
+      version = "2.1.0",
+    },
+    {
+      name = "local",
+      location = "path:../vendor/x",
+    },
+  ],
+}

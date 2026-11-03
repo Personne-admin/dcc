@@ -389,6 +389,22 @@ namespace
             return std::nullopt;
         }
         r.lock = r.resolution.lock;
+        if (fetch_sources && !project.assets.empty())
+        {
+            auto assets = dpm::fetch::resolve_assets(s.cache, project, s.policy, ".", s.previous ? &*s.previous : nullptr);
+            print_warnings(assets.warnings);
+            if (!assets.ok)
+            {
+                code = k_exit_resolution;
+                for (auto const& e : assets.errors)
+                {
+                    std::println(std::cerr, "error: {}", e);
+                    code = std::max(code, resolution_exit(e));
+                }
+                return std::nullopt;
+            }
+            r.lock.assets = std::move(assets.assets);
+        }
         if (fetch_sources)
         {
             auto fetched = dpm::fetch::fetch_locked(s.cache, r.lock, s.policy, s.options.schema_root, s.previous ? &*s.previous : nullptr);
@@ -1509,7 +1525,10 @@ namespace
         }
         if (!write_lock(r->lock))
             return k_exit_failure;
-        std::println("wrote {} ({} packages)", dpm::lock::k_lock_file, r->lock.packages.size());
+        if (r->lock.assets.empty())
+            std::println("wrote {} ({} packages)", dpm::lock::k_lock_file, r->lock.packages.size());
+        else
+            std::println("wrote {} ({} packages, {} assets)", dpm::lock::k_lock_file, r->lock.packages.size(), r->lock.assets.size());
         return 0;
     }
 
@@ -1523,6 +1542,24 @@ namespace
         if (!r)
             return code;
         std::print("{}", dpm::resolve::render_tree(r->resolution, s.project.version));
+        if (!s.project.assets.empty())
+        {
+            std::println("assets:");
+            bool const current = s.previous && dpm::lock::is_current(s.project, *s.previous);
+            std::vector<m::Asset const*> order;
+            for (auto const& a : s.project.assets)
+                order.push_back(&a);
+            std::ranges::sort(order, [](auto const* a, auto const* b) { return a->name < b->name; });
+            for (auto const* a : order)
+            {
+                std::string pin;
+                if (current)
+                    for (auto const& l : s.previous->assets)
+                        if (l.name == a->name)
+                            pin = l.commit.empty() ? (l.hash.empty() ? std::string{} : " " + l.hash) : std::format(" commit {} {}", l.commit, l.hash);
+                std::println("  {} {}{}{}", a->name, a->location, a->version.empty() ? "" : "@" + a->version, current ? pin : std::string{" (not locked)"});
+            }
+        }
         return 0;
     }
 
