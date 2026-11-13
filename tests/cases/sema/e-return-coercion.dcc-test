@@ -90,14 +90,14 @@ Module m
       Var v type=i32 storage=local offset=0
         IntLiteral 3 [type=i32 const=3 constant]
       Return
-        Cast [type=i64 const=3 constant]
+        Cast [type=i64 const=3 lvalue constant decl=v]
           Ident v [type=i32 const=3 lvalue constant decl=v]
   Func ret_i16_to_i32 diverging=true
     Body
       Var v type=i16 storage=local offset=0
         IntLiteral 4 [type=i16 const=4 constant]
       Return
-        Cast [type=i32 const=4 constant]
+        Cast [type=i32 const=4 lvalue constant decl=v]
           Ident v [type=i16 const=4 lvalue constant decl=v]
   Func ret_null_ptr diverging=true
     Body
