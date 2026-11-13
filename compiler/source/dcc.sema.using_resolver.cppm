@@ -19,27 +19,29 @@ export namespace dcc::sema
         void run()
         {
             constexpr int max_iters = 64;
-            int iter = 0;
-
-            for (; iter < max_iters; ++iter)
+            for (bool include_defaults : {false, true})
             {
-                bool progress = false;
-                for (auto it = m_modules.rbegin(); it != m_modules.rend(); ++it)
+                int iter = 0;
+                for (; iter < max_iters; ++iter)
                 {
-                    auto const& m = *it;
-                    if (!m->tu)
-                        continue;
+                    bool progress = false;
+                    for (auto it = m_modules.rbegin(); it != m_modules.rend(); ++it)
+                    {
+                        auto const& m = *it;
+                        if (!m->tu)
+                            continue;
 
-                    progress = bind_imports(*m) || progress;
-                    progress = resolve_pending_usings(*m) || progress;
+                        progress = bind_imports(*m, include_defaults) || progress;
+                        progress = resolve_pending_usings(*m) || progress;
+                    }
+
+                    if (!progress)
+                        break;
                 }
 
-                if (!progress)
-                    break;
+                if (iter == max_iters)
+                    m_diag.error("internal compiler error: using resolution did not converge after {} iterations", max_iters);
             }
-
-            if (iter == max_iters)
-                m_diag.error("internal compiler error: using resolution did not converge after {} iterations", max_iters);
 
             for (auto it = m_modules.rbegin(); it != m_modules.rend(); ++it)
             {
@@ -114,7 +116,7 @@ export namespace dcc::sema
             return changed;
         }
 
-        bool bind_imports(ModuleInfo& mod)
+        bool bind_imports(ModuleInfo& mod, bool include_defaults)
         {
             bool progress = false;
             for (auto const& imp : mod.imports)
@@ -129,7 +131,8 @@ export namespace dcc::sema
                 else
                     progress = install_module_alias(mod, imp.alias_prefix, *imp.target, publicly_imported) || progress;
 
-                progress = absorb_spills(mod, *imp.target, publicly_imported, imp.decl->is_implicit_prelude) || progress;
+                if (include_defaults || !imp.decl->is_implicit_prelude)
+                    progress = absorb_spills(mod, *imp.target, publicly_imported, imp.decl->is_implicit_prelude) || progress;
 
                 if (publicly_imported)
                     progress = absorb_all_public_exports(mod, *imp.target) || progress;

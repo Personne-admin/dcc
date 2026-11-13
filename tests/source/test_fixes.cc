@@ -390,6 +390,7 @@ TEST_CASE("automatic prelude types yield to explicit declarations and imports")
              "module main; struct Error { i32 code; } i32 f() { Error e = { code = 7 }; return e.code; }",
              "module main; import chosen; using chosen::Error; i32 f() { Error e = { code = 7 }; return e.code; }",
              "module main; import chosen; using Error = chosen::Error; i32 f() { Error e = { code = 7 }; return e.code; }",
+             "module main; using Saved = Error; import chosen; using chosen::Error; i32 f() { Saved e = { code = 7 }; return e.code; }",
              "module main; i32 f() { Error e = Error::Default; return 0; }",
          })
     {
