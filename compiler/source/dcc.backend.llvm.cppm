@@ -26,6 +26,7 @@ export module dcc.backend.llvm;
 import std;
 import dcc.backend;
 import dcc.ir;
+import dcc.ir.data;
 import dcc.ir.pipeline;
 import dcc.backend.inline_asm;
 import dcc.backend.object.layout;
@@ -1218,6 +1219,8 @@ namespace dcc::backend
                 return false;
             if (v->kind == IrNodeKind::GlobalRef)
                 return true;
+            if (auto* data = ir_cast<IrRawConstant>(v))
+                return !data->relocations.empty();
             if (v->kind == IrNodeKind::Aggregate)
             {
                 auto* agg = static_cast<IrAggregateInst const*>(v);
@@ -1226,10 +1229,24 @@ namespace dcc::backend
             return false;
         }
 
+        [[nodiscard]] bool needs_constant_storage(IrGlobal const* global, TypeCache const& types)
+        {
+            return global->init && (has_constant_data(global->init) ||
+                   (global->init->kind == IrNodeKind::Aggregate && types.uses_byte_storage(global->type) && has_global_ref(global->init)));
+        }
+
         void collect_init_leaves(IrValue const* v, IrType const* ty, std::uint64_t base, std::vector<InitLeaf>& leaves)
         {
             if (!v || !ty || ty->byte_size == 0)
                 return;
+
+            if (auto* data = ir_cast<IrRawConstant>(v))
+            {
+                leaves.push_back({base, data->bytes.size(), v, ty, false});
+                for (auto const& relocation : data->relocations)
+                    leaves.push_back({base + relocation.offset, relocation.width, relocation.reference, relocation.reference->type, true});
+                return;
+            }
 
             if (v->kind == IrNodeKind::GlobalRef)
             {
@@ -1312,7 +1329,9 @@ namespace dcc::backend
                 else
                 {
                     std::vector<std::uint8_t> region(leaf.size, 0);
-                    if (!serialize_constant_memory(leaf.value, leaf.mem_type, region, little_endian, error))
+                    if (auto* data = ir_cast<IrRawConstant>(leaf.value))
+                        std::ranges::copy(data->bytes, region.begin());
+                    else if (!serialize_constant_memory(leaf.value, leaf.mem_type, region, little_endian, error))
                         return false;
                     std::ranges::copy(region, bytes.begin() + static_cast<std::ptrdiff_t>(leaf.offset));
                 }
@@ -1664,6 +1683,18 @@ namespace dcc::backend
                 ensure_llvm_initialized();
 
                 BackendArtifact artifact;
+                for (auto* global : module.globals)
+                {
+                    if (!global)
+                        continue;
+                    if (auto why = ir::constant_data_tree_error(global->init, global->type, opts.target.pointer_bits / 8, 0, opts.target.little_endian);
+                        !why.empty())
+                    {
+                        artifact.diagnostics.push_back(BackendDiagnostic{global->range, "LLVM backend: " + why});
+                        return artifact;
+                    }
+                }
+
                 auto& diags = artifact.diagnostics;
 
                 dcc::ir::IrModule const* input_module = &module;
@@ -2553,7 +2584,7 @@ namespace dcc::backend
                 std::vector<InitLeaf> slots;
                 std::vector<std::uint8_t> bytes;
                 std::string layout_error;
-                bool is_reloc_union = g->init && g->init->kind == IrNodeKind::Aggregate && tc.uses_byte_storage(g->type) && has_global_ref(g->init);
+                bool is_reloc_union = needs_constant_storage(g, tc);
                 if (is_reloc_union && resolve_init_layout(g->init, g->type, slots, bytes, tc.little_endian, &layout_error))
                 {
                     bool ok = false;
@@ -2594,7 +2625,7 @@ namespace dcc::backend
                 {
                     std::string constant_error;
 
-                    if (g->init->kind == IrNodeKind::Aggregate && tc.uses_byte_storage(g->type) && has_global_ref(g->init))
+                    if (needs_constant_storage(g, tc))
                     {
                         std::vector<InitLeaf> slots;
                         std::vector<std::uint8_t> bytes;
@@ -2626,7 +2657,7 @@ namespace dcc::backend
 
                 if (g->alignment > 0)
                     LLVMSetAlignment(gv, g->alignment);
-                else if (g->type && tc.uses_byte_storage(g->type) && g->init && g->init->kind == IrNodeKind::Aggregate && has_global_ref(g->init))
+                else if (g->type && needs_constant_storage(g, tc))
                     LLVMSetAlignment(gv, static_cast<unsigned>(g->type->byte_align));
 
                 return true;

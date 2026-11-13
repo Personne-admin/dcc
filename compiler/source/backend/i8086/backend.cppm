@@ -3,6 +3,7 @@ export module dcc.backend.i8086;
 import std;
 import dcc.backend;
 import dcc.ir;
+import dcc.ir.data;
 import dcc.ir.pipeline;
 import dcc.target;
 import dcc.backend.x86.mir;
@@ -42,6 +43,18 @@ namespace dcc::backend
             [[nodiscard]] BackendArtifact emit(ir::IrModule const& module, BackendOptions const& opts) override
             {
                 BackendArtifact artifact;
+                for (auto* global : module.globals)
+                {
+                    if (!global)
+                        continue;
+                    if (auto why = ir::constant_data_tree_error(global->init, global->type, opts.target.pointer_bits / 8, opts.target.far_offset_bits() / 8, opts.target.little_endian);
+                        !why.empty())
+                    {
+                        artifact.diagnostics.push_back(BackendDiagnostic{global->range, "i8086 backend: " + why});
+                        return artifact;
+                    }
+                }
+
                 auto fail = [&](std::string message) {
                     artifact.diagnostics.push_back(BackendDiagnostic{{}, std::move(message)});
                     return artifact;

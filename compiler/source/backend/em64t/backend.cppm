@@ -12,6 +12,7 @@ export module dcc.backend.em64t;
 import std;
 import dcc.backend;
 import dcc.ir;
+import dcc.ir.data;
 import dcc.ir.pipeline;
 import dcc.target;
 import dcc.backend.x86.mir;
@@ -154,6 +155,18 @@ namespace dcc::backend
             [[nodiscard]] BackendArtifact emit(ir::IrModule const& module, BackendOptions const& opts) override
             {
                 BackendArtifact artifact;
+                for (auto* global : module.globals)
+                {
+                    if (!global)
+                        continue;
+                    if (auto why = ir::constant_data_tree_error(global->init, global->type, opts.target.pointer_bits / 8, 0, opts.target.little_endian);
+                        !why.empty())
+                    {
+                        artifact.diagnostics.push_back(BackendDiagnostic{global->range, "custom backend: " + why});
+                        return artifact;
+                    }
+                }
+
 
                 bool want_mir = opts.requested_artifacts.contains(ArtifactKind::MirText);
                 bool want_asm = opts.requested_artifacts.contains(ArtifactKind::AsmText);
@@ -406,6 +419,8 @@ namespace dcc::backend
 
                 switch (v->kind)
                 {
+                    case ir::IrNodeKind::RawConstant:
+                        return static_cast<ir::IrRawConstant const*>(v)->bytes.size() == storage->byte_size;
                     case ir::IrNodeKind::GlobalRef:
                         return storage->kind == ir::IrTypeKind::Pointer && storage->byte_size >= v->type->byte_size;
                     case ir::IrNodeKind::Aggregate: {

@@ -69,6 +69,8 @@ export namespace dcc::backend::object
 
         if (val->kind == ir::IrNodeKind::GlobalRef)
             return true;
+        if (auto* data = ir::ir_cast<ir::IrRawConstant>(val))
+            return !data->relocations.empty();
 
         if (val->kind == ir::IrNodeKind::Aggregate)
         {
@@ -344,6 +346,20 @@ export namespace dcc::backend::object
                 }
                 break;
             }
+            case ir::IrNodeKind::RawConstant: {
+                auto* raw = static_cast<ir::IrRawConstant const*>(val);
+                write_init_bytes(data, relocs, offset, raw->bytes);
+                for (auto const& relocation : raw->relocations)
+                {
+                    auto* reference = relocation.reference;
+                    auto segment = relocation.kind == ir::IrDataRelocationKind::Segment;
+                    auto addend = segment ? 0 : reference->addend;
+                    write_addend_field(data, relocs, offset + relocation.offset, relocation.width, addend);
+                    relocs.push_back({offset + relocation.offset, relocation.width,
+                                      segment ? "__dcc_dgroup_segment" : std::string{reference->name}, addend, reference, segment});
+                }
+                break;
+            }
             case ir::IrNodeKind::GlobalRef: {
                 auto* gr = static_cast<ir::IrGlobalRef const*>(val);
                 auto sz = expected_type ? expected_type->byte_size : address_width;
@@ -390,6 +406,15 @@ export namespace dcc::backend::object
             out.insert(std::string{gr->name});
         }
 
+        else if (auto* data = ir::ir_cast<ir::IrRawConstant>(val))
+        {
+            for (auto const& relocation : data->relocations)
+            {
+                collect_ref_names(relocation.reference, out);
+                if (relocation.kind == ir::IrDataRelocationKind::Segment)
+                    out.insert("__dcc_dgroup_segment");
+            }
+        }
         else if (val->kind == ir::IrNodeKind::Aggregate)
         {
             auto* agg = static_cast<ir::IrAggregateInst const*>(val);

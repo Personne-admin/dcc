@@ -1711,6 +1711,15 @@ namespace
                                      std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(sc->value.data()), static_cast<std::size_t>(size)});
                 break;
             }
+            case IrNodeKind::RawConstant: {
+                std::vector<std::uint8_t> bytes(expected_type->byte_size);
+                std::vector<dcc::backend::object::InitReloc> fixups;
+                dcc::backend::object::serialize_init_memory(bytes, fixups, val, expected_type, 0, 8);
+                write_asm_init_bytes(data, relocs, offset, bytes);
+                for (auto const& fixup : fixups)
+                    relocs.push_back({offset + fixup.offset, fixup.size, fixup.name, fixup.addend});
+                break;
+            }
             case IrNodeKind::GlobalRef: {
                 auto* gr = static_cast<IrGlobalRef const*>(val);
                 auto size = expected_type->byte_size;
@@ -1799,6 +1808,8 @@ namespace
 
         if (v->kind == ir::IrNodeKind::GlobalRef)
             return true;
+        if (auto* data = ir::ir_cast<ir::IrRawConstant>(v))
+            return !data->relocations.empty();
 
         if (v->kind == ir::IrNodeKind::Aggregate)
         {

@@ -5,6 +5,55 @@ import dcc.ir;
 
 export namespace dcc::ir
 {
+    [[nodiscard]] bool has_constant_data(IrValue const* value)
+    {
+        if (!value)
+            return false;
+        if (value->kind == IrNodeKind::RawConstant)
+            return true;
+        if (auto* aggregate = ir_cast<IrAggregateInst>(value))
+            return std::ranges::any_of(aggregate->values, [](auto* member) { return has_constant_data(member); });
+        return false;
+    }
+
+    [[nodiscard]] std::string constant_data_tree_error(IrValue const* value, IrType const* storage, std::uint64_t pointer_width,
+                                                       std::uint64_t far_width, bool little_endian)
+    {
+        if (!value)
+            return {};
+        if (auto* data = ir_cast<IrRawConstant>(value))
+        {
+            if (auto why = constant_data_error(*data); !why.empty())
+                return why;
+            if (!storage || storage->byte_size != data->bytes.size())
+                return "constant data does not fit its declared storage";
+            if (data->little_endian != little_endian)
+                return "constant data byte order does not match the target";
+            for (auto const& relocation : data->relocations)
+            {
+                auto* pointer = static_cast<IrPointerType const*>(relocation.reference->type);
+                if ((relocation.kind == IrDataRelocationKind::Segment || pointer->flavor == PointerFlavor::Far) && far_width == 0)
+                    return "segmented constant data relocations are not supported by this target";
+                if (relocation.kind == IrDataRelocationKind::Absolute &&
+                    relocation.width != (pointer->flavor == PointerFlavor::Far ? far_width : pointer_width))
+                    return "constant data relocation width does not match the target";
+            }
+        }
+        if (auto* aggregate = ir_cast<IrAggregateInst>(value))
+            for (std::size_t i = 0; i < aggregate->values.size(); ++i)
+            {
+                auto* member = aggregate->values[i];
+                auto* type = member ? member->type : nullptr;
+                if (auto* record = ir_type_cast<IrAggregateType>(value->type); record && i < record->members.size())
+                    type = record->members[i];
+                if (auto* array = ir_type_cast<IrArrayType>(value->type))
+                    type = array->element;
+                if (auto why = constant_data_tree_error(member, type, pointer_width, far_width, little_endian); !why.empty())
+                    return why;
+            }
+        return {};
+    }
+
     bool encode_constant_data(IrValue const* value, IrRawConstant& out, std::uint64_t offset, std::string& error)
     {
         auto fail = [&](std::string message) { error = std::move(message); return false; };

@@ -1,6 +1,7 @@
 import std;
 
 import dcc.ir;
+import dcc.ir.data;
 import dcc.ir.pipeline;
 import dcc.types;
 import dcc.ir.pass;
@@ -2472,4 +2473,107 @@ TEST_CASE("integer combining preserves the replaced expression source location")
     REQUIRE(returned->value->kind == IrNodeKind::And);
     CHECK_EQ(returned->value->debug_loc.line, 25u);
     CHECK_EQ(returned->value->debug_loc.column, 7u);
+}
+
+TEST_CASE("raw global constants emit symbolic addresses on both backends")
+{
+    for (auto triple : {"x86_64-elf", "x86_64-coff", "x86-elf", "x86-coff"})
+        for (bool llvm : {false, true})
+        {
+            auto target = *TargetConfig::parse_triple(triple);
+            if (!llvm && target.pointer_bits != 64)
+                continue;
+            IrContext context(4096, &target);
+            auto* module = context.module("raw_data");
+            auto* byte = context.int_t(8, false);
+            auto* type = context.array_t(byte, 32);
+            auto* object = context.global("target", type);
+            auto* function = context.function("function", ir_type_cast<IrFuncType>(context.func_t(context.void_t(), {})));
+            function->linkage = Linkage::External;
+            auto* data = context.raw_constant(type);
+            data->bytes[0] = 0x51;
+            auto width = target.pointer_bits / 8u;
+            data->relocations = {{8, width, context.global_ref(object, context.pointer_to(byte), 3)}, {24, width, context.func_ref(function)}};
+            auto* global = context.global("holder", type, data, true);
+            global->alignment = 16;
+            global->linkage = Linkage::External;
+            module->globals = {object, global};
+            module->functions.push_back(function);
+            BackendOptions options;
+            options.target = target;
+            options.requested_artifacts = {ArtifactKind::ObjectBytes, llvm ? ArtifactKind::LlvmIrText : ArtifactKind::AsmText};
+            options.opt_level = dcc::ir::pass::OptLevel::O2;
+            auto result = (llvm ? make_llvm_backend() : make_em64t_backend())->emit(*module, options);
+            for (auto const& diagnostic : result.diagnostics)
+                std::println("{}", diagnostic.message);
+            REQUIRE(result.diagnostics.empty());
+            REQUIRE(result.object_bytes.has_value());
+            if (llvm)
+            {
+                REQUIRE(result.llvm_ir_text);
+                CHECK(result.llvm_ir_text->find("@holder") != std::string::npos);
+                CHECK(result.llvm_ir_text->find("constant <{") != std::string::npos);
+                CHECK(result.llvm_ir_text->find("ptr @function") != std::string::npos);
+                CHECK(result.llvm_ir_text->find("align 16") != std::string::npos);
+            }
+            else
+            {
+                REQUIRE(result.asm_text);
+                CHECK(result.asm_text->find("dq target + 3") != std::string::npos);
+                CHECK(result.asm_text->find("dq function") != std::string::npos);
+            }
+        }
+}
+
+TEST_CASE("malformed raw relocations produce backend diagnostics")
+{
+    for (bool llvm : {false, true})
+    {
+        IrContext context;
+        auto* module = context.module("invalid_raw");
+        auto* type = context.pointer_to(context.int_t(8, false));
+        auto* data = context.raw_constant(type);
+        auto* reference = context.symbol_ref("target", type);
+        data->relocations = {{0, 8, reference}, {0, 8, reference}};
+        module->globals.push_back(context.global("bad", type, data));
+        BackendOptions options;
+        options.target = TargetConfig::host_default();
+        options.requested_artifacts = {ArtifactKind::ObjectBytes};
+        auto result = (llvm ? make_llvm_backend() : make_em64t_backend())->emit(*module, options);
+        CHECK(!result.object_bytes.has_value());
+        REQUIRE(!result.diagnostics.empty());
+        CHECK(result.diagnostics.front().message.find("overlapping") != std::string::npos);
+    }
+}
+
+TEST_CASE("i8086 raw constant data preserves offset and segment relocations")
+{
+    auto target = *TargetConfig::parse_triple("i8086-binary");
+    IrContext context(4096, &target);
+    auto* module = context.module("raw_far");
+    auto* byte = context.int_t(8, false);
+    auto* object = context.global("target", byte, context.int_const(byte, 7));
+    auto* pointer = context.pointer_to(byte, Segment::None, PointerFlavor::Far);
+    std::string error;
+    auto* data = materialize_constant_data(context, pointer, context.global_ref(object, pointer, 3), error);
+    REQUIRE(data != nullptr);
+    module->globals = {object, context.global("holder", pointer, data)};
+    BackendOptions options;
+    options.target = target;
+    options.requested_artifacts = {ArtifactKind::ObjectBytes, ArtifactKind::AsmText};
+    auto result = make_i8086_backend()->emit(*module, options);
+    REQUIRE(result.diagnostics.empty());
+    REQUIRE(result.object_bytes);
+    REQUIRE(result.asm_text);
+    CHECK(result.asm_text->find("target+3") != std::string::npos);
+    CHECK(result.asm_text->find("__dcc_dgroup_segment") != std::string::npos);
+    options.target = TargetConfig::host_default();
+    options.requested_artifacts = {ArtifactKind::ObjectBytes};
+    for (bool llvm : {false, true})
+    {
+        auto unsupported = (llvm ? make_llvm_backend() : make_em64t_backend())->emit(*module, options);
+        CHECK(!unsupported.object_bytes);
+        REQUIRE(!unsupported.diagnostics.empty());
+        CHECK(unsupported.diagnostics.front().message.find("segmented") != std::string::npos);
+    }
 }
