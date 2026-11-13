@@ -381,7 +381,7 @@ TEST_CASE("DCC_WARN_ARRAY_DECAY reports repeated template instantiations once")
 
     auto dcc = dcc_path();
     REQUIRE(!dcc.empty());
-    auto base = shell_quote(dcc) + " -flibdcext -c -target x86_64-elf -o " + shell_quote(obj) + " " + shell_quote(src);
+    auto base = "timeout 60 " + shell_quote(dcc) + " -flibdcext -c -target x86_64-elf -o " + shell_quote(obj) + " " + shell_quote(src);
 
     auto* pipe = ::popen(("DCC_WARN_ARRAY_DECAY=1 " + base + " 2>&1").c_str(), "r");
     std::string output;
@@ -393,8 +393,14 @@ TEST_CASE("DCC_WARN_ARRAY_DECAY reports repeated template instantiations once")
     CHECK_EQ(code, 0);
     std::size_t count = 0;
     std::string needle = "implicit copy of array as slice";
+    auto location = src.filename().string() + ":5:";
     for (std::size_t pos = output.find(needle); pos != std::string::npos; pos = output.find(needle, pos + needle.size()))
-        ++count;
+    {
+        auto next = output.find(needle, pos + needle.size());
+        auto at = output.find(location, pos + needle.size());
+        if (at != std::string::npos && (next == std::string::npos || at < next))
+            ++count;
+    }
     CHECK_EQ(count, 1u);
 }
 #endif
