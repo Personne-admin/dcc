@@ -1943,7 +1943,46 @@ export namespace dcc::ctfe
         Result call(ast::CallExpr const& call)
         {
             if (call.sema.construction_kind == ast::ExprSema::ConstructionKind::Enum)
-                return enum_construction(call);
+            {
+                auto* callee_type = call.callee ? type_of(*call.callee) : nullptr;
+                if (callee_type && callee_type->kind == types::TypeKind::Enum)
+                    return enum_construction(call);
+                if (specializing())
+                    return abandoned(AbandonReason::UnsupportedEffect);
+                auto* enum_type = types::type_cast<types::EnumType>(type_of(call));
+                auto* variant = call.sema.constructed_variant;
+                if (!enum_type || !enum_type->tagged_layout || !variant)
+                    return failure("implicit enum call construction has not been resolved");
+                auto* declaration = reinterpret_cast<ast::EnumDecl const*>(enum_type->decl);
+                auto index = static_cast<std::size_t>(variant - declaration->variants.data());
+                if (index >= enum_type->tagged_layout->variant_count)
+                    return failure("implicit enum call variant is out of range");
+                auto* payload_type = enum_type->tagged_layout->variants[index].variant_payload_type_or_null;
+                if (!payload_type)
+                    return failure("implicit enum call payload has not been resolved");
+                auto payload_call = call;
+                payload_call.sema.construction_kind = ast::ExprSema::ConstructionKind::None;
+                payload_call.sema.constructed_variant = nullptr;
+                payload_call.sema.const_value = nullptr;
+                payload_call.sema.resolved_type = reinterpret_cast<decltype(payload_call.sema.resolved_type)>(payload_type);
+                auto result = this->call(payload_call);
+                if (result.flow != Flow::Normal || !result.value)
+                    return result;
+                auto payload = std::move(*result.value);
+                if (payload.type != payload_type)
+                {
+                    if (auto converted = payload.fold_cast(payload_type))
+                        payload = std::move(*converted);
+                    else if (payload_type->kind == types::TypeKind::Slice && (payload.kind() == Kind::String || payload.kind() == Kind::Slice))
+                        payload.type = payload_type;
+                    else
+                        return failure("implicit enum call payload cannot be converted at compile time");
+                }
+                std::vector<comptime::Value> elements;
+                elements.push_back(comptime::Value::make_int(variant->discriminant, enum_type->tagged_layout->discriminant_type));
+                elements.push_back(std::move(payload));
+                return folded(comptime::Value::make_aggregate(std::move(elements), enum_type));
+            }
 
             if (call.sema.construction_kind == ast::ExprSema::ConstructionKind::Struct)
             {

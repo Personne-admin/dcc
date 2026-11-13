@@ -1,0 +1,10 @@
+=== FILE: main.dc ===
+module test;
+enum Box { @implicit_construction Value(u32*) }
+extern u32* unknown();
+Box invalid = Box::Value(unknown());
+Box implicit_invalid = unknown();
+
+=== EXPECT-ERRORS ===
+main.dc:4: initializer for global `invalid` is not a constant expression: external, indirect or runtime-only call
+main.dc:5: initializer for global `implicit_invalid` is not a constant expression: external, indirect or runtime-only call

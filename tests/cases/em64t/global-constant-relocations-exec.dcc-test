@@ -1,0 +1,74 @@
+=== TARGET: linux-em64t ===
+=== FILE: main.dc ===
+module test;
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+enum E : u8 { X }
+enum Result(T, F) { Ok(T), Err(F) }
+Result([] const char, E) global = Result::Ok("hello");
+Result([] const char, E) second = Result::Ok("world!");
+@nomangle
+u32[4] numbers = {11, 22, 33, 44};
+Result(u32*, E) address = Result::Ok(&numbers[2]);
+Result(u32, E) scalar = Result::Ok(0x12345678);
+Result([] const char, E) error = Result::Err(E::X);
+Result([] const char, E) make_text() { return Result::Ok("folded"); }
+Result([] const char, E) folded = make_text();
+enum Nested : u8 { Wrap(Result([] const char, E)), Other }
+Nested nested = Nested::Wrap(Result::Ok("nested"));
+struct Record {
+    u8 before;
+    Result([] const char, E) value;
+    u64 after;
+}
+Record[2] records = {
+    {before = 17, value = Result::Ok("first"), after = 0x1122334455667788},
+    {before = 29, value = Result::Ok("second"), after = 0x8877665544332211},
+};
+const Result([] const char, E) frozen = Result::Ok("frozen");
+enum Implicit { @implicit_construction Pointer(u32*) }
+Implicit implicit_address = &numbers[1];
+using Callback = u32(*)();
+u32 callback_target() { return 99; }
+enum Callable { Function(Callback) }
+Callable callable = Callable::Function(callback_target);
+enum ImplicitText { @implicit_construction Text([] const char) }
+[] const char compute_text() { return "converted"; }
+ImplicitText implicit_folded = compute_text();
+ImplicitText implicit_literal = "direct";
+Result([] const char, E) empty = Result::Ok("");
+Result(u32*, E) null_address = Result::Ok(null);
+u32 ordinary = 123;
+u64 zero;
+@nomangle public i32 dcc_main() {
+    match global { Result::Ok(s) => { if s.len != 5 || s[0] != 'h' || s[4] != 'o' { return 1; } }, _ => return 2, }
+    match second { Result::Ok(s) => { if s.len != 6 || s[0] != 'w' || s[5] != '!' { return 3; } }, _ => return 4, }
+    match address { Result::Ok(p) => { if *p != 33 || *(p + 1) != 44 { return 5; }; *p = 35; }, _ => return 6, }
+    if numbers[2] != 35 { return 7; }
+    match scalar { Result::Ok(v) => { if v != 0x12345678 { return 8; } }, _ => return 9, }
+    match error { Result::Err(e) => { if e != E::X { return 10; } }, _ => return 11, }
+    match folded { Result::Ok(s) => { if s.len != 6 || s[2] != 'l' { return 12; } }, _ => return 13, }
+    match nested { Nested::Wrap(r) => match r { Result::Ok(s) => { if s.len != 6 || s[5] != 'd' { return 14; } }, _ => return 15, }, _ => return 16, }
+    if records[0].before != 17 || records[0].after != 0x1122334455667788 { return 17; }
+    if records[1].before != 29 || records[1].after != 0x8877665544332211 { return 18; }
+    match records[0].value { Result::Ok(s) => { if s.len != 5 || s[4] != 't' { return 19; } }, _ => return 20, }
+    match records[1].value { Result::Ok(s) => { if s.len != 6 || s[5] != 'd' { return 21; } }, _ => return 22, }
+    const Result([] const char, E)* p = &frozen;
+    match *p { Result::Ok(s) => { if s.len != 6 || s[0] != 'f' { return 23; } }, _ => return 24, }
+    if ordinary != 123 || zero != 0 { return 25; }
+    match implicit_address { Implicit::Pointer(q) => { if *q != 22 { return 26; } }, }
+    match callable { Callable::Function(f) => { if f() != 99 { return 27; } }, }
+    match implicit_folded { ImplicitText::Text(s) => { if s.len != 9 || s[8] != 'd' { return 28; } }, }
+    match implicit_literal { ImplicitText::Text(s) => { if s.len != 6 || s[5] != 't' { return 29; } }, }
+    match empty { Result::Ok(s) => { if s.len != 0 { return 30; } }, _ => return 31, }
+    match null_address { Result::Ok(q) => { if q != null { return 32; } }, _ => return 33, }
+    return 0;
+}
+
+=== EXPECT-EXECUTABLE FLAGS: -O0 ===
+RUN-EXIT: 0
+=== EXPECT-EXECUTABLE FLAGS: -O2 ===
+RUN-EXIT: 0
+=== EXPECT-EXECUTABLE FLAGS: -O2 -fwhole-program ===
+RUN-EXIT: 0

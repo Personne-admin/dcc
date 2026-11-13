@@ -1,0 +1,16 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module test;
+enum E : u8 { X }
+enum Result(T, F) { Ok(T), Err(F) }
+Result([] const char, E) text = Result::Ok("hello");
+u16 number = 77;
+Result(u16^, E) address = Result::Ok(&number as u16^);
+@nomangle public i32 dcc_main() {
+    match text { Result::Ok(s) => { if s.len != 5 || s[1] != 'e' { return 1; } }, _ => return 2, }
+    match address { Result::Ok(p) => { if *p != 77 { return 3; } }, _ => return 4, }
+    return 42;
+}
+
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 42

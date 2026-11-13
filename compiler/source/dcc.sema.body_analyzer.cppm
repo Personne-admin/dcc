@@ -8186,8 +8186,17 @@ export namespace dcc::sema
                 }
                 case ast::ExprKind::Binary:
                     return false;
-                case ast::ExprKind::Call:
-                    return false;
+                case ast::ExprKind::Call: {
+                    auto* call = static_cast<ast::CallExpr const*>(expr);
+                    auto* callee_type = get_resolved_type(call->callee->sema);
+                    if (call->sema.construction_kind != ConstructionKind::Enum || !call->sema.constructed_variant ||
+                        !callee_type || callee_type->kind != types::TypeKind::Enum)
+                        return false;
+                    for (auto* argument : call->args)
+                        if (!is_constant_initializer_expr(argument, visiting, get_resolved_type(argument->sema)))
+                            return false;
+                    return true;
+                }
                 case ast::ExprKind::Cast: {
                     auto const* c = static_cast<ast::CastExpr const*>(expr);
                     if (!is_constant_initializer_expr(c->operand, visiting))
@@ -9311,6 +9320,7 @@ export namespace dcc::sema
             if (var.init && mod.own_scope)
             {
                 auto init = analyze_expr(mod, nullptr, *mod.own_scope, *var.init, 0, dummy_offset(), var_type, m_current_module_env);
+                std::ignore = apply_implicit_enum_conversion(mod, *mod.own_scope, var.init->range, var.init, init, var_type);
                 if (value_alias_implicit_decay(init, var_type))
                 {
                     reject_value_alias_decay(var.init->range, init);

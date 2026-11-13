@@ -8,6 +8,7 @@ import dcc.types;
 import dcc.comptime;
 import dcc.const_eval;
 import dcc.ir;
+import dcc.ir.data;
 import dcc.ir.mangle;
 import dcc.sema.scope;
 import dcc.sema.importer;
@@ -7878,6 +7879,10 @@ export namespace dcc::ir::lower
                 case IrNodeKind::GlobalRef:
                     out.push_back(static_cast<IrGlobalRef const*>(v));
                     return;
+                case IrNodeKind::RawConstant:
+                    for (auto const& relocation : static_cast<IrRawConstant const*>(v)->relocations)
+                        visit(relocation.reference);
+                    return;
                 case IrNodeKind::Aggregate:
                     for (auto* e : static_cast<IrAggregateInst const*>(v)->values)
                         visit(e);
@@ -8593,6 +8598,8 @@ export namespace dcc::ir::lower
 
             switch (v->kind)
             {
+                case IrNodeKind::RawConstant:
+                    return static_cast<IrRawConstant const*>(v)->bytes.size() == storage->byte_size;
                 case IrNodeKind::GlobalRef:
                     return storage->kind == IrTypeKind::Pointer && storage->byte_size >= v->type->byte_size;
                 case IrNodeKind::Aggregate: {
@@ -8934,7 +8941,7 @@ export namespace dcc::ir::lower
             return m_ctx.global_ref(global, ir_ptr_type, addend);
         }
 
-        IrValue* lower_constant_expr(ast::Expr const* expr, dcc::types::TypePtr target_type)
+        IrValue* lower_constant_expr(ast::Expr const* expr, dcc::types::TypePtr target_type, bool payload_only = false)
         {
             if (!expr)
                 lower_panic("null expression in constant context");
@@ -8945,6 +8952,25 @@ export namespace dcc::ir::lower
                 std::uint32_t& depth;
                 ~ConstantContextGuard() { --depth; }
             } constant_context_guard{m_constant_context_depth};
+
+            if (!payload_only && expr->sema.construction_kind == ast::ExprSema::ConstructionKind::Enum && expr->sema.constructed_variant)
+            {
+                auto* enum_type = get_sema_resolved_type(expr);
+                auto* call = ast::node_cast<ast::CallExpr>(expr);
+                auto* callee_type = call ? get_sema_resolved_type(call->callee) : nullptr;
+                bool direct_constructor = callee_type && callee_type->kind == types::TypeKind::Enum;
+                auto* tagged = types::type_cast<types::EnumType>(enum_type);
+                if (!direct_constructor && tagged && tagged->is_tagged &&
+                    (!expr->sema.const_value || expr->sema.const_value->type != enum_type))
+                {
+                    auto* variant = expr->sema.constructed_variant;
+                    auto* payload_type = variant_effective_payload_type_for_lowering(variant, enum_type);
+                    std::vector<IrValue*> payloads;
+                    if (payload_type)
+                        payloads.push_back(lower_constant_expr(expr, payload_type, true));
+                    return lower_tagged_enum_construction(variant, enum_type, payloads);
+                }
+            }
 
             if (target_type && target_type->kind == dcc::types::TypeKind::Pointer)
             {
@@ -8963,6 +8989,21 @@ export namespace dcc::ir::lower
 
             switch (expr->kind)
             {
+                case ast::ExprKind::Call: {
+                    auto* call = static_cast<ast::CallExpr const*>(expr);
+                    auto* callee_type = get_sema_resolved_type(call->callee);
+                    auto* variant = call->sema.constructed_variant;
+                    if (call->sema.construction_kind != ast::ExprSema::ConstructionKind::Enum || !variant ||
+                        !callee_type || callee_type->kind != types::TypeKind::Enum)
+                        lower_panic(call, "nonconstant call in a static initializer");
+                    auto* enum_type = get_sema_resolved_type(call);
+                    auto* payload_type = variant_effective_payload_type_for_lowering(variant, enum_type);
+                    std::vector<IrValue*> payloads;
+                    if (payload_type)
+                        for (auto* argument : call->args)
+                            payloads.push_back(lower_constant_expr(argument, payload_type));
+                    return lower_tagged_enum_construction(variant, enum_type, payloads);
+                }
                 case ast::ExprKind::IntLiteral: {
                     auto* lit = static_cast<ast::IntLiteralExpr const*>(expr);
                     auto* ir_ty = lower_type(target_type);
@@ -9079,7 +9120,8 @@ export namespace dcc::ir::lower
                     auto* u = static_cast<ast::UnaryExpr const*>(expr);
                     if (u->op == dcc::lex::TokenKind::Amp)
                     {
-                        if (auto* addr = lower_global_address_of(u->operand, get_sema_resolved_type(u)))
+                        auto* pointer_type = target_type && target_type->kind == types::TypeKind::Pointer ? target_type : get_sema_resolved_type(u);
+                        if (auto* addr = lower_global_address_of(u->operand, pointer_type))
                             return addr;
 
                         if (u->operand->kind == ast::ExprKind::Ident)
@@ -9784,7 +9826,10 @@ export namespace dcc::ir::lower
                                     if (!flatten_const_to_bytes(payload_val, bytes.data(), layout->payload_size))
                                     {
                                         if (m_constant_context_depth != 0 || !m_current_block)
-                                            lower_panic("tagged enum payload is not materializable as bytes");
+                                        {
+                                            agg->values.push_back(lower_constant_payload(payload_val, layout->payload_size));
+                                            return agg;
+                                        }
                                         types::TypePtr variant_payload = nullptr;
                                         if (cv.at(0).kind() == dcc::comptime::Value::Kind::Int)
                                             for (std::size_t vi = 0; vi < layout->variant_count; ++vi)
@@ -11121,6 +11166,16 @@ export namespace dcc::ir::lower
             return val;
         }
 
+        IrValue* lower_constant_payload(IrValue const* payload, std::uint64_t size)
+        {
+            auto* storage = m_ctx.array_t(m_ctx.int_t(8, false), size);
+            std::string error;
+            auto* data = materialize_constant_data(m_ctx, storage, payload, error);
+            if (!data)
+                lower_panic("invalid constant payload: " + error);
+            return data;
+        }
+
         IrValue* store_tagged_payload(IrValue* payload, IrType const* payload_type, std::uint64_t payload_size)
         {
             auto* ir_byte = m_ctx.int_t(8, false);
@@ -11183,8 +11238,14 @@ export namespace dcc::ir::lower
                     payload_sema_canon = payload_sema_type;
             }
 
+            bool constant = m_constant_context_depth != 0 || !m_current_block;
             if (layout->payload_size > 0 && !payload_args.empty() && variant->payload.size() == 1 && payload_sema_canon && payload_sema_canon->byte_size > 0)
-                agg->values.push_back(store_tagged_payload(coerce_value(payload_args[0], lower_type(payload_sema_canon)), lower_type(payload_sema_canon), layout->payload_size));
+            {
+                if (constant)
+                    agg->values.push_back(lower_constant_payload(payload_args[0], layout->payload_size));
+                else
+                    agg->values.push_back(store_tagged_payload(coerce_value(payload_args[0], lower_type(payload_sema_canon)), lower_type(payload_sema_canon), layout->payload_size));
+            }
             else if (layout->payload_size > 0)
             {
                 auto* ir_byte = m_ctx.int_t(8, false);
@@ -11192,6 +11253,9 @@ export namespace dcc::ir::lower
                 auto* zero_init = zero_value(ir_payload_arr_ty);
                 agg->values.push_back(zero_init);
             }
+
+            if (constant)
+                return agg;
 
             auto name = ident_name();
             agg->name = m_name_pool.back();

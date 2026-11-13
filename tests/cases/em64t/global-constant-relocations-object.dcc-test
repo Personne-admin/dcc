@@ -1,0 +1,16 @@
+=== FILE: main.dc ===
+module test;
+enum Box { Pointer(u32*), Text([] const char) }
+@nomangle u32[4] numbers = {11, 22, 33, 44};
+@nomangle Box pointer = Box::Pointer(&numbers[2]);
+@nomangle const Box text = Box::Text("hello");
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+TARGET: x86_64-elf
+REQUIRE-RELA-ADDEND: .data R_X86_64_64 numbers 8
+REQUIRE-RELA-ADDEND: .data.rel.ro R_X86_64_64 .str.0 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+TARGET: x86_64-coff
+REQUIRE-COFF-RELOC: .data IMAGE_REL_AMD64_ADDR64 numbers
+REQUIRE-COFF-RELOC: .rdata IMAGE_REL_AMD64_ADDR64 .str.0

@@ -1,0 +1,13 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module test;
+enum E : u8 { X }
+enum Result(T, F) { Ok(T), Err(F) }
+Result([] const char, E) value = Result::Ok("hello");
+
+=== EXPECT-IR ===
+module "test"
+
+const global @.str.0 : [5 x u8] = aggregate [5 x u8], #104, #101, #108, #108, #111
+
+global @_DC0G1.4.test5.valueD1.4.test6.Result2.SCqcD1.4.test1.E0. : {@0 u8, @8 [16 x u8]} = aggregate {@0 u8, @8 [16 x u8]}, #0, data [00 00 00 00 00 00 00 00 05 00 00 00 00 00 00 00] reloc(0, 8, absolute, @.str.0)
