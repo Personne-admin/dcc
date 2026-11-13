@@ -10543,7 +10543,7 @@ export namespace dcc::ir::lower
 
             if (auto* et = types::type_cast<types::EnumType>(type))
             {
-                if (et->backing)
+                if (et->backing && !et->is_tagged)
                     return lower_type(et->backing);
 
                 if (et->is_tagged)

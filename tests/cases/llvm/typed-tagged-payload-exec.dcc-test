@@ -1,0 +1,29 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module test;
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n.global input\ninput:\nmov eax, 2\nret\n"
+};
+
+enum Fault : u8 { Lift = 1, Shape = 2 }
+enum Outer : u8 { Other, @implicit_construction Wrap(Fault) }
+@nomangle Fault input();
+enum Result(T, E) { Ok(T), @implicit_construction Err(E) }
+Result(u32, Outer) make(Fault f) { return Result::Err(Outer::Wrap(f)); }
+Outer roundtrip(Outer v) { return v; }
+@nomangle public i32 dcc_main() {
+    Fault value = input();
+    Outer o = roundtrip(Outer::Wrap(value));
+    match o { Outer::Wrap(f) => { if f != Fault::Shape { return 1; } }, _ => return 2, }
+    match make(value) {
+        Result::Err(e) => match e { Outer::Wrap(f) => { if f != Fault::Shape { return 3; } }, _ => return 4, },
+        _ => return 5,
+    }
+    return 0;
+}
+
+=== EXPECT-EXECUTABLE FLAGS: -O0 ===
+RUN-EXIT: 0
+=== EXPECT-EXECUTABLE FLAGS: -O2 ===
+RUN-EXIT: 0
