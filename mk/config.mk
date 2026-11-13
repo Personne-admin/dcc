@@ -125,3 +125,9 @@ VERSION_STAMP := $(DEP_DIR)/dcc-version.stamp
 $(VERSION_STAMP): FORCE
 	@mkdir -p $(dir $@)
 	@if [ "$$(cat $@ 2>/dev/null)" != "$(DCC_VERSION)" ]; then echo "$(DCC_VERSION)" > $@; fi
+
+REVISION_STAMP := $(DEP_DIR)/dcc-revision.stamp
+
+$(REVISION_STAMP): FORCE
+	@mkdir -p $(dir $@)
+	@if [ "$$(cat $@ 2>/dev/null)" != "$(DCC_GIT_HASH)" ]; then echo "$(DCC_GIT_HASH)" > $@; fi

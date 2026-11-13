@@ -23,6 +23,9 @@ endif
 $(PCM_DIR)/dcc.config.pcm: $(PREFIX_STAMP)
 $(OBJ_DIR)/dcc.config.pcm.o: $(PREFIX_STAMP)
 
+$(PCM_DIR)/dcc.cli.pcm: $(VERSION_STAMP) $(REVISION_STAMP)
+$(OBJ_DIR)/dcc.cli.pcm.o: $(VERSION_STAMP) $(REVISION_STAMP)
+
 CC_SRCS := $(call find-sources,$(TOPLEVEL)/compiler/source,cc)
 ifeq ($(ENABLE_LLVM),0)
   CC_SRCS := $(filter-out %/llvm_options.cc,$(CC_SRCS))
