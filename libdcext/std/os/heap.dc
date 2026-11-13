@@ -189,3 +189,32 @@ Optional(usize) heap_checked_align_up(usize value, usize align) {
 }
 
 import std::debug;
+
+static if core::target::OS != core::target::Os::Freestanding {
+    /// A stateless hosted allocator policy. Its implementation may change;
+    /// callers own each returned block and must release it through this policy.
+    public struct Heap {}
+
+    /// Allocates exactly len usable bytes. Alignments must be powers of two
+    /// no larger than page_size(). A zero-sized request returns an empty slice.
+    public Result([] u8, AllocError) allocate(const Heap* self, usize len, usize align) {
+        [] u8 block = page_alloc(null, len, align)?;
+        return Result::Ok(block[0..len]);
+    }
+
+    /// On success the caller must update the slice length. Failure leaves the
+    /// block unchanged. Resizing a nonempty block to zero is not an in-place
+    /// operation: use free or the moving reallocate helper instead.
+    public bool resize_in_place(const Heap* self, [] u8 block, usize new_len, usize align) {
+        if !mem::is_power_of_two(align) || align > page_size() { return false; }
+        if block.len == 0 { return new_len == 0; }
+        if new_len == 0 || (block.ptr as usize) % align != 0 { return false; }
+        return page_resize(null, block, new_len, align);
+    }
+
+    /// Releases a block obtained from this policy using its current length
+    /// and original alignment. Copies of Heap share no owned state.
+    public void free(const Heap* self, [] u8 block, usize align) {
+        page_free(null, block, align);
+    }
+}

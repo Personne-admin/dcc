@@ -384,3 +384,44 @@ i32 main() {
     CHECK(has_text(outcome.diagnostics, "app::memory"));
     CHECK(has_text(outcome.diagnostics, "app::holder"));
 }
+
+TEST_CASE("hosted library defaults to Heap while freestanding remains unselected")
+{
+    TempDir td;
+    td.write_file("main.dc", "module main; import std::array; void f() { std::array::Array(i32) a = {}; }\n");
+    auto include = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path().parent_path() / "include";
+    for (auto os : {dcc::target::Os::Linux, dcc::target::Os::Freestanding})
+    {
+        dcc::session::CompilerSession session{{.silent_diagnostics = true}};
+        dcc::session::CompileOptions options;
+        options.libdcext = true;
+        options.target = dcc::target::TargetConfig::for_os(os);
+        options.import_roots = {include};
+        auto result = session.analyze_entry(td.file("main.dc"), options);
+        CHECK_EQ(result.has_errors, os == dcc::target::Os::Freestanding);
+        if (os == dcc::target::Os::Freestanding)
+            CHECK(std::ranges::any_of(session.diagnostics().diagnostics(), [](auto const& d) { return d.message().find("no default allocator selected") != std::string::npos; }));
+    }
+}
+
+TEST_CASE("selected policy provenance handles shortened module declarations")
+{
+    TempDir td;
+    td.write_file("app/policy.dc", R"dc(module policy;
+public import std::alloc;
+public import std::result;
+public struct Local {}
+public std::result::Result([]u8,std::alloc::AllocError) allocate(const Local* self, usize n, usize a) { return std::alloc::AllocError::OutOfMemory; }
+public bool resize_in_place(const Local* self, []u8 b, usize n, usize a) { return false; }
+public void free(const Local* self, []u8 b, usize a) {}
+)dc");
+    td.write_file("main.dc", "module main; import std::array; void f() { std::array::Array(i32) a={}; a.push(1); }\n");
+    dcc::session::CompilerSession session{{.silent_diagnostics = true}};
+    dcc::session::CompileOptions options;
+    options.libdcext = true;
+    options.inject_libdcext_prelude = true;
+    options.target = dcc::target::TargetConfig::for_os(dcc::target::Os::Linux);
+    options.import_roots = {td.path, std::filesystem::canonical("/proc/self/exe").parent_path().parent_path().parent_path() / "include"};
+    options.default_allocator = "app::policy::Local";
+    CHECK(!session.analyze_entry(td.file("main.dc"), options).has_errors);
+}

@@ -26,6 +26,7 @@ export namespace dcc::session
     {
         std::vector<std::filesystem::path> import_roots;
         std::vector<std::pair<std::string, std::filesystem::path>> library_sources;
+        bool libdcext{false};
         bool inject_libdcext_prelude{false};
         bool inject_assert_import{false};
         std::size_t arena_initial_size{256 * 1024};
@@ -116,6 +117,8 @@ export namespace dcc::session
             if (m_prelude_enabled && tu && !is_std_prelude(tu) &&
                 !dcc::vfs::is_dcc_core_uri(file->uri()) &&
                 !m_library_files.contains(std::filesystem::weakly_canonical(file->path())) &&
+                std::filesystem::weakly_canonical(file->path()) != m_allocator_file &&
+                !(tu->module_decl && sema::ModulePath::from_ast(static_cast<ast::ModuleDecl const*>(tu->module_decl)->module_path).str() == m_allocator_module) &&
                 !(tu->module_decl && std::ranges::any_of(tu->module_decl->attrs, [](auto const& attr) { return attr.name == "no_prelude"; })))
             {
                 auto alloc = ast.allocator();
@@ -166,7 +169,7 @@ export namespace dcc::session
             sopts.injected_decls = opts.injected_decls;
             sopts.enable_doc_comments = opts.enable_doc_comments;
             sopts.restricted_check = opts.restricted_check;
-            sopts.default_allocator = opts.default_allocator;
+            sopts.default_allocator = m_default_allocator;
 
             auto parse = [this](sm::FileId fid, ast::AstContext& ast, diag::DiagnosticEngine& d) -> ast::TranslationUnit* { return parse_file(fid, ast, d); };
 
@@ -211,7 +214,7 @@ export namespace dcc::session
             auto parse = [this](sm::FileId fid, ast::AstContext& ast, diag::DiagnosticEngine& d) -> ast::TranslationUnit* { return parse_file(fid, ast, d); };
 
             sopts.restricted_check = opts.restricted_check;
-            sopts.default_allocator = opts.default_allocator;
+            sopts.default_allocator = m_default_allocator;
             m_sema = std::make_unique<sema::SemaContext>(m_sm, m_diag, *m_ast_ctx, std::move(parse), std::move(sopts));
 
             auto entries = m_sema->analyze_resolve_only_files(entry_paths);
@@ -226,9 +229,41 @@ export namespace dcc::session
         void configure_prelude(CompileOptions const& opts)
         {
             m_prelude_enabled = opts.inject_libdcext_prelude;
+            m_default_allocator = opts.default_allocator;
+            if (m_default_allocator.empty() && (opts.libdcext || m_prelude_enabled) && opts.target.os != target::Os::Freestanding)
+                m_default_allocator = "std::os::heap::Heap";
+            auto separator = m_default_allocator.rfind("::");
+            m_allocator_module = separator == std::string::npos ? std::string{} : m_default_allocator.substr(0, separator);
             m_library_files.clear();
+            m_allocator_file.clear();
             if (!m_prelude_enabled)
                 return;
+            if (!m_allocator_module.empty())
+            {
+                std::filesystem::path relative;
+                std::size_t start = 0;
+                while (start < m_allocator_module.size())
+                {
+                    auto end = m_allocator_module.find("::", start);
+                    relative /= m_allocator_module.substr(start, end == std::string::npos ? end : end - start);
+                    if (end == std::string::npos)
+                        break;
+                    start = end + 2;
+                }
+                relative += ".dc";
+                auto roots = opts.import_roots;
+                if (!m_entry_path.empty())
+                    roots.insert(roots.begin(), m_entry_path.parent_path());
+                for (auto const& root : roots)
+                {
+                    auto candidate = std::filesystem::weakly_canonical(root / relative);
+                    if (m_sm.find_by_path(candidate) || std::filesystem::exists(candidate))
+                    {
+                        m_allocator_file = std::move(candidate);
+                        break;
+                    }
+                }
+            }
             for (auto const& [name, path] : opts.library_sources)
                 m_library_files.insert(std::filesystem::weakly_canonical(path));
             for (auto const& root : opts.import_roots)
@@ -268,6 +303,9 @@ export namespace dcc::session
         std::unique_ptr<sema::SemaContext> m_sema;
 
         std::filesystem::path m_entry_path;
+        std::string m_default_allocator;
+        std::string m_allocator_module;
+        std::filesystem::path m_allocator_file;
         std::unordered_set<std::filesystem::path> m_library_files;
         bool m_prelude_enabled{false};
         bool m_assert_import_enabled{false};

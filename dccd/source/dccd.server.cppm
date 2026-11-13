@@ -2615,6 +2615,7 @@ export namespace dccd
                         opts.target = *analysis->target;
 
                     opts.injected_decls = std::move(analysis->injected_decls);
+                    opts.libdcext = analysis->libdcext;
                     opts.inject_libdcext_prelude = analysis->inject_libdcext_prelude;
                     opts.restricted_check = analysis->restricted_check;
                     opts.default_allocator = analysis->default_allocator;
