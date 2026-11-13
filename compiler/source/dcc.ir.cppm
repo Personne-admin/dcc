@@ -269,6 +269,7 @@ export namespace dcc::ir
         NullConstant,
         PointerConstant,
         StringConstant,
+        RawConstant,
 
         Local,
         GlobalRef,
@@ -1376,6 +1377,69 @@ export namespace dcc::ir
         }
     };
 
+    enum class IrDataRelocationKind : std::uint8_t
+    {
+        Absolute,
+        Segment
+    };
+
+    struct IrDataRelocation
+    {
+        std::uint64_t offset{};
+        std::uint64_t width{};
+        IrGlobalRef const* reference{};
+        IrDataRelocationKind kind{IrDataRelocationKind::Absolute};
+    };
+
+    struct IrRawConstant : IrValue
+    {
+        static constexpr auto Kind = IrNodeKind::RawConstant;
+        std::pmr::vector<std::uint8_t> bytes;
+        std::pmr::vector<IrDataRelocation> relocations;
+        bool little_endian{true};
+
+        IrRawConstant(IrType const* storage, bool little, std::pmr::polymorphic_allocator<> allocator)
+            : IrValue(Kind), bytes(allocator), relocations(allocator), little_endian(little)
+        {
+            type = storage;
+            bytes.resize(storage->byte_size);
+        }
+    };
+
+    [[nodiscard]] std::string constant_data_error(IrRawConstant const& data)
+    {
+        if (!data.type || data.bytes.size() != data.type->byte_size)
+            return "constant data size does not match its storage type";
+        std::vector<IrDataRelocation const*> ordered;
+        for (auto const& relocation : data.relocations)
+        {
+            if (!relocation.reference || !relocation.reference->type || relocation.reference->type->kind != IrTypeKind::Pointer)
+                return "constant data relocation has no symbolic pointer reference";
+            if ((relocation.width != 2 && relocation.width != 4 && relocation.width != 8) ||
+                (relocation.kind == IrDataRelocationKind::Segment && relocation.width != 2))
+                return "unsupported constant data relocation width";
+            auto* pointer = static_cast<IrPointerType const*>(relocation.reference->type);
+            auto expected_width = pointer->flavor == PointerFlavor::Far ? (pointer->byte_size == 4 ? 2u : 4u) : pointer->byte_size;
+            if ((relocation.kind == IrDataRelocationKind::Absolute && relocation.width != expected_width) ||
+                (relocation.kind == IrDataRelocationKind::Segment && pointer->flavor != PointerFlavor::Far))
+                return "constant data relocation does not match its pointer representation";
+            if (relocation.offset > data.bytes.size() || relocation.width > data.bytes.size() - relocation.offset)
+                return "constant data relocation exceeds its storage";
+            if (relocation.kind != IrDataRelocationKind::Absolute && relocation.kind != IrDataRelocationKind::Segment)
+                return "unsupported constant data relocation kind";
+            ordered.push_back(&relocation);
+        }
+        std::ranges::sort(ordered, {}, [](auto* relocation) { return relocation->offset; });
+        std::uint64_t end = 0;
+        for (auto* relocation : ordered)
+        {
+            if (relocation->offset < end)
+                return "overlapping constant data relocations";
+            end = relocation->offset + relocation->width;
+        }
+        return {};
+    }
+
     class IrContext
     {
     public:
@@ -1386,6 +1450,7 @@ export namespace dcc::ir
                 m_pointer_bits = target->pointer_bits;
                 m_pointer_align = target->pointer_align;
                 m_far_offset_bits = target->far_offset_bits();
+                m_little_endian = target->little_endian;
             }
         }
 
@@ -1632,6 +1697,7 @@ export namespace dcc::ir
         {
             return make<IrInsertInst>(result_t, agg, fi, v);
         }
+        [[nodiscard]] IrRawConstant* raw_constant(IrType const* storage) { return make<IrRawConstant>(storage, m_little_endian, m_arena); }
         [[nodiscard]] IrAggregateInst* aggregate(IrType const* result_t) { return make<IrAggregateInst>(result_t, m_arena); }
 
         [[nodiscard]] IrBrInst* br(IrBasicBlock* target) { return make<IrBrInst>(target); }
@@ -1689,6 +1755,7 @@ export namespace dcc::ir
         IrVoidType const* m_void{};
         IrBoolType const* m_bool{};
 
+        bool m_little_endian{true};
         std::uint8_t m_far_offset_bits{64};
         std::uint8_t m_pointer_bits{64};
         std::uint8_t m_pointer_align{8};
@@ -2014,6 +2081,21 @@ export namespace dcc::ir
                         std::format_to(std::back_inserter(m_out), "label %{}", bb->name);
                     else
                         std::format_to(std::back_inserter(m_out), "label %bb{}", bb->id);
+                    break;
+                }
+                case IrNodeKind::RawConstant: {
+                    auto* data = static_cast<IrRawConstant const*>(v);
+                    write("data [");
+                    for (std::size_t i = 0; i < data->bytes.size(); ++i)
+                        std::format_to(std::back_inserter(m_out), "{}{:02x}", i ? " " : "", data->bytes[i]);
+                    write("]");
+                    for (auto const& relocation : data->relocations)
+                    {
+                        std::format_to(std::back_inserter(m_out), " reloc({}, {}, {}, ", relocation.offset, relocation.width,
+                                       relocation.kind == IrDataRelocationKind::Absolute ? "absolute" : "segment");
+                        print_value(relocation.reference);
+                        write(")");
+                    }
                     break;
                 }
                 case IrNodeKind::Aggregate: {

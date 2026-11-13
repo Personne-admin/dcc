@@ -644,6 +644,19 @@ namespace dcc::ir::pass
                                         clone_value_impl(i->value, dst, cctx));
                     break;
                 }
+                case IrNodeKind::RawConstant: {
+                    auto* data = static_cast<IrRawConstant const*>(v);
+                    auto* copy = dst.raw_constant(clone_type_impl(data->type, dst, cctx));
+                    copy->bytes = data->bytes;
+                    copy->little_endian = data->little_endian;
+                    for (auto relocation : data->relocations)
+                    {
+                        relocation.reference = static_cast<IrGlobalRef const*>(clone_value_impl(relocation.reference, dst, cctx));
+                        copy->relocations.push_back(relocation);
+                    }
+                    result = copy;
+                    break;
+                }
                 case IrNodeKind::Aggregate: {
                     auto* a = static_cast<IrAggregateInst const*>(v);
                     auto* new_agg = dst.aggregate(clone_type_impl(a->type, dst, cctx));
@@ -1271,6 +1284,14 @@ namespace dcc::ir::pass
                     }
                     verify_value(insert->aggregate);
                     verify_value(insert->value);
+                    break;
+                }
+                case IrNodeKind::RawConstant: {
+                    auto* data = static_cast<IrRawConstant const*>(value);
+                    if (auto why = constant_data_error(*data); !why.empty())
+                        error(std::move(why));
+                    for (auto const& relocation : data->relocations)
+                        verify_value(relocation.reference);
                     break;
                 }
                 case IrNodeKind::Aggregate: {
