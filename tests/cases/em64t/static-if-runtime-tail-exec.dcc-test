@@ -1,23 +1,26 @@
 === FILE: test.dc ===
 module test;
 
-i32 choose(T)(T value) {
+void choose(T)(T value, i32* output) {
     static if T == bool {
-        return -1;
+        *output = -1;
     } else static if T == char {
         if value == '!' {
-            return 42;
+            *output = 42;
         } else {
-            return 7;
+            *output = 7;
         }
     } else {
-        return -2;
+        *output = -2;
     }
 }
 
 @nomangle public i32 dcc_main() {
-    if @runtime choose('!') != 42 { return 1; }
-    if @runtime choose('x') != 7 { return 2; }
+    i32 output = 0;
+    @runtime choose('!', &output);
+    if output != 42 { return 1; }
+    @runtime choose('x', &output);
+    if output != 7 { return 2; }
     return 0;
 }
 
