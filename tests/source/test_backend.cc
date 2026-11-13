@@ -2577,3 +2577,25 @@ TEST_CASE("i8086 raw constant data preserves offset and segment relocations")
         CHECK(unsupported.diagnostics.front().message.find("segmented") != std::string::npos);
     }
 }
+
+TEST_CASE("raw bytes cannot hide unsupported based address relocations")
+{
+    for (bool llvm : {false, true})
+    {
+        IrContext context;
+        auto* module = context.module("based_raw");
+        auto* byte = context.int_t(8, false);
+        auto* storage = context.array_t(byte, 8);
+        auto* pointer = context.pointer_to(byte, Segment::Fs, PointerFlavor::Based);
+        auto* data = context.raw_constant(storage);
+        data->relocations.push_back({0, 8, context.symbol_ref("target", pointer)});
+        module->globals.push_back(context.global("holder", storage, data));
+        BackendOptions options;
+        options.target = TargetConfig::host_default();
+        options.requested_artifacts = {ArtifactKind::ObjectBytes};
+        auto result = (llvm ? make_llvm_backend() : make_em64t_backend())->emit(*module, options);
+        CHECK(!result.object_bytes);
+        REQUIRE(!result.diagnostics.empty());
+        CHECK(result.diagnostics.front().message.find("segmented") != std::string::npos);
+    }
+}

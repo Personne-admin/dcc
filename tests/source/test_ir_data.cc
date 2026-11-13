@@ -153,3 +153,17 @@ TEST_CASE("nonconstant and oversized values cannot become constant data")
     CHECK(!error.empty());
     CHECK(materialize_constant_data(context, nullptr, context.int_const(integer, 0), error) == nullptr);
 }
+
+TEST_CASE("based relocation widths follow the segmented offset model")
+{
+    auto target = *dcc::target::TargetConfig::parse_triple("i8086-binary");
+    REQUIRE(!target.configure(dcc::target::CodeModel::Unreal, "i386"));
+    IrContext context(4096, &target);
+    auto* pointer = context.pointer_to(context.int_t(8, false), Segment::Ds, PointerFlavor::Based);
+    std::string error;
+    auto* data = materialize_constant_data(context, pointer, context.symbol_ref("data", pointer), error);
+    REQUIRE(data != nullptr);
+    CHECK_EQ(data->relocations[0].width, 4u);
+    CHECK(constant_data_tree_error(data, pointer, 2, 4, true).empty());
+    CHECK(!constant_data_tree_error(data, pointer, 4, 0, true).empty());
+}

@@ -32,10 +32,10 @@ export namespace dcc::ir
             for (auto const& relocation : data->relocations)
             {
                 auto* pointer = static_cast<IrPointerType const*>(relocation.reference->type);
-                if ((relocation.kind == IrDataRelocationKind::Segment || pointer->flavor == PointerFlavor::Far) && far_width == 0)
+                if ((relocation.kind == IrDataRelocationKind::Segment || pointer->flavor != PointerFlavor::Near) && far_width == 0)
                     return "segmented constant data relocations are not supported by this target";
                 if (relocation.kind == IrDataRelocationKind::Absolute &&
-                    relocation.width != (pointer->flavor == PointerFlavor::Far ? far_width : pointer_width))
+                    relocation.width != (pointer->flavor == PointerFlavor::Near ? pointer_width : far_width))
                     return "constant data relocation width does not match the target";
             }
         }
