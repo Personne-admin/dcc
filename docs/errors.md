@@ -73,12 +73,19 @@ match failure {
 }
 ```
 
-`PrintError` is available as a type on freestanding targets, but printing still
-requires a hosted target. The existing `std::os::print` API writes bounded
-best-effort records to standard error; this module does not change that API,
-provide unqualified printing or arrays, select an allocator, or change the
-supported `main` signatures. A successful short write remains a byte count,
-not an error that this type can convert.
+The hosted prelude supplies `std::io::PrintError`, an alias for
+`std::fmt::FormatError(std::os::error::Error)`. Stdout `print` and `println`
+return `Status(PrintError)`; propagation uses `Error::FormatIo`, preserving
+formatting and OS error payloads. The shared prelude supplies `Array` and
+`AllocError`; hosted builds select the stateless `Heap` policy by default.
+See [hosted library basics](hosted.md) for cleanup and printing contracts.
+
+The explicitly imported `std::os::print` API retains bounded best-effort
+records on stderr and its distinct `PrintError` (the `Error::Print` payload).
+That legacy type is also available explicitly on freestanding targets, while
+its printing functions require a hosted target. A successful short write from
+that API remains a byte count. The standard `Error` does not change supported
+`main` signatures; use an `i32 main` wrapper around `Status(Error)` work.
 
 ## Application-specific errors
 

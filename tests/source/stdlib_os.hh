@@ -86,7 +86,7 @@ namespace os_test
         std::string flags{};
     };
 
-    inline Run run_modules(std::vector<Module> const& modules, bool windows, std::string_view backend)
+    inline Run run_modules(std::vector<Module> const& modules, bool windows, std::string_view backend, bool whole_program = false)
     {
         auto root = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path().parent_path();
         auto dir =
@@ -108,11 +108,14 @@ namespace os_test
         std::string objects;
         for (auto const& module : modules)
         {
+            std::ofstream f{dir / module.name};
+            f << module.source;
+        }
+        for (auto const& module : modules)
+        {
+            if (whole_program)
+                continue;
             auto src = dir / module.name;
-            {
-                std::ofstream f{src};
-                f << module.source;
-            }
             auto obj = dir / (module.name + ".o");
             std::string const module_backend = module.backend.empty() ? std::string(backend) : module.backend;
             std::string command = "timeout 60 " + quote(root / "bin/dcc") + " -flibdcext " + os + " -target " + target + " -fbackend " + module_backend + " " +
@@ -131,7 +134,13 @@ namespace os_test
 
         auto exe = dir / "program.exe";
         std::string command;
-        if (windows)
+        if (whole_program)
+        {
+            auto const& entry = modules.back();
+            command = "timeout 60 " + quote(root / "bin/dcc") + " -flibdcext " + os + " -target " + target + " -fbackend " +
+                      std::string(backend) + " -fwhole-program " + entry.flags + " -I" + quote(dir) + " -o " + quote(exe) + " " + quote(dir / entry.name);
+        }
+        else if (windows)
         {
             auto env = std::getenv("MINGW_SYSROOT");
             auto mingw = std::filesystem::path{env ? env : "/opt/llvm-mingw"};

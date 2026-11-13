@@ -665,12 +665,22 @@ missing explicit bindings. Prelude-using packages require libdcext to be enabled
 when compiled separately. Packages intended for use without it should use
 `@no_prelude` and explicit imports.
 
-Automatically injected prelude type names are defaults: module declarations
+Automatically injected prelude type and value names are defaults: module declarations
 and explicit `using` bindings take precedence. Explicit imports of the
 prelude retain ordinary import and conflicting-type-injection rules. Qualified
 prelude names remain available when their unqualified defaults are shadowed.
 Automatically supplied type names may appear in public signatures. Explicit
 private imports still follow ordinary visibility rules.
+
+The shared prelude directly supplies `Result`, `Status`, `Optional`, `Error`,
+`Array` and `AllocError`. Hosted targets additionally receive `print`, `println`
+and `PrintError` from `std::prelude::hosted`. Only direct prelude aliases are
+injected, not all names re-exported by their implementation dependencies.
+Freestanding injection does not import hosted I/O or choose a heap allocator.
+Hosted libdcext builds select `std::os::heap::Heap` as the default allocator
+unless overridden by `-fdefault-allocator`. Allocator-policy modules are leaf
+configuration dependencies and use explicit imports rather than the prelude.
+
 
 ---
 

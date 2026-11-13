@@ -14,7 +14,8 @@ namespace
         Project()
         {
             write("std/prelude.dc", "module std::prelude; public enum R(T,E) { Ok(T), Err(E) } using public Result = R;");
-            write("libdcext.manifest", "dcc-libdcext-manifest 1\nsource all std::prelude std/prelude.dc\nsource all implementation implementation.dc\n");
+            write("libdcext.manifest", "dcc-libdcext-manifest 1\nsource all std::prelude std/prelude.dc\nsource all implementation implementation.dc\nsource hosted std::prelude::hosted std/prelude/hosted.dc\n");
+            write("std/prelude/hosted.dc", "module std::prelude::hosted;");
             write("implementation.dc", "module implementation; public struct Result { i32 code; }");
         }
         ~Project() { std::filesystem::remove_all(root); }
@@ -50,6 +51,8 @@ TEST_CASE("prelude applies equally to imported and separately analyzed user modu
     CHECK(p.analyze("pkg/helper.dc"));
     CHECK(p.analyze("main.dc", true, true));
     CHECK(!p.analyze("main.dc", false));
+    p.write("main.dc", "module main @no_prelude; import pkg::helper; public i32 main(){pkg::helper::work();return pkg::helper::identity(42)-42;}");
+    CHECK(p.analyze("main.dc"));
 }
 
 TEST_CASE("manifest provenance excludes library sources without namespace heuristics")
@@ -79,4 +82,34 @@ TEST_CASE("opted-out generic bodies cannot borrow missing prelude types from cal
     p.write("helper.dc", "module helper @no_prelude; public T identity(T)(T x) { Result(T,u8) r=Result::Ok(x); return x; }");
     p.write("main.dc", "module main; import helper; public i32 main() { return helper::identity(42)-42; }");
     CHECK(!p.analyze("main.dc"));
+}
+
+TEST_CASE("automatic exports include only direct prelude bindings")
+{
+    Project p;
+    p.write("extra.dc", "module extra; public enum Position { start } using public start=Position::start;");
+    p.write("std/prelude.dc", "module std::prelude; public import extra; public enum R(T,E) { Ok(T), Err(E) } using public Result=R;");
+    p.write("main.dc", "module main; public i32 main() { return start as i32; }");
+    CHECK(!p.analyze("main.dc"));
+    p.write("main.dc", "module main; Result(i32,u8) work() { return Result::Ok(42); }");
+    CHECK(p.analyze("main.dc"));
+}
+
+TEST_CASE("explicit functions and imports override automatic value defaults")
+{
+    Project p;
+    p.write("std/prelude.dc", "module std::prelude; public i32 default_print(i32 value) { return value; } using public println=default_print;");
+    p.write("main.dc", "module main; i32 println(i32 value) {return value+1;} public i32 main(){return println(41)-42;}");
+    CHECK(p.analyze("main.dc"));
+    p.write("other.dc", "module other; public i32 println(i32 value){return value+1;}");
+    p.write("main.dc", "module main; import other; using other::{println}; public i32 main(){return println(41)-42;}");
+    CHECK(p.analyze("main.dc"));
+}
+
+TEST_CASE("generic UFCS retains direct instantiation declarations without caller type lookup")
+{
+    Project p;
+    p.write("helper.dc", "module helper @no_prelude; public i32 invoke(T)(T* value) { return value.read(); }");
+    p.write("main.dc", "module main; import helper; struct Local { i32 value; } i32 read(Local* self){return self.value;} public i32 main(){Local x={value=42};return helper::invoke(&x)-42;}");
+    CHECK(p.analyze("main.dc"));
 }

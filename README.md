@@ -150,6 +150,9 @@ kernel or a microcontroller as for a regular userspace binary.
 prelude only injected when you pass `-flibdcext` to the driver (or set
 `.libdcext = true` in the Zig SDK options). Its `Error` type combines known
 standard-library errors without allocation; see [standard errors](docs/errors.md).
+Hosted modules can use `Array(T)`, `print` and `println` without imports or
+allocator setup; see [hosted library basics](docs/hosted.md) for cleanup and
+error handling.
 Without `-flibdcext`, you get exactly the
 language and `core::*` compiler intrinsics, nothing else.
 

@@ -2,6 +2,8 @@ module std::prelude;
 
 public import std::result;
 public import std::error;
+public import std::array;
+public import std::alloc;
 public import std::mem;
 
 using public Result = result::Result;
@@ -9,3 +11,6 @@ using public Status = result::Status;
 using public Optional = result::Optional;
 
 using public Error = error::Error;
+
+using public Array = array::Array;
+using public AllocError = alloc::AllocError;

@@ -49,10 +49,16 @@ public i32 main() {
     match failure { Error::Allocation(e) => { if e != AllocError::OutOfMemory { return 14; } }, _ => return 15, }
     for usize cycle=0; cycle<100; cycle++ {
         std::array::Array(i32) values={};
-        for i32 i=0; i<1000; i++ { if !values.push(i).is_ok() { return 16; } }
+        for i32 i=0; i<3000; i++ {
+            usize old_address=values.items().ptr as usize;
+            if !values.push(i).is_ok() { return 16; }
+            if old_address!=0 && old_address!=(values.items().ptr as usize) {
+                if !std::sys::linux::abi::is_error(std::sys::linux::syscall::mprotect(old_address, std::os::heap::page_size(), std::sys::linux::abi::PROT_READ)) { return 23; }
+            }
+        }
         i32 sum=0;
         for value in values.items() { sum+=value; }
-        if sum!=499500 { return 17; }
+        if sum!=4498500 { return 17; }
         usize address=values.items().ptr as usize;
         values.deinit();
         if values.len()!=0 || values.capacity()!=0 { return 18; }

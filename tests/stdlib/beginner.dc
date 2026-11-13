@@ -1,0 +1,17 @@
+module main;
+
+Status(Error) do_work() {
+    println("Hello, world!")?;
+    Array(i32) numbers = {};
+    defer numbers.deinit();
+    numbers.push(42)?;
+    numbers.push(100)?;
+    for value in numbers.items() {
+        println("Value: {}", value)?;
+    }
+    return Status::Ok;
+}
+
+public i32 main() {
+    return if do_work().is_ok() { 0 } else { 1 };
+}

@@ -122,12 +122,19 @@ export namespace dcc::session
                 !(tu->module_decl && std::ranges::any_of(tu->module_decl->attrs, [](auto const& attr) { return attr.name == "no_prelude"; })))
             {
                 auto alloc = ast.allocator();
-                ast::Path prelude_path{alloc};
-                prelude_path.segments.push_back({m_interner.intern("std"), sm::SourceRange{}});
-                prelude_path.segments.push_back({m_interner.intern("prelude"), sm::SourceRange{}});
-                auto* import_decl = ast.make<ast::ImportDecl>(sm::SourceRange{}, std::move(prelude_path), sm::SourceRange{}, alloc);
-                import_decl->is_implicit_prelude = true;
-                tu->imports.push_back(import_decl);
+                for (bool hosted : {false, true})
+                {
+                    if (hosted && !m_hosted_prelude)
+                        continue;
+                    ast::Path prelude_path{alloc};
+                    prelude_path.segments.push_back({m_interner.intern("std"), sm::SourceRange{}});
+                    prelude_path.segments.push_back({m_interner.intern("prelude"), sm::SourceRange{}});
+                    if (hosted)
+                        prelude_path.segments.push_back({m_interner.intern("hosted"), sm::SourceRange{}});
+                    auto* import_decl = ast.make<ast::ImportDecl>(sm::SourceRange{}, std::move(prelude_path), sm::SourceRange{}, alloc);
+                    import_decl->is_implicit_prelude = true;
+                    tu->imports.push_back(import_decl);
+                }
             }
 
             if (m_assert_import_enabled && tu && file->path() == m_entry_path)
@@ -229,6 +236,7 @@ export namespace dcc::session
         void configure_prelude(CompileOptions const& opts)
         {
             m_prelude_enabled = opts.inject_libdcext_prelude;
+            m_hosted_prelude = opts.target.os != target::Os::Freestanding;
             m_default_allocator = opts.default_allocator;
             if (m_default_allocator.empty() && (opts.libdcext || m_prelude_enabled) && opts.target.os != target::Os::Freestanding)
                 m_default_allocator = "std::os::heap::Heap";
@@ -308,6 +316,7 @@ export namespace dcc::session
         std::filesystem::path m_allocator_file;
         std::unordered_set<std::filesystem::path> m_library_files;
         bool m_prelude_enabled{false};
+        bool m_hosted_prelude{false};
         bool m_assert_import_enabled{false};
         bool m_enable_doc{false};
         double m_bench_parse_seconds{0};

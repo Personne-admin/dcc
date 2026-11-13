@@ -61,3 +61,41 @@ own allocation behavior. Malformed formats are validated before output starts.
 
 The explicitly imported `std::os::print` APIs retain their bounded, best-effort
 stderr behavior. Use explicit imports to select those APIs where needed.
+
+## Without explicit imports
+
+The shared automatic names are `Result`, `Status`, `Optional`, `Error`, `Array`
+and `AllocError`. Hosted modules additionally receive `print`, `println` and
+`PrintError`. Explicit imports and lexical bindings override these defaults.
+Import `std::prelude::hosted` explicitly if selecting its exports by hand;
+`std::prelude` itself remains shared with freestanding targets.
+
+```dc
+module main;
+
+Status(Error) do_work() {
+    println("Hello, world!")?;
+    Array(i32) numbers = {};
+    defer numbers.deinit();
+    numbers.push(42)?;
+    numbers.push(100)?;
+    for value in numbers.items() {
+        println("Value: {}", value)?;
+    }
+    return Status::Ok;
+}
+
+public i32 main() {
+    return if do_work().is_ok() { 0 } else { 1 };
+}
+```
+
+This program is exercised by `tests/stdlib/beginner.dc`. Use `{}` for an empty
+array; `[]` is not an array constructor. `Status::Ok` is a payload-less value,
+not a function call. Fallible `main` is not supported by this API change.
+
+Run `dpm new hello`, replace the generated executable's source with the example,
+and use `dpm run`. The built-in template and entry ABI are unchanged. Imported
+user helpers receive the same prelude when compiled under the same library,
+target and allocator settings. Packages that require independence from the
+prelude should pin `@no_prelude` and explicit imports in their module headers.

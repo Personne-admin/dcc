@@ -218,6 +218,11 @@ export namespace dcc::sema
                 if (!has_any_spill(src))
                     continue;
 
+                if (prelude_default && !std::ranges::any_of(target.using_worklist, [&](ast::UsingDecl const* declaration) {
+                        return declaration->is_spill && declaration->using_kind == ast::UsingKind::Alias &&
+                               declaration->alias_path.is_simple() && declaration->alias_path.simple_name() == name;
+                    }))
+                    continue;
                 progress = copy_spilled_slots(src, name, *mod.own_scope, prelude_default) || progress;
                 if (propagate)
                     progress = copy_spilled_slots(src, name, *mod.export_scope) || progress;
@@ -305,6 +310,15 @@ export namespace dcc::sema
                 s.name = target_name;
                 s.is_exported = is_exported;
                 auto* binding = dst.find_binding_local(target_name);
+                if (binding)
+                {
+                    auto removed = std::erase_if(binding->value_syms, [](Symbol const& e) { return e.is_prelude_default; });
+                    if (removed)
+                    {
+                        binding->has_value_variable = std::ranges::any_of(binding->value_syms, [](Symbol const& e) { return is_variable_like(e.kind); });
+                        added = true;
+                    }
+                }
 
                 if (is_variable_like(vs.kind))
                 {
@@ -900,6 +914,15 @@ export namespace dcc::sema
                 s.name = target_name;
                 apply_using_flags(s);
                 auto* binding = dst.find_binding_local(target_name);
+                if (binding)
+                {
+                    auto removed = std::erase_if(binding->value_syms, [](Symbol const& e) { return e.is_prelude_default; });
+                    if (removed)
+                    {
+                        binding->has_value_variable = std::ranges::any_of(binding->value_syms, [](Symbol const& e) { return is_variable_like(e.kind); });
+                        added = true;
+                    }
+                }
 
                 if (is_variable_like(vs.kind))
                 {
@@ -996,7 +1019,22 @@ export namespace dcc::sema
 
                 Symbol s = vs;
                 s.name = name;
+                s.is_prelude_default = prelude_default;
                 auto* binding = dst.find_binding_local(name);
+                if (binding)
+                {
+                    if (prelude_default && std::ranges::any_of(binding->value_syms, [](Symbol const& e) { return !e.is_prelude_default; }))
+                        continue;
+                    if (!prelude_default)
+                    {
+                        auto removed = std::erase_if(binding->value_syms, [](Symbol const& e) { return e.is_prelude_default; });
+                        if (removed)
+                        {
+                            binding->has_value_variable = std::ranges::any_of(binding->value_syms, [](Symbol const& e) { return is_variable_like(e.kind); });
+                            added = true;
+                        }
+                    }
+                }
 
                 if (is_variable_like(vs.kind))
                 {

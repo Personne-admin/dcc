@@ -1,0 +1,7 @@
+module std::prelude::hosted;
+
+public import std::io;
+
+using public print = io::print;
+using public println = io::println;
+using public PrintError = io::PrintError;

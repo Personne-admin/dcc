@@ -163,3 +163,25 @@ TEST_CASE("shared error prelude does not load hosted IO implementations")
     CHECK(!result.failed);
     CHECK(!result.hosted_dependencies);
 }
+
+TEST_CASE("freestanding prelude supplies collections without hosted defaults")
+{
+    auto result = analyze(R"dc(module main;
+import std::alloc::fixed;
+import std::array;
+Status(Error) work() {
+    u8[256] backing;
+    std::alloc::fixed::FixedBuffer storage=std::alloc::fixed::FixedBuffer::new(backing[0..256]);
+    Array(i32,std::alloc::fixed::FixedHandle) values=std::array::new_array(storage.borrow());
+    defer values.deinit();
+    values.push(42)?;
+    return Status::Ok;
+}
+)dc",true,dcc::target::Os::Freestanding);
+    if (result.failed) std::print(std::cerr, "{}", result.diagnostics);
+    CHECK(!result.failed);
+    CHECK(!result.hosted_dependencies);
+    auto printing=analyze("module main; void work(){println(\"unavailable\");}",true,dcc::target::Os::Freestanding);
+    CHECK(printing.failed);
+    CHECK(!printing.hosted_dependencies);
+}

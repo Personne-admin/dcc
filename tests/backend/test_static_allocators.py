@@ -220,6 +220,12 @@ def generic_signature_defaults(dcc, scratch):
                              '-fbackend', 'llvm', '-O0', '-fwhole-program', scratch / 'prog.dc', '-o', scratch / 'no-selection'],
                             capture_output=True, text=True, timeout=65)
     text = ANSI.sub('', result.stderr)
+    assert result.returncode == 0, text
+    run([scratch / 'no-selection'])
+    result = subprocess.run(['timeout', '60', str(dcc), *map(str, include), '-flibdcext', 'freestanding', '-target', 'x86_64-elf',
+                             '-fbackend', 'llvm', '-O0', '-c', scratch / 'prog.dc', '-o', scratch / 'no-selection.o'],
+                            capture_output=True, text=True, timeout=65)
+    text = ANSI.sub('', result.stderr)
     assert result.returncode == 1, text
     assert 'no default allocator selected' in text, text
     print('  PASS static allocators generic signature default selection', flush=True)
