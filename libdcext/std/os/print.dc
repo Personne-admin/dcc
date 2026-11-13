@@ -1,5 +1,7 @@
 module std::os::print;
 
+public import std::os::print_error;
+
 import core;
 import core::target;
 import std::fmt;
@@ -27,11 +29,7 @@ using result::{ Result, Status };
 //! operating system accepted.
 //!
 
-public enum PrintError : u8 {
-    TooLong,
-    BadFormat,
-    WriteFailed,
-}
+public using PrintError = print_error::PrintError;
 
 static if core::target::OS != core::target::Os::Freestanding {
     /// the largest record print builds on the stack, newline included.

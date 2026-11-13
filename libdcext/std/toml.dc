@@ -14,6 +14,8 @@
 
 module std::toml;
 
+public import std::toml::error;
+
 import core;
 import core::allocator_config;
 import core::target;
@@ -34,26 +36,7 @@ using parse::{ Position, Located, NumError };
 //! Errors
 //!
 
-public enum TomlError : u8 {
-    UnexpectedByte,
-    UnexpectedEnd,
-    InvalidKey,
-    InvalidString,
-    InvalidEscape,
-    InvalidNumber,
-    NumberOutOfRange,
-    InvalidDate,
-    InvalidUtf8,
-    ControlCharacter,
-    ExpectedNewline,
-    DepthExceeded,
-    TooManyKeyParts,
-    DuplicateKey,
-    KeyConflict,
-    OutOfSpace,
-    OutOfMemory,
-    TypeMismatch,
-}
+public using TomlError = error::TomlError;
 
 //!
 //! Strings and keys

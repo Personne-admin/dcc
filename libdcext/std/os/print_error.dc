@@ -1,0 +1,7 @@
+module std::os::print_error;
+
+public enum PrintError : u8 {
+    TooLong,
+    BadFormat,
+    WriteFailed,
+}

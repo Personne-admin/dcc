@@ -1,0 +1,22 @@
+module std::toml::error;
+
+public enum TomlError : u8 {
+    UnexpectedByte,
+    UnexpectedEnd,
+    InvalidKey,
+    InvalidString,
+    InvalidEscape,
+    InvalidNumber,
+    NumberOutOfRange,
+    InvalidDate,
+    InvalidUtf8,
+    ControlCharacter,
+    ExpectedNewline,
+    DepthExceeded,
+    TooManyKeyParts,
+    DuplicateKey,
+    KeyConflict,
+    OutOfSpace,
+    OutOfMemory,
+    TypeMismatch,
+}

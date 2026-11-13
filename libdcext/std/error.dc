@@ -4,10 +4,10 @@ public import std::alloc;
 public import std::fmt;
 public import std::json;
 public import std::os::error;
-public import std::os::print;
+public import std::os::print_error;
 public import std::parse;
 public import std::sha;
-public import std::toml;
+public import std::toml::error;
 public import std::utf8;
 
 /// A closed, allocation-free sum of standard-library error values.
@@ -16,7 +16,7 @@ public import std::utf8;
 public enum Error {
     @implicit_construction Allocation(alloc::AllocError),
     @implicit_construction Io(os::error::Error),
-    @implicit_construction Print(os::print::PrintError),
+    @implicit_construction Print(os::print_error::PrintError),
     @implicit_construction FormatBuffer(fmt::FormatError(fmt::BufferError)),
     @implicit_construction FormatCount(fmt::FormatError(fmt::CountError)),
     @implicit_construction FormatIo(fmt::FormatError(os::error::Error)),
@@ -26,6 +26,6 @@ public enum Error {
     @implicit_construction Number(parse::NumError),
     @implicit_construction Utf8(utf8::Utf8Error),
     @implicit_construction Json(json::JsonError),
-    @implicit_construction Toml(toml::TomlError),
+    @implicit_construction Toml(toml::error::TomlError),
     @implicit_construction Sha(sha::ShaError),
 }

@@ -24,6 +24,7 @@ source all std::os::path std/os/path.dc
 source all std::os::pipe std/os/pipe.dc
 source all std::os::process std/os/process.dc
 source all std::os::print std/os/print.dc
+source all std::os::print_error std/os/print_error.dc
 source all std::os::random std/os/random.dc
 source all std::os::thread std/os/thread.dc
 source all std::os::thread_pool std/os/thread_pool.dc
@@ -39,6 +40,7 @@ source hosted std::sys::linux::syscall std/sys/linux/syscall.dc
 source all std::sys::win::abi std/sys/win/abi.dc
 source hosted std::sys::win::imports std/sys/win/imports.dc
 source all std::toml std/toml.dc
+source all std::toml::error std/toml/error.dc
 source all std::tuple std/tuple.dc
 source all std::utf8 std/utf8.dc
 runtime all dcext::memory::memcpy common/memory/memcpy.dc

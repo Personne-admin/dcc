@@ -11,6 +11,7 @@ namespace
     {
         bool failed;
         std::string diagnostics;
+        bool hosted_dependencies{};
     };
 
     Analysis analyze(std::string_view source, bool prelude = true, dcc::target::Os os = dcc::target::Os::Linux,
@@ -42,7 +43,13 @@ namespace
         options.inject_libdcext_prelude = prelude;
         options.target = dcc::target::TargetConfig::for_os(os);
         auto result = session.analyze_entry(dir / "main.dc", options);
-        return {result.has_errors, diagnostics.str()};
+        bool hosted_dependencies = false;
+        if (auto* context = session.sema_context())
+            for (auto const& module : context->graph().all())
+                for (auto forbidden : {"std::io", "std::prelude::hosted", "std::os::heap", "std::os::file", "std::os::time",
+                                       "std::sys::linux::syscall", "std::sys::win::imports"})
+                    hosted_dependencies |= module->canonical_path.str() == forbidden;
+        return {result.has_errors, diagnostics.str(), hosted_dependencies};
     }
 }
 
@@ -148,4 +155,11 @@ Status(Application) work() { failed()?; return Status::Ok; }
 )dc");
     CHECK(nested.failed);
     CHECK(nested.diagnostics.find("cannot be propagated") != std::string::npos);
+}
+
+TEST_CASE("shared error prelude does not load hosted IO implementations")
+{
+    auto result = analyze("module main; Status(Error) work() { return Status::Ok; }", true, dcc::target::Os::Freestanding);
+    CHECK(!result.failed);
+    CHECK(!result.hosted_dependencies);
 }
