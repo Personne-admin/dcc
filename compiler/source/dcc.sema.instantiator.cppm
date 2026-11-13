@@ -1567,7 +1567,10 @@ namespace dcc::sema
         {
             auto take_then = [&]() -> std::pmr::vector<ast::StmtPtr> {
                 fold_block(si.then_block);
-                return std::pmr::vector<ast::StmtPtr>(si.then_block.stmts.begin(), si.then_block.stmts.end(), alloc);
+                std::pmr::vector<ast::StmtPtr> taken(si.then_block.stmts.begin(), si.then_block.stmts.end(), alloc);
+                if (si.then_block.tail)
+                    taken.push_back(m_ast_ctx.make<ast::ExprStmt>(si.then_block.tail->range, si.then_block.tail));
+                return taken;
             };
 
             auto take_else = [&]() -> std::pmr::vector<ast::StmtPtr> {

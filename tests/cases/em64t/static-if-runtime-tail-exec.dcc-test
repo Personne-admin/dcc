@@ -1,0 +1,27 @@
+=== FILE: test.dc ===
+module test;
+
+i32 choose(T)(T value) {
+    static if T == bool {
+        return -1;
+    } else static if T == char {
+        if value == '!' {
+            return 42;
+        } else {
+            return 7;
+        }
+    } else {
+        return -2;
+    }
+}
+
+@nomangle public i32 dcc_main() {
+    if @runtime choose('!') != 42 { return 1; }
+    if @runtime choose('x') != 7 { return 2; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O0 ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0
