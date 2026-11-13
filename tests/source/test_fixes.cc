@@ -383,3 +383,39 @@ void f() {
     CHECK_EQ(span.raw_range.begin.offset, source.find("%[x]"));
     CHECK_EQ(span.raw_range.end.offset, source.find("%[x]") + 4u);
 }
+
+TEST_CASE("automatic prelude types yield to explicit declarations and imports")
+{
+    for (auto source : {
+             "module main; struct Error { i32 code; } i32 f() { Error e = { code = 7 }; return e.code; }",
+             "module main; import chosen; using chosen::Error; i32 f() { Error e = { code = 7 }; return e.code; }",
+             "module main; import chosen; using Error = chosen::Error; i32 f() { Error e = { code = 7 }; return e.code; }",
+             "module main; i32 f() { Error e = Error::Default; return 0; }",
+         })
+    {
+        TempDir td;
+        std::filesystem::create_directories(td.path / "std");
+        td.write_file("std/prelude.dc", "module std::prelude; public enum DefaultError { Default } using public Error = DefaultError;");
+        td.write_file("chosen.dc", "module chosen; public struct Error { i32 code; }");
+        td.write_file("main.dc", source);
+        dcc::session::CompilerSession session{{.silent_diagnostics = true}};
+        dcc::session::CompileOptions options;
+        options.inject_libdcext_prelude = true;
+        auto result = session.analyze_entry(td.path / "main.dc", options);
+        CHECK(!result.has_errors);
+    }
+}
+
+TEST_CASE("explicit prelude imports retain conflicting type diagnostics")
+{
+    TempDir td;
+    std::filesystem::create_directories(td.path / "std");
+    td.write_file("std/prelude.dc", "module std::prelude; public enum DefaultError { Default } using public Error = DefaultError;");
+    td.write_file("main.dc", "module main; import std::prelude; struct Error { i32 code; }");
+    dcc::session::CompilerSession session{{.silent_diagnostics = true}};
+    dcc::session::CompileOptions options;
+    options.inject_libdcext_prelude = true;
+    auto result = session.analyze_entry(td.path / "main.dc", options);
+    CHECK(result.has_errors);
+    CHECK(find_diagnostic(session.diagnostics(), "conflicting type injection") != nullptr);
+}

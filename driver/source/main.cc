@@ -1743,7 +1743,7 @@ auto main(int argc, char** argv) -> int
     if (opts.libdcext || opts.whole_program)
         compile_opts.import_roots.push_back(prefix / "include");
 
-    compile_opts.inject_libdcext_prelude = opts.libdcext;
+    compile_opts.inject_libdcext_prelude = opts.libdcext && opts.prelude;
     compile_opts.inject_assert_import = opts.whole_program;
     compile_opts.restricted_check = opts.restricted_check;
 

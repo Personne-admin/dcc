@@ -171,6 +171,7 @@ export namespace dcc::sema
         ast::UsingDecl const* via_using{};
 
         bool is_spilled : 1 {};
+        bool is_prelude_default : 1 {};
         bool is_exported : 1 {};
         bool is_ambiguous : 1 {};
 
@@ -233,6 +234,11 @@ export namespace dcc::sema
                 if (existing)
                     *existing = &b.type_sym;
 
+                if (b.type_sym.is_prelude_default && !s.is_prelude_default)
+                {
+                    b.type_sym = s;
+                    return DefineResult::Ok;
+                }
                 return same_decl(b.type_sym, s) ? DefineResult::Redefinition : DefineResult::Conflict;
             }
 

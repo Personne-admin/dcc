@@ -129,7 +129,7 @@ export namespace dcc::sema
                 else
                     progress = install_module_alias(mod, imp.alias_prefix, *imp.target, publicly_imported) || progress;
 
-                progress = absorb_spills(mod, *imp.target, publicly_imported) || progress;
+                progress = absorb_spills(mod, *imp.target, publicly_imported, imp.decl->is_implicit_prelude) || progress;
 
                 if (publicly_imported)
                     progress = absorb_all_public_exports(mod, *imp.target) || progress;
@@ -202,7 +202,7 @@ export namespace dcc::sema
             return progress;
         }
 
-        bool absorb_spills(ModuleInfo& mod, ModuleInfo const& target, bool propagate)
+        bool absorb_spills(ModuleInfo& mod, ModuleInfo const& target, bool propagate, bool prelude_default)
         {
             if (!target.export_scope)
                 return false;
@@ -215,7 +215,7 @@ export namespace dcc::sema
                 if (!has_any_spill(src))
                     continue;
 
-                progress = copy_spilled_slots(src, name, *mod.own_scope) || progress;
+                progress = copy_spilled_slots(src, name, *mod.own_scope, prelude_default) || progress;
                 if (propagate)
                     progress = copy_spilled_slots(src, name, *mod.export_scope) || progress;
             }
@@ -862,6 +862,7 @@ export namespace dcc::sema
 
             auto apply_using_flags = [&](Symbol& s) {
                 s.via_using = via;
+                s.is_prelude_default = false;
                 s.is_spilled = spill;
                 if (preserve_exported)
                     s.is_exported |= exported;
@@ -875,8 +876,15 @@ export namespace dcc::sema
                 s.name = target_name;
                 apply_using_flags(s);
                 if (existing && existing->has_type && existing->type_sym.decl == s.decl)
+                {
+                    if (existing->type_sym.is_prelude_default)
+                    {
+                        existing->type_sym.is_prelude_default = false;
+                        added = true;
+                    }
                     added = merge_symbol(existing->type_sym, s) || added;
-                else if (!existing || !existing->has_type)
+                }
+                else if (!existing || !existing->has_type || existing->type_sym.is_prelude_default)
                 {
                     if (dst.define_type(s) == DefineResult::Ok)
                         added = true;
@@ -952,7 +960,7 @@ export namespace dcc::sema
             return added;
         }
 
-        bool copy_spilled_slots(NameBinding const& src, std::string_view name, Scope& dst)
+        bool copy_spilled_slots(NameBinding const& src, std::string_view name, Scope& dst, bool prelude_default = false)
         {
             bool added = false;
             auto* existing = dst.find_binding_local(name);
@@ -961,11 +969,20 @@ export namespace dcc::sema
             {
                 Symbol s = src.type_sym;
                 s.name = name;
+                s.is_prelude_default = prelude_default;
                 if (existing && existing->has_type && existing->type_sym.decl == s.decl)
+                {
+                    if (existing->type_sym.is_prelude_default && !prelude_default)
+                    {
+                        existing->type_sym.is_prelude_default = false;
+                        added = true;
+                    }
                     added = merge_symbol(existing->type_sym, s) || added;
-                else if ((!existing || !existing->has_type) && dst.define_type(s) == DefineResult::Ok)
+                }
+                else if ((!existing || !existing->has_type || (existing->type_sym.is_prelude_default && !prelude_default)) &&
+                         dst.define_type(s) == DefineResult::Ok)
                     added = true;
-                else if (existing && existing->has_type && existing->type_sym.decl != s.decl)
+                else if (!prelude_default && existing && existing->has_type && existing->type_sym.decl != s.decl)
                     diagnose_type_conflict(existing->type_sym, s);
             }
 

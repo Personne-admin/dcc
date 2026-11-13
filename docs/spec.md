@@ -642,6 +642,19 @@ public f32 distance(Point a, Point b) { ... }
 f32 helper(f32 x) { ... }
 ```
 
+### 7.4 Optional standard prelude
+
+`-flibdcext` enables the standard-library prelude in the entry module.
+Imported modules can opt in with `import std::prelude;`. Automatic injection
+into imported modules is not currently supported. `-fno-prelude` disables
+only automatic injection, retaining library linking and explicit imports;
+`-fprelude` re-enables it when libdcext is enabled.
+
+Automatically injected prelude type names are defaults: module declarations
+and explicit `using` bindings take precedence. Explicit imports of the
+prelude retain ordinary import and conflicting-type-injection rules. Qualified
+prelude names remain available when their unqualified defaults are shadowed.
+
 ---
 
 ## 8. Templates

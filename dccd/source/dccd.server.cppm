@@ -2618,7 +2618,7 @@ export namespace dccd
                     opts.inject_libdcext_prelude = analysis->inject_libdcext_prelude;
                     opts.restricted_check = analysis->restricted_check;
                     opts.default_allocator = analysis->default_allocator;
-                    want_libdcext = analysis->inject_libdcext_prelude;
+                    want_libdcext = analysis->libdcext;
                     roots = std::move(analysis->import_roots);
 
                     std::println(m_log, "[dccd] compile command: {} import roots, {} injected declarations, target={}", roots.size(),

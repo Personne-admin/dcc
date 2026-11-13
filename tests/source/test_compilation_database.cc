@@ -63,6 +63,7 @@ namespace
             out += "decl=" + d + "\n";
         out += "triple=" + (analysis->target ? analysis->target->triple : std::string{"<none>"}) + "\n";
         out += "libdcext=" + std::to_string(analysis->inject_libdcext_prelude ? 1 : 0) + "\n";
+        out += "library=" + std::to_string(analysis->libdcext ? 1 : 0) + "\n";
         return out;
     }
 
@@ -423,4 +424,26 @@ TEST_CASE("libdcext flag matching is exact")
 
     REQUIRE(negated.has_value());
     CHECK(negated->find("libdcext=0") != std::string::npos);
+}
+
+TEST_CASE("prelude opt-out is projected independently of library linking")
+{
+    for (auto flags : {"-flibdcext -fno-prelude", "-fno-prelude -flibdcext"})
+    {
+        auto out = dump_db(std::format(R"json([{{
+            "directory": "/project",
+            "file": "src/main.dc",
+            "command": "dcc {} src/main.dc"
+        }}])json", flags));
+        REQUIRE(out.has_value());
+        CHECK(out->find("libdcext=0") != std::string::npos);
+        CHECK(out->find("library=1") != std::string::npos);
+    }
+    auto out = dump_db(R"json([{
+        "directory": "/project",
+        "file": "src/main.dc",
+        "command": "dcc -flibdcext -fno-prelude -fprelude src/main.dc"
+    }])json");
+    REQUIRE(out.has_value());
+    CHECK(out->find("libdcext=1") != std::string::npos);
 }

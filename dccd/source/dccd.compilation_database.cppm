@@ -22,6 +22,7 @@ export namespace dccd
         std::vector<std::filesystem::path> import_roots;
         std::vector<std::string> injected_decls;
 
+        bool libdcext{false};
         bool inject_libdcext_prelude{false};
         dcc::target::LibdcextOs libdcext_os{dcc::target::LibdcextOs::Host};
         bool restricted_check{false};
@@ -300,7 +301,8 @@ namespace dccd
 
         AnalysisCommand analysis;
         analysis.injected_decls = opts.injected_decls;
-        analysis.inject_libdcext_prelude = opts.libdcext;
+        analysis.libdcext = opts.libdcext;
+        analysis.inject_libdcext_prelude = opts.libdcext && opts.prelude;
         analysis.libdcext_os = opts.libdcext_os;
         analysis.restricted_check = opts.restricted_check;
         analysis.bounds_check = opts.bounds_check;

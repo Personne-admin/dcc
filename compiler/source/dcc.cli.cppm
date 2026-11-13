@@ -56,6 +56,7 @@ export namespace dcc::cli
         dcc::backend::DebugFormat debug_format{dcc::backend::DebugFormat::Auto};
         bool help{false};
         bool libdcext{false};
+        bool prelude{true};
         dcc::target::LibdcextOs libdcext_os{dcc::target::LibdcextOs::Host};
         std::string target_triple;
         bool function_sections{false};
@@ -302,6 +303,17 @@ export namespace dcc::cli
              o.libdcext = on;
              o.libdcext_os = v.empty() ? dcc::target::LibdcextOs::Host : *dcc::target::parse_libdcext_os(v);
          }},
+
+        {"-fprelude",
+         "-fno-prelude",
+         {},
+         Arg::None,
+         "",
+         {},
+         Phase::Compile,
+         "inject the libdcext prelude when libdcext is enabled",
+         "on",
+         [](Options& o, bool on, std::string_view, char**) { o.prelude = on; }},
 
         {"-O",
          "",

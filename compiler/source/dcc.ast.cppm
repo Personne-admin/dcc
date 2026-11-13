@@ -1225,6 +1225,7 @@ export namespace dcc::ast
         Path module_path;
         sm::SourceRange name_range;
 
+        bool is_implicit_prelude{};
         Decl const* resolved_module{};
 
         ImportDecl(sm::SourceRange r, Path p, sm::SourceRange nr, Allocator a) : Decl(Kind, r, a), module_path(std::move(p)), name_range(nr) {}

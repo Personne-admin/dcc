@@ -118,6 +118,7 @@ export namespace dcc::session
                 prelude_path.segments.push_back({m_interner.intern("std"), sm::SourceRange{}});
                 prelude_path.segments.push_back({m_interner.intern("prelude"), sm::SourceRange{}});
                 auto* import_decl = ast.make<ast::ImportDecl>(sm::SourceRange{}, std::move(prelude_path), sm::SourceRange{}, alloc);
+                import_decl->is_implicit_prelude = true;
                 tu->imports.push_back(import_decl);
             }
 
