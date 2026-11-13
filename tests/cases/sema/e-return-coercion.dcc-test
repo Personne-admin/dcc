@@ -33,12 +33,12 @@ f32 ret_f64_to_f32() {
 
 i64 ret_i32_to_i64() {
     i32 v = 3;
-    return v;
+    return v as i64;
 }
 
 i32 ret_i16_to_i32() {
     i16 v = 4;
-    return v;
+    return v as i32;
 }
 
 i32* ret_null_ptr() {
@@ -90,13 +90,15 @@ Module m
       Var v type=i32 storage=local offset=0
         IntLiteral 3 [type=i32 const=3 constant]
       Return
-        Ident v [type=i32 const=3 lvalue constant decl=v]
+        Cast [type=i64 const=3 constant]
+          Ident v [type=i32 const=3 lvalue constant decl=v]
   Func ret_i16_to_i32 diverging=true
     Body
       Var v type=i16 storage=local offset=0
         IntLiteral 4 [type=i16 const=4 constant]
       Return
-        Ident v [type=i16 const=4 lvalue constant decl=v]
+        Cast [type=i32 const=4 constant]
+          Ident v [type=i16 const=4 lvalue constant decl=v]
   Func ret_null_ptr diverging=true
     Body
       Return

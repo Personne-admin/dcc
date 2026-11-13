@@ -4,7 +4,7 @@ module m;
 i32 test() {
     u8{0..10} x = 4;
     u8 y = x + 1;
-    return y;
+    return y as i32;
 }
 
 === EXPECT-TYPES FOR: m ===

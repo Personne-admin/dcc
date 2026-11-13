@@ -11280,7 +11280,7 @@ export namespace dcc::ir::lower
                     val = coerce_array_to_pointer(src_expr, val, src_sema_type, target_sema_type);
             }
 
-            if (val->type->kind == IrTypeKind::Int)
+            if (src_sema_type && src_sema_type->kind == types::TypeKind::Restricted && val->type->kind == IrTypeKind::Int)
                 val = coerce_value(val, lower_type(target_sema_type));
 
             auto* target_pointer = types::type_cast<types::PointerType>(target_sema_type);
