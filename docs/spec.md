@@ -644,18 +644,33 @@ f32 helper(f32 x) { ... }
 
 ### 7.4 Optional standard prelude
 
-`-flibdcext` enables the standard-library prelude in the entry module.
-Imported modules can opt in with `import std::prelude;`. Automatic injection
-into imported modules is not currently supported. `-fno-prelude` disables
-only automatic injection, retaining library linking and explicit imports;
-`-fprelude` re-enables it when libdcext is enabled.
+`-flibdcext` enables the standard-library prelude in every user module,
+including imported package modules and modules analyzed separately. Compiler
+core sources and exact source paths registered by a library manifest (or SDK
+library-source registration) are excluded. Module names and directory substrings
+do not classify a file as library code.
+
+`-fno-prelude` disables automatic injection for the compilation, retaining
+library linking and explicit imports; `-fprelude` re-enables it when libdcext
+is enabled. A package module can pin its own opt-out in source:
+
+```dc
+module package::low_level @no_prelude;
+```
+
+This opt-out applies both when importing and separately compiling that file.
+Explicit imports remain available. Separate compilation must use consistent
+target and allocator settings; application imports do not supply a dependency's
+missing explicit bindings. Prelude-using packages require libdcext to be enabled
+when compiled separately. Packages intended for use without it should use
+`@no_prelude` and explicit imports.
 
 Automatically injected prelude type names are defaults: module declarations
 and explicit `using` bindings take precedence. Explicit imports of the
 prelude retain ordinary import and conflicting-type-injection rules. Qualified
 prelude names remain available when their unqualified defaults are shadowed.
-Public signatures exposing prelude types require `public import std::prelude;`
-under the ordinary module visibility rules.
+Automatically supplied type names may appear in public signatures. Explicit
+private imports still follow ordinary visibility rules.
 
 ---
 

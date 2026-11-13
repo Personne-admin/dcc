@@ -9,6 +9,8 @@ import dcc.diag;
 import dcc.ast;
 import dcc.sema;
 import dcc.target;
+import dcc.library;
+import dcc.vfs;
 
 export namespace dcc::session
 {
@@ -111,7 +113,10 @@ export namespace dcc::session
             if (measure)
                 m_bench_parse_seconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - parse_start).count();
 
-            if (m_prelude_enabled && tu && file->path() == m_entry_path && !is_std_prelude(tu))
+            if (m_prelude_enabled && tu && !is_std_prelude(tu) &&
+                !dcc::vfs::is_dcc_core_uri(file->uri()) &&
+                !m_library_files.contains(std::filesystem::weakly_canonical(file->path())) &&
+                !(tu->module_decl && std::ranges::any_of(tu->module_decl->attrs, [](auto const& attr) { return attr.name == "no_prelude"; })))
             {
                 auto alloc = ast.allocator();
                 ast::Path prelude_path{alloc};
@@ -145,7 +150,7 @@ export namespace dcc::session
         {
             m_bench_parse_seconds = 0;
             m_entry_path = entry_path;
-            m_prelude_enabled = opts.inject_libdcext_prelude;
+            configure_prelude(opts);
             m_assert_import_enabled = opts.inject_assert_import;
 
             m_sema.reset();
@@ -187,7 +192,7 @@ export namespace dcc::session
         {
             m_bench_parse_seconds = 0;
             m_entry_path.clear();
-            m_prelude_enabled = opts.inject_libdcext_prelude;
+            configure_prelude(opts);
             m_assert_import_enabled = opts.inject_assert_import;
 
             m_sema.reset();
@@ -218,6 +223,35 @@ export namespace dcc::session
         }
 
     private:
+        void configure_prelude(CompileOptions const& opts)
+        {
+            m_prelude_enabled = opts.inject_libdcext_prelude;
+            m_library_files.clear();
+            if (!m_prelude_enabled)
+                return;
+            for (auto const& [name, path] : opts.library_sources)
+                m_library_files.insert(std::filesystem::weakly_canonical(path));
+            for (auto const& root : opts.import_roots)
+            {
+                auto path = root / "libdcext.manifest";
+                if (!std::filesystem::exists(path))
+                    continue;
+                try
+                {
+                    for (auto os : {target::Os::Linux, target::Os::Windows, target::Os::Freestanding})
+                    {
+                        auto manifest = library::read_manifest(path, os);
+                        for (auto const& source : manifest.sources)
+                            m_library_files.insert(std::filesystem::weakly_canonical(manifest.root / source.path));
+                    }
+                }
+                catch (std::exception const& error)
+                {
+                    m_diag.error("{}", error.what());
+                }
+            }
+        }
+
         [[nodiscard]] static bool is_std_prelude(ast::TranslationUnit const* tu) noexcept
         {
             auto const* mdecl = tu->module_decl ? ast::node_cast<ast::ModuleDecl>(tu->module_decl) : nullptr;
@@ -234,6 +268,7 @@ export namespace dcc::session
         std::unique_ptr<sema::SemaContext> m_sema;
 
         std::filesystem::path m_entry_path;
+        std::unordered_set<std::filesystem::path> m_library_files;
         bool m_prelude_enabled{false};
         bool m_assert_import_enabled{false};
         bool m_enable_doc{false};

@@ -181,6 +181,7 @@ export namespace dcc::sema
         EnumDecl = 1 << 6,
         UsingAlias = 1 << 7,
         Expression = 1 << 8,
+        Module = 1 << 9,
     };
 
     [[nodiscard]] constexpr AttributeTarget operator|(AttributeTarget a, AttributeTarget b) noexcept
@@ -203,6 +204,7 @@ export namespace dcc::sema
     public:
         AttributeRegistry()
         {
+            register_attr("no_prelude", AttributeTarget::Module);
             register_attr("implicit_construction", AttributeTarget::EnumVariant);
 
             register_attr("intrinsic", AttributeTarget::Function);
@@ -364,6 +366,9 @@ export namespace dcc::sema
                 AttributeTarget target = AttributeTarget::None;
                 switch (d->kind)
                 {
+                    case ast::DeclKind::Module:
+                        target = AttributeTarget::Module;
+                        break;
                     case ast::DeclKind::Func:
                         target = AttributeTarget::Function;
                         break;

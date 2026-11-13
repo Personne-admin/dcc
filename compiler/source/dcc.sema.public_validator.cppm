@@ -454,6 +454,11 @@ export namespace dcc::sema
             if (find_decl(mod, decl))
                 return true;
 
+            if (mod.own_scope)
+                for (auto const& [name, binding] : mod.own_scope->bindings())
+                    if (binding.has_type && binding.type_sym.is_prelude_default && binding.type_sym.decl == decl)
+                        return true;
+
             for (auto const& imp : mod.imports)
             {
                 if (!imp.target || !imp.target->export_scope)

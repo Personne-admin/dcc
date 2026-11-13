@@ -4527,7 +4527,7 @@ export namespace dcc::sema
 
                     auto const body_lambda_mark = pending_lambda_mark();
                     auto pre_count = m_diag.diagnostic_count();
-                    analyze_single_function(mod, *spec.decl);
+                    analyze_single_function(m_specialization_defining_module ? *m_specialization_defining_module : mod, *spec.decl);
                     auto post_count = m_diag.diagnostic_count();
 
                     m_specialization_modules.pop_back();

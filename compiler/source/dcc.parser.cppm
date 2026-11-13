@@ -955,10 +955,20 @@ export namespace dcc::parser
             advance();
 
             auto path = parse_path();
+            auto attrs = parse_attributes();
+            bool seen_no_prelude = false;
+            for (auto const& attr : attrs)
+            {
+                if (attr.name != "no_prelude" || !attr.args.empty())
+                    m_diag.error(attr.range, "module attributes only support @no_prelude without arguments");
+                else if (std::exchange(seen_no_prelude, true))
+                    m_diag.error(attr.range, "duplicate attribute `@no_prelude`");
+            }
             expect(TK::Semicolon, "after module path");
 
             auto nr = !path.segments.empty() ? path.segments.back().range : sm::SourceRange{};
             auto* decl = m_ctx.make<ast::ModuleDecl>(range_from(start), std::move(path), nr);
+            decl->attrs = std::move(attrs);
             return decl;
         }
 
@@ -1187,7 +1197,7 @@ export namespace dcc::parser
         {
             return name == "packed" || name == "align" || name == "nominal" || name == "import" || name == "export" || name == "nomangle" || name == "inline" ||
                    name == "noinline" || name == "section" || name == "calling_conv" || name == "deprecated" || name == "implicit_construction" ||
-                   name == "intrinsic" || name == "runtime" || name == "noreturn";
+                   name == "intrinsic" || name == "runtime" || name == "noreturn" || name == "no_prelude";
         }
 
         void validate_attribute(ast::Attribute const& attr)

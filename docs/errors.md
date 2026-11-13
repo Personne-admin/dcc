@@ -8,9 +8,11 @@ Library sources use explicit imports and build with `-fno-prelude`, so
 compiling a library module does not inject an import back into its consumers.
 
 `Error` is unqualified when the standard prelude is active. The compiler
-currently injects that prelude only into the entry module under `-flibdcext`.
-Other modules can write `import std::prelude;` (use `public import` when
-exposing its types in public signatures). For qualified access, write
+injects it into user modules under `-flibdcext`, including imported helpers.
+Compiler core and registered library implementation files are excluded.
+`-fno-prelude` or a module's `@no_prelude` header disables automatic injection.
+Explicit imports still work (use `public import` when exposing explicitly
+imported types in public signatures). For qualified access, write
 `import std::error;` and use `std::error::Error`.
 
 ## Supported errors
