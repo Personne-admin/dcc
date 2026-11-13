@@ -1,0 +1,21 @@
+=== FILE: helper.dc ===
+module helper;
+public i32 invoke(T)(T* value) { return value.read(); }
+
+=== FILE: bridge.dc ===
+module bridge;
+import helper;
+public i32 forward(T)(T* value) { return helper::invoke(value); }
+
+=== FILE: main.dc ===
+module main;
+import bridge;
+struct Local { i32 value; }
+i32 read(Local* self) { return self.value; }
+public i32 main() {
+    Local value={value=42};
+    return bridge::forward(&value)-42;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-ERROR-COUNT: 0 ===

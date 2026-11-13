@@ -1067,6 +1067,7 @@ export namespace dcc::sema
         std::vector<diag::Diagnostic>* m_captured_diagnostics{};
         ModuleInfo* m_specialization_defining_module{};
         std::vector<ModuleInfo*> m_specialization_modules;
+        std::vector<ModuleInfo*> m_specialization_instantiation_modules;
         std::optional<sm::SourceRange> m_default_argument_call_site;
         ast::FuncDecl* m_default_argument_function{};
 
@@ -4515,6 +4516,7 @@ export namespace dcc::sema
                     auto* saved_defining_mod = m_specialization_defining_module;
                     m_specialization_defining_module = find_template_defining_module(f);
                     m_specialization_modules.push_back(m_specialization_defining_module);
+                    m_specialization_instantiation_modules.push_back(&mod);
 
                     {
                         auto* temp_scope = make_scope(ScopeKind::Block, nullptr);
@@ -4531,6 +4533,7 @@ export namespace dcc::sema
                     auto post_count = m_diag.diagnostic_count();
 
                     m_specialization_modules.pop_back();
+                    m_specialization_instantiation_modules.pop_back();
                     m_specialization_defining_module = saved_defining_mod;
 
                     bool spec_failed = (post_count > pre_count);
@@ -15870,7 +15873,7 @@ export namespace dcc::sema
             }
             auto const* association_receiver = preanalyzed_receiver ? preanalyzed_receiver : &lookup_receiver;
 
-            auto collect_unique = [&](Scope const* s, std::pmr::vector<Symbol const*>& out) {
+            auto collect_unique = [&](Scope const* s, std::pmr::vector<Symbol const*>& out, ModuleInfo const* direct_context = nullptr) {
                 if (!s)
                     return;
 
@@ -15889,6 +15892,8 @@ export namespace dcc::sema
                 for (auto const& sym : vs)
                 {
                     if (!sym.decl || sym.decl->kind != ast::DeclKind::Func)
+                        continue;
+                    if (direct_context && sym.decl->range.begin.fileId != direct_context->file_id)
                         continue;
 
                     bool dup = false;
@@ -15926,6 +15931,10 @@ export namespace dcc::sema
                     collect_unique(context->ufcs_scope, all_syms);
                     collect_unique(context->own_scope, all_syms);
                 }
+
+            for (auto const* context : m_specialization_instantiation_modules)
+                if (context)
+                    collect_unique(context->own_scope, all_syms, context);
 
             collect_unique(&scope, all_syms);
             auto collect_imports = [&](ModuleInfo const& context) {
