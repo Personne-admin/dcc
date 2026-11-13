@@ -98,7 +98,7 @@ public i32 main() {
 TEST_CASE("hosted PrintError is an automatic type alias")
 {
     auto result=os_test::run(R"dc(module main;
-Status(PrintError) greeting(){return println("ok");}
+public Status(PrintError) greeting(){return println("ok");}
 Status(Error) work(){greeting()?;return Status::Ok;}
 public i32 main(){return if work().is_ok(){0}else{1};}
 )dc",false,"-fwhole-program");

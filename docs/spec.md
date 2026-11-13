@@ -669,8 +669,10 @@ Automatically injected prelude type and value names are defaults: module declara
 and explicit `using` bindings take precedence. Explicit imports of the
 prelude retain ordinary import and conflicting-type-injection rules. Qualified
 prelude names remain available when their unqualified defaults are shadowed.
-Automatically supplied type names may appear in public signatures. Explicit
-private imports still follow ordinary visibility rules.
+Automatically supplied type names may appear in public signatures. A concrete
+prelude type alias exposes its exact target type, including through `typeof`,
+without exposing other instantiations of the same generic. Explicit private
+imports still follow ordinary visibility rules for other types.
 
 The shared prelude directly supplies `Result`, `Status`, `Optional`, `Error`,
 `Array` and `AllocError`. Hosted targets additionally receive `print`, `println`

@@ -232,6 +232,9 @@ export namespace dcc::sema
 
             auto const* ty = get_canonical(node->sema);
 
+            if (is_prelude_alias_type(mod, ty))
+                return;
+
             if (ty->kind == types::TypeKind::Error)
                 return;
 
@@ -320,6 +323,8 @@ export namespace dcc::sema
         void validate_canonical(ModuleInfo const& mod, types::Type const* ty, sm::SourceRange range)
         {
             if (!ty)
+                return;
+            if (is_prelude_alias_type(mod, ty))
                 return;
 
             if (ty->kind == types::TypeKind::Error)
@@ -444,6 +449,18 @@ export namespace dcc::sema
             auto const& s1 = a.segments();
             auto const& s2 = b.segments();
             return !s1.empty() && !s2.empty() && s1.front() == s2.front();
+        }
+
+        [[nodiscard]] bool is_prelude_alias_type(ModuleInfo const& mod, types::Type const* type) const
+        {
+            if (!mod.own_scope || !type || type->kind == types::TypeKind::Error)
+                return false;
+            for (auto const& [name, binding] : mod.own_scope->bindings())
+                if (binding.has_type && binding.type_sym.is_prelude_default)
+                    if (auto const* alias = ast::node_cast<ast::UsingDecl>(binding.type_sym.decl);
+                        alias && alias->template_params.empty() && alias->target_type && get_canonical(alias->target_type->sema) == type)
+                        return true;
+            return false;
         }
 
         [[nodiscard]] bool is_publicly_visible(ModuleInfo const& mod, void const* decl) const

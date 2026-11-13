@@ -185,3 +185,26 @@ Status(Error) work() {
     CHECK(printing.failed);
     CHECK(!printing.hosted_dependencies);
 }
+
+TEST_CASE("public signatures can expose exact automatic prelude aliases")
+{
+    auto result=analyze(R"dc(module main;
+public Status(PrintError) greeting(){return println("ok");}
+public Status(PrintError) generic(T)(T value){return println("{}",value);}
+public typeof(greeting()) repeated(){return greeting();}
+)dc");
+    if(result.failed) std::print(std::cerr,"{}",result.diagnostics);
+    CHECK(!result.failed);
+    auto different=analyze(R"dc(module main;
+import std::fmt;
+public Status(std::fmt::FormatError(u8)) work(){return Status::Ok;}
+)dc");
+    CHECK(different.failed);
+    CHECK(different.diagnostics.find("privately imported")!=std::string::npos);
+    auto payload=analyze(R"dc(module main;
+import std::os::error;
+public Status(std::os::error::Error) work(){return Status::Ok;}
+)dc");
+    CHECK(payload.failed);
+    CHECK(payload.diagnostics.find("privately imported")!=std::string::npos);
+}
