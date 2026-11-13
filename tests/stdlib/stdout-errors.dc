@@ -1,0 +1,69 @@
+module main;
+import std::io;
+import std::fmt;
+import std::os::error;
+import std::array;
+import std::sys::linux::abi;
+import std::sys::linux::syscall;
+using std::sys::linux::{abi, syscall};
+
+Status(Error) malformed() {
+    std::io::println("prefix {")?;
+    return Status::Ok;
+}
+
+Status(Error) partial(usize capacity) {
+    std::array::Array(char) text = {};
+    defer text.deinit();
+    text.resize(capacity*2+1)?;
+    for usize i=0; i<text.len(); i++ { text.items()[i]='Q'; }
+    std::io::print("{}", text.items() as [] const char)?;
+    return Status::Ok;
+}
+
+Status(Error) closed() {
+    std::io::print("closed")?;
+    return Status::Ok;
+}
+
+public i32 main() {
+    match malformed().unwrap_err() {
+        Error::FormatIo(e) => match e { std::fmt::FormatError::BadFormat => {}, _ => return 1, },
+        _ => return 2,
+    }
+    match std::io::print("{:999999999999999999999999}", 42).unwrap_err() {
+        std::fmt::FormatError::WidthOverflow => {}, _ => return 3,
+    }
+    abi::Fd[2] pair;
+    if syscall::pipe2(&pair[0], abi::O_NONBLOCK) != 0 { return 4; }
+    defer syscall::close(pair[0]);
+    isize cap = syscall::fcntl(pair[1], 1032, 0);
+    if cap <= 0 { return 5; }
+    if syscall::dup3(pair[1], 1, 0) != 1 { return 6; }
+    syscall::close(pair[1]);
+    match partial(cap as usize).unwrap_err() {
+        Error::FormatIo(e) => match e {
+            std::fmt::FormatError::Write(w) => { if w != std::os::error::Error::WouldBlock { return 7; } },
+            _ => return 8,
+        },
+        _ => return 9,
+    }
+    std::array::Array(u8) received = {};
+    defer received.deinit();
+    if !received.resize(cap as usize).is_ok() { return 10; }
+    if syscall::read(pair[0], received.items()) != cap { return 11; }
+    for byte in received.items() { if byte != ('Q' as u8) { return 12; } }
+    syscall::close(1);
+    match closed().unwrap_err() {
+        Error::FormatIo(e) => match e {
+            std::fmt::FormatError::Write(w) => { if w != std::os::error::Error::BadHandle { return 13; } },
+            _ => return 14,
+        },
+        _ => return 15,
+    }
+    match std::io::println("").unwrap_err() {
+        std::fmt::FormatError::Write(w) => { if w != std::os::error::Error::BadHandle { return 16; } },
+        _ => return 17,
+    }
+    return 0;
+}

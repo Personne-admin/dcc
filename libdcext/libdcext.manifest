@@ -10,6 +10,7 @@ source all std::debug std/debug.dc
 source all std::error std/error.dc
 source all std::fmt std/fmt.dc
 source all std::hash std/hash.dc
+source hosted std::io std/io.dc
 source all std::json std/json.dc
 source all std::list std/list.dc
 source all std::map std/map.dc

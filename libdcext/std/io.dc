@@ -1,0 +1,30 @@
+module std::io;
+
+import core::target;
+public import std::fmt;
+public import std::result;
+public import std::os::error;
+import std::os::file;
+
+using result::Status;
+
+/// Formatting failures retain their kind; Write retains the original OS error.
+public using PrintError = fmt::FormatError(os::error::Error);
+
+static if core::target::OS != core::target::Os::Freestanding {
+    /// Formats to stdout. Built-in formatting allocates no heap storage.
+    /// Output may use multiple writes and can be partial on failure.
+    public Status(PrintError) print(T...)([] const char format, T args) {
+        os::file::FileWriter out = os::file::FileWriter::new(os::file::stdout());
+        return fmt::format(&out, format, args...);
+    }
+
+    /// Formats to stdout and appends one newline after successful formatting.
+    /// User hooks follow the ordinary formatter contract, including its errors.
+    public Status(PrintError) println(T...)([] const char format, T args) {
+        os::file::FileWriter out = os::file::FileWriter::new(os::file::stdout());
+        fmt::format(&out, format, args...)?;
+        out.write_all("\n")?;
+        return Status::Ok;
+    }
+}

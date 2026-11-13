@@ -43,3 +43,21 @@ The public Heap policy does not expose page ownership or require raw page API
 calls. Page-backed allocation is intentionally simple and can waste memory for
 small objects; its internals can be replaced without changing `Array(T)` or
 requiring per-instance heap state.
+
+## Stdout printing
+
+`std::io::print` and `println` use the general formatter and a stdout
+`FileWriter`. They return `Status(std::io::PrintError)`, where `PrintError` is
+`std::fmt::FormatError(std::os::error::Error)`. Formatting failures preserve
+their kind; write failures preserve the OS error. `?` converts these errors
+into `Error::FormatIo` without allocation.
+
+Built-in formatting uses stack storage and has no 2048-byte record limit.
+Writes can be partial before an error, and separate calls are not atomic.
+Short writes are retried through `write_all`. `println` appends exactly one
+newline after successful formatting, even if the format already ends in one.
+User formatting hooks obey the existing formatter contract and may have their
+own allocation behavior. Malformed formats are validated before output starts.
+
+The explicitly imported `std::os::print` APIs retain their bounded, best-effort
+stderr behavior. Use explicit imports to select those APIs where needed.

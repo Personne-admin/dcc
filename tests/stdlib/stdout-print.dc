@@ -1,0 +1,27 @@
+module main;
+public import std::fmt;
+import std::io;
+import std::os::print;
+
+public struct Badge { i32 value; }
+
+public Status(std::fmt::FormatError(std::fmt::WriterError(W))) format(W)(const Badge* self, W* out, const std::fmt::Options* opts) if std::fmt::Writer(W) {
+    return std::fmt::format(out, "badge({})", self.value);
+}
+
+Status(Error) work() {
+    std::io::print("Hello")?;
+    std::io::println(", {}!", "world")?;
+    std::io::println("{} {} {:.1} {}", 42, true, 1.5 as f64, '!')?;
+    std::io::println("{}", Badge { value = 7 })?;
+    char[4096] text;
+    for usize i=0; i<4096; i++ { text[i]='x'; }
+    std::io::println("{}", text[0..4096] as [] const char)?;
+    std::io::println("end\n")?;
+    std::os::print::println("legacy")?;
+    return Status::Ok;
+}
+
+public i32 main() {
+    return if work().is_ok() { 0 } else { 1 };
+}
