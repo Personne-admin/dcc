@@ -52,3 +52,24 @@ public i32 main() {
     CHECK_EQ(os_test::run_modules({{"policy.dc", policy, "", "-fdefault-allocator=policy::Local"},
                                   {"main.dc", main, "", "-fdefault-allocator=policy::Local"}}, false, "llvm").status, 0);
 }
+
+TEST_CASE("injected declarations do not inject preludes into allocator modules")
+{
+    auto source=R"dc(module main;
+public i32 main(){
+    Array(i32) values={};
+    defer values.deinit();
+    if !values.push(42).is_ok(){return 1;}
+    return values.items()[0]-42+GRAPH_OPTION;
+}
+)dc";
+    for(auto backend:{"llvm","custom"})
+    {
+#if !DCC_ENABLE_LLVM
+        if(backend==std::string_view{"llvm"}) continue;
+#endif
+        for(auto opt:{"-O0","-O2"})
+            for(auto mode:{"","-fwhole-program"})
+                CHECK_EQ(os_test::run(source,false,std::format("-fbackend {} {} {} -J 'public const i32 GRAPH_OPTION=0;'",backend,opt,mode)).status,0);
+    }
+}

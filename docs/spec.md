@@ -646,8 +646,8 @@ f32 helper(f32 x) { ... }
 
 `-flibdcext` enables the standard-library prelude in every user module,
 including imported package modules and modules analyzed separately. Compiler
-core sources and exact source paths registered by a library manifest (or SDK
-library-source registration) are excluded. Module names and directory substrings
+core sources, generated declaration fragments, and exact source paths registered
+by a library manifest (or SDK library-source registration) are excluded. Module names and directory substrings
 do not classify a file as library code.
 
 `-fno-prelude` disables automatic injection for the compilation, retaining

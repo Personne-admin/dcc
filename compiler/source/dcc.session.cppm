@@ -114,7 +114,7 @@ export namespace dcc::session
             if (measure)
                 m_bench_parse_seconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - parse_start).count();
 
-            if (m_prelude_enabled && tu && !is_std_prelude(tu) &&
+            if (m_prelude_enabled && tu && file->kind() != sm::FileKind::Synthetic && !is_std_prelude(tu) &&
                 !dcc::vfs::is_dcc_core_uri(file->uri()) &&
                 !m_library_files.contains(std::filesystem::weakly_canonical(file->path())) &&
                 std::filesystem::weakly_canonical(file->path()) != m_allocator_file &&
