@@ -307,3 +307,35 @@ TEST_CASE("floating phi literals are materialized in both forward and backward p
                     }
     }
 }
+
+TEST_CASE("block-entry temporaries cannot clobber values live from later-numbered blocks")
+{
+    for (bool reverse : {false, true})
+    {
+        MFunction func;
+        func.blocks.reserve(3);
+        std::ignore = func.create_block("entry");
+        std::ignore = func.create_block("consumer");
+        std::ignore = func.create_block("producer");
+        auto a = func.new_vreg();
+        auto b = func.new_vreg();
+        auto value = reverse ? b : a;
+        auto temporary = reverse ? a : b;
+        auto slot = func.new_frame_slot(8, 8);
+        func.blocks[0].succs = {2};
+        func.blocks[0].instrs.push_back(make_instr(MOpc::JMP, {MOp::from_label(2)}, 0));
+        func.blocks[2].succs = {1};
+        func.blocks[2].instrs.push_back(make_instr(MOpc::MOV64rm, {MOp::from_reg(value), MOp::from_mem(MMem::make_sym_reloc("input"))}, 1));
+        func.blocks[2].instrs.push_back(make_instr(MOpc::JMP, {MOp::from_label(1)}, 0));
+        func.blocks[1].instrs.push_back(make_instr(MOpc::LEA64rm, {MOp::from_reg(temporary), MOp::from_frame_slot(slot)}, 1));
+        func.blocks[1].instrs.push_back(make_instr(MOpc::CMP64ri, {MOp::from_reg(value), MOp::from_imm(7)}, 0));
+        func.blocks[1].instrs.push_back(make_instr(MOpc::RET, {}, 0));
+        regalloc(func, dcc::target::TargetConfig::host_default());
+        auto const& block = func.blocks[1];
+        auto lea = std::ranges::find_if(block.instrs, [](auto const& i) { return i.opc == MOpc::LEA64rm; });
+        auto cmp = std::ranges::find_if(block.instrs, [](auto const& i) { return i.opc == MOpc::CMP64ri; });
+        REQUIRE(lea != block.instrs.end());
+        REQUIRE(cmp != block.instrs.end());
+        CHECK(lea->ops[0].reg != cmp->ops[0].reg);
+    }
+}

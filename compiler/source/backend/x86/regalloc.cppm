@@ -822,6 +822,18 @@ namespace dcc::backend::x86
                         by_reg.at(reg)->segments.push_back(bound);
             }
 
+            for (auto& range : ranges)
+                if (!range.segments.empty())
+                {
+                    range.start = range.segments.front().first;
+                    range.end = range.segments.front().second;
+                    for (auto const& segment : range.segments)
+                    {
+                        range.start = std::min(range.start, segment.first);
+                        range.end = std::max(range.end, segment.second);
+                    }
+                }
+
             for (std::size_t bi = 0; bi < func.blocks.size(); ++bi)
             {
                 auto const& blk = func.blocks[bi];
