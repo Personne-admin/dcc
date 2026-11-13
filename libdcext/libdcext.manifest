@@ -7,6 +7,7 @@ source all std::alloc::callback std/alloc/callback.dc
 source all std::alloc::fixed std/alloc/fixed.dc
 source all std::array std/array.dc
 source all std::debug std/debug.dc
+source all std::error std/error.dc
 source all std::fmt std/fmt.dc
 source all std::hash std/hash.dc
 source all std::json std/json.dc

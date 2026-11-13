@@ -148,7 +148,9 @@ kernel or a microcontroller as for a regular userspace binary.
 
 `libdcext` is the opt-in hosted standard library. It's only linked in and its
 prelude only injected when you pass `-flibdcext` to the driver (or set
-`.libdcext = true` in the Zig SDK options). Without it, you get exactly the
+`.libdcext = true` in the Zig SDK options). Its `Error` type combines known
+standard-library errors without allocation; see [standard errors](docs/errors.md).
+Without `-flibdcext`, you get exactly the
 language and `core::*` compiler intrinsics, nothing else.
 
 ## Whole-program output

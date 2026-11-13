@@ -1,0 +1,133 @@
+module main;
+
+import std::error;
+import std::alloc;
+import std::alloc::fixed;
+import std::array;
+import std::fmt;
+import std::os::print;
+import std::os::error;
+import std::json;
+import std::toml;
+import std::parse;
+import std::utf8;
+import std::sha;
+
+Status(E) failed(E)(E error) {
+    return Status::Err(error);
+}
+
+Status(Error) convert(E)(E error) {
+    failed(error)?;
+    return Status::Ok;
+}
+
+Status(Error) print_failure() {
+    std::os::print::println("{}")?;
+    return Status::Ok;
+}
+
+Status(Error) format_failure() {
+    char[2] buffer;
+    std::fmt::format_buf(buffer, "{}", "too long")?;
+    return Status::Ok;
+}
+
+Status(Error) allocation_failure() {
+    u8[1] buffer;
+    std::alloc::fixed::FixedBuffer state = std::alloc::fixed::FixedBuffer::new(buffer);
+    std::array::Array(i32, std::alloc::fixed::FixedHandle) values = std::array::new_array(state.borrow());
+    defer values.deinit();
+    values.push(42)?;
+    return Status::Ok;
+}
+
+i32 cleaned;
+
+Result(i32, Error) inner(bool fail) {
+    defer cleaned += 1;
+    if fail {
+        failed(std::alloc::AllocError::InvalidAlignment)?;
+    }
+    return Result::Ok(42);
+}
+
+Result(i32, Error) outer(bool fail) {
+    i32 value = inner(fail)?;
+    return Result::Ok(value);
+}
+
+enum UserError : u8 { Specific }
+enum AppError {
+    @implicit_construction Library(Error),
+    @implicit_construction User(UserError),
+}
+
+Status(AppError) application(bool user) {
+    if user {
+        failed(UserError::Specific)?;
+    } else {
+        allocation_failure()?;
+    }
+    return Status::Ok;
+}
+
+public i32 main() {
+    Error direct = std::alloc::AllocError::InvalidAlignment;
+    match direct { Error::Allocation(e) => { if e != std::alloc::AllocError::InvalidAlignment { return 1; } }, _ => return 2, }
+    Error allocation = @runtime allocation_failure().unwrap_err();
+    match allocation { Error::Allocation(e) => { if e != std::alloc::AllocError::OutOfMemory { return 3; } }, _ => return 4, }
+    Error printed = @runtime print_failure().unwrap_err();
+    match printed { Error::Print(e) => { if e != std::os::print::PrintError::BadFormat { return 5; } }, _ => return 6, }
+    Error formatted = @runtime format_failure().unwrap_err();
+    match formatted {
+        Error::FormatBuffer(e) => match e {
+            std::fmt::FormatError::Write(w) => { if w != std::fmt::BufferError::OutOfSpace { return 7; } },
+            _ => return 8,
+        },
+        _ => return 9,
+    }
+    std::fmt::FormatError(std::os::error::Error) io = std::fmt::FormatError::Write(std::os::error::Error::AccessDenied);
+    Error format_io = @runtime convert(io).unwrap_err();
+    match format_io {
+        Error::FormatIo(e) => match e {
+            std::fmt::FormatError::Write(w) => { if w != std::os::error::Error::AccessDenied { return 10; } },
+            _ => return 11,
+        },
+        _ => return 12,
+    }
+    std::fmt::FormatError(std::fmt::CountError) count = std::fmt::FormatError::Write(std::fmt::CountError::Overflow);
+    Error format_count = @runtime convert(count).unwrap_err();
+    match format_count {
+        Error::FormatCount(e) => match e { std::fmt::FormatError::Write(w) => {}, _ => return 13, },
+        _ => return 14,
+    }
+    Error os = @runtime convert(std::os::error::Error::TimedOut).unwrap_err();
+    match os { Error::Io(e) => { if e != std::os::error::Error::TimedOut { return 15; } }, _ => return 16, }
+    Error json = @runtime convert(std::json::JsonError::InvalidEscape).unwrap_err();
+    match json { Error::Json(e) => { if e != std::json::JsonError::InvalidEscape { return 17; } }, _ => return 18, }
+    Error toml = @runtime convert(std::toml::TomlError::DuplicateKey).unwrap_err();
+    match toml { Error::Toml(e) => { if e != std::toml::TomlError::DuplicateKey { return 19; } }, _ => return 20, }
+    Error number = @runtime convert(std::parse::NumError::BadUnderscore).unwrap_err();
+    match number { Error::Number(e) => { if e != std::parse::NumError::BadUnderscore { return 21; } }, _ => return 22, }
+    Error text = @runtime convert(std::utf8::Utf8Error::Surrogate).unwrap_err();
+    match text { Error::Utf8(e) => { if e != std::utf8::Utf8Error::Surrogate { return 23; } }, _ => return 24, }
+    Error sha = @runtime convert(std::sha::ShaError::OutputTooSmall).unwrap_err();
+    match sha { Error::Sha(e) => {}, _ => return 25, }
+    Error buffer = @runtime convert(std::fmt::BufferError::OutOfSpace).unwrap_err();
+    match buffer { Error::Buffer(e) => {}, _ => return 26, }
+    Error counter = @runtime convert(std::fmt::CountError::Overflow).unwrap_err();
+    match counter { Error::Count(e) => {}, _ => return 27, }
+    Error parsed = @runtime convert(std::fmt::ParseError::Overflow).unwrap_err();
+    match parsed { Error::FormatParse(e) => { if e != std::fmt::ParseError::Overflow { return 28; } }, _ => return 29, }
+    Result(i32, Error) success = @runtime outer(false);
+    if !success.is_ok() || success.unwrap() != 42 || cleaned != 1 { return 30; }
+    Result(i32, Error) failure = @runtime outer(true);
+    if failure.is_ok() || cleaned != 2 { return 31; }
+    match failure.unwrap_err() { Error::Allocation(e) => { if e != std::alloc::AllocError::InvalidAlignment { return 32; } }, _ => return 33, }
+    Status(AppError) custom = @runtime application(true);
+    match custom.unwrap_err() { AppError::User(e) => {}, _ => return 34, }
+    Status(AppError) library = @runtime application(false);
+    match library.unwrap_err() { AppError::Library(e) => match e { Error::Allocation(a) => {}, _ => return 35, }, _ => return 36, }
+    return 0;
+}

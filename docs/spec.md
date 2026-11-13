@@ -654,6 +654,8 @@ Automatically injected prelude type names are defaults: module declarations
 and explicit `using` bindings take precedence. Explicit imports of the
 prelude retain ordinary import and conflicting-type-injection rules. Qualified
 prelude names remain available when their unqualified defaults are shadowed.
+Public signatures exposing prelude types require `public import std::prelude;`
+under the ordinary module visibility rules.
 
 ---
 

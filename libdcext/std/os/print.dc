@@ -27,13 +27,13 @@ using result::{ Result, Status };
 //! operating system accepted.
 //!
 
-static if core::target::OS != core::target::Os::Freestanding {
-    public enum PrintError : u8 {
-        TooLong,
-        BadFormat,
-        WriteFailed,
-    }
+public enum PrintError : u8 {
+    TooLong,
+    BadFormat,
+    WriteFailed,
+}
 
+static if core::target::OS != core::target::Os::Freestanding {
     /// the largest record print builds on the stack, newline included.
     public using usize RECORD_MAX = 2048;
 
