@@ -7510,7 +7510,7 @@ export namespace dcc::sema
             return cast_flavor_reason(src->flavor, dst->flavor, "pointer");
         }
 
-        [[nodiscard]] static bool can_assign_return(types::TypePtr expected, types::TypePtr got) noexcept
+        [[nodiscard]] static bool can_assign_return(types::TypePtr expected, types::TypePtr got, bool allow_integer_widening = false) noexcept
         {
             if (!expected || !got)
                 return true;
@@ -7518,7 +7518,7 @@ export namespace dcc::sema
                 return true;
 
             if (expected->kind == types::TypeKind::Int && got->kind == types::TypeKind::Restricted)
-                return can_assign_return(expected, static_cast<types::RestrictedType const*>(got)->underlying);
+                return can_assign_return(expected, static_cast<types::RestrictedType const*>(got)->underlying, true);
 
             if (expected->kind == types::TypeKind::Restricted && got->kind == types::TypeKind::Restricted)
                 return int_domain::domain_contains(*static_cast<types::RestrictedType const*>(expected), *static_cast<types::RestrictedType const*>(got));
@@ -7533,7 +7533,7 @@ export namespace dcc::sema
                 if (e->is_pointer_sized || g->is_pointer_sized)
                     return false;
 
-                return e->bits >= g->bits;
+                return allow_integer_widening && e->bits >= g->bits;
             }
 
             if (expected->kind == types::TypeKind::Float && got->kind == types::TypeKind::Int)
@@ -12388,18 +12388,18 @@ export namespace dcc::sema
                     ast::EnumVariant const* implicit_enum_var = nullptr;
                     ast::EnumVariant const* nested_inner_var = nullptr;
                     types::TypePtr nested_inner_enum_type{};
-                    bool err_compatible = can_assign_return(ret_type, error_type);
+                    bool err_compatible = can_assign_return(ret_type, error_type, true);
 
                     if (!err_compatible)
                     {
-                        auto* conv = try_implicit_enum_conversion(ret_type, error_type, mod, scope, &implicit_enum_var);
+                        auto* conv = try_implicit_enum_conversion(ret_type, error_type, mod, scope, &implicit_enum_var, true);
                         if (conv && !has_error(conv))
                             err_compatible = true;
                         else if (!conv)
                         {
                             std::vector<std::string> candidates;
                             auto* nested = try_nested_implicit_enum_conversion(ret_type, error_type, mod, scope, &implicit_enum_var, &nested_inner_var,
-                                                                               &nested_inner_enum_type, &candidates);
+                                                                               &nested_inner_enum_type, &candidates, true);
                             if (nested && !has_error(nested))
                             {
                                 err_compatible = true;
@@ -18428,7 +18428,7 @@ export namespace dcc::sema
         [[nodiscard]] types::TypePtr try_nested_implicit_enum_conversion(types::TypePtr target_type, types::TypePtr source_type, ModuleInfo& mod,
                                                                          Scope& scope, ast::EnumVariant const** out_outer,
                                                                          ast::EnumVariant const** out_inner, types::TypePtr* out_inner_enum_type,
-                                                                         std::vector<std::string>* out_candidates)
+                                                                         std::vector<std::string>* out_candidates, bool allow_integer_widening = false)
         {
             if (!target_type || !source_type || target_type->kind != types::TypeKind::Enum)
                 return nullptr;
@@ -18455,7 +18455,7 @@ export namespace dcc::sema
                 auto payload_ty = resolve_payload_type(*enum_decl, variant.payload[0], target_type, mod, scope);
                 if (!payload_ty || payload_ty->kind != types::TypeKind::Enum || has_error(payload_ty))
                     continue;
-                if (can_assign_return(payload_ty, source_type))
+                if (can_assign_return(payload_ty, source_type, allow_integer_widening))
                     continue;
 
                 auto const* payload_enum = types::type_cast<types::EnumType>(payload_ty);
@@ -18473,7 +18473,7 @@ export namespace dcc::sema
                     auto candidate_payload = resolve_payload_type(*payload_decl, candidate.payload[0], payload_ty, mod, scope);
                     if (!candidate_payload || has_error(candidate_payload))
                         continue;
-                    if (!can_assign_return(candidate_payload, source_type))
+                    if (!can_assign_return(candidate_payload, source_type, allow_integer_widening))
                         continue;
 
                     ++matches;
@@ -18506,7 +18506,7 @@ export namespace dcc::sema
         }
 
         [[nodiscard]] types::TypePtr try_implicit_enum_conversion(types::TypePtr target_type, types::TypePtr source_type, ModuleInfo& mod, Scope& scope,
-                                                                  ast::EnumVariant const** out_variant = nullptr)
+                                                                  ast::EnumVariant const** out_variant = nullptr, bool allow_integer_widening = false)
         {
             if (!target_type || !source_type || target_type->kind != types::TypeKind::Enum)
                 return nullptr;
@@ -18531,7 +18531,7 @@ export namespace dcc::sema
 
                 auto payload_ty = resolve_payload_type(*enum_decl, variant.payload[0], target_type, mod, scope);
 
-                if (can_assign_return(payload_ty, source_type))
+                if (can_assign_return(payload_ty, source_type, allow_integer_widening))
                 {
                     match = &variant;
                     ++match_count;

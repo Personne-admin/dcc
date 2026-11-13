@@ -4984,6 +4984,7 @@ export namespace dcc::ir::lower
                 }
             }
 
+            return_val = coerce_value(return_val, m_current_func->func_type->return_type);
             flush_all_defers();
             emit_ret(return_val);
 
@@ -11082,6 +11083,23 @@ export namespace dcc::ir::lower
             if (!val || !target_ir_type || val->type == target_ir_type)
                 return val;
 
+            if (val->type->kind == IrTypeKind::Int && target_ir_type->kind == IrTypeKind::Int)
+            {
+                auto* source = static_cast<IrIntType const*>(val->type);
+                auto* target = static_cast<IrIntType const*>(target_ir_type);
+                IrValue* converted = nullptr;
+                if (source->bits < target->bits)
+                    converted = source->is_signed ? static_cast<IrValue*>(m_ctx.sext(target_ir_type, val)) : m_ctx.zext(target_ir_type, val);
+                else if (source->bits > target->bits)
+                    converted = m_ctx.trunc(target_ir_type, val);
+                else
+                    converted = m_ctx.bitcast(target_ir_type, val);
+                auto name = ident_name();
+                converted->name = m_name_pool.back();
+                append_inst(converted);
+                return converted;
+            }
+
             if (val->type->kind == IrTypeKind::Pointer && target_ir_type->kind == IrTypeKind::Pointer)
             {
                 auto* bc = m_ctx.bitcast(target_ir_type, val);
@@ -11166,7 +11184,7 @@ export namespace dcc::ir::lower
             }
 
             if (layout->payload_size > 0 && !payload_args.empty() && variant->payload.size() == 1 && payload_sema_canon && payload_sema_canon->byte_size > 0)
-                agg->values.push_back(store_tagged_payload(payload_args[0], lower_type(payload_sema_canon), layout->payload_size));
+                agg->values.push_back(store_tagged_payload(coerce_value(payload_args[0], lower_type(payload_sema_canon)), lower_type(payload_sema_canon), layout->payload_size));
             else if (layout->payload_size > 0)
             {
                 auto* ir_byte = m_ctx.int_t(8, false);
@@ -11261,6 +11279,9 @@ export namespace dcc::ir::lower
                 if (target_sema_type->kind == types::TypeKind::Pointer)
                     val = coerce_array_to_pointer(src_expr, val, src_sema_type, target_sema_type);
             }
+
+            if (val->type->kind == IrTypeKind::Int)
+                val = coerce_value(val, lower_type(target_sema_type));
 
             auto* target_pointer = types::type_cast<types::PointerType>(target_sema_type);
             auto* source_pointer = ir_type_cast<IrPointerType>(val->type);

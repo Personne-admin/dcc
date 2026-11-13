@@ -984,7 +984,11 @@ preserve the slice representation.
 
 ### 9.3 Literals & type inference
 
-No implicit conversions, so literals need to be smart:
+Ordinary integer values do not implicitly convert to another integer type,
+including widening and signedness changes. Use an explicit `as` cast in
+returns, initializers, assignments and arguments. Contextual integer literals
+and the documented restricted-type and `?` error conversions are exceptions.
+Literals adopt their context:
 
 ```dc
 i32 x = 42;        // 42 is i32
@@ -1272,9 +1276,10 @@ value.unwrap()
 **Return-type compatibility.** The `.unwrap_err()` return type (`E`) is
 checked against the enclosing function's return type (`Ret`) in two steps:
 
-1. Direct assignment of `E` to `Ret` (exact type match or the standard
-   assignment-compatibility rules: int widening, float widening, pointer
-   qualifier compatibility, etc.).
+1. Error compatibility of `E` with `Ret`: exact type match, integer
+   widening, float widening, pointer qualifier compatibility, etc. Integer
+   widening here is specific to error propagation; ordinary assignments,
+   returns and arguments still require an explicit cast.
 2. Implicit enum construction: if `Ret` is a tagged enum (`enum` with at
    least one payload variant) and exactly **one** variant is annotated
    `@implicit_construction` with a single payload assignable from `E`, the

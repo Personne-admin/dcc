@@ -1,0 +1,61 @@
+=== FILE: main.dc ===
+module test;
+u32 unsigned_return(u8 v) { return v; }
+i32 signed_return(i8 v) { return v; }
+i32 cross_return(u8 v) { return v; }
+u32 cross_signed(i8 v) { return v; }
+i8 same_width(u8 v) { return v; }
+u8 narrow_return(u32 v) { return v; }
+u32 tail(u8 v) { v }
+u32 init(u8 v) { u32 x = v; return x; }
+void assign(u8 v) { u32 x = 0; x = v; }
+u32 take(u32 v) { return v; }
+u32 argument(u8 v) { return take(v); }
+u32 method(const u8* self, u32 v) { return v; }
+u32 method_argument(u8 v) { return v.method(v); }
+T generic(T)(u8 v) { return v; }
+u32 instantiate(u8 v) { return generic!u32(v); }
+T identity(T)(T v) { return v; }
+u32 generic_argument(u8 v) { return identity!u32(v); }
+struct Field { u32 value; }
+Field field(u8 v) { return {value = v}; }
+u32[1] array(u8 v) { return {v}; }
+enum Box { @implicit_construction Value(u32) }
+Box implicit_payload(u8 v) { return v; }
+u32 branch(bool c, u8 v) { return if c { v } else { 0 }; }
+u8 literal_overflow() { return 256; }
+i8 signed_literal_overflow() { return 128; }
+u8 literal_negative() { return -1; }
+i32 signed_init(i8 v) { i32 x = v; return x; }
+u8 narrow_init(u32 v) { u8 x = v; return x; }
+void signed_assign(i8 v) { i32 x = 0; x = v; }
+void narrow_assign(u32 v) { u8 x = 0; x = v; }
+u8 take_narrow(u8 v) { return v; }
+u8 narrow_argument(u32 v) { return take_narrow(v); }
+
+=== EXPECT-ERRORS ===
+main.dc:2: return type mismatch: expected `u32`, got `u8`
+main.dc:3: return type mismatch: expected `i32`, got `i8`
+main.dc:4: return type mismatch: expected `i32`, got `u8`
+main.dc:5: return type mismatch: expected `u32`, got `i8`
+main.dc:6: return type mismatch: expected `i8`, got `u8`
+main.dc:7: return type mismatch: expected `u8`, got `u32`
+main.dc:8: return type mismatch: expected `u32`, got `u8`
+main.dc:9: initializer type mismatch: declared `u32`, initializer `u8`
+main.dc:10: assignment type mismatch: cannot assign `u8` to `u32`
+main.dc:12: no matching call for `take`
+main.dc:14: no matching UFCS function for `method` on receiver type `u8`
+main.dc:15: return type mismatch: expected `u32`, got `u8`
+main.dc:18: no matching call for `identity`
+main.dc:20: field `value` type mismatch: expected `u32`, got `u8`
+main.dc:21: array element type mismatch: expected `u32`, got `u8`
+main.dc:23: return type mismatch: expected `Box`, got `u8`
+main.dc:24: conditional expression result type mismatch: `u8` and `u32`
+main.dc:25: integer literal 256 does not fit in type u8
+main.dc:26: integer literal 128 does not fit in type i8
+main.dc:27: integer literal -1 does not fit in type u8
+main.dc:28: initializer type mismatch: declared `i32`, initializer `i8`
+main.dc:29: initializer type mismatch: declared `u8`, initializer `u32`
+main.dc:30: assignment type mismatch: cannot assign `i8` to `i32`
+main.dc:31: assignment type mismatch: cannot assign `u32` to `u8`
+main.dc:33: no matching call for `take_narrow`

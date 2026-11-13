@@ -1,0 +1,52 @@
+=== TARGET: linux-em64t ===
+=== FILE: main.dc ===
+module test;
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n.global input\ninput:\nmov eax, 255\nret\n"
+};
+@nomangle u8 input();
+u32 widen(u8 v) { return v as u32; }
+i32 sign(i8 v) { v as i32 }
+u8 narrow(u32 v) { return v as u8; }
+T identity(T)(T v) { return v; }
+u32 take(u32 v) { return v; }
+u32 method(const u8* self, u32 v) { return v; }
+struct Failure { u8 code; }
+bool is_ok(const Failure* self) { return false; }
+u8 unwrap(const Failure* self) { return 0; }
+u8 unwrap_err(const Failure* self) { return self.code; }
+u32 propagate(Failure f) { f ?; return 0; }
+enum Wrapped { @implicit_construction Error(u32) }
+Wrapped wrapped(Failure f) { f ?; return Wrapped::Error(0); }
+u32 restricted(u8{1..255} v) { u32 x = v; x = v; return x; }
+u32 restricted_return(u8{1..255} v) { return v; }
+struct SignedFailure { i8 code; }
+bool is_ok(const SignedFailure* self) { return false; }
+u8 unwrap(const SignedFailure* self) { return 0; }
+i8 unwrap_err(const SignedFailure* self) { return self.code; }
+i32 signed_propagate(SignedFailure f) { f ?; return 0; }
+@nomangle public i32 dcc_main() {
+    u8 v = input();
+    u32 x = v as u32;
+    x = v as u32;
+    if x != 255 || widen(v) != 255 { return 1; }
+    if sign(v as i8) != -1 || narrow(511) != 255 { return 2; }
+    if take(v as u32) != 255 || v.method(v as u32) != 255 { return 3; }
+    if identity!u32(v as u32) != 255 { return 4; }
+    u8 literal = 255;
+    i8 signed_literal = -128;
+    if literal != 255 || signed_literal != -128 { return 5; }
+    Failure f = {code = v};
+    if propagate(f) != 255 { return 6; }
+    match wrapped(f) { Wrapped::Error(e) => { if e != 255 { return 7; } }, }
+    if restricted(v as (u8{1..255})) != 255 { return 8; }
+    if restricted_return(v as (u8{1..255})) != 255 { return 9; }
+    SignedFailure sf = {code = v as i8};
+    if signed_propagate(sf) != -1 { return 10; }
+    return 0;
+}
+
+=== EXPECT-EXECUTABLE FLAGS: -O0 ===
+RUN-EXIT: 0
+=== EXPECT-EXECUTABLE FLAGS: -O2 ===
+RUN-EXIT: 0
