@@ -49,6 +49,8 @@ sudo apt install ./dcc_*.deb
 
 Prebuilt Windows MSI installers (`dcc-<version>-x86_64.msi`) are available from
 [GitHub Releases](https://github.com/Personne-admin/dcc/releases). Run the installer to set up `dcc`, `dccd`, and standard library headers.
+The VS Code extension discovers MSI installations without manual PATH editing;
+see [server discovery and diagnostics](vscode/readme.md#executable-discovery).
 
 ### Arch Linux
 
