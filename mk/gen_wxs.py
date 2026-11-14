@@ -85,6 +85,7 @@ def main():
     <Package InstallerVersion="450" Compressed="yes" InstallScope="perMachine" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <Media Id="1" Cabinet="dcc.cab" EmbedCab="yes" />
+    <Property Id="INSTALLDIR" Secure="yes" />
     <CustomAction Id="SetInstallLocation" Property="ARPINSTALLLOCATION" Value="[INSTALLDIR]" />
     <InstallExecuteSequence>
       <Custom Action="SetInstallLocation" After="CostFinalize">NOT REMOVE~="ALL"</Custom>

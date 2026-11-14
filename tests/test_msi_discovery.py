@@ -28,6 +28,9 @@ class InstallerDiscovery(unittest.TestCase):
             self.assertIsNotNone(action)
             self.assertEqual(action.attrib['Property'], 'ARPINSTALLLOCATION')
             self.assertEqual(action.attrib['Value'], '[INSTALLDIR]')
+            directory = xml.find(".//w:Property[@Id='INSTALLDIR']", NS)
+            self.assertIsNotNone(directory)
+            self.assertEqual(directory.attrib['Secure'], 'yes')
             sequence = xml.find(".//w:InstallExecuteSequence/w:Custom[@Action='SetInstallLocation']", NS)
             self.assertEqual(sequence.attrib['After'], 'CostFinalize')
 
