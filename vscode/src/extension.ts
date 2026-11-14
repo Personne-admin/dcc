@@ -18,6 +18,7 @@ import { registerVirtualContentProvider } from './providers/dccTestContentProvid
 
 let client: LanguageClient | undefined;
 let serverProcess: ChildProcess | undefined;
+let stopServer: (() => Promise<void>) | undefined;
 
 class ServerStartCancelled extends Error {}
 
@@ -35,7 +36,8 @@ export function activate(context: vscode.ExtensionContext): void {
     let failure = '';
     let generation = 0;
     let disposed = false;
-    context.subscriptions.push({ dispose: () => { disposed = true; serverProcess?.kill(); } });
+    let stateSubscription: vscode.Disposable | undefined;
+    let coreFs: vscode.Disposable | undefined;
 
     const showDiagnostics = () => {
         output.appendLine(`Selected dccd: ${selected?.command ?? '(none)'}`);
@@ -48,8 +50,9 @@ export function activate(context: vscode.ExtensionContext): void {
     };
     const reportFailure = (error: unknown) => {
         if (disposed || error instanceof ServerStartCancelled) return;
-        failure = error instanceof Error ? error.message.slice(0, 600) : 'Unknown server error';
-        output.appendLine(`Startup failed (${status}): ${failure}`);
+        const reason = error instanceof Error ? error.message.slice(0, 600) : 'Unknown server error';
+        if (failure !== reason) output.appendLine(`Startup failed (${status}): ${reason}`);
+        failure = reason;
         serverProcess?.kill();
         void vscode.window.showErrorMessage('DCC language server could not start. Check dcc.serverPath or open server diagnostics.',
             'Show Diagnostics', 'Settings').then(action => {
@@ -132,36 +135,69 @@ export function activate(context: vscode.ExtensionContext): void {
         },
     };
 
-    client = new LanguageClient(
-        'dccd',
-        'DCC Language Server',
-        serverOptions,
-        clientOptions,
-    );
-
-    bridge.attachClient(client);
-    context.subscriptions.push(client);
-
-    context.subscriptions.push(client.onDidChangeState(event => {
-        if (event.newState === State.Running) {
-            status = 'Running; LSP initialize succeeded';
-            failure = '';
-            output.appendLine(status);
-        } else if (event.newState === State.Stopped) {
-            serverProcess?.kill();
-        }
-    }));
+    const createClient = () => {
+        const next = new LanguageClient('dccd', 'DCC Language Server', serverOptions, clientOptions);
+        bridge.attachClient(next);
+        stateSubscription = next.onDidChangeState(event => {
+            if (client !== next) return;
+            if (event.newState === State.Running) {
+                status = 'Running; LSP initialize succeeded';
+                failure = '';
+                output.appendLine(status);
+            } else if (event.newState === State.Stopped) {
+                serverProcess?.kill();
+            }
+        });
+        coreFs = vscode.workspace.registerFileSystemProvider('dcc-core', new DccCoreFileSystemProvider(next),
+            { isReadonly: true, isCaseSensitive: true });
+        return next;
+    };
+    client = createClient();
+    const initialClient = client;
+    initialClient.start().catch(error => { if (client === initialClient) reportFailure(error); });
+    let retry: Promise<void> | undefined;
     context.subscriptions.push(vscode.commands.registerCommand('dcc.showServerDiagnostics', showDiagnostics));
-    context.subscriptions.push(vscode.commands.registerCommand('dcc.restartServer', () => client?.restart().catch(reportFailure)));
-    client.start().catch(reportFailure);
-
-    const dccCoreProvider = new DccCoreFileSystemProvider(client);
-    const dccCoreFs = vscode.workspace.registerFileSystemProvider(
-        'dcc-core',
-        dccCoreProvider,
-        { isReadonly: true, isCaseSensitive: true },
-    );
-    context.subscriptions.push(dccCoreFs);
+    context.subscriptions.push(vscode.commands.registerCommand('dcc.restartServer', () => {
+        if (retry) return retry;
+        retry = (async () => {
+            if (disposed) return;
+            if (client?.isRunning()) {
+                await client.restart();
+            } else {
+                const previous = client;
+                client = undefined;
+                ++generation;
+                stateSubscription?.dispose();
+                coreFs?.dispose();
+                serverProcess?.kill();
+                serverProcess = undefined;
+                // Client v9 cannot stop a failed/starting client; dispose still marks it disposed.
+                await previous?.dispose().catch(() => {});
+                previous?.diagnostics?.dispose();
+                if (disposed) return;
+                client = createClient();
+                await client.start();
+            }
+        })().catch(reportFailure).finally(() => { retry = undefined; });
+        return retry;
+    }));
+    stopServer = async () => {
+        if (disposed) return;
+        disposed = true;
+        ++generation;
+        stateSubscription?.dispose();
+        coreFs?.dispose();
+        try {
+            if (client?.isRunning()) await client.stop();
+        } finally {
+            await client?.dispose().catch(() => {});
+            client?.diagnostics?.dispose();
+            serverProcess?.kill();
+            serverProcess = undefined;
+        }
+    };
+    const stop = stopServer;
+    context.subscriptions.push({ dispose: () => { void stop().catch(() => {}); } });
 
     registerVirtualContentProvider(context, cache);
     registerDccTestProviders(context, cache, bridge);
@@ -169,8 +205,5 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): Thenable<void> | undefined {
-    if (!client)
-        return undefined;
-
-    return client.stop().finally(() => { serverProcess?.kill(); serverProcess = undefined; });
+    return stopServer?.();
 }

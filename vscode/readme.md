@@ -81,6 +81,8 @@ The compiler test gate includes deterministic incremental edit sequences and `te
 
 ## Verify a Windows MSI installation
 
+Use an extension build and MSI containing these fixes for the following checks.
+
 1. Leave VS Code open, install the MSI, and open a `.dc` file. Run **DCC: Restart
    Language Server** if activation had failed before installation.
 2. Run **DCC: Show Server Diagnostics**. Check the selected path and source, then

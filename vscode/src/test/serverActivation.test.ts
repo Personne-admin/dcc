@@ -33,19 +33,33 @@ test('activation wires discovery, diagnostics, restart and startup failure phase
             executeCommand: () => Promise.resolve(),
         },
     }, { get: (target, key) => (target as any)[key] ?? noop });
+    let clients = 0;
     class Client {
         private listener: (event: { newState: number }) => void = () => {};
-        constructor(_id: string, _name: string, private server: () => Promise<unknown>) {}
+        private running = false;
+        private failed = false;
+        constructor(_id: string, _name: string, private server: () => Promise<unknown>) { clients++; }
         onDidChangeState(listener: typeof this.listener) { this.listener = listener; return noop; }
         async start() {
-            await this.server();
-            if (protocolFailure) throw new Error('Invalid LSP initialize response');
-            this.listener({ newState: 2 });
+            if (this.failed) throw new Error('cached startup rejection');
+            try {
+                await this.server();
+                if (protocolFailure) throw new Error('Invalid LSP initialize response');
+                this.running = true;
+                this.listener({ newState: 2 });
+            } catch (error) {
+                this.failed = true;
+                throw error;
+            }
         }
-        async stop() { this.listener({ newState: 1 }); }
+        async stop() {
+            if (this.failed) throw new Error('Client is not running and cannot be stopped');
+            this.running = false;
+            this.listener({ newState: 1 });
+        }
         async restart() { await this.stop(); await this.start(); }
-        isRunning() { return true; }
-        dispose() {}
+        isRunning() { return this.running; }
+        async dispose() { await this.stop(); }
     }
     const loader = Module as unknown as { _load: (name: string, parent: unknown, main: boolean) => unknown };
     const original = loader._load;
@@ -99,6 +113,20 @@ test('activation wires discovery, diagnostics, restart and startup failure phase
     await commands.get('dcc.restartServer')!();
     assert.ok(lines.some(line => line.includes('Invalid LSP initialize response')));
     assert.ok(lines.some(line => line.includes('Startup failed (Process started; waiting for LSP initialize)')));
+    protocolFailure = false;
+    await commands.get('dcc.restartServer')!();
+    assert.ok(clients > 1, 'a failed client must be recreated before retry');
     await extension.deactivate();
     assert.ok(kills > 0, 'owned server processes must be cleaned up');
+    override = 'missing';
+    extension.activate({ subscriptions: [] } as unknown as import('vscode').ExtensionContext);
+    await settle();
+    const beforeRecovery = launches.length;
+    override = undefined;
+    await commands.get('dcc.restartServer')!();
+    assert.equal(launches.length, beforeRecovery + 1, 'installation after an initial discovery failure must be recoverable');
+    assert.equal(launches.at(-1), 'C:\\Program Files\\dcc\\bin\\dccd.exe');
+    commands.get('dcc.showServerDiagnostics')!();
+    assert.equal(lines.at(-2), 'Server status: Running; LSP initialize succeeded');
+    await extension.deactivate();
 });

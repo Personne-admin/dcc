@@ -69,6 +69,12 @@ export class EmbeddedDcBridge implements vscode.Disposable {
     }
 
     attachClient(client: LanguageClient): void {
+        if (this.m_client !== client) {
+            this.m_trees.clear();
+            this.m_diagAggregator.clear();
+            this.m_diagnostics.clear();
+            this.m_unsupportedMethods.clear();
+        }
         this.m_client = client;
     }
 
