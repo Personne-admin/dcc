@@ -25,7 +25,9 @@
         "onLanguage:dcon",
         "onLanguage:dcc-dir",
         "onLanguage:dcc-test",
-        "onFileSystem:dcc-core"
+        "onFileSystem:dcc-core",
+        "onCommand:dcc.showServerDiagnostics",
+        "onCommand:dcc.restartServer"
     ],
     "main": "./out/extension.js",
     "scripts": {
@@ -114,7 +116,7 @@
                 "dcc.serverPath": {
                     "type": "string",
                     "default": "dccd",
-                    "description": "Path to the DCC language server executable (dccd)"
+                    "description": "Explicit dccd executable override (not shell-quoted). Unset uses automatic compiler sibling, PATH and Windows MSI discovery. Invalid overrides never fall back."
                 },
                 "dcc.includePaths": {
                     "type": "array",
@@ -153,9 +155,24 @@
                     ],
                     "default": "off",
                     "description": "Log language server protocol traffic in the DCC Language Server Output channel."
+                },
+                "dcc.compilerPath": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional dcc executable used to find a sibling dccd. An explicit dcc.serverPath takes precedence."
                 }
             }
-        }
+        },
+        "commands": [
+            {
+                "command": "dcc.showServerDiagnostics",
+                "title": "DCC: Show Server Diagnostics"
+            },
+            {
+                "command": "dcc.restartServer",
+                "title": "DCC: Restart Language Server"
+            }
+        ]
     },
     "dependencies": {
         "vscode-languageclient": "^9.0.1"
