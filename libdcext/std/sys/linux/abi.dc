@@ -135,6 +135,7 @@ public using i32 AT_EMPTY_PATH = 0x1000;
 //! Descriptor control
 //!
 
+public using i32 F_DUPFD_CLOEXEC = 1030;
 public using i32 F_GETFD = 1;
 public using i32 F_SETFD = 2;
 public using i32 F_GETFL = 3;

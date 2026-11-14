@@ -507,8 +507,23 @@ public Command new_command([] const char program) {
 }
 public using Command::new = new_command;
 
+/// Borrowed configuration used only during a spawn call.
+public struct EnvironmentChange {
+    [] const char name;
+    [] const char value;
+    bool remove;
+}
+
+public struct SpawnOptions {
+    [] const char directory;
+    [] const EnvironmentChange environment;
+    bool checked_launch;
+    bool search_path;
+}
+
 public struct ExitStatus {
     i32 code;
+    i32 signal = 0;
 }
 
 /// true for exit code 0. signaled children report 128 plus the signal.
@@ -622,21 +637,40 @@ usize push_quoted([] char out, usize at, [] const char arg) {
     return n;
 }
 
-static if core::target::OS != core::target::Os::Freestanding {
-    void redirect_fd(file::Handle fd, i32 target) {
-        static if core::target::OS == core::target::Os::Windows {
-            return;
-        } else {
-            if fd == STDIO_INHERIT {
-                return;
-            }
+[] const char raw_text(const char* text) {
+    usize length = 0;
+    while text[length] != '\0' { length++; }
+    return slice::from_raw_const(text, length);
+}
 
-            if fd == target as file::Handle {
-                return;
-            }
+bool env_name_matches([] const char entry, [] const char name) {
+    return entry.len > name.len && entry[name.len] == '=' && mem::equal(entry[0..name.len], name);
+}
 
-            linux::syscall::dup3(fd as linux::abi::Fd, target, 0);
-            linux::syscall::close(fd as linux::abi::Fd);
+static if core::target::OS == core::target::Os::Linux {
+    @noreturn void child_failed(i32 fd, isize failure) {
+        i32 code = linux::abi::errno_of(failure);
+        if fd >= 0 {
+            [] u8 bytes = slice::from_raw(&code as u8*, sizeof(i32));
+            usize sent = 0;
+            while sent < bytes.len {
+                isize written = linux::syscall::write(fd, bytes[sent..bytes.len]);
+                if linux::abi::is_error(written) {
+                    if linux::abi::errno_of(written) == linux::abi::EINTR { continue; }
+                    break;
+                }
+                if written == 0 { break; }
+                sent += written as usize;
+            }
+        }
+        linux::syscall::exit_group(127);
+    }
+
+    void reap_failed(linux::abi::Pid pid) {
+        i32 status = 0;
+        while true {
+            isize reaped = linux::syscall::wait4(pid, &status, 0);
+            if !linux::abi::is_error(reaped) || linux::abi::errno_of(reaped) != linux::abi::EINTR { break; }
         }
     }
 }
@@ -653,6 +687,24 @@ static if core::target::OS != core::target::Os::Freestanding {
         A* alloc,
         const Command* cmd
     ) if AllocatorPolicy(A) {
+        SpawnOptions options = {};
+        return spawn_with_options(alloc, cmd, &options);
+    }
+
+    /// Extended spawn with borrowed child-only cwd and environment edits.
+    /// Linux checked_launch reports setup/exec errors and reaps failed children.
+    /// search_path enables shell-free PATH lookup on Linux. Windows uses its
+    /// existing CreateProcessW lookup and rejects environment edits.
+    public Result(Child, Error) spawn_with_options(A)(
+        A* alloc,
+        const Command* cmd,
+        const SpawnOptions* options
+    ) if AllocatorPolicy(A) {
+        if has_nul(options.directory) { return Error::InvalidArgument; }
+        for change in options.environment {
+            if change.name.len == 0 || has_nul(change.name) || has_nul(change.value) { return Error::InvalidArgument; }
+            for c in change.name { if c == '=' { return Error::InvalidArgument; } }
+        }
         if cmd.program.len == 0 || has_nul(cmd.program) {
             return Result::Err(Error::InvalidArgument);
         }
@@ -664,6 +716,13 @@ static if core::target::OS != core::target::Os::Freestanding {
         }
 
         static if core::target::OS == core::target::Os::Windows {
+            if options.environment.len != 0 { return Error::NotSupported; }
+            path::PathW directory;
+            const u16* directory_ptr = null;
+            if options.directory.len != 0 {
+                path::to_pathw(options.directory, &directory)?;
+                directory_ptr = path::wide_ptr(&directory);
+            }
             Optional(usize) initial = checked_quote_bound(cmd.program);
             if initial.is_none() { return Error::OutOfMemory; }
             usize bound = initial.unwrap_some();
@@ -763,7 +822,7 @@ static if core::target::OS != core::target::Os::Freestanding {
                 win::abi::TRUE,
                 0,
                 null,
-                null,
+                directory_ptr,
                 &si,
                 &pi
             );
@@ -839,23 +898,174 @@ static if core::target::OS != core::target::Os::Freestanding {
                 envp = &empty_env as const char**;
             }
 
-            isize r = linux::syscall::clone(linux::abi::SIGCHLD, 0, 0, 0, 0);
-            if linux::abi::is_error(r) {
-                return Result::Err(error::from_syscall(r));
+            usize inherited = 0;
+            while envp[inherited] != null { inherited++; }
+            usize env_bytes = 0;
+            for change in options.environment {
+                Optional(usize) size = process_checked_add(change.name.len, change.value.len);
+                if size.is_none() { return Error::OutOfMemory; }
+                size = process_checked_add(size.unwrap_some(), 2);
+                if size.is_none() { return Error::OutOfMemory; }
+                size = process_checked_add(env_bytes, size.unwrap_some());
+                if size.is_none() { return Error::OutOfMemory; }
+                env_bytes = size.unwrap_some();
             }
-
+            [] u8 env_storage = {};
+            [] u8 env_vector = {};
+            defer { if env_storage.len != 0 { alloc.free(env_storage, 1); } }
+            defer { if env_vector.len != 0 { alloc.free(env_vector, alignof(void*)); } }
+            if options.environment.len != 0 {
+                Optional(usize) count_env = process_checked_add(inherited, options.environment.len);
+                if count_env.is_none() { return Error::OutOfMemory; }
+                count_env = process_checked_add(count_env.unwrap_some(), 1);
+                if count_env.is_none() { return Error::OutOfMemory; }
+                Optional(usize) bytes_env = process_checked_mul(count_env.unwrap_some(), sizeof(void*));
+                if bytes_env.is_none() { return Error::OutOfMemory; }
+                Result([] u8, mem::AllocError) storage_r = alloc.allocate(env_bytes, 1);
+                if storage_r.is_err() { return Error::OutOfMemory; }
+                env_storage = storage_r.unwrap();
+                Result([] u8, mem::AllocError) vector_r = alloc.allocate(bytes_env.unwrap_some(), alignof(void*));
+                if vector_r.is_err() { return Error::OutOfMemory; }
+                env_vector = vector_r.unwrap();
+                const char** merged = env_vector.ptr as const char**;
+                usize used = 0;
+                for usize i = 0; i < inherited; i++ {
+                    [] const char entry = raw_text(envp[i]);
+                    bool replaced = false;
+                    for change in options.environment {
+                        if env_name_matches(entry, change.name) { replaced = true; }
+                    }
+                    if !replaced { merged[used] = envp[i]; used++; }
+                }
+                usize offset = 0;
+                for usize i = 0; i < options.environment.len; i++ {
+                    EnvironmentChange change = options.environment[i];
+                    bool later = false;
+                    for usize j = i + 1; j < options.environment.len; j++ {
+                        if mem::equal(change.name, options.environment[j].name) { later = true; }
+                    }
+                    if change.remove || later { continue; }
+                    merged[used] = (env_storage.ptr + offset) as const char*;
+                    for c in change.name { env_storage[offset] = c as u8; offset++; }
+                    env_storage[offset] = '=' as u8; offset++;
+                    for c in change.value { env_storage[offset] = c as u8; offset++; }
+                    env_storage[offset] = 0; offset++;
+                    used++;
+                }
+                merged[used] = null;
+                envp = merged;
+            }
+            [] const char search = "/bin:/usr/bin";
+            for usize i = 0; envp[i] != null; i++ {
+                [] const char entry = raw_text(envp[i]);
+                if env_name_matches(entry, "PATH") { search = entry[5..entry.len]; }
+            }
+            bool search_program = options.search_path;
+            for c in cmd.program { if c == '/' { search_program = false; } }
+            [] u8 candidate = {};
+            defer { if candidate.len != 0 { alloc.free(candidate, 1); } }
+            if search_program {
+                Optional(usize) bound = process_checked_add(search.len, cmd.program.len);
+                if bound.is_none() { return Error::OutOfMemory; }
+                bound = process_checked_add(bound.unwrap_some(), 2);
+                if bound.is_none() { return Error::OutOfMemory; }
+                Result([] u8, mem::AllocError) candidate_r = alloc.allocate(bound.unwrap_some(), 1);
+                if candidate_r.is_err() { return Error::OutOfMemory; }
+                candidate = candidate_r.unwrap();
+            }
+            path::PathZ directory;
+            if options.directory.len != 0 { path::to_pathz(options.directory, &directory)?; }
+            i32[3] sources = {cmd.stdio.input as i32, cmd.stdio.output as i32, cmd.stdio.error as i32};
+            i32[3] copies = {-1,-1,-1};
+            defer { for fd in copies { if fd >= 0 { linux::syscall::close(fd); } } }
+            for usize i = 0; i < 3; i++ {
+                if sources[i] == STDIO_INHERIT as i32 { continue; }
+                isize duplicate = linux::syscall::fcntl(sources[i], linux::abi::F_DUPFD_CLOEXEC, 3);
+                if linux::abi::is_error(duplicate) { return error::from_syscall(duplicate); }
+                copies[i] = duplicate as i32;
+            }
+            i32[2] failure_pipe = {-1,-1};
+            defer {
+                if failure_pipe[0] >= 0 { linux::syscall::close(failure_pipe[0]); }
+                if failure_pipe[1] >= 0 { linux::syscall::close(failure_pipe[1]); }
+            }
+            if options.checked_launch {
+                isize opened = linux::syscall::pipe2(&failure_pipe[0], linux::abi::O_CLOEXEC);
+                if linux::abi::is_error(opened) { return error::from_syscall(opened); }
+                if failure_pipe[1] < 3 {
+                    isize moved = linux::syscall::fcntl(failure_pipe[1], linux::abi::F_DUPFD_CLOEXEC, 3);
+                    if linux::abi::is_error(moved) { return error::from_syscall(moved); }
+                    linux::syscall::close(failure_pipe[1]);
+                    failure_pipe[1] = moved as i32;
+                }
+            }
+            isize r = linux::syscall::clone(linux::abi::SIGCHLD, 0, 0, 0, 0);
+            if linux::abi::is_error(r) { return error::from_syscall(r); }
             if r == 0 {
-                // the child reaches execve or exit_group, never a return, so
-                // the defers above are a parent-only concern
-                redirect_fd(cmd.stdio.input, 0);
-                redirect_fd(cmd.stdio.output, 1);
-                redirect_fd(cmd.stdio.error, 2);
-                linux::syscall::execve(
-                    vec[0],
-                    vec,
-                    envp
-                );
-                linux::syscall::exit_group(127);
+                if failure_pipe[0] >= 0 { linux::syscall::close(failure_pipe[0]); }
+                if options.directory.len != 0 {
+                    isize changed = linux::syscall::chdir(path::ptr(&directory));
+                    if linux::abi::is_error(changed) { child_failed(failure_pipe[1], changed); }
+                }
+                for usize i = 0; i < 3; i++ {
+                    if copies[i] < 0 { continue; }
+                    isize redirected = linux::syscall::dup3(copies[i], i as i32, 0);
+                    if linux::abi::is_error(redirected) { child_failed(failure_pipe[1], redirected); }
+                }
+                for fd in copies { if fd >= 0 { linux::syscall::close(fd); } }
+                for usize i = 0; i < 3; i++ {
+                    if sources[i] < 3 { continue; }
+                    bool earlier = false;
+                    for usize j = 0; j < i; j++ { if sources[j] == sources[i] { earlier = true; } }
+                    if !earlier { linux::syscall::close(sources[i]); }
+                }
+                isize exec_error = -(linux::abi::ENOENT as isize);
+                if search_program {
+                    usize start = 0;
+                    bool denied = false;
+                    while start <= search.len {
+                        usize end = start;
+                        while end < search.len && search[end] != ':' { end++; }
+                        usize at = 0;
+                        for usize i = start; i < end; i++ { candidate[at] = search[i] as u8; at++; }
+                        if end != start { candidate[at] = '/' as u8; at++; }
+                        for c in cmd.program { candidate[at] = c as u8; at++; }
+                        candidate[at] = 0;
+                        exec_error = linux::syscall::execve(candidate.ptr as const char*, vec, envp);
+                        i32 code = linux::abi::errno_of(exec_error);
+                        if code == linux::abi::EACCES { denied = true; }
+                        else if code != linux::abi::ENOENT && code != linux::abi::ENOTDIR { break; }
+                        start = end + 1;
+                    }
+                    if denied && (linux::abi::errno_of(exec_error) == linux::abi::ENOENT || linux::abi::errno_of(exec_error) == linux::abi::ENOTDIR) {
+                        exec_error = -(linux::abi::EACCES as isize);
+                    }
+                } else {
+                    exec_error = linux::syscall::execve(vec[0], vec, envp);
+                }
+                child_failed(failure_pipe[1], exec_error);
+            }
+            if options.checked_launch {
+                linux::syscall::close(failure_pipe[1]); failure_pipe[1] = -1;
+                i32 exec_errno = 0;
+                [] u8 report = slice::from_raw(&exec_errno as u8*, sizeof(i32));
+                usize received = 0;
+                while received < report.len {
+                    isize got = linux::syscall::read(failure_pipe[0], report[received..report.len]);
+                    if linux::abi::is_error(got) {
+                        if linux::abi::errno_of(got) == linux::abi::EINTR { continue; }
+                        linux::syscall::kill(r as linux::abi::Pid, 9);
+                        reap_failed(r as linux::abi::Pid);
+                        return error::from_syscall(got);
+                    }
+                    if got == 0 { break; }
+                    received += got as usize;
+                }
+                if received != 0 {
+                    reap_failed(r as linux::abi::Pid);
+                    if received != report.len { return Error::InputOutput; }
+                    return error::from_syscall(-(exec_errno as isize));
+                }
             }
 
             Child c;
@@ -871,11 +1081,13 @@ static if core::target::OS != core::target::Os::Freestanding {
 
 ExitStatus decode_status(i32 status) {
     ExitStatus st;
+    st.signal = 0;
 
     if (status & 0x7f) == 0 {
         st.code = (status >> 8) & 0xff;
     } else {
-        st.code = 128 + (status & 0x7f);
+        st.signal = status & 0x7f;
+        st.code = 128 + st.signal;
     }
 
     return st;
@@ -920,6 +1132,7 @@ static if core::target::OS != core::target::Os::Freestanding {
 
             ExitStatus st;
             st.code = code as i32;
+            st.signal = 0;
             return Result::Ok(st);
         } else {
             i32 status = 0;
@@ -986,6 +1199,7 @@ static if core::target::OS != core::target::Os::Freestanding {
 
             ExitStatus st;
             st.code = code as i32;
+            st.signal = 0;
             return Result::Ok(Optional::Some(st));
         } else {
             i32 status = 0;

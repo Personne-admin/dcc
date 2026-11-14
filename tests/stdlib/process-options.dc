@@ -1,0 +1,58 @@
+module main;
+import std::os::process;
+import std::os::heap;
+import std::os::error;
+import std::mem;
+using std::os::{process,heap,error};
+
+public i32 main() {
+    if process::arg_count() > 1 {
+        if !std::mem::equal(process::arg(1).unwrap_some(), "child") { return 10; }
+        char[4096] buffer;
+        [] const char directory = process::current_dir(buffer[0..4096]).unwrap();
+        if !std::mem::equal(directory, "/") { return 11; }
+        process::Vars vars = process::vars();
+        defer vars.close();
+        bool found = false;
+        while true {
+            Optional(process::Var) entry = vars.next();
+            if entry.is_none() { break; }
+            process::Var value = entry.unwrap_some();
+            if std::mem::equal(value.name, "DCC_COMMAND_TEST") {
+                found = std::mem::equal(value.value, "second");
+            }
+            if std::mem::equal(value.name, "PATH") { return 12; }
+        }
+        return if found { 0 } else { 13 };
+    }
+    heap::Heap allocator = {};
+    process::Command command = process::new_command("/proc/self/exe");
+    process::Arg[1] args = {"child"};
+    command.args = args[0..1];
+    process::EnvironmentChange[3] edits = {
+        {name="DCC_COMMAND_TEST",value="first",remove=false},
+        {name="DCC_COMMAND_TEST",value="second",remove=false},
+        {name="PATH",value="",remove=true},
+    };
+    process::SpawnOptions options = {directory="/",environment=edits[0..3] as [] const process::EnvironmentChange,checked_launch=true,search_path=true};
+    process::Child child = process::spawn_with_options(&allocator,&command,&options).unwrap();
+    process::ExitStatus status = child.wait().unwrap();
+    if !status.success() || status.signal != 0 { return 1; }
+    if child.wait().unwrap_err() != error::Error::BadHandle { return 2; }
+    command.program = "true";
+    command.args = {};
+    options.environment = {};
+    child = process::spawn_with_options(&allocator,&command,&options).unwrap();
+    if !child.wait().unwrap().success() { return 3; }
+    command.program = "/dcc-command-does-not-exist";
+    if process::spawn_with_options(&allocator,&command,&options).unwrap_err() != error::Error::NotFound { return 4; }
+    child = process::spawn(&allocator,&command).unwrap();
+    if child.wait().unwrap().code != 127 { return 5; }
+    command.program = "/bin/true";
+    options.directory = "/dcc-command-does-not-exist";
+    if process::spawn_with_options(&allocator,&command,&options).unwrap_err() != error::Error::NotFound { return 6; }
+    options.directory = {};
+    command.stdio.output = -100;
+    if process::spawn_with_options(&allocator,&command,&options).unwrap_err() != error::Error::BadHandle { return 7; }
+    return 0;
+}
