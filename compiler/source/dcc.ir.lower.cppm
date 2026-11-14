@@ -8078,21 +8078,76 @@ export namespace dcc::ir::lower
             return file && m_library.owns(mod.canonical_path.str(), file->path());
         }
 
+        types::EnumType const* status_main_type(types::TypePtr result) const
+        {
+            auto const* type = types::type_cast<types::EnumType>(result);
+            if (!type || type->template_args.size() != 1 || !type->is_tagged || !type->tagged_layout)
+                return nullptr;
+            auto const* declaration = reinterpret_cast<ast::EnumDecl const*>(type->decl);
+            auto const* owner = owning_module_of(declaration);
+            if (!owner || owner->canonical_path.str() != "std::result" || !declaration || declaration->name != "Status" ||
+                declaration->variants.size() != 2 || declaration->variants[0].name != "Ok" || declaration->variants[1].name != "Err" ||
+                !declaration->variants[0].payload.empty() || declaration->variants[1].payload.size() != 1)
+                return nullptr;
+            return type;
+        }
+
+        IrFunction* lower_status_entry(ast::FuncDecl const& declaration, types::EnumType const& status, IrFunction* user)
+        {
+            m_name_pool.push_back(std::format("__dcc_status_entry_{}", user->name));
+            auto name = m_name_pool.back();
+            for (auto* function : m_module->functions)
+                if (function->name == name)
+                    throw LowerDiagnostic(std::format("reserved status entry symbol '{}' collides with a declaration", name));
+            for (auto* global : m_module->globals)
+                if (global->name == name)
+                    throw LowerDiagnostic(std::format("reserved status entry symbol '{}' collides with a declaration", name));
+            auto* integer = m_ctx.int_t(32, true);
+            auto* adapter = m_ctx.function(name, static_cast<IrFuncType const*>(m_ctx.func_t(integer, {})));
+            adapter->linkage = Linkage::External;
+            auto* block = m_ctx.basic_block("entry", 0);
+            adapter->entry_block = block;
+            adapter->blocks.push_back(block);
+            auto* call = m_ctx.call(user->func_type->return_type, m_ctx.func_ref(user));
+            call->c_abi = declaration.sema.is_nomangle;
+            call->cc = user->conv;
+            block->instructions.push_back(call);
+            auto* discriminant = status.tagged_layout->discriminant_type;
+            auto* tag_type = m_ctx.int_t(static_cast<std::uint8_t>(discriminant->bits), discriminant->is_signed);
+            auto* tag = m_ctx.extract(tag_type, call, 0);
+            block->instructions.push_back(tag);
+            auto* failed = m_ctx.cmp_ne(tag, m_ctx.int_const(tag_type, status.tagged_layout->variants[0].discriminant_value));
+            block->instructions.push_back(failed);
+            auto* exit_code = m_ctx.zext(integer, failed);
+            block->instructions.push_back(exit_code);
+            block->terminator = m_ctx.ret(exit_code);
+            m_module->functions.push_back(adapter);
+            return adapter;
+        }
+
         void lower_main_thunk(sema::ModuleInfo const& mod)
         {
             ast::FuncDecl const* chosen = nullptr;
             bool takes_args = false;
+            bool chosen_status = false;
+            IrFunction* chosen_target = nullptr;
+            bool hosted = m_library_target.os != target::Os::Freestanding && !m_library.sources.empty();
             for (auto* decl : mod.tu->decls)
             {
                 auto* function = ast::node_cast<ast::FuncDecl>(decl);
                 if (!function || function->name != "main" || !function->body || is_template_func(function))
                     continue;
                 auto* result = get_canonical_type(function->return_type);
-                if (!result || result->kind != types::TypeKind::Int)
+                auto const* status = hosted ? status_main_type(result) : nullptr;
+                auto const* integer = types::type_cast<types::IntType>(result);
+                if (!status && (!integer || integer->bits != 32 || !integer->is_signed))
+                {
+                    if (hosted)
+                        throw LowerDiagnostic("invalid hosted main return type: expected i32 or std::result::Status(E)");
                     continue;
-                auto* integer = static_cast<types::IntType const*>(result);
-                if (integer->bits != 32 || !integer->is_signed)
-                    continue;
+                }
+                if (status && !function->params.empty())
+                    throw LowerDiagnostic("Status(E) main must have no parameters");
                 bool args = false;
                 if (function->params.size() == 1)
                 {
@@ -8110,16 +8165,18 @@ export namespace dcc::ir::lower
                 }
                 else if (!function->params.empty())
                     continue;
+                auto* target_function = m_func_map.at(function);
+                if (status)
+                    target_function = lower_status_entry(*function, *status, target_function);
                 if (m_emit_main_metadata && !m_whole_program)
                 {
-                    auto* target_function = m_func_map.at(function);
                     target_function->linkage = Linkage::External;
                     auto location = fmt_loc(function->range);
                     if (m_source_manager)
                         if (auto const* file = m_source_manager->get(function->range.begin.fileId))
                             location = std::format(" at {}:{}", m_source_manager->map_output_path(file->path().string()), target_function->decl_line);
                     auto record =
-                        std::format("DCCMAIN1:{}:{}:{}:", args ? 1 : 0, function->sema.is_nomangle ? 1 : 0, static_cast<unsigned>(target_function->conv));
+                        std::format("DCCMAIN1:{}:{}:{}:", args ? 1 : 0, !status && function->sema.is_nomangle ? 1 : 0, static_cast<unsigned>(target_function->conv));
                     record += target_function->name;
                     record.push_back('\0');
                     record += location;
@@ -8141,10 +8198,12 @@ export namespace dcc::ir::lower
                                                       args ? "i32 main([] const char*)" : "i32 main()", fmt_loc(function->range)));
                 chosen = function;
                 takes_args = args;
+                chosen_status = status != nullptr;
+                chosen_target = target_function;
             }
             if (!chosen || !m_generate_main_thunk)
                 return;
-            auto* target_function = m_func_map.at(chosen);
+            auto* target_function = chosen_target;
             auto* count_type = m_ctx.usize_t();
             auto* argv_type = m_ctx.pointer_to(m_ctx.pointer_to(m_ctx.int_t(8, false)));
             std::array<IrType const*, 2> parameters{count_type, argv_type};
@@ -8173,7 +8232,7 @@ export namespace dcc::ir::lower
             block->params.push_back(count);
             block->params.push_back(argv);
             auto* call = m_ctx.call(target_function->func_type->return_type, m_ctx.func_ref(target_function));
-            call->c_abi = chosen->sema.is_nomangle;
+            call->c_abi = !chosen_status && chosen->sema.is_nomangle;
             call->cc = target_function->conv;
             if (takes_args)
             {

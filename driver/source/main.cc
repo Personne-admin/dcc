@@ -1167,7 +1167,7 @@ namespace
         }
         auto signature = [](Main const& main) { return main.args ? "i32 main([] const char*)" : "i32 main()"; };
         if (mains.empty())
-            throw std::runtime_error("missing program main: expected i32 main() or i32 main([] const char*)");
+            throw std::runtime_error("missing program main: expected i32 main(), i32 main([] const char*), or Status(E) main()");
         if (mains.size() != 1)
             throw std::runtime_error(std::format("ambiguous program main: {}{} and {}{} are both defined", signature(mains[0]), mains[0].location,
                                                  signature(mains[1]), mains[1].location));
