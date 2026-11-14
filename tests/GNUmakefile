@@ -354,3 +354,5 @@ include $(STD_MK)
 test-debug-info: $(BUILD_DIR)/bin/tests/test_cases_dispatcher
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_debug_info.py $(BUILD_DIR)/bin/dcc
 	$(Q)DCC_DEBUG_SWEEP=1 DCC_TEST_LIBDCEXT_SRC="$(TOPLEVEL)/libdcext" DCC_TEST_LIBDCEXT_A="$(BUILD_DIR)/lib/libdcext-linux-custom.a" $(BUILD_DIR)/bin/tests/test_cases_dispatcher
+
+$(OBJ_DIR)/tests/source/test_dpm_process.cc.o: $(DPM_PCMS)
