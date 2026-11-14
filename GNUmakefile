@@ -82,7 +82,9 @@ libdcext-test: driver
 	@$(MAKE) -C libdcext TARGET=x86_64-linux BACKEND=llvm
 	@$(MAKE) -C libdcext TARGET=x86_64-linux BACKEND=custom
 
-test-bin: driver dpm libdcext-test
+DCCD_TEST_NAMES := test_format test_protocol test_workspace_index test_transport test_lsp test_compilation_database
+
+test-bin: driver dpm libdcext-test $(if $(filter $(DCCD_TEST_NAMES),$(NAMES)),dccd)
 	@if [ -z "$(strip $(NAMES))" ]; then \
 		echo 'usage: make test-bin NAMES="test_name ..."' >&2; \
 		exit 2; \
