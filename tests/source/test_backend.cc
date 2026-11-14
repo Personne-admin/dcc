@@ -1057,7 +1057,7 @@ TEST_CASE("debug-pdb-on-elf-rejected")
     CHECK(!artifact.llvm_ir_text.has_value());
 }
 
-TEST_CASE("debug-coff-exe-rejected-with-clear-diagnostic")
+TEST_CASE("ia32-pe-exe-rejected-with-clear-diagnostic")
 {
     IrContext ir_ctx;
     auto* mod = ir_ctx.module("test_exe");
@@ -1074,12 +1074,12 @@ TEST_CASE("debug-coff-exe-rejected-with-clear-diagnostic")
     mod->functions.push_back(start_fn);
 
     TargetConfig target;
-    target.triple = "x86_64-coff";
-    target.arch = Arch::X86_64;
+    target.triple = "x86-coff";
+    target.arch = Arch::X86;
     target.os = Os::Windows;
     target.object_format = ObjectFormat::Coff;
-    target.pointer_bits = 64;
-    target.pointer_align = 8;
+    target.pointer_bits = 32;
+    target.pointer_align = 4;
     target.little_endian = true;
 
     BackendOptions opts;
@@ -1094,7 +1094,7 @@ TEST_CASE("debug-coff-exe-rejected-with-clear-diagnostic")
 
     bool has_helpful_msg = false;
     for (auto const& d : artifact.diagnostics)
-        if (d.message.contains("COFF") || d.message.contains("lld-link") || d.message.contains("PE"))
+        if (d.message.contains("PE executable emission requires x86_64"))
             has_helpful_msg = true;
 
     CHECK(has_helpful_msg);

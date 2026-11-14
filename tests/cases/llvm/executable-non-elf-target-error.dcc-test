@@ -6,4 +6,4 @@ public void _start() {
     while (true) { }
 }
 
-=== EXPECT-EXECUTABLE-ERRORS FLAGS: -target x86_64-coff ===
+=== EXPECT-EXECUTABLE-ERRORS FLAGS: -target x86-coff ===
