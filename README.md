@@ -187,8 +187,9 @@ shared libraries.
 inlay hints, and workspace symbols, all over LSP.
 
 The `vscode/` extension (DC Language Support) wraps `dccd` for syntax
-highlighting and editor integration in VS Code. Neovim support is planned,
-built on the same `dccd` server.
+highlighting and editor integration in VS Code. The first-party
+[Neovim integration](docs/neovim.md) uses native Neovim 0.11+ LSP APIs on
+Linux and Windows, with no external plugin dependencies.
 
 ## License
 

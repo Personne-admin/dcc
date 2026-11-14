@@ -1,0 +1,95 @@
+*dcc.txt*                      DC integration for Neovim 0.11+
+
+INTRODUCTION                                                    *dcc.nvim*
+
+This runtime uses Neovim's native LSP client and asynchronous process APIs.
+Install dccd separately. No Node.js, Python, Mason or nvim-lspconfig is needed.
+Only .dc files are detected as filetype dc. Configure once in init.lua: >lua
+    require('dcc').setup()
+<
+The runtime root is the repository's neovim/ directory, not its root. For
+lazy.nvim with an existing checkout: >lua
+    { dir = '/path/to/dcc/neovim', name = 'dcc.nvim', main = 'dcc', opts = {} }
+<
+For native packages, copy the contents of neovim/ into
+stdpath('data')/site/pack/dcc/start/dcc.nvim/, then call setup() from init.lua.
+Use C:/... paths on Windows. See docs/neovim.md in the dcc repository for full
+installation instructions and a complete minimal configuration.
+
+CONFIGURATION                                                  *dcc-setup*
+>lua
+    require('dcc').setup({
+      dccd = '/opt/dcc/bin/dccd',
+      dpm = '/opt/dcc/bin/dpm',
+      settings = { dcc = { includePaths = { 'src' } } },
+      dpm_commands = true,
+      -- root_dir = function(bufnr)
+      --   return vim.fs.root(bufnr, 'project.dcon')
+      -- end,
+    })
+<
+All fields are optional. dccd/dpm are executable paths or bare PATH names,
+without shell quotes or extra arguments. A bad explicit override is an error;
+it never silently falls back. root_dir may be a directory or a function taking
+a buffer number and returning a directory (nil disables attachment).
+
+Discovery order: explicit dccd, PATH, sibling of PATH's dcc, registered dcc MSI
+products on Windows, then Windows Program Files defaults. MSI discovery is
+restricted to dcc's product identity and handles custom install locations and
+stale editor PATH. Windows executables use .exe; launch uses argv without a
+shell. Linux discovery does not query MSI.
+
+The current MSI does not ship native Windows DPM. LSP works independently;
+DPM commands need a separately available compatible executable. dpm discovery
+uses an override, PATH, then a compiler sibling. No implicit WSL invocation.
+
+ROOTS AND LSP                                                   *dcc-lsp*
+
+Root markers, in priority order: project.dcon, compile_commands.json, dcc.json.
+Standalone files use their parent directory. One client is reused per root.
+DPM's compilation database and dccd settings determine compiler options; build
+the project to generate the database. Unsaved buffers are synchronized by LSP.
+Saving DC/project files sends workspace change notifications. External changes
+use native Neovim watchers where available; :DccRestart is the fallback.
+
+Supported server features: diagnostics, hover, completion, definition,
+references, rename, document/range/on-type formatting, signature help, quick
+fixes, semantic tokens, inlay hints and workspace symbols. No keys are mapped.
+Use |vim.lsp.buf| and native completion: >lua
+    vim.keymap.set('n', 'gd', vim.lsp.buf.definition)
+    vim.keymap.set('n', 'K', vim.lsp.buf.hover)
+    vim.keymap.set('n', '<leader>rn', vim.lsp.buf.rename)
+    vim.api.nvim_create_autocmd('LspAttach', {
+      callback = function(e)
+        vim.lsp.completion.enable(true, e.data.client_id, e.buf)
+      end,
+    })
+<
+COMMANDS                                                       *dcc-commands*
+
+:DccInfo                                                       *:DccInfo*
+    Show executable/source, launch and initialization state, clients/roots,
+    log location and troubleshooting hints. If available, report the sibling
+    compiler's version; dccd itself has no CLI version flag.
+
+:DccRestart                                                    *:DccRestart*
+    Rediscover and restart all dccd clients. Graceful shutdown has a two-second
+    fallback to forced termination. Existing DC buffers reattach.
+
+:DccBuild [arguments]                                           *:DccBuild*
+:DccRun [arguments]                                             *:DccRun*
+    Run dpm build/run asynchronously at the current buffer's project.dcon.
+    These commands require a DPM project. Save buffers first: DPM reads disk.
+    Arguments are passed separately without shell interpolation. Escape spaces
+    with backslashes in Ex commands, e.g. :DccRun hello -- hello\ world
+    Compiler errors populate quickfix. Failure/program output uses a scratch
+    split, capped at 128 KiB. One job per project; no interactive terminal or
+    stdin. Use an external terminal for interactive programs. Active jobs are
+    terminated when Neovim exits. Disable with dpm_commands = false.
+
+:checkhealth dcc                                                *dcc-health*
+    Inspect state and limitations. Use :DccInfo to initiate discovery and
+    :DccRestart to retry. Set an unquoted absolute dccd path if necessary.
+    A found executable is not the same as a successful LSP initialize handshake.
+
+vim:tw=78:ts=8:noet:ft=help:norl:
