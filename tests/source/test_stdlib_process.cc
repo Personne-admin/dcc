@@ -25,7 +25,7 @@ TEST_CASE("owning commands preserve arguments, lifecycle and allocation failure 
             }
 }
 
-TEST_CASE("Windows commands generate code for cwd, null streams and unsupported environment edits")
+TEST_CASE("commands support Windows code generation and freestanding import isolation")
 {
     auto root = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path().parent_path();
     auto dir = std::filesystem::temp_directory_path() /
@@ -47,4 +47,27 @@ TEST_CASE("Windows commands generate code for cwd, null streams and unsupported 
             CHECK_EQ(std::system(command.c_str()), 0);
             CHECK(std::filesystem::exists(object));
         }
+    { std::ofstream out{source}; out << "module main; import std::process; @nomangle public i32 entry() { return 0; }"; }
+    for (auto backend : {"llvm", "custom"})
+    {
+        auto object = dir / "freestanding.o";
+        auto command = std::format("timeout 60 {} -target x86_64-elf -fno-prelude -I{} -fwhole-program -fbackend {} -c {} -o {}",
+                                   os_test::quote(root / "bin/dcc"), os_test::quote(root / "include"), backend,
+                                   os_test::quote(source), os_test::quote(object));
+        CHECK_EQ(std::system(command.c_str()), 0);
+    }
+}
+
+TEST_CASE("documented command example builds and launches a child")
+{
+    auto root = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path().parent_path().parent_path();
+    auto text = os_test::read(root / "docs/process.md");
+    auto start = text.find("```dc\n");
+    REQUIRE(start != std::string::npos);
+    start += 6;
+    auto end = text.find("```", start);
+    REQUIRE(end != std::string::npos);
+    auto result = os_test::run(text.substr(start, end - start));
+    CHECK_EQ(result.status, 0);
+    CHECK(result.out.starts_with("git version "));
 }

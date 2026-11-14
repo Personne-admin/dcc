@@ -101,3 +101,9 @@ The existing integer-main forms remain supported. Imported
 user helpers receive the same prelude when compiled under the same library,
 target and allocator settings. Packages that require independence from the
 prelude should pin `@no_prelude` and explicit imports in their module headers.
+
+## External commands
+
+Use the explicitly imported `std::process::Command` for owned, reusable,
+shell-free commands. See [Process commands](process.md) for arguments,
+child-specific cwd and environment, stream redirection and child ownership.
