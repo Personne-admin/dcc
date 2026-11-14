@@ -8095,7 +8095,7 @@ export namespace dcc::ir::lower
         IrFunction* lower_status_entry(ast::FuncDecl const& declaration, types::EnumType const& status, IrFunction* user)
         {
             m_name_pool.push_back(std::format("__dcc_status_entry_{}", user->name));
-            auto name = m_name_pool.back();
+            std::string_view name = m_name_pool.back();
             for (auto* function : m_module->functions)
                 if (function->name == name)
                     throw LowerDiagnostic(std::format("reserved status entry symbol '{}' collides with a declaration", name));
