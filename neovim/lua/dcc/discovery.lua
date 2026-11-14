@@ -59,13 +59,13 @@ function M.resolve(options, callback)
     found = check(M.join(M.dirname(compiler), name .. (windows and '.exe' or '')))
     if found then callback({ path = found, source = 'dcc sibling' }); return end
   end
-  if windows and name == 'dccd' then
+  if windows and (name == 'dccd' or name == 'dpm') then
     local query = options.installations or function(done)
       require('dcc.msi').discover(env, options.system or vim.system, done)
     end
     query(function(entries, error)
       for _, entry in ipairs(entries or {}) do
-        found = check(entry.serverPath)
+        found = check(name == 'dccd' and entry.serverPath or M.join(M.dirname(entry.serverPath), 'dpm.exe'))
         if found then callback({ path = found, source = 'dcc MSI ' .. entry.version }); return end
       end
       local seen = {}
@@ -73,16 +73,15 @@ function M.resolve(options, callback)
         local root = environment(variable)
         if root and M.is_absolute(root, true) and not seen[root] then
           seen[root] = true
-          found = check(M.join(root, 'dcc/bin/dccd.exe'))
+          found = check(M.join(root, 'dcc/bin/' .. name .. '.exe'))
           if found then callback({ path = found, source = 'MSI default', note = error }); return end
         end
       end
-      callback(nil, error or 'dccd not found on PATH, beside dcc, or in registered dcc MSI products')
+      callback(nil, error or name .. ' not found on PATH, beside dcc, or in registered dcc MSI products')
     end)
     return
   end
-  local hint = windows and name == 'dpm' and '; the current dcc MSI does not ship native Windows DPM' or ''
-  callback(nil, name .. ' not found on PATH or beside dcc' .. hint)
+  callback(nil, name .. ' not found on PATH or beside dcc')
 end
 
 return M

@@ -44,7 +44,9 @@ local function unit()
   local absent, reason = resolve(options())
   check(not absent and reason:find('not found'), 'missing server diagnostic')
   local missing_dpm, dpm_error = resolve(options({ name = 'dpm' }))
-  check(not missing_dpm and dpm_error:find('native Windows DPM'), 'Windows DPM limitation must be explicit')
+  check(not missing_dpm and dpm_error:find('not found'), 'missing Windows DPM is diagnosed')
+  files['C:/Program Files/dcc/bin/dpm.exe'] = true
+  check(resolve(options({ name = 'dpm', installations = function(done) done({ { serverPath = 'C:/Program Files/dcc/bin/dccd.exe', version = '0.6.0' } }) end })).source:find('MSI'), 'native DPM MSI discovery with stale PATH')
   local linux = resolve({ windows = false, lookup = function(name) return name == 'dccd' and '/tool chain/dccd' or '' end,
     executable = function(path) return path == '/tool chain/dccd' end })
   check(linux.path == '/tool chain/dccd', 'Linux PATH discovery')

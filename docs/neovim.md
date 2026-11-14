@@ -90,9 +90,10 @@ Installer registration, not arbitrary registry executable paths. No elevation
 is required. The language server is launched directly, without a shell.
 
 DPM uses an explicit `dpm` override, PATH, then the compiler's sibling directory.
-The current Windows MSI does not ship native Windows DPM. LSP remains usable;
-DPM commands require a separately available compatible executable. This plugin
-does not run Linux executables through WSL implicitly.
+On Windows it then uses the same MSI and Program Files discovery as `dccd`; the
+MSI installs `dpm.exe` beside `dcc.exe` and `dccd.exe`. When no DPM is found,
+`:DccInfo` reports it and the LSP keeps working; only DPM commands are
+unavailable. This plugin does not run Linux executables through WSL implicitly.
 
 ## Roots and language features
 
