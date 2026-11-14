@@ -52,7 +52,12 @@ namespace
     {
         if (char const* env = std::getenv("DCC"))
             return env;
-        return dcc::config::current_prefix(g_argv).path / "bin" / "dcc";
+        return dcc::config::current_prefix(g_argv).path / "bin" /
+#ifdef _WIN32
+            "dcc.exe";
+#else
+            "dcc";
+#endif
     }
 
     std::optional<std::string> read_file(fs::path const& path)
@@ -205,6 +210,10 @@ namespace
     {
         if (char const* env = std::getenv("DPM_CONFIG"); env && *env)
             return env;
+#ifdef _WIN32
+        if (char const* local = std::getenv("LOCALAPPDATA"); local && *local)
+            return fs::path{local} / "dpm" / "config.dcon";
+#endif
         if (char const* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
             return fs::path{xdg} / "dpm" / "config.dcon";
         if (char const* home = std::getenv("HOME"); home && *home)
@@ -786,6 +795,11 @@ namespace
         }
         if (r.signal != 0)
             return 128 + r.signal;
+        if (!r.error.empty() || r.aborted || r.timed_out)
+        {
+            std::println(std::cerr, "dpm: {}", r.error.empty() ? "program interrupted or timed out" : r.error);
+            return k_exit_failure;
+        }
         return r.exit_code;
     }
 
@@ -874,7 +888,11 @@ namespace
                     auto r = dpm::process::run(cmd);
                     o.passed = r.ok();
                     o.detail = r.out + r.err;
-                    if (r.timed_out)
+                    if (!r.error.empty())
+                        o.detail += r.error + "\n";
+                    else if (r.aborted)
+                        o.detail += "interrupted\n";
+                    else if (r.timed_out)
                         o.detail += "timed out\n";
                     else if (r.signal != 0)
                         o.detail += std::format("killed by signal {}\n", r.signal);
@@ -922,6 +940,10 @@ namespace
 
     std::string describe_exit(dpm::process::Result const& r)
     {
+        if (!r.error.empty())
+            return r.error;
+        if (r.aborted)
+            return "interrupted";
         if (r.signal != 0)
             return std::format("signal {}", r.signal);
         return std::format("exit {}", r.exit_code);
@@ -1090,7 +1112,7 @@ namespace
                 std::println(std::cerr, "error: task {} timed out after {} s", t->name, t->timeout);
                 return k_exit_failure;
             }
-            if (r.signal != 0 || r.exit_code != 0)
+            if (!r.ok())
             {
                 std::println(std::cerr, "error: task {} failed ({})", t->name, describe_exit(r));
                 return k_exit_failure;
@@ -1285,7 +1307,7 @@ namespace
     {
         if (source.starts_with("path:"))
             return std::string{source.substr(5)};
-        if (source == "." || source == ".." || source.starts_with("./") || source.starts_with("../") || source.starts_with("/"))
+        if (source == "." || source == ".." || source.starts_with("./") || source.starts_with("../") || fs::path{source}.is_absolute())
             return std::string{source};
         return std::nullopt;
     }

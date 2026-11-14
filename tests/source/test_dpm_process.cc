@@ -1,6 +1,7 @@
 import std;
 import dcc.config;
 import dpm.process;
+import dpm.platform;
 
 #define main harness_main
 #include "harness.hh"
@@ -89,6 +90,34 @@ TEST_CASE("native process timeout and child working directory")
     CHECK_EQ(result.out, std::filesystem::canonical(command.cwd).generic_string());
 }
 
+TEST_CASE("process redirection unicode executable and interrupted lock ownership")
+{
+    auto root = std::filesystem::temp_directory_path() / std::format("dpm process {}", std::chrono::steady_clock::now().time_since_epoch().count());
+    std::filesystem::create_directory(root);
+    auto program = root / std::filesystem::path{u8"tool \xE5\xB7\xA5\xE5\x85\xB7.exe"};
+    std::filesystem::copy_file(executable, program);
+    auto input = root / "input";
+    auto output = root / "output";
+    { std::ofstream file{input, std::ios::binary}; file << "input bytes"; }
+    auto command = child({"--copy"});
+    command.argv[0] = program.string();
+    command.stdin_file = input;
+    command.stdout_file = output;
+    auto result = dpm::process::run(command);
+    CHECK(result.ok());
+    { std::ifstream file{output, std::ios::binary}; CHECK_EQ(std::string(std::istreambuf_iterator<char>{file}, {}), "input bytes"); }
+    command = child({"--hold-lock", (root / "lock").string()});
+    std::string seen;
+    command.on_stdout = [&](std::string_view data) { seen += data; return seen.find("locked") == std::string::npos; };
+    result = dpm::process::run(command);
+    CHECK(result.aborted);
+    CHECK(seen.find("locked") != std::string::npos);
+    auto lock = dpm::platform::FileLock::acquire(root / "lock");
+    CHECK(lock.has_value());
+    lock.reset();
+    std::filesystem::remove_all(root);
+}
+
 int main(int argc, char** argv)
 {
     arguments = argv;
@@ -109,6 +138,17 @@ int main(int argc, char** argv)
         }
         else if (mode == "--sleep")
             std::this_thread::sleep_for(std::chrono::seconds(10));
+        else if (mode == "--copy")
+            std::cout << std::cin.rdbuf();
+        else if (mode == "--hold-lock")
+        {
+            auto lock = dpm::platform::FileLock::acquire(argv[2]);
+            if (!lock)
+                return 1;
+            std::print("locked");
+            std::fflush(nullptr);
+            std::this_thread::sleep_for(std::chrono::seconds(10));
+        }
         else if (mode == "--cwd")
             std::print("{}", std::filesystem::canonical(std::filesystem::current_path()).generic_string());
         return 0;

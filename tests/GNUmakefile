@@ -356,3 +356,6 @@ test-debug-info: $(BUILD_DIR)/bin/tests/test_cases_dispatcher
 	$(Q)DCC_DEBUG_SWEEP=1 DCC_TEST_LIBDCEXT_SRC="$(TOPLEVEL)/libdcext" DCC_TEST_LIBDCEXT_A="$(BUILD_DIR)/lib/libdcext-linux-custom.a" $(BUILD_DIR)/bin/tests/test_cases_dispatcher
 
 $(OBJ_DIR)/tests/source/test_dpm_process.cc.o: $(DPM_PCMS)
+
+$(BUILD_DIR)/bin/tests/test_dpm_process: $(OBJ_DIR)/tests/source/test_dpm_process.cc.o $(DPM_CORE_LIB) $(COMPILER_LIB)
+	$(call link-binary,$@,$^,$(TEST_LDFLAGS))

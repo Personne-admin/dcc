@@ -53,7 +53,7 @@ export namespace dcc::host::process
         std::string err;
         std::string error;
 
-        [[nodiscard]] bool ok() const { return started && exit_code == 0 && !timed_out && !aborted && !truncated; }
+        [[nodiscard]] bool ok() const { return started && exit_code == 0 && error.empty() && !timed_out && !aborted && !truncated; }
     };
 
     [[nodiscard]] inline std::string windows_quote(std::string_view value)
@@ -501,14 +501,22 @@ export namespace dcc::host::process
             namespace fs = std::filesystem;
             auto check = [&](fs::path p) -> std::optional<std::string>
             {
-                if (!p.has_extension())
-                    p += L".exe";
                 if (p.is_relative())
                     p = (cwd.empty() ? fs::current_path() : fs::absolute(cwd)) / p;
-                std::error_code ec;
-                if (!fs::is_regular_file(p, ec))
-                    return std::nullopt;
-                return utf8(p.lexically_normal().native());
+                auto extension = p.extension().wstring();
+                std::ranges::transform(extension, extension.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+                std::vector<fs::path> candidates;
+                if (p.has_extension())
+                    candidates.push_back(p);
+                if (extension != L".exe" && extension != L".com")
+                    candidates.push_back(fs::path{p} += L".exe");
+                for (auto const& candidate : candidates)
+                {
+                    std::error_code ec;
+                    if (fs::is_regular_file(candidate, ec))
+                        return utf8(candidate.lexically_normal().native());
+                }
+                return std::nullopt;
             };
             if (name.find_first_of("/\\:") != std::string::npos)
                 return check(fs::path{wide(name)});
@@ -556,7 +564,7 @@ export namespace dcc::host::process
         Result result;
         try
         {
-            if (cmd.argv.empty())
+            if (cmd.argv.empty() || cmd.argv.front().empty())
                 throw std::runtime_error{"empty command"};
             std::map<std::wstring, std::wstring, detail::CaseLess> env;
             if (cmd.inherit_env)
@@ -600,6 +608,14 @@ export namespace dcc::host::process
                 if (!arguments.empty())
                     arguments += ' ';
                 arguments += windows_quote(arg);
+            }
+            auto filename = std::filesystem::path{detail::wide(*program)}.filename().wstring();
+            std::ranges::transform(filename, filename.begin(), [](wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); });
+            if (filename == L"cmd.exe")
+            {
+                if (cmd.argv.size() != 5 || cmd.argv[1] != "/d" || cmd.argv[2] != "/s" || cmd.argv[3] != "/c")
+                    throw std::runtime_error{"cmd.exe requires /d /s /c followed by one explicit command string"};
+                arguments = windows_quote(*program) + " /d /s /c \"" + cmd.argv[4] + "\"";
             }
             auto line = detail::wide(arguments);
             if (line.size() >= 32767)
@@ -768,7 +784,16 @@ export namespace dcc::host::process
                 drain(err_read, false);
                 auto done = ::WaitForSingleObject(process.value, 0);
                 if (done == WAIT_OBJECT_0 && !out_read && !err_read)
+                {
+                    if (cmd.max_file_size && !cmd.stdout_file.empty())
+                    {
+                        std::error_code ec;
+                        auto size = std::filesystem::file_size(cmd.stdout_file, ec);
+                        if (!ec && size > cmd.max_file_size)
+                            result.truncated = true;
+                    }
                     break;
+                }
                 if (done == WAIT_FAILED)
                 {
                     result.error = detail::failure("wait for child");
@@ -798,7 +823,8 @@ export namespace dcc::host::process
                 }
                 if (killed)
                 {
-                    ::WaitForSingleObject(process.value, INFINITE);
+                    if (::WaitForSingleObject(process.value, 5000) != WAIT_OBJECT_0)
+                        result.error = "child did not exit after job termination";
                     break;
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));

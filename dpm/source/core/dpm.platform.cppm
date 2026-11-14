@@ -90,6 +90,8 @@ export namespace dpm::platform
     [[nodiscard]] inline bool valid_component(std::string_view component)
     {
 #ifdef _WIN32
+        if (!::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, component.data(), static_cast<int>(component.size()), nullptr, 0))
+            return false;
         if (component.empty() || component.back() == '.' || component.back() == ' ' || component.find_first_of("<>:\"|?*") != std::string_view::npos)
             return false;
         std::string base{component.substr(0, component.find('.'))};
@@ -102,6 +104,20 @@ export namespace dpm::platform
 #endif
         return true;
     }
+
+    struct PathLess
+    {
+        bool operator()(std::string const& a, std::string const& b) const
+        {
+#ifdef _WIN32
+            auto left = std::filesystem::path{std::u8string{a.begin(), a.end()}}.native();
+            auto right = std::filesystem::path{std::u8string{b.begin(), b.end()}}.native();
+            return ::CompareStringOrdinal(left.data(), static_cast<int>(left.size()), right.data(), static_cast<int>(right.size()), TRUE) == CSTR_LESS_THAN;
+#else
+            return a < b;
+#endif
+        }
+    };
 
     [[nodiscard]] inline bool set_executable(std::filesystem::path const& path, bool value)
     {

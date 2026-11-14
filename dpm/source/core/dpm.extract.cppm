@@ -116,7 +116,7 @@ export namespace dpm::extract
     {
         std::vector<Problem> problems;
         std::set<std::string> exact;
-        std::map<std::string, std::string> folded;
+        std::map<std::string, std::string, platform::PathLess> folded;
         std::set<std::string> directories;
         std::set<std::string> files;
         std::size_t file_count = 0;
@@ -135,9 +135,15 @@ export namespace dpm::extract
             }
             if (!exact.insert(m.path).second)
                 problems.push_back({m.path, "duplicate member"});
-            auto [pos, inserted] = folded.emplace(detail::fold_case(m.path), m.path);
-            if (!inserted && pos->second != m.path)
-                problems.push_back({m.path, "name differs only in case from '" + pos->second + "'"});
+            for (auto slash = m.path.find('/');; slash = m.path.find('/', slash + 1))
+            {
+                auto component = m.path.substr(0, slash);
+                auto [pos, inserted] = folded.emplace(detail::fold_case(component), component);
+                if (!inserted && pos->second != component)
+                    problems.push_back({m.path, "name differs only in case from '" + pos->second + "'"});
+                if (slash == std::string::npos)
+                    break;
+            }
             if (m.type == MemberType::File)
             {
                 files.insert(m.path);
@@ -216,7 +222,7 @@ export namespace dpm::extract
             for (auto const& item : it)
                 entries.push_back(item);
             std::ranges::sort(entries, [](auto const& a, auto const& b) { return a.path().filename().string() < b.path().filename().string(); });
-            std::map<std::string, std::string> folded;
+            std::map<std::string, std::string, platform::PathLess> folded;
             for (auto const& item : entries)
             {
                 auto rel = item.path().lexically_relative(root).generic_string();

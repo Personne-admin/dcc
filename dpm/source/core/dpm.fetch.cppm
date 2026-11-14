@@ -142,6 +142,9 @@ export namespace dpm::fetch
                 }
                 spec.repo += ".git";
             }
+#ifdef _WIN32
+            spec.repo = std::filesystem::path{"_url"} / (hash::sha256_hex(spec.url) + ".git");
+#endif
             return spec;
         }
         if (location.starts_with("git+"))
@@ -168,6 +171,9 @@ export namespace dpm::fetch
         spec.repo = std::filesystem::path{detail::sanitize_segment(parts[0])} / detail::sanitize_segment(parts[1]) / (detail::sanitize_segment(parts[2]) + ".git");
         for (std::size_t i = 3; i < parts.size(); ++i)
             spec.subdir += (i > 3 ? "/" : "") + std::string{parts[i]};
+#ifdef _WIN32
+        spec.repo = std::filesystem::path{"_url"} / (hash::sha256_hex(spec.url) + ".git");
+#endif
         return spec;
     }
 

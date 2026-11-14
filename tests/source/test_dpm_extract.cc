@@ -164,3 +164,12 @@ TEST_CASE("problems are sorted and the root must be a directory")
     CHECK(!dpm::extract::check_tree(td.path / "missing").empty());
     CHECK_EQ(problems[0].format(), std::string{"a: symbolic link"});
 }
+
+TEST_CASE("archive directory prefixes cannot differ only by case")
+{
+    using namespace dpm::extract;
+    std::vector<Member> members{{"Folder/first.dc", MemberType::File, 1, false, {}}, {"folder/second.dc", MemberType::File, 1, false, {}}};
+    CHECK(!check_members(members).empty());
+    members[1].path = "Folder/second.dc";
+    CHECK(check_members(members).empty());
+}

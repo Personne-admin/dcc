@@ -72,10 +72,13 @@ export namespace dcc::config
     {
 #ifdef _WIN32
         std::ignore = argv;
-        wchar_t buf[MAX_PATH];
-        DWORD len = ::GetModuleFileNameW(nullptr, buf, MAX_PATH);
-        if (len > 0 && len < MAX_PATH)
-            return std::filesystem::path{std::wstring{buf, len}};
+        std::wstring buf(32768, L'\0');
+        DWORD len = ::GetModuleFileNameW(nullptr, buf.data(), static_cast<DWORD>(buf.size()));
+        if (len > 0 && len < buf.size())
+        {
+            buf.resize(len);
+            return std::filesystem::path{std::move(buf)};
+        }
 
         return {};
 #else
