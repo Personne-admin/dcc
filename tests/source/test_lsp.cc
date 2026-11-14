@@ -6857,3 +6857,17 @@ TEST_CASE("typeof semantic tokens mark the keyword and dependent template parame
     CHECK(has_token(14u, 19u, 4u, st::TokenType::Variable));
     CHECK(has_token(19u, 38u, 1u, st::TokenType::TypeParameter));
 }
+
+TEST_CASE("hover switches back to a previously opened module graph")
+{
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+    auto uri = std::string{"dccv:Zm9v/first.dc"};
+    auto [source, pos] = strip_marker("module first;\ni32 f() { i32 val|ue = 42; return value; }", '|');
+    std::ignore = open_virtual_file(server, sink, uri, source);
+    std::ignore = open_virtual_file(server, sink, "dccv:Zm9v/second.dc", "module second;\ni32 g() { return 0; }");
+    auto hover = request_hover(server, sink, uri, pos.line, pos.character);
+    REQUIRE(hover.has_value());
+    CHECK(hover->find("value") != std::string::npos);
+}

@@ -350,7 +350,14 @@ export namespace dccd
                 return false;
             }
 
-            if (graph_snapshot_fresh())
+            auto contains_document = [&] {
+                if (dcc::vfs::is_dcc_core_uri(uri))
+                    return true;
+                auto fid = m_session->source_manager().find_by_uri(uri);
+                return fid && dcc::query::file_in_module_graph(*m_session, *fid);
+            };
+            bool const in_graph = contains_document();
+            if (graph_snapshot_fresh() && in_graph)
                 return true;
 
             if (m_recompiling)
@@ -360,12 +367,12 @@ export namespace dccd
             }
 
             RecompilingGuard guard{m_recompiling};
-            if (!m_active_entry_uri.empty())
+            if (in_graph && !m_active_entry_uri.empty())
                 recompile_document(m_active_entry_uri);
             else
                 recompile_document(uri);
 
-            return graph_snapshot_fresh();
+            return graph_snapshot_fresh() && contains_document();
         }
 
         [[nodiscard]] bool analyzed_file_current(std::string const& uri) const noexcept
