@@ -631,3 +631,26 @@ TEST_CASE("sm: prefix maps accept native and generic windows paths")
     CHECK_EQ(source.map_output_path("D:\\other\\main.dc"), std::string("D:\\other\\main.dc"));
 }
 #endif
+
+TEST_CASE("file URI aliases reuse disk identity and editor overlays")
+{
+    auto path = std::filesystem::temp_directory_path() / std::format("dcc-uri-{}-file.dc", getpid());
+    struct Cleanup { std::filesystem::path path; ~Cleanup() { std::filesystem::remove(path); } } cleanup{path};
+    { std::ofstream out{path}; out << "disk content"; }
+    sm::SourceManager manager;
+    auto loaded = manager.load(path);
+    REQUIRE(loaded.has_value());
+    auto uri = sm::SourceManager::to_file_uri(path);
+    auto pos = uri.rfind("file.dc");
+    REQUIRE(pos != std::string::npos);
+    uri.replace(pos, 1, "%66");
+    auto opened = manager.open_in_memory(uri, "editor content", 7);
+    CHECK_EQ(opened, *loaded);
+    CHECK_EQ(manager.get(opened)->kind(), sm::FileKind::InMemory);
+    CHECK_EQ(manager.get(opened)->text(), "editor content");
+    CHECK_EQ(manager.get(opened)->version().value_or(0), 7);
+    auto changed = manager.update_in_memory(sm::SourceManager::to_file_uri(path), "changed", 8);
+    REQUIRE(changed.has_value());
+    CHECK_EQ(manager.get(opened)->text(), "changed");
+    CHECK_EQ(manager.find_by_uri(uri).value_or(sm::FileId::Invalid), opened);
+}

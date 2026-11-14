@@ -553,7 +553,10 @@ export namespace dcc::sm
 
         [[nodiscard]] std::optional<FileId> find_by_path(std::filesystem::path const& p) const noexcept
         {
-            auto canonical = std::filesystem::weakly_canonical(p);
+            std::error_code ec;
+            auto canonical = std::filesystem::weakly_canonical(p, ec);
+            if (ec)
+                return std::nullopt;
             for (auto const& f : m_files)
                 if (f->path() == canonical)
                     return f->id();
@@ -567,6 +570,8 @@ export namespace dcc::sm
                 if (f->uri() == uri)
                     return f->id();
 
+            if (auto path = parse_file_uri(uri))
+                return find_by_path(*path);
             return std::nullopt;
         }
 
@@ -584,8 +589,13 @@ export namespace dcc::sm
             if (auto existing = find_by_uri(uri))
             {
                 auto* file = get_mut(*existing);
-                if (file && file->kind() == FileKind::InMemory)
+                if (file)
                 {
+                    file->close_mapping();
+                    file->m_is_mmaped = false;
+                    file->m_kind = FileKind::InMemory;
+                    file->m_disk_signature.reset();
+                    file->set_uri(std::move(uri));
                     file->replace_buffer(std::make_unique<std::string>(std::move(content)));
                     file->set_version(version);
                     file->mark_open();
