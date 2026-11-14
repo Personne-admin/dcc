@@ -4,6 +4,12 @@ import dccd.protocol;
 import dccd.server;
 import dccd.transport;
 
+#ifdef _WIN32
+#include <cstdio>
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 namespace
 {
     void send_message(dccd::protocol::JsonValue const& msg)
@@ -44,6 +50,14 @@ auto main(int argc, char** argv) -> int
             return 0;
         }
     }
+
+#ifdef _WIN32
+    if (_setmode(_fileno(stdin), _O_BINARY) == -1 || _setmode(_fileno(stdout), _O_BINARY) == -1)
+    {
+        std::println(stderr, "[dccd] failed to configure binary LSP stdio");
+        return 1;
+    }
+#endif
 
     std::ios::sync_with_stdio(false);
 

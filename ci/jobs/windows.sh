@@ -8,3 +8,4 @@ ci_run_logged test-win ci_make test-win
 ci_section tools-windows
 make -j"$JOBS" CROSS=windows ENABLE_LLVM=1 BUILD_TYPE=release tools-windows
 ci/lib/check-windows-dcc.sh build-windows/bin/dcc.exe
+python3 tests/lsp_stdio.py build-windows/bin/dccd.exe --wine "${WINE:-wine}"

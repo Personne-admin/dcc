@@ -22,6 +22,7 @@ if grep -E '^\./lib/' "$work/installed.txt" | grep -vE '/libdcext-(windows|frees
 fi
 
 timeout 60 wine "$inst/bin/dcc.exe" --version | tr -d '\r' | tee "$version_out"
+python3 "$here/../../tests/lsp_stdio.py" "$inst/bin/dccd.exe" --wine wine
 cp "$here/smoke/hello.dc" "$work/"
 cd "$work"
 for backend in llvm custom; do
