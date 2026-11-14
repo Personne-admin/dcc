@@ -1,10 +1,7 @@
-module;
-
-#include <sys/stat.h>
-
 export module dpm.extract;
 
 import std;
+import dpm.platform;
 
 export namespace dpm::extract
 {
@@ -92,6 +89,8 @@ export namespace dpm::extract
             auto part = name.substr(pos, slash == std::string_view::npos ? std::string_view::npos : slash - pos);
             if (part == "..")
                 return "path escapes the package root";
+            if (!part.empty() && !platform::valid_component(part))
+                return "path component is not supported on this host";
             if (part.empty() && slash != std::string_view::npos)
                 return "empty path component";
             if (slash == std::string_view::npos)
@@ -246,11 +245,11 @@ export namespace dpm::extract
                     auto size = item.file_size(ec);
                     if (!ec)
                         bytes += size;
-#if !defined(_WIN32)
-                    struct stat st{};
-                    if (::lstat(item.path().c_str(), &st) == 0 && st.st_nlink > 1)
+                    auto links = platform::multiple_links(item.path());
+                    if (!links)
+                        problems.push_back({rel, "cannot inspect file links"});
+                    else if (*links)
                         problems.push_back({rel, "hard link"});
-#endif
                 }
                 else if (std::filesystem::is_block_file(status) || std::filesystem::is_character_file(status))
                     problems.push_back({rel, "device node"});

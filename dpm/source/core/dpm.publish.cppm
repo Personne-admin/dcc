@@ -1,6 +1,7 @@
 export module dpm.publish;
 
 import std;
+import dpm.platform;
 import dpm.cache;
 import dpm.edit;
 import dpm.fetch;
@@ -121,7 +122,7 @@ export namespace dpm::publish
         inline GitOut run_git(std::string const& program, std::filesystem::path const& cwd, std::vector<std::string> args)
         {
             process::Command cmd;
-            cmd.argv = {program, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"};
+            cmd.argv = {program, "-c", "core.fsmonitor=false", "-c", std::string{"core.hooksPath="} + platform::null_device};
             for (auto& a : args)
                 cmd.argv.push_back(std::move(a));
             cmd.cwd = cwd;

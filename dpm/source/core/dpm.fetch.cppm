@@ -1,13 +1,7 @@
-module;
-
-#include <errno.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
 export module dpm.fetch;
 
 import std;
+import dpm.platform;
 import dpm.cache;
 import dpm.extract;
 import dpm.git;
@@ -241,7 +235,7 @@ export namespace dpm::fetch
             error = "download exceeds the size limit";
             return std::nullopt;
         }
-        std::filesystem::rename(part, file, ec);
+        std::ignore = platform::replace(part, file, ec);
         if (ec)
         {
             error = "cannot store the download";
@@ -365,7 +359,7 @@ export namespace dpm::fetch
         std::error_code ec;
         std::filesystem::create_directories(staging, ec);
         std::size_t index = 0;
-        int fd = -1;
+        platform::File fd;
         std::string write_error;
         auto relative = [&](std::string const& path) -> std::optional<std::string>
         {
@@ -396,8 +390,8 @@ export namespace dpm::fetch
             }
             std::error_code dir_ec;
             std::filesystem::create_directories(target.parent_path(), dir_ec);
-            fd = ::open(target.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, m.exec ? 0755 : 0644);
-            if (fd < 0)
+            fd = platform::File::create(target, m.exec);
+            if (!fd)
             {
                 write_error = "cannot create " + target.string();
                 return false;
@@ -408,27 +402,20 @@ export namespace dpm::fetch
         };
         extracting.on_data = [&](std::string_view data)
         {
-            if (fd < 0)
+            if (!fd)
                 return true;
-            std::size_t done = 0;
-            while (done < data.size())
+            if (!fd.write(data))
             {
-                auto n = ::write(fd, data.data() + done, data.size() - done);
-                if (n <= 0)
-                {
-                    write_error = "cannot write extracted file";
-                    return false;
-                }
-                done += static_cast<std::size_t>(n);
+                write_error = "cannot write extracted file";
+                return false;
             }
             return true;
         };
         extracting.on_member_end = [&]
         {
-            if (fd >= 0)
+            if (static_cast<bool>(fd))
             {
-                ::close(fd);
-                fd = -1;
+                fd.close();
             }
             return true;
         };
@@ -446,13 +433,13 @@ export namespace dpm::fetch
                 },
                 error))
         {
-            if (fd >= 0)
-                ::close(fd);
+            if (static_cast<bool>(fd))
+                fd.close();
             result.error = error;
             return result;
         }
-        if (fd >= 0)
-            ::close(fd);
+        if (static_cast<bool>(fd))
+            fd.close();
         if (!fed_ok || !extract_reader.finish() || index != members.size())
         {
             result.error = !write_error.empty() ? write_error : "invalid archive: " + extract_reader.error();

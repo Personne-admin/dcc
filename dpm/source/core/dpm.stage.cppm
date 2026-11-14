@@ -1,10 +1,7 @@
-module;
-
-#include <unistd.h>
-
 export module dpm.stage;
 
 import std;
+import dpm.platform;
 import dpm.extract;
 import dpm.manifest;
 import dpm.scaffold;
@@ -111,7 +108,7 @@ export namespace dpm::stage
                         scaffold::File file;
                         file.path = rel;
                         file.content = std::move(*content);
-                        file.executable = (status.permissions() & fs::perms::owner_exec) != fs::perms::none;
+                        file.executable = platform::executable(entry.path());
                         file.substitute = false;
                         out.tree.push_back(std::move(file));
                         members.push_back({rel, extract::MemberType::File, size, false, {}});
@@ -317,7 +314,7 @@ export namespace dpm::stage
             }
         }
         static std::atomic<int> counter{0};
-        auto stage_name = std::format(".dpm-new-{}-{}", ::getpid(), ++counter);
+        auto stage_name = std::format(".dpm-new-{}-{}", platform::process_id(), ++counter);
         auto stage = (exists ? dir : dir.parent_path()) / stage_name;
         fs::create_directory(stage, ec);
         if (ec)
@@ -355,8 +352,8 @@ export namespace dpm::stage
             fs::permissions(path, file.executable ? fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec | fs::perms::others_read | fs::perms::others_exec
                                                   : fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::others_read,
                             ec);
-            if (ec)
-                return fail(std::format("cannot set the mode of {}: {}", file.path, ec.message()));
+            if (ec || !platform::set_executable(path, file.executable))
+                return fail(std::format("cannot preserve the executable mode of {}", file.path));
         }
         if (!exists)
         {

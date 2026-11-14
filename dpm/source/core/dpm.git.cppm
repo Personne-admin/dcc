@@ -1,13 +1,7 @@
-module;
-
-#include <errno.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
 export module dpm.git;
 
 import std;
+import dpm.platform;
 import dpm.extract;
 import dpm.process;
 
@@ -332,8 +326,8 @@ export namespace dpm::git
         {
             std::error_code ec;
             std::filesystem::create_directories(path.parent_path(), ec);
-            int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, exec ? 0755 : 0644);
-            if (fd < 0)
+            auto fd = platform::File::create(path, exec);
+            if (!fd)
             {
                 error = "cannot create " + path.string();
                 return false;
@@ -347,26 +341,18 @@ export namespace dpm::git
                 auto got = static_cast<std::size_t>(in.gcount());
                 if (got == 0)
                 {
-                    ::close(fd);
+                    fd.close();
                     error = "object stream ended early";
                     return false;
                 }
-                std::size_t done = 0;
-                while (done < got)
+                if (!fd.write(std::string_view{buffer.data(), got}))
                 {
-                    auto n = ::write(fd, buffer.data() + done, got - done);
-                    if (n <= 0)
-                    {
-                        ::close(fd);
-                        error = "cannot write " + path.string();
-                        return false;
-                    }
-                    done += static_cast<std::size_t>(n);
+                    error = "cannot write " + path.string();
+                    return false;
                 }
                 left -= got;
             }
-            ::fchmod(fd, exec ? 0755 : 0644);
-            ::close(fd);
+            fd.close();
             return true;
         }
 
@@ -393,7 +379,7 @@ export namespace dpm::git
             cmd.argv.push_back("--no-pager");
             if (with_git_dir)
                 cmd.argv.push_back("--git-dir=" + dir_.string());
-            for (auto const& c : {"core.hooksPath=/dev/null", "protocol.allow=never", "protocol.https.allow=always", "fetch.recurseSubmodules=false",
+            for (auto const& c : std::initializer_list<std::string>{std::string{"core.hooksPath="} + platform::null_device, "protocol.allow=never", "protocol.https.allow=always", "fetch.recurseSubmodules=false",
                                   "submodule.recurse=false", "transfer.fsckObjects=true", "core.fsmonitor=false", "credential.helper=", "gc.auto=0",
                                   "maintenance.auto=false", "core.askPass=", "http.followRedirects=initial", "core.symlinks=false"})
             {
@@ -412,11 +398,11 @@ export namespace dpm::git
             cmd.env["HOME"] = dir_.parent_path().string();
             cmd.env["LC_ALL"] = "C";
             cmd.env["GIT_TERMINAL_PROMPT"] = "0";
-            cmd.env["GIT_ASKPASS"] = "/bin/false";
-            cmd.env["SSH_ASKPASS"] = "/bin/false";
+            cmd.env["GIT_ASKPASS"] = platform::disabled_askpass;
+            cmd.env["SSH_ASKPASS"] = platform::disabled_askpass;
             cmd.env["GIT_CONFIG_NOSYSTEM"] = "1";
-            cmd.env["GIT_CONFIG_GLOBAL"] = "/dev/null";
-            cmd.env["GIT_CONFIG_SYSTEM"] = "/dev/null";
+            cmd.env["GIT_CONFIG_GLOBAL"] = platform::null_device;
+            cmd.env["GIT_CONFIG_SYSTEM"] = platform::null_device;
             cmd.env["GIT_ALLOW_PROTOCOL"] = policy_.allow_file ? "https:file" : "https";
             cmd.env["GIT_ATTR_NOSYSTEM"] = "1";
             cmd.env["GIT_NO_REPLACE_OBJECTS"] = "1";

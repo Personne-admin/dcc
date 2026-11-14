@@ -313,6 +313,11 @@ namespace
             cache_root = s.user.cache_dir;
         s.cache = dpm::cache::Cache{fs::absolute(cache_root)};
         s.cache_lock = s.cache.lock();
+        if (!s.cache_lock)
+        {
+            std::println(std::cerr, "dpm: cannot lock cache {}", s.cache.root().string());
+            return k_exit_failure;
+        }
         return std::nullopt;
     }
 
@@ -1318,6 +1323,13 @@ namespace
         auto split = split_version(source);
         auto policy = fetch_policy(common);
         dpm::cache::Cache cache{fs::absolute(dpm::cache::default_root())};
+        auto lock = cache.lock();
+        if (!lock)
+        {
+            code = k_exit_failure;
+            error = "cannot lock the template cache";
+            return std::nullopt;
+        }
         dpm::fetch::Fetched fetched;
         if (dpm::fetch::is_tarball_location(split.location, policy))
         {
@@ -1417,6 +1429,13 @@ namespace
         if (!s.user.cache_dir.empty() && !(std::getenv("DPM_HOME") && *std::getenv("DPM_HOME")))
             cache_root = s.user.cache_dir;
         s.cache = dpm::cache::Cache{fs::absolute(cache_root)};
+        s.cache_lock = s.cache.lock();
+        if (!s.cache_lock)
+        {
+            code = k_exit_failure;
+            error = "cannot lock the template cache";
+            return std::nullopt;
+        }
         auto* client = registry_client(s, error);
         if (!client)
             return std::nullopt;
@@ -2096,6 +2115,11 @@ namespace
         if (sub == "verify")
         {
             auto lock = cache.lock();
+            if (!lock)
+            {
+                std::println(std::cerr, "dpm: cannot lock cache {}", cache.root().string());
+                return k_exit_failure;
+            }
             int bad = 0;
             auto entries = cache.verify();
             for (auto const& entry : entries)
@@ -2112,6 +2136,11 @@ namespace
         if (sub == "clean")
         {
             auto lock = cache.lock();
+            if (!lock)
+            {
+                std::println(std::cerr, "dpm: cannot lock cache {}", cache.root().string());
+                return k_exit_failure;
+            }
             auto result = cache.clean(parsed.has(dpm::cli::Opt::All));
             for (auto const& name : result.removed)
                 std::println("removed {}", name);
@@ -2187,6 +2216,12 @@ namespace
         if (!s.user.cache_dir.empty() && !(std::getenv("DPM_HOME") && *std::getenv("DPM_HOME")))
             cache_root = s.user.cache_dir;
         s.cache = dpm::cache::Cache{fs::absolute(cache_root)};
+        s.cache_lock = s.cache.lock();
+        if (!s.cache_lock)
+        {
+            std::println(std::cerr, "dpm: cannot lock cache {}", s.cache.root().string());
+            return k_exit_failure;
+        }
         dpm::publish::TemplatePublishInput input;
         input.template_dir = ".";
         input.registry_dir = registry_dir;
@@ -2382,6 +2417,11 @@ namespace
                 request.base = common.base;
                 request.cache = dpm::cache::Cache{fs::absolute(dpm::cache::default_root())};
                 auto lock = request.cache.lock();
+                if (!lock)
+                {
+                    std::println(std::cerr, "dpm: cannot lock cache {}", request.cache.root().string());
+                    return k_exit_failure;
+                }
                 request.base = common.base;
                 for (auto& p : dpm::publish::verify_sources(root, scan, request))
                     problems.push_back(std::move(p));

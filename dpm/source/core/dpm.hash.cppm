@@ -1,6 +1,7 @@
 export module dpm.hash;
 
 import std;
+import dpm.platform;
 
 export namespace dpm::hash
 {
@@ -216,7 +217,7 @@ export namespace dpm::hash
                     stack.push_back(item.path());
                 else if (std::filesystem::is_regular_file(status))
                 {
-                    bool exec = (status.permissions() & std::filesystem::perms::owner_exec) != std::filesystem::perms::none;
+                    bool exec = platform::executable(item.path());
                     entries.push_back({std::move(rel), item.path(), exec});
                 }
                 else

@@ -1,10 +1,7 @@
-module;
-
-#include <unistd.h>
-
 export module dpm.registry;
 
 import std;
+import dpm.platform;
 import dpm.cache;
 import dpm.fetch;
 import dpm.hash;
@@ -202,23 +199,8 @@ export namespace dpm::registry
             std::filesystem::create_directories(path.parent_path(), ec);
             if (ec)
                 return false;
-            auto tmp = path;
-            tmp += std::format(".tmp{}", ::getpid());
-            {
-                std::ofstream out{tmp, std::ios::binary | std::ios::trunc};
-                if (!out)
-                    return false;
-                out.write(data.data(), static_cast<std::streamsize>(data.size()));
-                if (!out)
-                    return false;
-            }
-            std::filesystem::rename(tmp, path, ec);
-            if (ec)
-            {
-                std::filesystem::remove(tmp, ec);
-                return false;
-            }
-            return true;
+            std::string error;
+            return platform::atomic_write(path, data, error);
         }
 
         inline bool etag_ok(std::string_view etag)
@@ -359,7 +341,7 @@ export namespace dpm::registry
                 return failure(std::format("not in cache: registry file {} (offline mode)", rel));
 
             auto url = base + "/" + rel;
-            auto work = cache_.tmp_dir() / std::format("reg-{}-{}", ::getpid(), hash::sha256_hex(url).substr(0, 12));
+            auto work = cache_.tmp_dir() / std::format("reg-{}-{}", platform::process_id(), hash::sha256_hex(url).substr(0, 12));
             fs::create_directories(work, ec);
             auto body = work / "body";
             auto headers = work / "headers";

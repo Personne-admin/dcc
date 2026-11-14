@@ -255,3 +255,22 @@ TEST_CASE("staging directories are unique and inside tmp")
     CHECK_NE(*a, *b);
     CHECK_EQ(a->parent_path(), cache.tmp_dir());
 }
+
+TEST_CASE("cache locks serialize contenders and release on move")
+{
+    auto root = std::filesystem::temp_directory_path() / std::format("dpm-lock-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+    std::filesystem::create_directory(root);
+    auto lock = dpm::cache::FileLock::acquire(root / "lock");
+    REQUIRE(lock.has_value());
+    auto contender = std::async(std::launch::async, [&] { return dpm::cache::FileLock::acquire(root / "lock"); });
+    CHECK(contender.wait_for(std::chrono::milliseconds(30)) == std::future_status::timeout);
+    auto moved = std::move(*lock);
+    lock.reset();
+    CHECK(contender.wait_for(std::chrono::milliseconds(30)) == std::future_status::timeout);
+    moved.release();
+    REQUIRE(contender.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+    auto acquired = contender.get();
+    CHECK(acquired.has_value());
+    acquired.reset();
+    std::filesystem::remove_all(root);
+}

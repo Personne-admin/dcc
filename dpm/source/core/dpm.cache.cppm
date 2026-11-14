@@ -1,12 +1,7 @@
-module;
-
-#include <fcntl.h>
-#include <sys/file.h>
-#include <unistd.h>
-
 export module dpm.cache;
 
 import std;
+import dpm.platform;
 import dpm.hash;
 import dpm.extract;
 
@@ -69,7 +64,7 @@ export namespace dpm::cache
             fs::permissions(root, fs::perms::owner_write | fs::perms::owner_exec | fs::perms::owner_read, fs::perm_options::add, ec);
             if (fs::is_directory(fs::symlink_status(root, ec)))
                 for (fs::recursive_directory_iterator it{root, fs::directory_options::skip_permission_denied, ec}, end; !ec && it != end; it.increment(ec))
-                    if (it->is_directory(ec) && !it->is_symlink(ec))
+                    if (!it->is_symlink(ec))
                         fs::permissions(it->path(), fs::perms::owner_write | fs::perms::owner_exec | fs::perms::owner_read, fs::perm_options::add, ec);
             fs::remove_all(root, ec);
         }
@@ -97,50 +92,7 @@ export namespace dpm::cache
         std::vector<std::string> removed;
     };
 
-    class FileLock
-    {
-    public:
-        FileLock() = default;
-        FileLock(FileLock const&) = delete;
-        FileLock& operator=(FileLock const&) = delete;
-        FileLock(FileLock&& other) noexcept : fd_{std::exchange(other.fd_, -1)} {}
-        FileLock& operator=(FileLock&& other) noexcept
-        {
-            if (this != &other)
-            {
-                release();
-                fd_ = std::exchange(other.fd_, -1);
-            }
-            return *this;
-        }
-        ~FileLock() { release(); }
-
-        [[nodiscard]] static std::optional<FileLock> acquire(std::filesystem::path const& path)
-        {
-            FileLock lock;
-#if !defined(_WIN32)
-            lock.fd_ = ::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
-            if (lock.fd_ < 0 || ::flock(lock.fd_, LOCK_EX) != 0)
-                return std::nullopt;
-#endif
-            return lock;
-        }
-
-        void release()
-        {
-#if !defined(_WIN32)
-            if (fd_ >= 0)
-            {
-                ::flock(fd_, LOCK_UN);
-                ::close(fd_);
-            }
-#endif
-            fd_ = -1;
-        }
-
-    private:
-        int fd_{-1};
-    };
+    using FileLock = platform::FileLock;
 
     class Cache
     {
@@ -192,7 +144,7 @@ export namespace dpm::cache
             for (int attempt = 0; attempt < 100; ++attempt)
             {
                 auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-                auto path = tmp_dir() / std::format("{}-{}-{}", ::getpid(), stamp, counter.fetch_add(1));
+                auto path = tmp_dir() / std::format("{}-{}-{}", platform::process_id(), stamp, counter.fetch_add(1));
                 std::error_code ec;
                 if (std::filesystem::create_directory(path, ec))
                     return path;

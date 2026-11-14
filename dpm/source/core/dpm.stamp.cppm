@@ -1,10 +1,7 @@
-module;
-
-#include <unistd.h>
-
 export module dpm.stamp;
 
 import std;
+import dpm.platform;
 import dpm.hash;
 
 export namespace dpm::stamp
@@ -271,25 +268,8 @@ export namespace dpm::stamp
 
     [[nodiscard]] inline bool write(std::filesystem::path const& path, Stamp const& stamp)
     {
-        auto temp = path;
-        temp += std::format(".tmp{}", ::getpid());
-        {
-            std::ofstream out{temp, std::ios::binary | std::ios::trunc};
-            if (!out)
-                return false;
-            auto text = print(stamp);
-            out.write(text.data(), static_cast<std::streamsize>(text.size()));
-            if (!out)
-                return false;
-        }
-        std::error_code ec;
-        std::filesystem::rename(temp, path, ec);
-        if (ec)
-        {
-            std::filesystem::remove(temp, ec);
-            return false;
-        }
-        return true;
+        std::string error;
+        return platform::atomic_write(path, print(stamp), error);
     }
 
     inline void remove(std::filesystem::path const& path)
@@ -564,25 +544,8 @@ export namespace dpm::stamp
 
     [[nodiscard]] inline bool write_task(std::filesystem::path const& path, TaskStamp const& stamp)
     {
-        auto temp = path;
-        temp += std::format(".tmp{}", ::getpid());
-        {
-            std::ofstream out{temp, std::ios::binary | std::ios::trunc};
-            if (!out)
-                return false;
-            auto text = print(stamp);
-            out.write(text.data(), static_cast<std::streamsize>(text.size()));
-            if (!out)
-                return false;
-        }
-        std::error_code ec;
-        std::filesystem::rename(temp, path, ec);
-        if (ec)
-        {
-            std::filesystem::remove(temp, ec);
-            return false;
-        }
-        return true;
+        std::string error;
+        return platform::atomic_write(path, print(stamp), error);
     }
 
     [[nodiscard]] inline Verdict verify_task(TaskStamp& stamp, std::string_view key, std::span<std::filesystem::path const> outputs,

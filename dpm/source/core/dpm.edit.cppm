@@ -1,14 +1,7 @@
-module;
-
-#if !defined(_WIN32)
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#endif
-
 export module dpm.edit;
 
 import std;
+import dpm.platform;
 import dcc.lex;
 import dcc.session;
 import dpm.manifest;
@@ -597,59 +590,6 @@ export namespace dpm::edit
 
     [[nodiscard]] inline bool write_atomic(std::filesystem::path const& path, std::string_view content, std::string& error)
     {
-        auto dir = path.has_parent_path() ? path.parent_path() : std::filesystem::path{"."};
-        auto temp = dir / (path.filename().string() + ".dpm-tmp");
-#if !defined(_WIN32)
-        struct stat st{};
-        bool const have_mode = ::stat(path.c_str(), &st) == 0;
-        int fd = ::open(temp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, have_mode ? st.st_mode & 07777 : 0644);
-        if (fd < 0)
-        {
-            error = "cannot create " + temp.string();
-            return false;
-        }
-        std::size_t done = 0;
-        while (done < content.size())
-        {
-            auto n = ::write(fd, content.data() + done, content.size() - done);
-            if (n <= 0)
-            {
-                ::close(fd);
-                std::filesystem::remove(temp);
-                error = "cannot write " + temp.string();
-                return false;
-            }
-            done += static_cast<std::size_t>(n);
-        }
-        if (have_mode)
-            ::fchmod(fd, st.st_mode & 07777);
-        if (::fsync(fd) != 0)
-        {
-            ::close(fd);
-            std::filesystem::remove(temp);
-            error = "cannot sync " + temp.string();
-            return false;
-        }
-        ::close(fd);
-#else
-        {
-            std::ofstream out{temp, std::ios::binary | std::ios::trunc};
-            out.write(content.data(), static_cast<std::streamsize>(content.size()));
-            if (!out)
-            {
-                error = "cannot write " + temp.string();
-                return false;
-            }
-        }
-#endif
-        std::error_code ec;
-        std::filesystem::rename(temp, path, ec);
-        if (ec)
-        {
-            std::filesystem::remove(temp, ec);
-            error = "cannot replace " + path.string();
-            return false;
-        }
-        return true;
+        return platform::atomic_write(path, content, error);
     }
-} // namespace dpm::edit
+}
