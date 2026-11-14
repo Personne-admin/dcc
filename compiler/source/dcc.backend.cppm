@@ -63,6 +63,7 @@ export namespace dcc::backend
         std::vector<std::string> library_paths;
         std::vector<std::string> libraries;
         std::vector<std::string> linker_args;
+        bool link_windows_imports{false};
         bool emit_debug_info{false};
         bool print_reachability{false};
         DebugFormat debug_format{DebugFormat::Auto};

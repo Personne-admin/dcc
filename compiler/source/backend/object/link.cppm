@@ -46,7 +46,7 @@ export namespace dcc::backend::object
                                                                BackendOptions const& opts)
     {
         bool const coff = opts.target.object_format == target::ObjectFormat::Coff;
-        bool const windows = coff && opts.target.os == target::Os::Windows;
+        bool const windows = coff && opts.target.os == target::Os::Windows && opts.link_windows_imports;
         auto paths = executable_library_paths(opts);
         if (windows)
             if (auto missing = missing_windows_import_library(paths))

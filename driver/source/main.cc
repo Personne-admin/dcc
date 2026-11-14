@@ -1438,6 +1438,7 @@ namespace
         link_options.library_paths = opts.library_paths;
         link_options.libraries = opts.libraries;
         link_options.linker_args = explicit_linker_args(opts);
+        link_options.link_windows_imports = opts.libdcext && target.os == dcc::target::Os::Windows;
         auto roots = library_linker_roots(opts, target, prefix);
         if (!roots)
         {
@@ -1808,6 +1809,7 @@ auto main(int argc, char** argv) -> int
             backend_opts.print_reachability = opts.print_reachability;
             backend_opts.opt_level = opts.opt_level;
             backend_opts.restrict_library_functions = !links_hosted_libc(opts);
+            backend_opts.link_windows_imports = opts.libdcext && target.os == dcc::target::Os::Windows;
             backend_opts.source_manager = &session.source_manager();
 
             for (auto const& dir : opts.library_paths)
