@@ -654,3 +654,24 @@ TEST_CASE("file URI aliases reuse disk identity and editor overlays")
     CHECK_EQ(manager.get(opened)->text(), "changed");
     CHECK_EQ(manager.find_by_uri(uri).value_or(sm::FileId::Invalid), opened);
 }
+
+TEST_CASE("file URIs preserve utf8 and reserved path bytes")
+{
+#ifdef _WIN32
+    auto path = std::filesystem::path{u8"C:/Users/name/DC \xE5\xB7\xA5\xE5\x85\xB7/file.dc"};
+#else
+    auto path = std::filesystem::path{u8"/tmp/DC \xE5\xB7\xA5\xE5\x85\xB7/file?#.dc"};
+#endif
+    auto uri = dcc::sm::SourceManager::to_file_uri(path);
+    CHECK(uri.starts_with("file:///"));
+    CHECK(uri.find("%20") != std::string::npos);
+    CHECK(uri.find("%E5%B7%A5%E5%85%B7") != std::string::npos);
+    CHECK_EQ(dcc::sm::SourceManager::parse_file_uri(uri), std::optional{path});
+#ifdef _WIN32
+    auto unc = std::filesystem::path{L"\\\\server\\share\\file.dc"};
+    CHECK_EQ(dcc::sm::SourceManager::to_file_uri(unc), "file://server/share/file.dc");
+    CHECK_EQ(dcc::sm::SourceManager::parse_file_uri("file://server/share/file.dc"), std::optional{unc});
+#else
+    CHECK(uri.find("%3F%23") != std::string::npos);
+#endif
+}

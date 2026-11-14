@@ -955,7 +955,12 @@ namespace dcc::sm
 
         [[nodiscard]] std::string uri_encode_path(std::filesystem::path const& path)
         {
-            std::string s = path.string();
+            auto utf8 = path.generic_u8string();
+            std::string s{reinterpret_cast<char const*>(utf8.data()), utf8.size()};
+#ifdef _WIN32
+            if (s.size() >= 2 && s[1] == ':')
+                s.insert(s.begin(), '/');
+#endif
             std::string result;
             result.reserve(s.size() + 16);
             for (char c : s)
@@ -966,6 +971,13 @@ namespace dcc::sm
                     result += "%20";
                 else if (c == '#')
                     result += "%23";
+                else if (static_cast<unsigned char>(c) >= 128 || c == '?' || static_cast<unsigned char>(c) < 32)
+                {
+                    constexpr char hex[] = "0123456789ABCDEF";
+                    result += '%';
+                    result += hex[static_cast<unsigned char>(c) >> 4];
+                    result += hex[static_cast<unsigned char>(c) & 15];
+                }
                 else
                     result += c;
             }
@@ -1162,10 +1174,21 @@ namespace dcc::sm
         if (rest.empty())
             return std::nullopt;
 
+#ifdef _WIN32
+        if (rest[0] != '/')
+        {
+            auto decoded = "//" + uri_decode(rest);
+            return std::filesystem::path{std::u8string{decoded.begin(), decoded.end()}};
+        }
+#endif
         if (rest[0] == '/')
         {
             auto decoded = uri_decode(rest);
-            return std::filesystem::path{std::move(decoded)};
+#ifdef _WIN32
+            if (decoded.size() >= 3 && decoded[0] == '/' && decoded[2] == ':')
+                decoded.erase(decoded.begin());
+#endif
+            return std::filesystem::path{std::u8string{decoded.begin(), decoded.end()}};
         }
 
         return std::nullopt;
@@ -1174,6 +1197,10 @@ namespace dcc::sm
     std::string SourceManager::to_file_uri(std::filesystem::path const& path)
     {
         auto encoded = uri_encode_path(path);
+#ifdef _WIN32
+        if (encoded.starts_with("//"))
+            return std::string{"file:"} + encoded;
+#endif
         return std::string{"file://"} + encoded;
     }
 
