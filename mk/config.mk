@@ -20,7 +20,7 @@ INSTALL ?= install
 STATIC_LINK ?= 0
 
 ifeq ($(strip $(DCC_VERSION)),)
-  DCC_VERSION := 0.3.0
+  DCC_VERSION := 0.6.0-dev
 endif
 
 DCC_GIT_HASH ?= $(shell git -C $(TOPLEVEL) rev-parse --short HEAD 2>/dev/null || echo unknown)
