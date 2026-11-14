@@ -1,0 +1,223 @@
+//! Owning, shell-free process commands. Do not copy owning values.
+module std::process;
+
+public import core::allocator_config;
+import core::target;
+import core::slice;
+import std::mem;
+import std::sys::win::imports;
+import std::sys::win::abi;
+public import std::array;
+public import std::alloc;
+public import std::result;
+import std::os::process;
+public import std::os::error;
+public import std::os::file;
+
+using sys::win;
+using result::{Result,Status};
+using os::error::Error;
+using alloc::{AllocatorPolicy,AllocError};
+using array::Array;
+
+public using Child = os::process::Child;
+public using ExitStatus = os::process::ExitStatus;
+public using file_handle = os::file::Handle;
+public using file_handle INHERIT = os::process::STDIO_INHERIT;
+public using file_handle NULL_STREAM = -3;
+
+public struct OwnedEnvironment {
+    [] char name;
+    [] char value;
+    bool remove;
+}
+
+/// Strings belong to the command; stdio handles and allocator state are borrowed.
+public struct Command(A = DefaultAllocator) if AllocatorPolicy(A) {
+    A allocator;
+    [] char program_storage;
+    [] char directory_storage;
+    Array([] char,A) arguments;
+    Array(OwnedEnvironment,A) environment;
+    os::process::Stdio streams;
+}
+
+Error allocation_error(AllocError value) {
+    return if value == AllocError::OutOfMemory {Error::OutOfMemory}else{Error::InvalidArgument};
+}
+
+bool valid_text([] const char value) {
+    for c in value {if c == '\0' {return false;}}
+    return true;
+}
+
+bool valid_key([] const char value) {
+    if value.len == 0 || !valid_text(value) {return false;}
+    for c in value {if c == '=' {return false;}}
+    return true;
+}
+
+Result([] char,Error) copy_text(A)(A* allocator,[] const char value) {
+    Result([] char,AllocError) result=allocator.duplicate_slice(value);
+    if result.is_err(){return allocation_error(result.unwrap_err());}
+    return Result::Ok(result.unwrap());
+}
+
+static if core::target::OS != core::target::Os::Freestanding {
+    public Result(Command(A),Error) with_allocator(A)(A allocator,[] const char program) if AllocatorPolicy(A) {
+        if program.len==0 || !valid_text(program){return Error::InvalidArgument;}
+        [] char owned=copy_text(&allocator,program)?;
+        Command(A) command={
+            allocator=allocator,
+            program_storage=owned,
+            directory_storage={},
+            arguments=array::new_array(allocator),
+            environment=array::new_array(allocator),
+            streams=os::process::inherit_stdio(),
+        };
+        return Result::Ok(command);
+    }
+
+    public Result(Command,Error) new_owned_command([] const char program) {
+        DefaultAllocator allocator={};
+        return with_allocator(allocator,program);
+    }
+    public using Command::new = new_owned_command;
+
+    public void deinit(A)(Command(A)* self) {
+        self.allocator.free_slice(self.program_storage);
+        self.allocator.free_slice(self.directory_storage);
+        for value in self.arguments.items(){self.allocator.free_slice(value);}
+        for value in self.environment.items(){
+            self.allocator.free_slice(value.name);
+            self.allocator.free_slice(value.value);
+        }
+        self.arguments.deinit();
+        self.environment.deinit();
+        self.program_storage={};
+        self.directory_storage={};
+        self.streams=os::process::inherit_stdio();
+    }
+
+    public Status(Error) arg(A)(Command(A)* self,[] const char value) {
+        if !valid_text(value){return Error::InvalidArgument;}
+        [] char owned=copy_text(&self.allocator,value)?;
+        Status(AllocError) appended=self.arguments.push(owned);
+        if !appended.is_ok(){self.allocator.free_slice(owned);return allocation_error(appended.unwrap_err());}
+        return Status::Ok;
+    }
+
+    public Status(Error) args(A)(Command(A)* self,[] const os::process::Arg values) {
+        usize original=self.arguments.len();
+        for value in values {
+            Status(Error) appended=self.arg(value);
+            if !appended.is_ok(){
+                while self.arguments.len()>original {
+                    [] char owned=self.arguments.pop().unwrap_some();
+                    self.allocator.free_slice(owned);
+                }
+                return appended;
+            }
+        }
+        return Status::Ok;
+    }
+
+    public Status(Error) cwd(A)(Command(A)* self,[] const char value) {
+        if value.len==0 || !valid_text(value){return Error::InvalidArgument;}
+        [] char owned=copy_text(&self.allocator,value)?;
+        self.allocator.free_slice(self.directory_storage);
+        self.directory_storage=owned;
+        return Status::Ok;
+    }
+
+    Status(Error) set_environment(A)(Command(A)* self,[] const char key,[] const char value,bool remove) {
+        static if core::target::OS == core::target::Os::Windows {
+            return Error::NotSupported;
+        } else {
+            if !valid_key(key) || !valid_text(value){return Error::InvalidArgument;}
+            [] char name=copy_text(&self.allocator,key)?;
+            Result([] char,Error) copied=copy_text(&self.allocator,value);
+            if copied.is_err(){self.allocator.free_slice(name);return copied.unwrap_err();}
+            [] char text=copied.unwrap();
+            OwnedEnvironment change={name=name,value=text,remove=remove};
+            for usize i=0;i<self.environment.len();i++ {
+                OwnedEnvironment old=self.environment.items()[i];
+                if mem::equal(old.name,key){
+                    self.environment.items()[i]=change;
+                    self.allocator.free_slice(old.name);
+                    self.allocator.free_slice(old.value);
+                    return Status::Ok;
+                }
+            }
+            Status(AllocError) appended=self.environment.push(change);
+            if !appended.is_ok(){
+                self.allocator.free_slice(name);self.allocator.free_slice(text);
+                return allocation_error(appended.unwrap_err());
+            }
+            return Status::Ok;
+        }
+    }
+
+    public Status(Error) env(A)(Command(A)* self,[] const char key,[] const char value) {
+        return set_environment(self,key,value,false);
+    }
+    public Status(Error) env_remove(A)(Command(A)* self,[] const char key) {
+        return set_environment(self,key,"",true);
+    }
+
+    public void stdin(A)(Command(A)* self,file_handle handle){self.streams.input=handle;}
+    public void stdout(A)(Command(A)* self,file_handle handle){self.streams.output=handle;}
+    public void stderr(A)(Command(A)* self,file_handle handle){self.streams.error=handle;}
+
+    public Result(Child,Error) spawn(A)(Command(A)* self) {
+        Array(os::process::Arg,A) arguments=array::new_array(self.allocator);
+        defer arguments.deinit();
+        for value in self.arguments.items(){
+            Status(AllocError) appended=arguments.push(value as [] const char);
+            if !appended.is_ok(){return allocation_error(appended.unwrap_err());}
+        }
+        Array(os::process::EnvironmentChange,A) environment=array::new_array(self.allocator);
+        defer environment.deinit();
+        for value in self.environment.items(){
+            os::process::EnvironmentChange change={name=value.name as [] const char,value=value.value as [] const char,remove=value.remove};
+            Status(AllocError) appended=environment.push(change);
+            if !appended.is_ok(){return allocation_error(appended.unwrap_err());}
+        }
+        os::process::Command command=os::process::new_command(self.program_storage);
+        command.args=arguments.items();
+        command.stdio=self.streams;
+        os::file::File[3] null_files={};
+        for usize i=0;i<3;i++ {null_files[i].handle=os::file::INVALID_HANDLE;}
+        defer {for usize i=0;i<3;i++ {if null_files[i].handle!=os::file::INVALID_HANDLE {null_files[i].close();}}}
+        file_handle[3] handles={command.stdio.input,command.stdio.output,command.stdio.error};
+        for usize i=0;i<3;i++ {
+            if handles[i]!=NULL_STREAM {continue;}
+            os::file::OpenFlags flags=os::file::read_only();
+            if i!=0 {flags.read=false;flags.write=true;}
+            [] const char name="/dev/null";
+            static if core::target::OS == core::target::Os::Windows {name="NUL";}
+            null_files[i]=os::file::open(name,flags)?;
+            handles[i]=null_files[i].handle;
+            static if core::target::OS == core::target::Os::Windows {
+                if !win::abi::succeeded(win::imports::SetHandleInformation(handles[i] as void*,win::abi::HANDLE_FLAG_INHERIT,win::abi::HANDLE_FLAG_INHERIT)) {
+                    return os::error::from_win32(win::imports::GetLastError());
+                }
+            }
+        }
+        command.stdio.input=handles[0];command.stdio.output=handles[1];command.stdio.error=handles[2];
+        os::process::SpawnOptions options={directory=self.directory_storage as [] const char,environment=environment.items() as [] const os::process::EnvironmentChange,checked_launch=true,search_path=true};
+        return os::process::spawn_with_options(&self.allocator,&command,&options);
+    }
+
+    public Result(ExitStatus,Error) status(A)(Command(A)* self) {
+        Child child=self.spawn()?;
+        Result(ExitStatus,Error) result = child.wait();
+        static if core::target::OS == core::target::Os::Windows {
+            if result.is_err() {
+                win::imports::CloseHandle(child.thread);
+                win::imports::CloseHandle(child.process);
+            }
+        }
+        return result;
+    }
+}

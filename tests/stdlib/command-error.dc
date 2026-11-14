@@ -1,0 +1,23 @@
+module main;
+import std::process;
+import std::os::error;
+using std::process::{Command,ExitStatus};
+
+Status(Error) missing() {
+    Command command = Command::new("/dcc-command-does-not-exist")?;
+    defer command.deinit();
+    ExitStatus status = command.status()?;
+    return Status::Ok;
+}
+
+public i32 main() {
+    Status(Error) result = missing();
+    if result.is_ok() { return 1; }
+    match result.unwrap_err() {
+        Error::Io(error) => {
+            if error != std::os::error::Error::NotFound { return 2; }
+        },
+        _ => { return 3; },
+    }
+    return 0;
+}

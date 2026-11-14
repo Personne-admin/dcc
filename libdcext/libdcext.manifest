@@ -66,3 +66,4 @@ edge hosted _start __dc_rt_init
 edge linux __thread_entry thread_child_main
 edge hosted _start __dc_main
 source hosted std::prelude::hosted std/prelude/hosted.dc
+source hosted std::process std/process.dc

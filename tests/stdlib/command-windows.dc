@@ -1,0 +1,15 @@
+module main;
+import std::process;
+import std::os::error;
+using std::process::{Command,ExitStatus};
+public Status(Error) main() {
+    Command command = Command::new("cmd.exe")?;
+    defer command.deinit();
+    command.arg("/c")?;
+    command.arg("exit 0")?;
+    command.cwd("C:\\")?;
+    if command.env("KEY","value").unwrap_err() != std::os::error::Error::NotSupported { return Error::Io(std::os::error::Error::Unexpected); }
+    command.stdout(std::process::NULL_STREAM);
+    ExitStatus status = command.status()?;
+    return Status::Ok;
+}

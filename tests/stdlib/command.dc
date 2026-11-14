@@ -1,0 +1,200 @@
+module main;
+import std::process;
+import std::os::process;
+import std::os::error;
+import std::os::heap;
+import std::os::pipe;
+import std::os::file;
+import std::mem;
+using std::process::{Command,Child,ExitStatus};
+using std::os::{process,heap,pipe,file};
+using std::os::error::Error;
+
+bool equal([] const char a, [] const char b) { return std::mem::equal(a,b); }
+
+struct State { usize calls; usize fail; usize live; }
+struct Policy { State* state; }
+Result([]u8,AllocError) allocate(Policy* self,usize size,usize alignment) {
+    self.state.calls++;
+    if self.state.calls == self.state.fail { return AllocError::OutOfMemory; }
+    Result([]u8,AllocError) result = heap::allocator().raw_alloc(size,alignment);
+    if result.is_ok() && result.unwrap().len != 0 { self.state.live++; }
+    return result;
+}
+bool resize_in_place(Policy* self,[]u8 block,usize size,usize alignment) { return false; }
+void free(Policy* self,[]u8 block,usize alignment) {
+    if block.len != 0 { self.state.live--; }
+    heap::allocator().raw_free(block,alignment);
+}
+
+i32 child() {
+    if process::arg_count() != 6 { return 31; }
+    if !equal(process::arg(2).unwrap_some(), "") { return 32; }
+    if !equal(process::arg(3).unwrap_some(), "a b") { return 33; }
+    if !equal(process::arg(4).unwrap_some(), "$(touch forbidden);*|>") { return 34; }
+    if !equal(process::arg(5).unwrap_some(), "owned") { return 35; }
+    char[4096] buffer;
+    if !equal(process::current_dir(buffer[0..4096]).unwrap(), "/") { return 36; }
+    process::Vars vars = process::vars();
+    defer vars.close();
+    bool found = false;
+    while true {
+        Optional(process::Var) entry = vars.next();
+        if entry.is_none() { break; }
+        process::Var value = entry.unwrap_some();
+        if equal(value.name,"DCC_COMMAND_TEST") { found = equal(value.value,"owned"); }
+        if equal(value.name,"PATH") { return 37; }
+    }
+    if !found { return 38; }
+    u8[1] input;
+    if file::stdin().read(input[0..1]).unwrap() != 0 { return 39; }
+    file::stdout().write_all("out" as []const u8).unwrap();
+    file::stderr().write_all("err" as []const u8).unwrap();
+    return 0;
+}
+
+i32 basic() {
+    char[4096] parent_buffer;
+    [] const char parent_directory = process::current_dir(parent_buffer[0..4096]).unwrap();
+    Command command = Command::new("/proc/self/exe").unwrap();
+    defer command.deinit();
+    command.arg("child").unwrap();
+    process::Arg[3] args = {"","a b","$(touch forbidden);*|>"};
+    command.args(args[0..3]).unwrap();
+    char[5] owned = {'o','w','n','e','d'};
+    command.arg(owned[0..5]).unwrap();
+    command.env("DCC_COMMAND_TEST","first").unwrap();
+    command.env("DCC_COMMAND_TEST",owned[0..5]).unwrap();
+    for usize i=0;i<5;i++ { owned[i]='X'; }
+    command.env_remove("PATH").unwrap();
+    char[1] directory = {'/'};
+    command.cwd(directory[0..1]).unwrap();
+    directory[0]='X';
+    pipe::Pipe output = pipe::create().unwrap();
+    defer output.reader.close();
+    defer output.writer.close();
+    command.stdin(std::process::NULL_STREAM);
+    command.stdout(output.writer.handle);
+    command.stderr(std::process::NULL_STREAM);
+    for usize i=0;i<3;i++ {
+        ExitStatus status = command.status().unwrap();
+        if !status.success() || status.signal != 0 { return 1; }
+        u8[3] bytes;
+        if output.reader.read(bytes[0..3]).unwrap() != 3 { return 2; }
+        if !equal(bytes[0..3] as []const char,"out") { return 3; }
+    }
+    if command.env("bad=key","value").unwrap_err() != Error::InvalidArgument { return 4; }
+    char[4096] after_buffer;
+    if !equal(parent_directory,process::current_dir(after_buffer[0..4096]).unwrap()) { return 5; }
+    return 0;
+}
+
+i32 errors_and_lifecycle() {
+    Command command = Command::new("/bin/false").unwrap();
+    defer command.deinit();
+    ExitStatus status = command.status().unwrap();
+    if status.code != 1 || status.signal != 0 { return 10; }
+    Command missing = Command::new("/dcc-command-does-not-exist").unwrap();
+    defer missing.deinit();
+    if missing.spawn().unwrap_err() != Error::NotFound { return 11; }
+    command.cwd("/dcc-command-does-not-exist").unwrap();
+    if command.status().unwrap_err() != Error::NotFound { return 12; }
+    command.cwd("/").unwrap();
+    command.stdout(-100);
+    if command.status().unwrap_err() != Error::BadHandle { return 13; }
+    char[9] program = {'/','b','i','n','/','t','r','u','e'};
+    Command detached = Command::new(program[0..9]).unwrap();
+    for usize i=0;i<9;i++ { program[i]='X'; }
+    Child child = detached.spawn().unwrap();
+    detached.deinit();
+    if !child.wait().unwrap().success() { return 14; }
+    if child.wait().unwrap_err() != Error::BadHandle { return 15; }
+    Command sleeper = Command::new("/bin/sleep").unwrap();
+    defer sleeper.deinit();
+    sleeper.arg("30").unwrap();
+    child = sleeper.spawn().unwrap();
+    if !child.try_wait().unwrap().is_none() { child.wait(); return 16; }
+    child.kill(15).unwrap();
+    status = child.wait().unwrap();
+    if status.signal != 15 || status.code != 143 { return 17; }
+    Command search = Command::new("true").unwrap();
+    defer search.deinit();
+    search.cwd("/bin").unwrap();
+    search.env("PATH",".").unwrap();
+    if !search.status().unwrap().success() { return 18; }
+    char[1] nul = {'\0'};
+    if Command::new(nul[0..1]).unwrap_err() != Error::InvalidArgument { return 19; }
+    if command.arg(nul[0..1]).unwrap_err() != Error::InvalidArgument { return 20; }
+    if command.cwd("").unwrap_err() != Error::InvalidArgument { return 21; }
+    return 0;
+}
+
+Status(Error) exercise(Policy policy) {
+    Command(Policy) command = std::process::with_allocator(policy,"true")?;
+    defer command.deinit();
+    command.arg("one")?;
+    process::Arg[2] args = {"two","three"};
+    command.args(args[0..2])?;
+    command.cwd("/")?;
+    command.env("DCC_COMMAND_TEST","first")?;
+    command.env("DCC_COMMAND_TEST","second")?;
+    command.env_remove("DCC_REMOVE")?;
+    ExitStatus status = command.status()?;
+    if !status.success() { return Error::Unexpected; }
+    return Status::Ok;
+}
+
+i32 allocation_failures() {
+    State state = {};
+    Policy policy = {state=&state};
+    if !exercise(policy).is_ok() || state.live != 0 { return 41; }
+    usize calls = state.calls;
+    for usize fail=1;fail<=calls;fail++ {
+        state = {calls=0,fail=fail,live=0};
+        Status(Error) result = exercise(policy);
+        if result.is_ok() || result.unwrap_err() != Error::OutOfMemory { return 42; }
+        if state.live != 0 { return 43; }
+    }
+    state = {};
+    Command(Policy) command = std::process::with_allocator(policy,"true").unwrap();
+    command.arg("one").unwrap();
+    command.cwd("/").unwrap();
+    command.env("KEY","original").unwrap();
+    usize live = state.live;
+    state.fail = state.calls+2;
+    if command.env("KEY","replacement").is_ok() { command.deinit(); return 44; }
+    if !equal(command.environment.items()[0].value,"original") || state.live != live { command.deinit(); return 45; }
+    process::Arg[2] args = {"two","three"};
+    state.fail = state.calls+2;
+    if command.args(args[0..2]).is_ok() { command.deinit(); return 46; }
+    if command.arguments.len() != 1 { command.deinit(); return 47; }
+    state.fail = 0;
+    command.deinit();
+    command.deinit();
+    if state.live != 0 { return 48; }
+    command = std::process::with_allocator(policy,"/dcc-command-does-not-exist").unwrap();
+    command.stdout(std::process::NULL_STREAM);
+    live = state.live;
+    pipe::Pipe before = pipe::create().unwrap();
+    file::Handle expected = before.reader.handle;
+    before.reader.close();
+    before.writer.close();
+    for usize i=0;i<32;i++ {
+        if command.spawn().unwrap_err() != Error::NotFound || state.live != live { command.deinit(); return 49; }
+    }
+    pipe::Pipe after = pipe::create().unwrap();
+    bool closed = after.reader.handle == expected;
+    after.reader.close();
+    after.writer.close();
+    command.deinit();
+    return if closed && state.live == 0 { 0 } else { 50 };
+}
+
+public i32 main() {
+    if process::arg_count() > 1 { return child(); }
+    i32 result = basic();
+    if result != 0 { return result; }
+    result = errors_and_lifecycle();
+    if result != 0 { return result; }
+    return allocation_failures();
+}
