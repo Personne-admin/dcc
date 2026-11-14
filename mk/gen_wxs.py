@@ -56,6 +56,10 @@ def main():
         print(f"error: stage dir does not exist: {stage_dir}", file=sys.stderr)
         sys.exit(1)
 
+    for name in ("dcc.exe", "dccd.exe"):
+        if not os.path.isfile(os.path.join(stage_dir, "bin", name)):
+            p.error(f"MSI payload is missing bin/{name}")
+
     tree_xml, files_by_dir = walk_stage(stage_dir)
 
     directory_refs = []
@@ -81,6 +85,10 @@ def main():
     <Package InstallerVersion="450" Compressed="yes" InstallScope="perMachine" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <Media Id="1" Cabinet="dcc.cab" EmbedCab="yes" />
+    <CustomAction Id="SetInstallLocation" Property="ARPINSTALLLOCATION" Value="[INSTALLDIR]" />
+    <InstallExecuteSequence>
+      <Custom Action="SetInstallLocation" After="CostFinalize">NOT REMOVE~="ALL"</Custom>
+    </InstallExecuteSequence>
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
@@ -98,7 +106,7 @@ def main():
 """
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
-    with open(args.output, "w") as f:
+    with open(args.output, "w", encoding="utf-8") as f:
         f.write(wxs)
 
     total_files = sum(len(v) for v in files_by_dir.values())
