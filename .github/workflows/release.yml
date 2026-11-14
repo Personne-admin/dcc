@@ -77,8 +77,34 @@ jobs:
           path: dist/release
       - run: ci/release/smoke-deb.sh dist/release/dcc_*_amd64.deb
 
+  smoke-msi:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release
+          path: dist/release
+      - shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = (Get-ChildItem dist/release/*.msi | Select-Object -First 1).FullName
+          $custom = Join-Path $env:RUNNER_TEMP ('dcc install ' + [char]0x5DE5 + [char]0x5177)
+          foreach ($prefix in @((Join-Path $env:ProgramFiles 'dcc'), $custom)) {
+            $install = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /norestart INSTALLDIR=`"$prefix`"" -Wait -PassThru
+            if ($install.ExitCode -notin @(0, 3010)) { throw "MSI install failed: $($install.ExitCode)" }
+            try {
+              & ./tests/dpm/windows.ps1 -Prefix $prefix
+            } finally {
+              $uninstall = Start-Process msiexec.exe -ArgumentList "/x `"$msi`" /qn /norestart" -Wait -PassThru
+              if ($uninstall.ExitCode -notin @(0, 3010)) { throw "MSI uninstall failed: $($uninstall.ExitCode)" }
+            }
+          }
+
   publish:
-    needs: [build, smoke-deb]
+    needs: [build, smoke-deb, smoke-msi]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
