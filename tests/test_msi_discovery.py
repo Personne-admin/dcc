@@ -13,8 +13,15 @@ class InstallerDiscovery(unittest.TestCase):
         root = Path(directory)
         stage = root / 'Program Files mock' / 'dcc'
         (stage / 'bin').mkdir(parents=True)
-        for name in ['dcc.exe', 'dccd.exe']:
+        for name in ['dcc.exe', 'dccd.exe', 'dpm.exe', 'ld.lld.exe']:
             (stage / 'bin' / name).write_bytes(b'fixture')
+        (stage / 'lib').mkdir()
+        for name in ['kernel32', 'ws2_32', 'advapi32', 'shell32']:
+            (stage / 'lib' / ('lib' + name + '.a')).write_bytes(b'fixture')
+        for name in ['include/std.dc', 'include/libdcext.manifest', 'include/dpm/v1.dc']:
+            target = stage / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('fixture')
         output = root / 'dcc.wxs'
         result = subprocess.run(['python3', str(ROOT / 'mk/gen_wxs.py'), '--stage-dir', str(stage),
                                  '--version', '0.6.0', '--output', str(output)], capture_output=True, text=True, timeout=10)
@@ -47,6 +54,8 @@ class InstallerDiscovery(unittest.TestCase):
             self.assertIn(component.attrib['Id'], (ROOT / 'vscode/src/windowsInstallation.ts').read_text())
             self.assertIsNotNone(xml.find(".//w:ComponentRef[@Id='c_bin_dccd_exe']", NS))
             self.assertIsNotNone(xml.find(".//w:File[@Name='dcc.exe']", NS))
+            self.assertIsNotNone(xml.find(".//w:File[@Name='dpm.exe']", NS))
+            self.assertIsNotNone(xml.find(".//w:File[@Name='ld.lld.exe']", NS))
 
     def test_missing_server_payload_is_rejected(self):
         with tempfile.TemporaryDirectory(prefix='dcc-msi-') as directory:
@@ -57,6 +66,15 @@ class InstallerDiscovery(unittest.TestCase):
                                      '--version', '0.6.0', '--output', str(root / 'dcc.wxs')], capture_output=True, text=True, timeout=10)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('missing bin/dccd.exe', result.stderr)
+
+    def test_missing_project_manager_is_rejected(self):
+        with tempfile.TemporaryDirectory(prefix='dcc-msi-') as directory:
+            _, stage = self.generate(directory)
+            (stage / 'bin/dpm.exe').unlink()
+            result = subprocess.run(['python3', str(ROOT / 'mk/gen_wxs.py'), '--stage-dir', str(stage),
+                                     '--version', '0.6.0', '--output', str(Path(directory) / 'missing.wxs')], capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('missing bin/dpm.exe', result.stderr)
 
     def test_unicode_staging_and_uninstall_metadata(self):
         with tempfile.TemporaryDirectory(prefix='dcc-msi-') as directory:

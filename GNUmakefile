@@ -3,6 +3,7 @@ MAKEFLAGS += --no-builtin-rules --no-builtin-variables
 
 TOPLEVEL := $(abspath .)
 
+MINGW_SYSROOT ?= /opt/llvm-mingw
 CROSS ?=
 BUILD_DIR := $(TOPLEVEL)/build$(if $(CROSS),-$(CROSS))
 NATIVE_BUILD_DIR := $(TOPLEVEL)/build
@@ -63,13 +64,8 @@ dccd: compiler $(if $(or $(filter windows,$(CROSS)),$(filter 0,$(DCCD_DCON))),,d
 dcdoc: compiler
 	@$(MAKE) -C dcdoc
 
-ifeq ($(CROSS),windows)
-dpm:
-	@echo "dpm: not built for Windows (its process runner and file locking are POSIX only); skipped"
-else
 dpm: compiler
 	@$(MAKE) -C dpm
-endif
 
 libdcext: driver
 	@$(MAKE) -C libdcext
@@ -108,11 +104,15 @@ msi: tools-windows
 	@mkdir -p $(MSI_STAGE_DIR)/bin $(MSI_STAGE_DIR)/lib
 	$(Q)cp $(TOPLEVEL)/build-windows/bin/dcc.exe $(MSI_STAGE_DIR)/bin/
 	$(Q)cp $(TOPLEVEL)/build-windows/bin/dccd.exe $(MSI_STAGE_DIR)/bin/
+	$(Q)cp $(TOPLEVEL)/build-windows/bin/dpm.exe $(MSI_STAGE_DIR)/bin/
+	$(Q)$(PYTHON) $(TOPLEVEL)/mk/stage_windows_toolchain.py --stage $(MSI_STAGE_DIR) --sysroot $(MINGW_SYSROOT) $(if $(WINDOWS_LINKER_ARCHIVE),--archive $(WINDOWS_LINKER_ARCHIVE))
 	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-windows-llvm.a $(MSI_STAGE_DIR)/lib/
 	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-windows-custom.a $(MSI_STAGE_DIR)/lib/
 	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-freestanding-llvm.a $(MSI_STAGE_DIR)/lib/
 	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-freestanding-custom.a $(MSI_STAGE_DIR)/lib/
 	$(Q)cp -r $(NATIVE_BUILD_DIR)/include $(MSI_STAGE_DIR)/include
+	$(Q)mkdir -p $(MSI_STAGE_DIR)/include/dpm
+	$(Q)cp $(TOPLEVEL)/build-windows/include/dpm/v1.dc $(MSI_STAGE_DIR)/include/dpm/
 	$(Q)cp $(TOPLEVEL)/LICENSE $(MSI_STAGE_DIR)/
 	@mkdir -p $(dir $(MSI_OUT))
 	$(Q)$(PYTHON) $(GEN_WXS_SCRIPT) --stage-dir $(MSI_STAGE_DIR) --version $(MSI_VERSION) \
@@ -212,13 +212,13 @@ help:
 	@echo "  test-win       Run Win64 OS integration tests under Wine and ABI audit"
 	@echo "  install        Install to PREFIX (default: /usr/local)"
 	@echo "  uninstall      Remove files installed by 'make install'"
-	@echo "  tools-windows  Cross-compile dcc/dccd to run on Windows (needs llvm-mingw); dpm is skipped there"
+	@echo "  tools-windows  Cross-compile dcc/dccd/dpm to run on Windows (needs llvm-mingw)"
 	@echo "  msi            Package tools-windows + a windows-targeted libdcext as a .msi (needs msitools)"
 	@echo "  clean          Remove build artifacts"
 	@echo "  distclean      Remove entire build directory"
 	@echo ""
 	@echo "Variables:"
-	@echo "  CROSS=windows  Cross-compile dcc/dccd for Windows (see tools-windows)"
+	@echo "  CROSS=windows  Cross-compile dcc/dccd/dpm for Windows (see tools-windows)"
 	@echo "  TARGET=...     What OS libdcext targets: x86_64-linux, x86_64-windows, "
 	@echo "                 x86_64-freestanding -- independent of CROSS"
 	@echo ""

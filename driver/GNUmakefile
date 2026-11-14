@@ -19,6 +19,14 @@ DEPS := $(OBJS:.o=.d)
 
 COMPILER_PCMS := $(wildcard $(PCM_DIR)/dcc.*.pcm)
 
+ifeq ($(CROSS),windows)
+WINDOWS_RESOURCE := $(OBJ_DIR)/driver/windows.o
+$(WINDOWS_RESOURCE): $(TOPLEVEL)/mk/windows.rc $(TOPLEVEL)/mk/windows.manifest
+	$(Q)mkdir -p $(dir $@)
+	$(Q)$(MINGW_SYSROOT)/bin/$(MINGW_TARGET)-windres -I$(TOPLEVEL)/mk -i $< -o $@ -O coff
+$(BINARY): $(WINDOWS_RESOURCE)
+endif
+
 $(BINARY): $(OBJS) $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(DRIVER_LDFLAGS))
 

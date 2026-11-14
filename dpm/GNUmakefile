@@ -38,6 +38,14 @@ $(eval $(call track-archive-inputs,$(CORE_LIB),$(MODULE_OBJS)))
 $(CORE_LIB): $(MODULE_OBJS)
 	$(call create-archive,$@,$(MODULE_OBJS))
 
+ifeq ($(CROSS),windows)
+WINDOWS_RESOURCE := $(OBJ_DIR)/dpm/windows.o
+$(WINDOWS_RESOURCE): $(TOPLEVEL)/mk/windows.rc $(TOPLEVEL)/mk/windows.manifest
+	$(Q)mkdir -p $(dir $@)
+	$(Q)$(MINGW_SYSROOT)/bin/$(MINGW_TARGET)-windres -I$(TOPLEVEL)/mk -i $< -o $@ -O coff
+$(BINARY): $(WINDOWS_RESOURCE)
+endif
+
 $(BINARY): $(OBJS) $(CORE_LIB) $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(DPM_LDFLAGS))
 

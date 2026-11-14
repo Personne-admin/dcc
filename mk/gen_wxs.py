@@ -56,9 +56,17 @@ def main():
         print(f"error: stage dir does not exist: {stage_dir}", file=sys.stderr)
         sys.exit(1)
 
-    for name in ("dcc.exe", "dccd.exe"):
+    for name in ("dcc.exe", "dccd.exe", "dpm.exe", "ld.lld.exe"):
         if not os.path.isfile(os.path.join(stage_dir, "bin", name)):
             p.error(f"MSI payload is missing bin/{name}")
+
+    for name in ("kernel32", "ws2_32", "advapi32", "shell32"):
+        if not os.path.isfile(os.path.join(stage_dir, "lib", "lib" + name + ".a")):
+            p.error(f"MSI payload is missing lib/lib{name}.a")
+
+    for name in ("include/std.dc", "include/libdcext.manifest", "include/dpm/v1.dc"):
+        if not os.path.isfile(os.path.join(stage_dir, name)):
+            p.error(f"MSI payload is missing {name}")
 
     tree_xml, files_by_dir = walk_stage(stage_dir)
 

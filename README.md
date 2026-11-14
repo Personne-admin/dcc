@@ -48,7 +48,11 @@ sudo apt install ./dcc_*.deb
 ### Windows
 
 Prebuilt Windows MSI installers (`dcc-<version>-x86_64.msi`) are available from
-[GitHub Releases](https://github.com/Personne-admin/dcc/releases). Run the installer to set up `dcc`, `dccd`, and standard library headers.
+[GitHub Releases](https://github.com/Personne-admin/dcc/releases). Run the installer to set up `dcc`, `dccd`, `dpm`, and standard library headers.
+The installer also ships the native `ld.lld.exe` linker with its runtime DLLs and
+license notices, plus the Windows import libraries libdcext needs, so
+`dcc -flibdcext windows hello.dc -o hello.exe` and `dpm build` write PE
+executables without a separate SDK. A custom installation directory works the same way.
 The VS Code extension discovers MSI installations without manual PATH editing;
 see [server discovery and diagnostics](vscode/readme.md#executable-discovery).
 

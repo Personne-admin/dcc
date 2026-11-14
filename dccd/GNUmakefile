@@ -32,6 +32,14 @@ DCCD_PCM_FILES := $(filter $(PCM_DIR)/dccd.%.pcm,$(MODULE_PCM_FILES))
 
 $(DCCD_PCM_FILES): $(COMPILER_PCMS)
 
+ifeq ($(CROSS),windows)
+WINDOWS_RESOURCE := $(OBJ_DIR)/dccd/windows.o
+$(WINDOWS_RESOURCE): $(TOPLEVEL)/mk/windows.rc $(TOPLEVEL)/mk/windows.manifest
+	$(Q)mkdir -p $(dir $@)
+	$(Q)$(MINGW_SYSROOT)/bin/$(MINGW_TARGET)-windres -I$(TOPLEVEL)/mk -i $< -o $@ -O coff
+$(BINARY): $(WINDOWS_RESOURCE)
+endif
+
 $(BINARY): $(MODULE_OBJS) $(OBJS) $(DPM_CORE_LIB) $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(DCCD_LDFLAGS))
 
