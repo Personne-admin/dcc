@@ -101,6 +101,43 @@ def run_app(app, *args):
     return dpm(app, "run", *args)
 
 
+def scenario_beginner_scaffold():
+    parent = os.path.join(ROOT, "beginner")
+    os.makedirs(parent)
+    result = dpm(parent, "new", "hello")
+    check(result.returncode == 0, "builtin beginner project is created offline", detail(result))
+    app = os.path.join(parent, "hello")
+    source = read(os.path.join(app, "src", "main.dc"))
+    check('public Status(Error) main()' in source and 'println("Hello, world!")?;' in source and 'import ' not in source,
+          "builtin executable uses the hosted prelude and fallible main", source)
+    result = dpm(app, "build")
+    check(result.returncode == 0, "builtin fallible main builds", detail(result))
+    result = dpm(app, "run")
+    check(result.returncode == 0 and result.stdout.splitlines().count("Hello, world!") == 1 and not result.stderr,
+          "builtin fallible main prints to stdout and exits zero", detail(result))
+    write(os.path.join(app, "src", "helper.dc"), '''module helper;
+public Status(Error) work() {
+    Array(i32) values={};
+    defer values.deinit();
+    values.push(10)?;
+    values.push(20)?;
+    for value in values.items() {println("Number: {}",value)?;}
+    return Status::Ok;
+}
+''')
+    write(os.path.join(app, "src", "main.dc"), '''module main;
+import helper;
+public Status(Error) main(){helper::work()?;return Status::Ok;}
+''')
+    for profile in ("debug", "release"):
+        result=dpm(app,"run","--profile",profile)
+        check(result.returncode==0 and result.stdout.endswith("Number: 10\nNumber: 20\n") and not result.stderr,
+              "imported beginner helper uses default heap and prelude in " + profile,detail(result))
+    write(os.path.join(app,"src","main.dc"), 'module main; public Status(Error) main(){println("{")?;return Status::Ok;}\n')
+    result=dpm(app,"run")
+    check(result.returncode==1 and not result.stderr,"DPM propagates a fallible main error without printing it",detail(result))
+
+
 def scenario_basic():
     app = new_app("basic", "return 7;")
     check(os.path.isfile(os.path.join(app, "project.dcon")), "init writes project.dcon")
@@ -2024,6 +2061,7 @@ def scenario_stamps():
 
 
 try:
+    scenario_beginner_scaffold()
     scenario_basic()
     scenario_run_args()
     scenario_modules()

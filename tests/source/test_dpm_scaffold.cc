@@ -17,12 +17,12 @@ namespace
         return manifest;
     }
 
-    std::string legacy_entry(std::string const& name, bool lib)
+    std::string expected_entry(std::string const& name, bool lib)
     {
-        return lib ? std::format("module {}::lib;\n\npublic i32 answer()\n{{\n    return 42;\n}}\n", name) : std::string{"module main;\n\npublic i32 main()\n{\n    return 0;\n}\n"};
+        return lib ? std::format("module {}::lib;\n\npublic i32 answer()\n{{\n    return 42;\n}}\n", name) : std::string{"module main;\n\npublic Status(Error) main() {\n    println(\"Hello, world!\")?;\n    return Status::Ok;\n}\n"};
     }
 
-    std::string legacy_entry_path(std::string const& name, bool lib)
+    std::string expected_entry_path(std::string const& name, bool lib)
     {
         return lib ? "src/" + name + "/lib.dc" : "src/main.dc";
     }
@@ -42,7 +42,7 @@ namespace
     }
 } // namespace
 
-TEST_CASE("built-in templates render exactly what dpm init always wrote")
+TEST_CASE("built-in executable and library templates render their documented entry points")
 {
     for (std::string name : {"app", "my_tool", "x1", "a_very_long_package_name_for_a_test"})
     {
@@ -53,7 +53,7 @@ TEST_CASE("built-in templates render exactly what dpm init always wrote")
             REQUIRE(rendered.ok());
             CHECK_EQ(rendered.files.size(), std::size_t{3});
             CHECK_EQ(text_of(rendered, "project.dcon"), legacy_manifest(name, lib));
-            CHECK_EQ(text_of(rendered, legacy_entry_path(name, lib)), legacy_entry(name, lib));
+            CHECK_EQ(text_of(rendered, expected_entry_path(name, lib)), expected_entry(name, lib));
             CHECK_EQ(text_of(rendered, ".gitignore"), std::string{".dpm/\n"});
         }
     }

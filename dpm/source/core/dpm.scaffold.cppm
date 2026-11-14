@@ -410,7 +410,7 @@ export namespace dpm::scaffold
         return {
             {"project.dcon",
              "dpm::v1::Project {\n    name = \"@@name@@\",\n    version = \"0.1.0\",\n    products = {\n        { name = \"@@name@@\", entry = \"src/main.dc\" },\n    },\n}\n"},
-            {"src/main.dc", "module main;\n\npublic i32 main()\n{\n    return 0;\n}\n"},
+            {"src/main.dc", "module main;\n\npublic Status(Error) main() {\n    println(\"Hello, world!\")?;\n    return Status::Ok;\n}\n"},
             {".gitignore", ".dpm/\n"},
         };
     }
