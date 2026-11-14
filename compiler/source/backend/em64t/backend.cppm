@@ -10,6 +10,8 @@ module;
 export module dcc.backend.em64t;
 
 import std;
+import dcc.backend.object.link;
+import dcc.host.process;
 import dcc.backend;
 import dcc.ir;
 import dcc.ir.data;
@@ -345,11 +347,7 @@ namespace dcc::backend
 
                     if (want_exe)
                     {
-                        if (opts.target.object_format == dcc::target::ObjectFormat::Coff)
-                        {
-                            artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: executable output not supported for COFF target"});
-                        }
-                        else if (opts.target.arch != dcc::target::Arch::X86_64)
+                        if (opts.target.arch != dcc::target::Arch::X86_64)
                         {
                             artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: executable output is only supported for x86_64 ELF targets"});
                         }
@@ -564,35 +562,10 @@ namespace dcc::backend
 
                 auto exe_path = work_dir / "out";
 
-                std::string link_cmd = std::format("ld.lld --static --no-dynamic-linker --fatal-warnings -o {} {}", exe_path.string(), obj_path.string());
+                auto linked = object::link_executable(obj_path, exe_path, opts);
+                auto link_output = linked.out + linked.err + linked.error;
+                int link_rc = linked.ok() ? 0 : 1;
 
-                for (auto const& obj : opts.additional_objects)
-                    link_cmd += " " + obj;
-
-                for (auto const& lp : opts.library_paths)
-                    link_cmd += " -L" + lp;
-
-                for (auto const& lib : opts.libraries)
-                    link_cmd += " -l" + lib;
-
-                for (auto const& la : opts.linker_args)
-                    link_cmd += " " + la;
-
-                link_cmd += " 2>&1";
-                auto* pipe = popen(link_cmd.c_str(), "r");
-                if (!pipe)
-                {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot run linker"});
-                    cleanup();
-                    return std::nullopt;
-                }
-
-                std::string link_output;
-                std::array<char, 4096> buf;
-                while (std::fgets(buf.data(), static_cast<int>(buf.size()), pipe))
-                    link_output += buf.data();
-
-                int link_rc = pclose(pipe);
                 if (link_rc != 0)
                 {
                     artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: linking failed:\n" + link_output});
@@ -851,29 +824,23 @@ namespace dcc::backend
 
                 auto dll_path = work_dir / "out.dll";
 
-                std::string link_cmd = std::format("lld-link /dll /noentry /machine:x64 /out:{} {}", dll_path.string(), obj_path.string());
-
+                host::process::Command command;
+                command.inherit_env = true;
+                command.argv = {host::process::linker_path("ld.lld"), "-flavor", "link", "/dll", "/noentry", "/machine:x64", "/out:" + dll_path.string(), obj_path.string()};
                 for (auto const& sym : exports)
-                    link_cmd += std::format(" /export:{}", sym);
+                    command.argv.push_back("/export:" + sym);
+                for (auto const& object : opts.additional_objects)
+                    command.argv.push_back(object);
+                for (auto const& path : opts.library_paths)
+                    command.argv.push_back("/libpath:" + path);
+                for (auto const& lib : opts.libraries)
+                    command.argv.push_back("/defaultlib:lib" + lib + ".a");
+                for (auto const& arg : opts.linker_args)
+                    command.argv.push_back(arg);
+                auto linked = host::process::run(command);
+                auto link_output = linked.out + linked.err + linked.error;
+                int link_rc = linked.ok() ? 0 : 1;
 
-                for (auto const& la : opts.linker_args)
-                    link_cmd += " " + la;
-
-                link_cmd += " 2>&1";
-                auto* pipe = popen(link_cmd.c_str(), "r");
-                if (!pipe)
-                {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot run lld-link"});
-                    cleanup();
-                    return std::nullopt;
-                }
-
-                std::string link_output;
-                std::array<char, 4096> buf;
-                while (std::fgets(buf.data(), static_cast<int>(buf.size()), pipe))
-                    link_output += buf.data();
-
-                int link_rc = pclose(pipe);
                 if (link_rc != 0)
                 {
                     artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: linking failed:\n" + link_output});

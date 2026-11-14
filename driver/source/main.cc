@@ -15,6 +15,7 @@ import dcc.library;
 
 import dcc.target;
 import dcc.config;
+import dcc.backend.object.link;
 import dcc.backend;
 import dcc.session;
 import dcc.cli;
@@ -43,11 +44,6 @@ import dcc.backend.object.inspect;
 
 #include <array>
 #include <cstdio>
-
-#ifdef _WIN32
-#define popen _popen
-#define pclose _pclose
-#endif
 
 namespace
 {
@@ -926,63 +922,6 @@ namespace
         return p.extension() == ".o" || p.extension() == ".obj" || p.extension() == ".a";
     }
 
-    [[nodiscard]] std::string shell_quote(std::string const& s)
-    {
-#ifdef _WIN32
-        bool needs_quotes = s.empty();
-        for (char c : s)
-            if (c == ' ' || c == '\t' || c == '"' || c == '&' || c == '|' || c == '<' || c == '>' || c == '^')
-                needs_quotes = true;
-
-        if (!needs_quotes)
-            return s;
-
-        std::string out{'"'};
-        std::size_t i = 0;
-        while (i < s.size())
-        {
-            std::size_t slashes = 0;
-            while (i < s.size() && s[i] == '\\')
-            {
-                ++slashes;
-                ++i;
-            }
-
-            if (i == s.size())
-            {
-                out.append(slashes * 2, '\\');
-                break;
-            }
-
-            if (s[i] == '"')
-            {
-                out.append(slashes * 2 + 1, '\\');
-                out += '"';
-                ++i;
-                continue;
-            }
-
-            out.append(slashes, '\\');
-            out += s[i];
-            ++i;
-        }
-
-        out += '"';
-        return out;
-#else
-        std::string out{'\''};
-        for (char c : s)
-        {
-            if (c == '\'')
-                out += "'\\''";
-            else
-                out += c;
-        }
-        out += '\'';
-        return out;
-#endif
-    }
-
     constexpr std::string_view float_enabled_marker = "__dcc_libdcext_abi_requires_float_enabled";
     constexpr std::string_view float_disabled_marker = "__dcc_libdcext_abi_requires_float_disabled";
 
@@ -1493,70 +1432,28 @@ namespace
                 return 1;
             }
         }
-        bool const windows = target.object_format == dcc::target::ObjectFormat::Coff;
-        std::string cmd = windows ? "ld.lld -m i386pep --subsystem console --entry _start -o " : "ld.lld --static --no-dynamic-linker --fatal-warnings -o ";
-        cmd += shell_quote(output_path.string());
-        for (auto const& obj : objects)
+        dcc::backend::BackendOptions link_options;
+        link_options.target = target;
+        link_options.additional_objects.assign(objects.begin() + 1, objects.end());
+        link_options.library_paths = opts.library_paths;
+        link_options.libraries = opts.libraries;
+        link_options.linker_args = explicit_linker_args(opts);
+        auto roots = library_linker_roots(opts, target, prefix);
+        if (!roots)
         {
-            cmd += " ";
-            cmd += shell_quote(obj);
-        }
-
-        for (auto const& dir : opts.library_paths)
-        {
-            cmd += " ";
-            cmd += shell_quote(std::format("-L{}", dir));
-        }
-
-        for (auto const& lib : opts.libraries)
-        {
-            cmd += " ";
-            cmd += shell_quote(std::format("-l{}", lib));
-        }
-
-        for (auto const& extra : explicit_linker_args(opts))
-        {
-            cmd += " ";
-            cmd += shell_quote(extra);
-        }
-
-        auto library_roots = library_linker_roots(opts, target, prefix);
-        if (!library_roots)
-        {
-            std::println(std::cerr, "dcc: error: {}", library_roots.error());
+            std::println(std::cerr, "dcc: error: {}", roots.error());
             return 1;
         }
-        for (auto const& root : *library_roots)
-            cmd += " " + shell_quote(root);
-
+        link_options.linker_args.insert(link_options.linker_args.end(), roots->begin(), roots->end());
         if (opts.libdcext && !opts.whole_program)
         {
-            cmd += " -L";
-            cmd += shell_quote((prefix / "lib").string());
-            cmd += " -l";
-            cmd += libdcext_library_name(target, opts.backend_name);
+            link_options.library_paths.push_back((prefix / "lib").string());
+            link_options.libraries.push_back(libdcext_library_name(target, opts.backend_name));
         }
-
-        cmd += " 2>&1";
-
-        std::array<char, 4096> buf{};
-        std::string captured;
-        auto* pipe = popen(cmd.c_str(), "r");
-        if (!pipe)
+        auto linked = dcc::backend::object::link_executable(objects.front(), output_path, link_options);
+        if (!linked.ok())
         {
-            std::println(std::cerr, "dcc: error: failed to invoke linker");
-            return 1;
-        }
-        while (std::fgets(buf.data(), static_cast<int>(buf.size()), pipe))
-            captured += buf.data();
-
-        int rc = pclose(pipe);
-        if (rc != 0)
-        {
-            if (!captured.empty())
-                std::println(std::cerr, "dcc: error: {}", std::string{"linking failed:"} + std::string(1, static_cast<char>(10)) + captured);
-            else
-                std::println(std::cerr, "dcc: error: linker failed with unknown error");
+            std::println(std::cerr, "dcc: error: linking failed:\n{}{}{}", linked.out, linked.err, linked.error);
             return 1;
         }
 

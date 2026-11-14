@@ -24,6 +24,7 @@ extern "C" int dcc_llvm_run_passes(LLVMModuleRef module, LLVMTargetMachineRef ma
 export module dcc.backend.llvm;
 
 import std;
+import dcc.backend.object.link;
 import dcc.backend;
 import dcc.ir;
 import dcc.ir.data;
@@ -2009,9 +2010,9 @@ namespace dcc::backend
                         return artifact;
                     }
 
-                    if (is_coff_target)
+                    if (is_coff_target && opts.target.arch != target::Arch::X86_64)
                     {
-                        add_diag(diags, {}, "COFF/PE executable emission is not yet supported");
+                        add_diag(diags, {}, "PE executable emission requires x86_64");
                         LLVMDisposeModule(llvm_mod);
                         return artifact;
                     }
@@ -2309,61 +2310,10 @@ namespace dcc::backend
                     }
                 } cleanup{.obj = obj_path, .exe = exe_path};
 
-                std::string cmd = "ld.lld --static --no-dynamic-linker --fatal-warnings -o ";
-                cmd += exe_path.string();
-                cmd += " ";
-                cmd += obj_path.string();
-
-                for (auto const& extra_obj : opts.additional_objects)
+                auto linked = object::link_executable(obj_path, exe_path, opts);
+                if (!linked.ok())
                 {
-                    cmd += " ";
-                    cmd += extra_obj;
-                }
-
-                for (auto const& lp : opts.library_paths)
-                {
-                    cmd += " -L";
-                    cmd += lp;
-                }
-
-                for (auto const& lib : opts.libraries)
-                {
-                    cmd += " -l";
-                    cmd += lib;
-                }
-
-                for (auto const& la : opts.linker_args)
-                {
-                    cmd += " ";
-                    cmd += la;
-                }
-
-                cmd += " 2>&1";
-
-                std::array<char, 4096> buf{};
-                std::string captured;
-                auto* pipe = popen(cmd.c_str(), "r");
-                if (pipe)
-                {
-                    while (std::fgets(buf.data(), static_cast<int>(buf.size()), pipe))
-                        captured += buf.data();
-                    auto rc = pclose(pipe);
-
-                    if (rc != 0)
-                    {
-                        std::string msg;
-                        if (!captured.empty())
-                            msg = std::format("linker error:\n{}", captured);
-                        else
-                            msg = "linker failed with unknown error";
-
-                        add_diag(diags, {}, msg);
-                        return std::nullopt;
-                    }
-                }
-                else
-                {
-                    add_diag(diags, {}, "failed to invoke linker");
+                    add_diag(diags, {}, "linker error:\n" + linked.out + linked.err + linked.error);
                     return std::nullopt;
                 }
 

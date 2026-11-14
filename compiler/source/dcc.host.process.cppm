@@ -842,4 +842,22 @@ export namespace dcc::host::process
     }
 
 #endif
+    [[nodiscard]] inline std::string linker_path(std::string const& name)
+    {
+#ifdef _WIN32
+        std::wstring buffer(32768, L'\0');
+        auto size = ::GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (size && size < buffer.size())
+        {
+            buffer.resize(size);
+            auto path = std::filesystem::path{buffer}.parent_path() / detail::wide(name + ".exe");
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(path, ec))
+                return detail::utf8(path.native());
+        }
+        return name + ".exe";
+#else
+        return name;
+#endif
+    }
 }
