@@ -11,7 +11,7 @@
 - Every variable the template declares can be set with `--set`; a required variable without a value is an error that lists what is missing. There are no prompts.
 - The project is written to a temporary directory next to `DIR` and moved into place only when every file was generated and the generated `project.dcon` loads without errors. A failure leaves nothing behind.
 
-Without `--template`, `dpm new` uses the built-in executable template, or the built-in library template with `--lib`; they produce the same files as `dpm init`.
+Without `--template`, `dpm new` uses the built-in hosted executable template, or the built-in library template with `--lib`; they produce the same files as `dpm init`. The hosted executable prints Hello, world! to stdout from a public `Status(Error) main`, using the automatic prelude and `?`. See [getting started](getting-started.md). Library and custom freestanding/kernel templates are unchanged.
 
 After generating, dpm prints the number of tasks the new project declares with their commands, the assets it will download, and the template's next steps. Read `project.dcon` before running a task: a template can declare any command.
 

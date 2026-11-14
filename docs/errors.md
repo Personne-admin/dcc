@@ -84,8 +84,10 @@ The explicitly imported `std::os::print` API retains bounded best-effort
 records on stderr and its distinct `PrintError` (the `Error::Print` payload).
 That legacy type is also available explicitly on freestanding targets, while
 its printing functions require a hosted target. A successful short write from
-that API remains a byte count. The standard `Error` does not change supported
-`main` signatures; use an `i32 main` wrapper around `Status(Error)` work.
+that API remains a byte count. Hosted main may return `Status(Error)` directly: success exits 0 and failure
+exits 1 without automatically printing the error. Main may also use
+`Status(CustomError)`; this does not add a conversion from CustomError to Error.
+See [getting started](getting-started.md) for complete programs.
 
 ## Application-specific errors
 

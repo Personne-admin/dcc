@@ -92,10 +92,12 @@ public i32 main() {
 
 This program is exercised by `tests/stdlib/beginner.dc`. Use `{}` for an empty
 array; `[]` is not an array constructor. `Status::Ok` is a payload-less value,
-not a function call. Fallible `main` is not supported by this API change.
+not a function call. Hosted main can instead return `Status(Error)` directly;
+success exits 0 and failure exits 1 without automatic error printing.
 
-Run `dpm new hello`, replace the generated executable's source with the example,
-and use `dpm run`. The built-in template and entry ABI are unchanged. Imported
+Run `dpm new hello` and `dpm run` for a generated fallible Hello World.
+See [getting started](getting-started.md) for a direct Status main with arrays.
+The existing integer-main forms remain supported. Imported
 user helpers receive the same prelude when compiled under the same library,
 target and allocator settings. Packages that require independence from the
 prelude should pin `@no_prelude` and explicit imports in their module headers.

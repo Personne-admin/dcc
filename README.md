@@ -156,6 +156,9 @@ error handling.
 Without `-flibdcext`, you get exactly the
 language and `core::*` compiler intrinsics, nothing else.
 
+Start with [the beginner guide](docs/getting-started.md): `dpm new hello`,
+`cd hello`, then `dpm run`. The generated hosted main returns `Status(Error)`.
+
 ## Whole-program output
 
 By default `dcc -S` and `dcc -c` on an entry module emit only that module's own

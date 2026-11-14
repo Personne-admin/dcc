@@ -686,6 +686,35 @@ configuration dependencies and use explicit imports rather than the prelude.
 
 ---
 
+### 7.5 Hosted program main
+
+With hosted libdcext startup, a non-generic main definition may have one of
+these signatures (public visibility is optional):
+
+- `i32 main()`
+- `i32 main([] const char* args)`
+- `std::result::Status(E) main()`
+
+`Status` must be the standard library carrier, possibly reached through a
+structural alias. Its error parameter can be any valid Status payload type;
+it need not be `std::error::Error`. The Status form takes no arguments.
+`Status::Ok` maps to process exit code 0; `Status::Err(error)` maps to 1.
+The complete value is returned with its normal ABI before this entry-boundary
+adaptation. No error is formatted or heap-allocated by the adaptation.
+Integer mains retain their existing OS exit behavior. Linux supplies arguments
+to the slice form; Windows currently supplies an empty slice.
+
+The compiler generates an integer adapter for a Status main and uses the
+existing startup thunk and object main metadata. The original function keeps
+its return type, name, calling convention and ordinary address-taking behavior.
+Symbols beginning `__dcc_status_entry_` are reserved for these adapters;
+conflicting declarations are diagnosed. There is no ordinary Status-to-integer
+conversion. `Result(i32, E)` mains are not supported.
+
+The prelude supplies unqualified `Status` and `Error` when enabled. With
+`-fno-prelude`, explicit imports give the same hosted entry behavior. Freestanding
+and kernel entry selection is unchanged and generates no hosted Status adapter.
+
 ## 8. Templates
 
 ### 8.1 Function templates
