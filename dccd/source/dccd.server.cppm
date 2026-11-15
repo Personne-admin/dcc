@@ -213,6 +213,7 @@ export namespace dccd
         std::optional<std::filesystem::path> m_prefix_override;
         std::optional<dccd::dcon::Analyzer> m_dcon;
         std::set<std::string> m_open_dcon_uris;
+        std::map<dcc::sm::FileId, std::set<std::string>> m_open_uris_by_file;
 
         struct WorkspaceCompilationDatabase
         {
@@ -550,10 +551,13 @@ export namespace dccd
             {
                 std::println(m_log, "[dccd] didOpen: rejecting stale/duplicate open version {} for already-open document {}", params.textDocument.version,
                              params.textDocument.uri);
+                if (auto open_fid = m_session->source_manager().find_by_uri(params.textDocument.uri))
+                    m_open_uris_by_file[*open_fid].insert(params.textDocument.uri);
                 return;
             }
 
             auto fid = m_session->open_in_memory(params.textDocument.uri, params.textDocument.text, params.textDocument.version);
+            m_open_uris_by_file[fid].insert(params.textDocument.uri);
 
             clear_stale_marker(params.textDocument.uri);
             if (dccd::dcon::is_dcon_uri(params.textDocument.uri))
@@ -651,9 +655,29 @@ export namespace dccd
             auto params = protocol::DidCloseTextDocumentParams::from_json(rpc.params.value());
 
             std::optional<std::int64_t> known_version;
+            bool still_open = false;
             if (auto fid = m_session->source_manager().find_by_uri(params.uri))
+            {
                 if (auto const* sf = m_session->source_manager().get(*fid))
                     known_version = sf->version();
+                if (auto it = m_open_uris_by_file.find(*fid); it != m_open_uris_by_file.end())
+                {
+                    it->second.erase(params.uri);
+                    still_open = !it->second.empty();
+                    if (!still_open)
+                        m_open_uris_by_file.erase(it);
+                    else if (auto* file = m_session->source_manager().get_mut(*fid); file && file->uri() == params.uri)
+                        file->set_uri(*it->second.begin());
+                }
+            }
+
+            if (still_open)
+            {
+                std::println(m_log, "[dccd] didClose: {} shares its file with another open document; keeping the file open", params.uri);
+                publish_empty_diagnostics(params.uri, known_version, "document closed");
+                m_published_uris.erase(params.uri);
+                return;
+            }
 
             auto result = m_session->close_in_memory(params.uri);
             if (!result)

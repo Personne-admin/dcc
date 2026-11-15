@@ -1224,6 +1224,51 @@ TEST_CASE("older duplicate didOpen cannot overwrite an already-open newer docume
     REQUIRE(reopen[0].diagnostics.size() == 1);
 }
 
+TEST_CASE("closing a symlinked alias of an open document keeps the document open")
+{
+    TempDir td;
+    auto real_dir = td.path / "real";
+    std::filesystem::create_directories(real_dir);
+    auto real_path = real_dir / "main.dc";
+    {
+        std::ofstream out{real_path};
+        out << "module main;\ni32 a = 0;\n";
+    }
+    std::filesystem::create_directory_symlink(real_dir, td.path / "link");
+    auto real_uri = dcc::sm::SourceManager::to_file_uri(real_path);
+    auto link_uri = dcc::sm::SourceManager::to_file_uri(td.path / "link" / "main.dc");
+
+    for (std::int64_t alias_version : {1, 3})
+    {
+        Sink sink;
+        dccd::LanguageServer server{&sink.stream};
+        initialize_server(server, sink, td.path);
+
+        std::ignore = send_and_collect_publishes(server, sink, make_did_open(real_uri, 3, "module main;\ni32 a = 0;\n"));
+        std::ignore = send_and_collect_publishes(server, sink, make_did_open(link_uri, alias_version, "module main;\ni32 a = 0;\n"));
+
+        auto closed = send_and_collect_publishes(server, sink, make_did_close(link_uri));
+        REQUIRE(closed.size() == 1);
+        CHECK_EQ(closed[0].uri, link_uri);
+        CHECK(closed[0].diagnostics.empty());
+
+        auto fid = server.source_manager().find_by_uri(real_uri);
+        REQUIRE(fid.has_value());
+        auto const* sf = server.source_manager().get(*fid);
+        REQUIRE(sf != nullptr);
+        CHECK(!sf->is_closed());
+        CHECK_EQ(sf->uri(), real_uri);
+
+        auto changed = send_and_collect_publishes(server, sink, make_did_change(real_uri, 4, "module main;\ni32 a = unknown_name;\n"));
+        REQUIRE(changed.size() == 1);
+        CHECK_EQ(changed[0].uri, real_uri);
+        CHECK_EQ(changed[0].diagnostics.size(), 1u);
+
+        std::ignore = send_and_collect_publishes(server, sink, make_did_close(real_uri));
+        CHECK(sf->is_closed());
+    }
+}
+
 TEST_CASE("errors in an imported disk file are published to that file and cleared")
 {
     TempDir td;
