@@ -4972,6 +4972,18 @@ TEST_CASE("cli accepts a global json flag and -V")
     CHECK(version.out.starts_with("learndc "));
 }
 
+TEST_CASE("cli hint accepts a positional level")
+{
+    CliFixture f;
+    auto const level = f.run({"hint", "basics/one", "2"});
+    CHECK_EQ(level.code, 0);
+    CHECK(level.out.find("Hint 2 of 3") != std::string::npos);
+    auto const alone = f.run({"hint", "1", "basics/one"});
+    CHECK_EQ(alone.code, 0);
+    CHECK(alone.out.find("Hint 1 of 3") != std::string::npos);
+    CHECK_EQ(f.run({"hint", "basics/one", "1", "2"}).code, 2);
+}
+
 TEST_CASE("cli hints and solutions do not start an exercise")
 {
     CliFixture f;

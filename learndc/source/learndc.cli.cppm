@@ -135,7 +135,7 @@ export namespace learndc::cli
                  value_option("backend", "BACKEND", "dpm (default), llvm or custom")},
                 0, 1);
             add("watch", "watch [id]", "Re-run the checks whenever a file changes (Ctrl+C ends)", {}, 0, 1);
-            add("hint", "hint [id] [--level N]", "Reveal the next hint (or hint N)", {value_option("level", "N", "hint level 1..3")}, 0, 1);
+            add("hint", "hint [id] [N] [--level N]", "Reveal the next hint (or hint N)", {value_option("level", "N", "hint level 1..3")}, 0, 2);
             add("solution", "solution [id] --show|--diff", "Show the reference solution or compare it with your files",
                 {flag_option("show", "print the solution files"), flag_option("diff", "diff your files against the solution")}, 0, 1);
             add("reset", "reset <id> [--yes] [--no-backup]", "Restore the starter files of an exercise",
@@ -863,15 +863,31 @@ export namespace learndc::cli
             if (auto f = prepare(s))
                 return report_failure(s, *f);
             std::optional<int> level;
+            std::optional<std::string> id;
+            for (auto const& word : s.args.positionals)
+            {
+                if (!word.empty() && word.size() <= 3 && std::ranges::all_of(word, [](char c) { return c >= '0' && c <= '9'; }))
+                {
+                    if (level)
+                        return usage_error(s, "name the hint level only once");
+                    level = std::stoi(word);
+                }
+                else if (id)
+                    return usage_error(s, "name only one exercise");
+                else
+                    id = word;
+            }
             if (auto l = s.args.value("level"))
             {
                 int v = 0;
                 auto r = std::from_chars(l->data(), l->data() + l->size(), v);
                 if (r.ec != std::errc() || r.ptr != l->data() + l->size())
                     return usage_error(s, "--level must be 1, 2 or 3");
+                if (level)
+                    return usage_error(s, "name the hint level only once");
                 level = v;
             }
-            auto target = app::resolve_target(s.ctx, *s.loaded, s.args.positional(0), s.io.cwd, false);
+            auto target = app::resolve_target(s.ctx, *s.loaded, id, s.io.cwd, false);
             if (!target)
                 return report_failure(s, target.error());
             auto hint = app::reveal_hint(s.ctx, *target->exercise, level);
