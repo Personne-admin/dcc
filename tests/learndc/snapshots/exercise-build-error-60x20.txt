@@ -1,0 +1,20 @@
+  1  2  3 Exercise  4  5  6  7
+ Instructions   Files   Results
+0 of 3 checks passed · 0.09s
+╭─ › Results ──────────────────────────────────────────────╮
+│ ✗ 0 of 3 checks passed · 0.09s                           │
+│   ✗ FAIL      Compiles  (build)                          │
+│       The program does not compile.                      │
+│       at src/main.dc:10:32 error: unknown name `totl`    │
+│       Compiler output:                                   │
+│         error: unknown name `totl`                       │
+│           --> /work/variables/src/main.dc:10:32          │
+│            |                                             │
+│         10 |     io::println("Total: {}", totl);         │
+│            |                               ^^^^          │
+│   ○ skipped   Prints the total                           │
+│   ○ skipped   Handles zero tax                           │
+│                                                          │
+│                                                          │
+╰──────────────────────────────────────────────────────────╯
+ Up Down scroll  l raw output  c check  e edit  Tab pane

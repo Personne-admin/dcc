@@ -1,0 +1,20 @@
+  1  2  3  4  5  6  7 Settings
+╭─ Settings ───────────────────────────────────────────────╮
+│ › editor.preset                 auto                     ┃
+│   editor.command                (not set)                ┃
+│   editor.kind                   auto                     ┃
+│   editor.wait                   false                    ┃
+│   tools.dcc                     (search automatically)   ┃
+│   tools.dpm                     (search automatically)   ┃
+│   ui.theme                      dark                     ┃
+│   ui.ascii                      off                      ┃
+│   ui.reduced_motion             false                    ┃
+│   ui.open_continue              false                    ┃
+│   checks.timeout_seconds        10                       ┃
+│   checks.build_timeout_seconds  120                      ┃
+│   checks.max_output_kib         256                      ┃
+│──────────────────────────────────────────────────────────│
+│ editor to open files with. Enter changes it.             │
+│                                                          │
+╰──────────────────────────────────────────────────────────╯
+ Enter change  Up Down move  ? help  q quit

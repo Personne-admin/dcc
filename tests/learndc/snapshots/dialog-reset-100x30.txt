@@ -1,0 +1,30 @@
+ Learn DC · Variables and mutation                                    1 of 6 completed ██░░░░░░░░░░
+
+
+
+
+
+
+
+
+
+
+                   ╭─ Reset to the starter files? ──────────────────────────────╮
+                   │ Your current files are copied to a backup first, then      │
+                   │ replaced by the starter files.                             │
+                   │ Type y and press Enter to reset.                           │
+                   │                                                            │
+                   │ Confirm: y_                                                │
+                   ╰────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+ type y confirm  Enter reset  Esc cancel

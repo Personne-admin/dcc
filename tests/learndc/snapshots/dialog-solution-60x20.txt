@@ -1,0 +1,20 @@
+  1  2  3 Exercise  4  5  6  7
+
+
+
+
+
+ ╭─ Show the solution? ───────────────────────────────────╮
+ │ Try the hints first: working it out yourself teaches   │
+ │ the most.                                              │
+ │ Looking is recorded in your progress; your files are   │
+ │ not changed.                                           │
+ │                                                        │
+ │ Press y for yes, n or Esc for no.                      │
+ ╰────────────────────────────────────────────────────────╯
+
+
+
+
+
+ y yes  n Esc no

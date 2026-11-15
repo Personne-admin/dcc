@@ -1,0 +1,30 @@
+ Learn DC · Learn                                                     1 of 6 completed ██░░░░░░░░░░
+╭─ Menu ───────────────╮╭─ Learn ──────────────────────────────────────────────────── 6 exercises ─╮
+│   1 Home             ││ status any  level any  track all  kind any                               │
+│ › 2 Learn            ││ search press / to search                                                 │
+│   3 Exercise         ││──────────────────────────────────────────────────────────────────────────│
+│   4 Progress         ││ Fundamentals  1 of 4 completed                                           │
+│   5 Bookmarks        ││   ✓ Your first DC program                      beginner     completed    │
+│   6 Doctor           ││   ◐ Variables and mutation                     beginner     in progress  │
+│   7 Settings         ││ › ○ Making decisions with if                   beginner     not started  │
+│                      ││   ○ Repeating work with loops                  intermediate not started  │
+│   ? Help             ││                                                                          │
+│                      ││ Types and data  0 of 2 completed                                         │
+│                      ││   ○ Grouping data in structs                   intermediate not started  │
+│                      ││   ○ Choosing with enums                        advanced     not started  │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││──────────────────────────────────────────────────────────────────────────│
+│  1 of 6 done         ││ Choose between two paths with a condition.                               │
+│  ███░░░░░░░░░░░░░░░  ││ implement function · 12 min · branches, output                           │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+
+ Enter open  / search  f d t y filter  b bookmark  ? help  q quit

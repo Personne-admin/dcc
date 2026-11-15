@@ -1,0 +1,30 @@
+ Learn DC · Learn                                                     1 of 6 completed ██░░░░░░░░░░
+╭─ Menu ───────────────╮╭─ Learn ───────────────────────────────────────────────────── 1 exercise ─╮
+│   1 Home             ││ status any  level any  track all  kind any                               │
+│ › 2 Learn            ││ search / struct_                                                         │
+│   3 Exercise         ││──────────────────────────────────────────────────────────────────────────│
+│   4 Progress         ││ › ○ Grouping data in structs                   intermediate not started  │
+│   5 Bookmarks        ││                                                                          │
+│   6 Doctor           ││                                                                          │
+│   7 Settings         ││                                                                          │
+│                      ││                                                                          │
+│   ? Help             ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││──────────────────────────────────────────────────────────────────────────│
+│  1 of 6 done         ││ Bundle related values into one type.                                     │
+│  ███░░░░░░░░░░░░░░░  ││ complete program · 20 min · structs, output                              │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+
+ type to search  Enter keep  Esc clear

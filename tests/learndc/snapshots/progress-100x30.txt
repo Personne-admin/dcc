@@ -1,0 +1,30 @@
+ Learn DC · Progress                                                  1 of 6 completed ██░░░░░░░░░░
+╭─ Menu ───────────────╮╭─ Progress ───────────────────────────────────────────────────────────────╮
+│   1 Home             ││ Overall  █████░░░░░░░░░░░░░░░░░░░░░░░░░  1 of 6 completed                │
+│   2 Learn            ││ 1 completed · 1 in progress · 4 not started                              │
+│   3 Exercise         ││                                                                          │
+│ › 4 Progress         ││ By path                                                                  │
+│   5 Bookmarks        ││   Fundamentals   ██████░░░░░░░░░░░░░░░░░░  1 of 4                        │
+│   6 Doctor           ││   Types and data ░░░░░░░░░░░░░░░░░░░░░░░░  0 of 2                        │
+│   7 Settings         ││                                                                          │
+│                      ││ Worth another look                                                       │
+│   ? Help             ││ › Variables and mutation  last check passed 2 of 3                       │
+│                      ││                                                                          │
+│                      ││ Bookmarks (1)                                                            │
+│                      ││   Grouping data in structs                                               │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│  1 of 6 done         ││                                                                          │
+│  ███░░░░░░░░░░░░░░░  ││                                                                          │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+
+ Enter open  Up Down move  ? help  q quit

@@ -1,0 +1,30 @@
+ Learn DC · Variables and mutation                                    1 of 6 completed ██░░░░░░░░░░
+╭─ Solution: Variables and mutation ────────────────────────────────── your files vs the solution ─╮
+│ src/main.dc                                                                                      │
+│      yours                                           solution                                    │
+│    1 module main;                                  1 module main;                                │
+│    2                                               2                                             │
+│    3 import std::io;                               3 import std::io;                             │
+│    4                                               4                                             │
+│    5 public i32 main()                             5 public i32 main()                           │
+│    6 {                                             6 {                                           │
+│    7     i32 price = 40;                           7     i32 price = 40;                         │
+│    8     i32 tax = 2;                              8     i32 tax = 2;                            │
+│    9     i32 total = price - tax;             ~    9     i32 total = price + tax;                │
+│   10     io::println("Total: {}", total);         10     io::println("Total: {}", total);        │
+│   11     return 0;                                11     return 0;                               │
+│   12 }                                            12 }                                           │
+│                                                                                                  │
+│ Why it works                                                                                     │
+│ Adding the tax to the price gives the total. The minus sign subtracted it instead.               │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ Up Down scroll  Esc close solution  ? help  q quit

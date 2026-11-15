@@ -1,0 +1,20 @@
+
+
+
+╭─ Welcome to learndc ─────────────────────── step 1 of 3 ─╮
+│ How would you describe yourself?                         │
+│ This only changes the tone of a few tips.                │
+│                                                          │
+│ › new: I am new to programming                           │
+│   experienced: I know another language                   │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│ Enter confirms, s skips this step, Esc skips the rest.   │
+╰──────────────────────────────────────────────────────────╯
+
+
+
+ Up Down choose  Enter next  s skip step  Esc skip all

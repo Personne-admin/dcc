@@ -1,0 +1,30 @@
+ Learn DC · Your first DC program                                     0 of 6 completed ░░░░░░░░░░░░
+╭─ Menu ───────────────╮╭─ › Instructions ───────────────╮╭─ Files ────────────────────────────────╮
+│   1 Home             ││ Your first DC program          ┃│   project.dcon                         │
+│   2 Learn            ││ beginner · 5 min               ┃│ › src/main.dc  entry                   │
+│ › 3 Exercise         ││ complete program               ┃╰────────────────────────────────────────╯
+│   4 Progress         ││ in progress                    ┃╭─ Preview: src/main.dc ─────────────────╮
+│   5 Bookmarks        ││                                ┃│  1 │ module main;                      ┃
+│   6 Doctor           ││ Print a greeting from a        ┃│  2 │                                   ┃
+│   7 Settings         ││ fallible main.                 ┃│  3 │ import std::io;                   ┃
+│                      ││                                ││  4 │                                   ┃
+│   ? Help             ││ Goals                          ││  5 │ public i32 main()                 ┃
+│                      ││ • Make every check pass        ││  6 │ {                                 ┃
+│                      ││ • Read the diagnostics before  ││  7 │     i32 price = 40;               ┃
+│                      ││   changing code                ││  8 │     i32 tax = 2;                  ┃
+│                      ││                                ││  9 │     i32 total = price - tax;      ┃
+│                      ││ A variable gives a name to a   ││ 10 │     io::println("Total: {}", to…  ┃
+│                      ││ value. Declare it with its     ││ 11 │     return 0;                     │
+│                      │╰────────────────────────────────╯╰────────────────────────────────────────╯
+│                      │╭─ Results ────────────────────────────────────────────────────────────────╮
+│                      ││ Cancelling ·  0s                                                         │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│  0 of 6 done         ││                                                                          │
+│  ░░░░░░░░░░░░░░░░░░  ││                                                                          │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+ Created your files. Press e to edit them, then c to check.
+ x cancel  e edit  Tab pane  w watch  ? help  q quit

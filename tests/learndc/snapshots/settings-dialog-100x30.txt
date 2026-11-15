@@ -1,0 +1,30 @@
+ Learn DC · Settings                                                  1 of 6 completed ██░░░░░░░░░░
+
+
+
+
+
+
+
+                   ╭─ editor.preset ────────────────────────────────────────────╮
+                   │ editor to open files with                                  │
+                   │                                                            │
+                   │ › auto                                                     │
+                   │   nvim                                                     │
+                   │   vim                                                      │
+                   │   nano                                                     │
+                   │   code                                                     │
+                   │   codium                                                   │
+                   │   notepad                                                  │
+                   │   custom                                                   │
+                   │   manual                                                   │
+                   ╰────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+ Up Down choose  Enter select  Esc cancel

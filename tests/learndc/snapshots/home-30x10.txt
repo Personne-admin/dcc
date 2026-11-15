@@ -1,0 +1,10 @@
+
+
+    learndc needs a larger
+            window
+ This one is 30x10; at least
+       40x12 is needed.
+     Enlarge it, or run:
+         learndc list
+
+

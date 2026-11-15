@@ -1,0 +1,30 @@
+ Learn DC · Bookmarks                                                 1 of 6 completed ██░░░░░░░░░░
+╭─ Menu ───────────────╮╭─ Bookmarks ──────────────────────────────────────────────────── 1 saved ─╮
+│   1 Home             ││ › ○ Grouping data in structs                   intermediate not started  │
+│   2 Learn            ││                                                                          │
+│   3 Exercise         ││                                                                          │
+│   4 Progress         ││                                                                          │
+│ › 5 Bookmarks        ││                                                                          │
+│   6 Doctor           ││                                                                          │
+│   7 Settings         ││                                                                          │
+│                      ││                                                                          │
+│   ? Help             ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│  1 of 6 done         ││                                                                          │
+│  ███░░░░░░░░░░░░░░░  ││                                                                          │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+
+ Enter open  b remove  ? help  q quit

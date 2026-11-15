@@ -1,0 +1,20 @@
+  1 Home  2  3  4  5  6  7
++- Home ---------------------------------------------------+
+| Continue where you left off                              |
+| > [~] Variables and mutation   beginner     in progress  |
+|     fundamentals/variables - fix behavior - last check ~ |
+|                                                          |
+| Recommended next                                         |
+|   [ ] Grouping data in struc~  intermediate not started  |
+|     types/structs - complete program - about 20 min      |
+|                                                          |
+| Your paths                                               |
+|   Fundamentals   ######------------------  1 of 4 done   |
+|   Types and data ------------------------  0 of 2 done   |
+|                                                          |
+| Recent                                                   |
+|   [x] Your first DC program    beginner     completed    |
+|                                                          |
+| Tip: 2 browses every exercise and ? lists every key.     |
++----------------------------------------------------------+
+ Enter open  Up Down move  n next  2 learn  ? help  q quit

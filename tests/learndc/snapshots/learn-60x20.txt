@@ -1,0 +1,20 @@
+  1  2 Learn  3  4  5  6  7
+╭─ Learn ──────────────────────────────────── 6 exercises ─╮
+│ status any  level any  track all  kind any               │
+│ search press / to search                                 │
+│──────────────────────────────────────────────────────────│
+│ Fundamentals  1 of 4 completed                           │
+│   ✓ Your first DC program      beginner     completed    │
+│   ◐ Variables and mutation     beginner     in progress  │
+│ › ○ Making decisions with if   beginner     not started  │
+│   ○ Repeating work with loops  intermediate not started  │
+│                                                          │
+│ Types and data  0 of 2 completed                         │
+│   ○ Grouping data in structs   intermediate not started  │
+│   ○ Choosing with enums        advanced     not started  │
+│                                                          │
+│──────────────────────────────────────────────────────────│
+│ Choose between two paths with a condition.               │
+│ implement function · 12 min · branches, output           │
+╰──────────────────────────────────────────────────────────╯
+ Enter open  / search  f d t y filter  b bookmark  ? help

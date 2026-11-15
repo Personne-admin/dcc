@@ -1,0 +1,24 @@
+ Learn DC · Variables and mutation                1 of 6 completed ██░░░░░░░░░░
+╭─ Menu ─────────╮╭─ › Instructions ───────────────────────────────────────────╮
+│   1 Home       ││ Variables and mutation                                     ┃
+│   2 Learn      ││ beginner · 10 min                                          ┃
+│ › 3 Exercise   ││ fix behavior                                               ┃
+│   4 Progress   ││ in progress                                                ┃
+│   5 Bookmarks  ││                                                            ┃
+│   6 Doctor     ││ Fix the arithmetic so the program prints the right total.  ┃
+│   7 Settings   ││                                                            │
+│                ││ Goals                                                      │
+│   ? Help       ││ • Make every check pass                                    │
+│                ││ • Read the diagnostics before changing code                │
+│                ││                                                            │
+│                ││ A variable gives a name to a value. Declare it with its    │
+│                │╰────────────────────────────────────────────────────────────╯
+│                │ Files   project.dcon  › src/main.dc
+│                │╭─ Results ──────────────────────────────────────────────────╮
+│                ││ No check yet. Press c to check your work.                  ┃
+│                ││                                                            ┃
+│  1 of 6 done   ││ Checks for this exercise                                   │
+│  ██░░░░░░░░░░  ││   ○ Compiles                                               │
+╰────────────────╯╰────────────────────────────────────────────────────────────╯
+
+ e edit  c check  r run  h hint  s solution  w watch  Tab pane  ? help  q quit

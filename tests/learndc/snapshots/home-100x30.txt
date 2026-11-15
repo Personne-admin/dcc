@@ -1,0 +1,30 @@
+ Learn DC · Home                                                      1 of 6 completed ██░░░░░░░░░░
+╭─ Menu ───────────────╮╭─ Home ───────────────────────────────────────────────────────────────────╮
+│ › 1 Home             ││ Continue where you left off                                              │
+│   2 Learn            ││ › ◐ Variables and mutation                     beginner     in progress  │
+│   3 Exercise         ││     fundamentals/variables · fix behavior · last check 2 of 3 passed     │
+│   4 Progress         ││                                                                          │
+│   5 Bookmarks        ││ Recommended next                                                         │
+│   6 Doctor           ││   ○ Grouping data in structs                   intermediate not started  │
+│   7 Settings         ││     types/structs · complete program · about 20 min                      │
+│                      ││                                                                          │
+│   ? Help             ││ Your paths                                                               │
+│                      ││   Fundamentals   ██████░░░░░░░░░░░░░░░░░░  1 of 4 done                   │
+│                      ││   Types and data ░░░░░░░░░░░░░░░░░░░░░░░░  0 of 2 done                   │
+│                      ││                                                                          │
+│                      ││ Recent                                                                   │
+│                      ││   ✓ Your first DC program                      beginner     completed    │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│  1 of 6 done         ││                                                                          │
+│  ███░░░░░░░░░░░░░░░  ││ Tip: 2 browses every exercise and ? lists every key.                     │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+
+ Enter open  Up Down move  n next  2 learn  ? help  q quit

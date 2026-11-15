@@ -188,7 +188,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	@passed=0; failed=0; \
 	for bin in $(ALL_TEST_BINS); do \
 		name=$$(basename $$bin); \
-		if DCC_TEST_DPM_SCHEMA="$(TOPLEVEL)/dpm/schema" DCC_TEST_DPM_CASES="$(TOPLEVEL)/tests/dpm/manifests" DCC_TEST_DPM_GZIP="$(TOPLEVEL)/tests/dpm/gzip" DCC_TEST_DPM_HELP="$(TOPLEVEL)/tests/dpm/help" DCC_TEST_DPM_TEMPLATES="$(TOPLEVEL)/tests/dpm/templates" DCC_TEST_LEARNDC_CONTENT="$(TOPLEVEL)/learndc/content" DCC_TEST_LIBDCEXT_SRC="$(TOPLEVEL)/libdcext" DCC_TEST_LIBDCEXT_A="$(BUILD_DIR)/lib/libdcext-linux-custom.a" $$bin; then \
+		if DCC_TEST_DPM_SCHEMA="$(TOPLEVEL)/dpm/schema" DCC_TEST_DPM_CASES="$(TOPLEVEL)/tests/dpm/manifests" DCC_TEST_DPM_GZIP="$(TOPLEVEL)/tests/dpm/gzip" DCC_TEST_DPM_HELP="$(TOPLEVEL)/tests/dpm/help" DCC_TEST_DPM_TEMPLATES="$(TOPLEVEL)/tests/dpm/templates" DCC_TEST_LEARNDC_CONTENT="$(TOPLEVEL)/learndc/content" DCC_TEST_LEARNDC_SNAPSHOTS="$(TOPLEVEL)/tests/learndc/snapshots" DCC_TEST_LIBDCEXT_SRC="$(TOPLEVEL)/libdcext" DCC_TEST_LIBDCEXT_A="$(BUILD_DIR)/lib/libdcext-linux-custom.a" $$bin; then \
 			passed=$$((passed+1)); \
 		else \
 			failed=$$((failed+1)); \

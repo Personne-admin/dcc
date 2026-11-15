@@ -1,0 +1,30 @@
+ Learn DC · Settings                                                  1 of 6 completed ██░░░░░░░░░░
+╭─ Menu ───────────────╮╭─ Settings ───────────────────────────────────────────────────────────────╮
+│   1 Home             ││ › editor.preset                 auto                                     │
+│   2 Learn            ││   editor.command                (not set)                                │
+│   3 Exercise         ││   editor.kind                   auto                                     │
+│   4 Progress         ││   editor.wait                   false                                    │
+│   5 Bookmarks        ││   tools.dcc                     (search automatically)                   │
+│   6 Doctor           ││   tools.dpm                     (search automatically)                   │
+│ › 7 Settings         ││   ui.theme                      dark                                     │
+│                      ││   ui.ascii                      off                                      │
+│   ? Help             ││   ui.reduced_motion             false                                    │
+│                      ││   ui.open_continue              false                                    │
+│                      ││   checks.timeout_seconds        10                                       │
+│                      ││   checks.build_timeout_seconds  120                                      │
+│                      ││   checks.max_output_kib         256                                      │
+│                      ││   checks.watch_debounce_ms      400                                      │
+│                      ││   learner.level                 new                                      │
+│                      ││   onboarding.done               true                                     │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││──────────────────────────────────────────────────────────────────────────│
+│  1 of 6 done         ││ editor to open files with. Enter changes it.                             │
+│  ███░░░░░░░░░░░░░░░  ││                                                                          │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+
+ Enter change  Up Down move  ? help  q quit

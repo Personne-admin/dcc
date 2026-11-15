@@ -16,6 +16,8 @@ import learndc.editor;
 import learndc.doctor;
 import learndc.app;
 import learndc.cli;
+import learndc.tui.model;
+import learndc.tui;
 import dcc.host.process;
 
 #define main harness_main
@@ -4854,6 +4856,990 @@ TEST_CASE("cli never colors without a terminal and honors NO_COLOR")
     CHECK(f.run({"list", "--no-color"}, std::nullopt, true).out.find("\x1b[") == std::string::npos);
 }
 
+SECTION("learndc.tui");
+
+namespace
+{
+    namespace tm = learndc::tui::model;
+
+    std::string tui_exercise_toml(std::string_view track, std::string_view name, std::string_view title, std::string_view summary, std::string_view difficulty,
+                                  std::string_view kind, int minutes, std::string_view prerequisites)
+    {
+        return std::format(R"(schema = 1
+id = "{0}/{1}"
+revision = 1
+title = "{2}"
+summary = "{3}"
+kind = "{5}"
+chapter = "intro"
+difficulty = "{4}"
+estimated_minutes = {6}
+concepts = ["{1}", "output"]
+tags = []
+objectives = ["Make every check pass", "Read the diagnostics before changing code"]
+entry_file = "src/main.dc"
+product = "prog"
+prerequisites = {7}
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the total"
+expect_stdout = "Total: 42\n"
+
+[[checks]]
+kind = "run"
+name = "Handles zero tax"
+expect_stdout = "Total: 40\n"
+)",
+                           track, name, title, summary, difficulty, kind, minutes, prerequisites);
+    }
+
+    constexpr std::string_view tui_readme =
+        "# Variables and mutation\n\nA variable gives a name to a value. Declare it with its type, then use the name wherever you need the value.\n\n"
+        "- Declare `price` and `tax` as `i32`.\n- Add them together into `total`.\n\n```dc\ni32 total = 40 + 2;\n```\n\n"
+        "Run the checks when you think you are done.\n";
+
+    constexpr std::string_view tui_main_source =
+        "module main;\n\nimport std::io;\n\npublic i32 main()\n{\n    i32 price = 40;\n    i32 tax = 2;\n    i32 total = price - tax;\n"
+        "    io::println(\"Total: {}\", total);\n    return 0;\n}\n";
+
+    constexpr std::string_view tui_solution_source =
+        "module main;\n\nimport std::io;\n\npublic i32 main()\n{\n    i32 price = 40;\n    i32 tax = 2;\n    i32 total = price + tax;\n"
+        "    io::println(\"Total: {}\", total);\n    return 0;\n}\n";
+
+    void add_tui_exercise(catalog::ContentSource& s, std::string_view track, std::string_view name, std::string_view title, std::string_view summary,
+                          std::string_view difficulty, std::string_view kind, int minutes, std::string_view prerequisites)
+    {
+        auto const dir = std::format("tracks/{}/{}/", track, name);
+        s.add(dir + "exercise.toml", tui_exercise_toml(track, name, title, summary, difficulty, kind, minutes, prerequisites));
+        s.add(dir + "README.md", std::string(tui_readme));
+        s.add(dir + "hints.md",
+              "## Hint 1\n\nRead the failing check: it names the value it expected.\n\n## Hint 2\n\nLook at the operator on the line that computes total.\n\n"
+              "## Hint 3\n\nTax is added to the price, not subtracted from it.\n");
+        s.add(dir + "explanation.md", "Adding the tax to the price gives the total. The minus sign subtracted it instead.\n");
+        s.add(dir + "starter/project.dcon", "dpm::v1::Project { name = \"prog\" }\n");
+        s.add(dir + "starter/src/main.dc", std::string(tui_main_source));
+        s.add(dir + "solution/src/main.dc", std::string(tui_solution_source));
+    }
+
+    catalog::ContentSource tui_source()
+    {
+        catalog::ContentSource s;
+        s.label = "fixture";
+        s.add("catalog.toml", "schema = 1\ntitle = \"Learn DC\"\ntracks = [\"fundamentals\", \"types\"]\n");
+        s.add("tracks/fundamentals/track.toml",
+              "schema = 1\nid = \"fundamentals\"\ntitle = \"Fundamentals\"\nsummary = \"First steps\"\nexercises = [\"hello-world\", \"variables\", \"branches\", \"loops\"]\n");
+        s.add("tracks/types/track.toml", "schema = 1\nid = \"types\"\ntitle = \"Types and data\"\nsummary = \"Model your data\"\nexercises = [\"structs\", \"enums\"]\n");
+        add_tui_exercise(s, "fundamentals", "hello-world", "Your first DC program", "Print a greeting from a fallible main.", "beginner", "complete-program", 5, "[]");
+        add_tui_exercise(s, "fundamentals", "variables", "Variables and mutation", "Fix the arithmetic so the program prints the right total.", "beginner",
+                         "fix-behavior", 10, "[\"fundamentals/hello-world\"]");
+        add_tui_exercise(s, "fundamentals", "branches", "Making decisions with if", "Choose between two paths with a condition.", "beginner",
+                         "implement-function", 12, "[\"fundamentals/variables\"]");
+        add_tui_exercise(s, "fundamentals", "loops", "Repeating work with loops", "Sum a range with a for loop.", "intermediate", "implement-function", 15,
+                         "[\"fundamentals/branches\"]");
+        add_tui_exercise(s, "types", "structs", "Grouping data in structs", "Bundle related values into one type.", "intermediate", "complete-program", 20,
+                         "[\"fundamentals/hello-world\"]");
+        add_tui_exercise(s, "types", "enums", "Choosing with enums", "Model a closed set of cases.", "advanced", "refactor", 25, "[\"types/structs\"]");
+        return s;
+    }
+
+    struct TuiWorld
+    {
+        TempDir temp;
+        std::filesystem::path home;
+        std::filesystem::path content;
+        std::unique_ptr<learndc::app::Context> ctx;
+
+        explicit TuiWorld(bool with_progress = true, std::function<void(settings::Settings&)> const& tweak = {}, platform::Env env_in = {})
+        {
+            home = temp.path / "home";
+            content = temp.path / "content";
+            write_source(tui_source(), content);
+            std::filesystem::create_directories(home);
+            settings::Settings st;
+            st.onboarding_done = true;
+            st.ui_open_continue = false;
+            st.ui_ascii = "off";
+            if (tweak)
+                tweak(st);
+            REQUIRE(settings::save(home / "config.json", st).has_value());
+            learndc::app::OpenOptions oo;
+            oo.home = home;
+            oo.content_dir = content;
+            oo.env = env_in.empty() ? platform::Env{{"PATH", platform::path_to_utf8(temp.path / "nowhere")}, {"LANG", "C.UTF-8"}} : std::move(env_in);
+            oo.self_exe = std::nullopt;
+            auto opened = learndc::app::open(oo);
+            REQUIRE(opened.has_value());
+            ctx = std::make_unique<learndc::app::Context>(std::move(*opened));
+            if (with_progress)
+                seed();
+        }
+
+        void seed()
+        {
+            constexpr std::string_view stamp = "2026-01-01T00:00:00Z";
+            auto const* hello = ctx->catalog.find("fundamentals/hello-world");
+            auto const* variables = ctx->catalog.find("fundamentals/variables");
+            REQUIRE(hello != nullptr);
+            REQUIRE(variables != nullptr);
+            REQUIRE(learndc::app::start_exercise(*ctx, *hello, std::nullopt).has_value());
+            REQUIRE(learndc::app::start_exercise(*ctx, *variables, std::nullopt).has_value());
+            auto done = ctx->store.update([&](progress::Progress& p) {
+                progress::record_check(p, "fundamentals/hello-world", 3, 3, 1, stamp);
+                progress::record_check(p, "fundamentals/variables", 1, 3, 1, stamp);
+                progress::record_check(p, "fundamentals/variables", 2, 3, 1, stamp);
+                progress::set_active(p, "fundamentals/variables");
+                progress::toggle_bookmark(p, "types/structs");
+            });
+            REQUIRE(done.has_value());
+        }
+
+        [[nodiscard]] std::string exercise_file(std::string_view id, std::string_view rel) const
+        {
+            auto const* ex = ctx->catalog.find(id);
+            auto const root = learndc::workspace::default_root(ctx->dirs, *ex);
+            return platform::read_file(root / platform::path_from_utf8(rel)).value_or("<missing>");
+        }
+    };
+
+    std::vector<tm::Effect> press(tm::Model& m, std::string_view key)
+    {
+        return m.handle(tm::Key{std::string(key)});
+    }
+
+    void type_text(tm::Model& m, std::string_view s)
+    {
+        for (std::size_t i = 0; i < s.size();)
+        {
+            auto const d = text::decode_utf8(s, i);
+            press(m, s.substr(i, d.length));
+            i += d.length;
+        }
+    }
+
+    template <typename E>
+    bool has_effect(std::vector<tm::Effect> const& fx)
+    {
+        return std::ranges::any_of(fx, [](tm::Effect const& e) { return std::holds_alternative<E>(e); });
+    }
+
+    template <typename E>
+    E const* effect_of(std::vector<tm::Effect> const& fx)
+    {
+        for (auto const& e : fx)
+            if (auto const* p = std::get_if<E>(&e))
+                return p;
+        return nullptr;
+    }
+
+    runner::CheckReport failing_report(std::string const& root)
+    {
+        runner::CheckReport r;
+        r.exercise = "fundamentals/variables";
+        r.workspace = root;
+        r.backend = "dpm";
+        r.passed = 2;
+        r.total = 3;
+        r.outcome = runner::Outcome::Failed;
+        r.duration_ms = 310;
+        runner::CheckResult build;
+        build.name = "Compiles";
+        build.kind = catalog::CheckKind::Build;
+        build.verdict = runner::Verdict::Pass;
+        runner::CheckResult compare;
+        compare.name = "Prints the total";
+        compare.kind = catalog::CheckKind::Run;
+        compare.verdict = runner::Verdict::Fail;
+        compare.stage = runner::Stage::Compare;
+        compare.summary = "The program output differs from what the exercise expects.";
+        compare.expected = "Total: 42\n";
+        compare.observed = "Total: 38 \n";
+        compare.expected_visible = text::visible_whitespace(compare.expected);
+        compare.observed_visible = text::visible_whitespace(compare.observed);
+        compare.hint = "Check which operator combines the price and the tax.";
+        runner::CheckResult zero;
+        zero.name = "Handles zero tax";
+        zero.kind = catalog::CheckKind::Run;
+        zero.verdict = runner::Verdict::Pass;
+        r.results = {build, compare, zero};
+        return r;
+    }
+
+    runner::CheckReport build_error_report(std::string const& root)
+    {
+        runner::CheckReport r;
+        r.exercise = "fundamentals/variables";
+        r.workspace = root;
+        r.backend = "dpm";
+        r.passed = 0;
+        r.total = 3;
+        r.outcome = runner::Outcome::Failed;
+        r.duration_ms = 90;
+        runner::CheckResult build;
+        build.name = "Compiles";
+        build.kind = catalog::CheckKind::Build;
+        build.verdict = runner::Verdict::Fail;
+        build.stage = runner::Stage::Build;
+        build.summary = "The program does not compile.";
+        build.diagnostics = "error: unknown name `totl`\n  --> " + root + "/src/main.dc:10:32\n   |\n10 |     io::println(\"Total: {}\", totl);\n   |                               ^^^^\n";
+        runner::Location loc;
+        loc.file = root + "/src/main.dc";
+        loc.line = 10;
+        loc.column = 32;
+        loc.severity = "error";
+        loc.message = "unknown name `totl`";
+        build.locations.push_back(loc);
+        runner::CheckResult second;
+        second.name = "Prints the total";
+        second.verdict = runner::Verdict::Skipped;
+        second.summary = "not run because the build failed";
+        runner::CheckResult third = second;
+        third.name = "Handles zero tax";
+        r.results = {build, second, third};
+        return r;
+    }
+
+    doctor::DoctorReport fixed_doctor()
+    {
+        doctor::DoctorReport r;
+        r.items.push_back({"dcc", "dcc", doctor::Status::Ok, "found next to learndc, version 0.6.0", ""});
+        r.items.push_back({"dpm", "dpm", doctor::Status::Ok, "found next to learndc, version 0.6.0", ""});
+        r.items.push_back({"dccd", "dccd", doctor::Status::Info, "not found (optional)", ""});
+        r.items.push_back({"editor", "editor", doctor::Status::Warn, "no editor was found, so learndc shows file paths instead", "Install nvim, vim or nano, or set one in Settings."});
+        r.items.push_back({"terminal", "terminal", doctor::Status::Ok, "interactive terminal, 100x30, UTF-8", ""});
+        r.items.push_back({"safety", "safety", doctor::Status::Info, std::string(runner::safety_note_text), ""});
+        return r;
+    }
+
+    std::filesystem::path snapshot_dir()
+    {
+        if (char const* dir = std::getenv("DCC_TEST_LEARNDC_SNAPSHOTS"); dir && *dir)
+            return platform::path_from_utf8(dir);
+        return std::filesystem::path(__FILE__).parent_path().parent_path() / "learndc" / "snapshots";
+    }
+
+    void check_snapshot(std::string const& name, std::string const& rendered, int width, int height)
+    {
+        auto const lines = text::split_lines(rendered);
+        CHECK_EQ(static_cast<int>(lines.size()), height);
+        for (auto const& line : lines)
+            if (static_cast<int>(text::display_width(line)) > width)
+            {
+                CHECK(false);
+                std::println(std::cerr, "      {}: line wider than {}: {}", name, width, line);
+                break;
+            }
+        CHECK(rendered.find('\x1b') == std::string::npos);
+        auto const file = snapshot_dir() / (name + ".txt");
+        if (char const* update = std::getenv("LEARNDC_UPDATE_SNAPSHOTS"); update && *update && std::string_view(update) != "0")
+        {
+            std::filesystem::create_directories(file.parent_path());
+            std::ofstream out(file, std::ios::binary | std::ios::trunc);
+            out << rendered;
+            return;
+        }
+        auto expected = platform::read_file(file);
+        if (!expected)
+        {
+            std::println(std::cerr, "      missing snapshot {} (run with LEARNDC_UPDATE_SNAPSHOTS=1)", platform::path_to_utf8(file));
+            CHECK(false);
+            return;
+        }
+        if (*expected != rendered)
+            std::println(std::cerr, "      snapshot {} differs\n--- expected\n{}--- actual\n{}", name, *expected, rendered);
+        CHECK(*expected == rendered);
+    }
+
+    void snap(tm::Model& m, std::string const& base, std::vector<std::pair<int, int>> const& sizes)
+    {
+        for (auto const& [w, h] : sizes)
+        {
+            m.handle(tm::Resize{w, h});
+            check_snapshot(std::format("{}-{}x{}", base, w, h), learndc::tui::render_snapshot(m, w, h), w, h);
+        }
+    }
+
+    std::vector<std::pair<int, int>> const standard_sizes = {{100, 30}, {80, 24}, {60, 20}, {30, 10}};
+} // namespace
+
+TEST_CASE("tui layout modes follow the terminal size thresholds")
+{
+    CHECK(tm::layout_for({100, 30}) == tm::LayoutMode::Wide);
+    CHECK(tm::layout_for({140, 50}) == tm::LayoutMode::Wide);
+    CHECK(tm::layout_for({99, 30}) == tm::LayoutMode::Normal);
+    CHECK(tm::layout_for({100, 29}) == tm::LayoutMode::Normal);
+    CHECK(tm::layout_for({80, 24}) == tm::LayoutMode::Normal);
+    CHECK(tm::layout_for({79, 24}) == tm::LayoutMode::Compact);
+    CHECK(tm::layout_for({80, 23}) == tm::LayoutMode::Compact);
+    CHECK(tm::layout_for({40, 12}) == tm::LayoutMode::Compact);
+    CHECK(tm::layout_for({39, 12}) == tm::LayoutMode::TooSmall);
+    CHECK(tm::layout_for({40, 11}) == tm::LayoutMode::TooSmall);
+    CHECK(tm::layout_for({200, 8}) == tm::LayoutMode::TooSmall);
+}
+
+TEST_CASE("tui starts on onboarding, the active exercise or home")
+{
+    {
+        TuiWorld w(false, [](settings::Settings& s) { s.onboarding_done = false; });
+        tm::Model m(*w.ctx, {100, 30});
+        CHECK(m.screen == tm::Screen::Onboarding);
+    }
+    {
+        TuiWorld w(true, [](settings::Settings& s) { s.ui_open_continue = true; });
+        tm::Model m(*w.ctx, {100, 30});
+        CHECK(m.screen == tm::Screen::Exercise);
+        REQUIRE(m.exercise.ex != nullptr);
+        CHECK_EQ(m.exercise.ex->id, "fundamentals/variables");
+        press(m, "Esc");
+        CHECK(m.screen == tm::Screen::Home);
+    }
+    {
+        TuiWorld w;
+        tm::Model m(*w.ctx, {100, 30});
+        CHECK(m.screen == tm::Screen::Home);
+    }
+}
+
+TEST_CASE("tui onboarding saves choices, can be skipped and then routes home")
+{
+    TuiWorld w(false, [](settings::Settings& s) { s.onboarding_done = false; });
+    tm::Model m(*w.ctx, {100, 30});
+    REQUIRE(m.screen == tm::Screen::Onboarding);
+    press(m, "Down");
+    press(m, "Enter");
+    CHECK_EQ(w.ctx->settings.learner_level, "experienced");
+    CHECK_EQ(m.onboarding.step, 1);
+    press(m, "s");
+    CHECK_EQ(m.onboarding.step, 2);
+    press(m, "Down");
+    press(m, "Enter");
+    CHECK_EQ(w.ctx->settings.ui_theme, "light");
+    CHECK(w.ctx->settings.onboarding_done);
+    CHECK(m.screen == tm::Screen::Home);
+    auto saved = settings::load(w.home / "config.json");
+    REQUIRE(saved.has_value());
+    CHECK(saved->onboarding_done);
+    CHECK_EQ(saved->learner_level, "experienced");
+
+    TuiWorld skipped(false, [](settings::Settings& s) { s.onboarding_done = false; });
+    tm::Model m2(*skipped.ctx, {100, 30});
+    press(m2, "Esc");
+    CHECK(m2.screen == tm::Screen::Home);
+    CHECK(skipped.ctx->settings.onboarding_done);
+}
+
+TEST_CASE("tui navigation uses the number keys and an escape stack")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "2");
+    CHECK(m.screen == tm::Screen::Learn);
+    press(m, "4");
+    CHECK(m.screen == tm::Screen::Progress);
+    press(m, "5");
+    CHECK(m.screen == tm::Screen::Bookmarks);
+    press(m, "6");
+    CHECK(m.screen == tm::Screen::Doctor);
+    press(m, "7");
+    CHECK(m.screen == tm::Screen::Settings);
+    press(m, "1");
+    CHECK(m.screen == tm::Screen::Home);
+    press(m, "3");
+    CHECK(m.screen == tm::Screen::Exercise);
+    REQUIRE(m.exercise.ex != nullptr);
+    press(m, "?");
+    CHECK(m.screen == tm::Screen::Help);
+    CHECK(m.help_from == tm::Screen::Exercise);
+    press(m, "Esc");
+    CHECK(m.screen == tm::Screen::Exercise);
+    press(m, "Esc");
+    CHECK(m.screen == tm::Screen::Home);
+    press(m, "Esc");
+    CHECK(m.screen == tm::Screen::Home);
+}
+
+TEST_CASE("tui keeps list focus across screens filters and resizes")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "2");
+    press(m, "Down");
+    press(m, "Down");
+    auto const picked = m.learn_id;
+    CHECK(!picked.empty());
+    press(m, "Enter");
+    CHECK(m.screen == tm::Screen::Exercise);
+    CHECK_EQ(m.exercise.ex->id, picked);
+    press(m, "Esc");
+    CHECK(m.screen == tm::Screen::Learn);
+    CHECK_EQ(m.learn_id, picked);
+    m.handle(tm::Resize{60, 20});
+    CHECK_EQ(m.learn_id, picked);
+    m.handle(tm::Resize{140, 40});
+    CHECK_EQ(m.learn_id, picked);
+    CHECK(m.layout() == tm::LayoutMode::Wide);
+    press(m, "f");
+    CHECK(m.filters.status == tm::StatusFilter::NotStarted);
+    auto const list = m.learn_list();
+    CHECK(!list.empty());
+    CHECK(std::ranges::all_of(list, [&](auto const* e) { return m.status_of(e->id) == progress::Status::NotStarted; }));
+    CHECK(std::ranges::any_of(list, [&](auto const* e) { return e->id == m.learn_id; }));
+    press(m, "0");
+    CHECK(!m.filters.any());
+    press(m, "1");
+    press(m, "2");
+    CHECK(m.screen == tm::Screen::Learn);
+}
+
+TEST_CASE("tui search captures keys until escape or enter")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "2");
+    auto const before = m.learn_list().size();
+    auto fx = press(m, "/");
+    CHECK(m.searching);
+    fx = press(m, "q");
+    CHECK(m.screen == tm::Screen::Learn);
+    CHECK(!has_effect<tm::Quit>(fx));
+    CHECK_EQ(m.query, "q");
+    press(m, "Backspace");
+    type_text(m, "struct");
+    CHECK(m.searching);
+    CHECK_EQ(m.query, "struct");
+    auto const list = m.learn_list();
+    REQUIRE(!list.empty());
+    CHECK_EQ(list.front()->id, "types/structs");
+    CHECK_EQ(m.learn_id, "types/structs");
+    press(m, "5");
+    CHECK(m.screen == tm::Screen::Learn);
+    CHECK_EQ(m.query, "struct5");
+    press(m, "Backspace");
+    press(m, "Enter");
+    CHECK(!m.searching);
+    CHECK_EQ(m.query, "struct");
+    fx = press(m, "q");
+    CHECK(has_effect<tm::Quit>(fx));
+    TuiWorld w2;
+    tm::Model m2(*w2.ctx, {100, 30});
+    press(m2, "2");
+    press(m2, "/");
+    type_text(m2, "zzzz");
+    CHECK(m2.learn_list().empty());
+    press(m2, "Esc");
+    CHECK(!m2.searching);
+    CHECK(m2.query.empty());
+    CHECK_EQ(m2.learn_list().size(), before);
+    CHECK(m2.screen == tm::Screen::Learn);
+}
+
+TEST_CASE("tui exercise keys emit effects for edit check cancel run and watch")
+{
+    TuiWorld w(true, [](settings::Settings& s) { s.editor_preset = "nvim"; });
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    REQUIRE(m.screen == tm::Screen::Exercise);
+    REQUIRE(m.exercise.ws.has_value());
+
+    auto fx = press(m, "e");
+    auto const* edit = effect_of<tm::LaunchEditor>(fx);
+    REQUIRE(edit != nullptr);
+    CHECK(edit->file.ends_with("src/main.dc"));
+    CHECK(!edit->folder);
+    CHECK(edit->choice.kind == editor::Kind::Terminal);
+
+    fx = press(m, "o");
+    CHECK(!has_effect<tm::LaunchEditor>(fx));
+    CHECK(!m.toasts.empty());
+
+    fx = press(m, "c");
+    auto const* check = effect_of<tm::StartCheck>(fx);
+    REQUIRE(check != nullptr);
+    CHECK_EQ(check->id, "fundamentals/variables");
+    CHECK(m.exercise.phase == tm::CheckPhase::Running);
+    fx = press(m, "c");
+    CHECK(fx.empty());
+    fx = press(m, "r");
+    CHECK(fx.empty());
+    m.handle(tm::CheckStage{"Building"});
+    CHECK_EQ(m.exercise.stage_text, "Building");
+    fx = press(m, "x");
+    CHECK(has_effect<tm::CancelCheck>(fx));
+    CHECK(m.exercise.phase == tm::CheckPhase::Cancelling);
+    runner::CheckReport cancelled;
+    cancelled.exercise = "fundamentals/variables";
+    cancelled.outcome = runner::Outcome::Cancelled;
+    cancelled.total = 3;
+    fx = m.handle(tm::CheckDone{cancelled});
+    CHECK(m.exercise.phase == tm::CheckPhase::Idle);
+    CHECK(fx.empty());
+
+    fx = press(m, "r");
+    CHECK(has_effect<tm::RunProgram>(fx));
+
+    fx = press(m, "w");
+    CHECK(has_effect<tm::StartWatch>(fx));
+    CHECK(m.exercise.watching);
+    fx = press(m, "w");
+    CHECK(has_effect<tm::StopWatch>(fx));
+    CHECK(!m.exercise.watching);
+
+    fx = press(m, "c");
+    REQUIRE(has_effect<tm::StartCheck>(fx));
+    fx = press(m, "CtrlC");
+    CHECK(has_effect<tm::CancelCheck>(fx));
+    CHECK(!has_effect<tm::Quit>(fx));
+    CHECK(!m.quit_requested);
+    fx = press(m, "CtrlC");
+    CHECK(has_effect<tm::Quit>(fx));
+    CHECK(m.quit_requested);
+}
+
+TEST_CASE("tui ctrl c and q behave when no check is running or one is")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    auto fx = press(m, "CtrlC");
+    CHECK(has_effect<tm::Quit>(fx));
+
+    tm::Model running(*w.ctx, {100, 30});
+    press(running, "3");
+    press(running, "c");
+    REQUIRE(running.exercise.phase == tm::CheckPhase::Running);
+    fx = press(running, "q");
+    CHECK(!has_effect<tm::Quit>(fx));
+    CHECK(running.dialog.kind == tm::DialogKind::QuitRunning);
+    fx = press(running, "n");
+    CHECK(!running.dialog.open());
+    CHECK(!has_effect<tm::Quit>(fx));
+    fx = press(running, "q");
+    fx = press(running, "y");
+    CHECK(has_effect<tm::CancelCheck>(fx));
+    CHECK(has_effect<tm::Quit>(fx));
+}
+
+TEST_CASE("tui marks results stale when files change and coalesces watch reruns")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "c");
+    auto const root = m.exercise.ws->root;
+    auto fx = m.handle(tm::CheckDone{failing_report(platform::path_to_utf8(root))});
+    CHECK(m.exercise.report.has_value());
+    CHECK(!m.exercise.stale);
+    CHECK(m.exercise.phase == tm::CheckPhase::Idle);
+    {
+        auto p = learndc::app::load_progress(*w.ctx);
+        REQUIRE(p.has_value());
+        CHECK_EQ(p->exercises.at("fundamentals/variables").attempts, 3);
+        CHECK_EQ(p->exercises.at("fundamentals/variables").last_passed, 2);
+    }
+    fx = m.handle(tm::FilesChanged{});
+    CHECK(m.exercise.stale);
+    CHECK(fx.empty());
+
+    press(m, "w");
+    fx = m.handle(tm::FilesChanged{});
+    auto const* start = effect_of<tm::StartCheck>(fx);
+    REQUIRE(start != nullptr);
+    CHECK(m.exercise.phase == tm::CheckPhase::Running);
+    fx = m.handle(tm::FilesChanged{});
+    CHECK(fx.empty());
+    fx = m.handle(tm::FilesChanged{});
+    CHECK(fx.empty());
+    CHECK(m.exercise.rerun_pending);
+    fx = m.handle(tm::CheckDone{failing_report(platform::path_to_utf8(root))});
+    CHECK(has_effect<tm::StartCheck>(fx));
+    CHECK(m.exercise.phase == tm::CheckPhase::Running);
+    CHECK(m.exercise.stale);
+    fx = m.handle(tm::CheckDone{failing_report(platform::path_to_utf8(root))});
+    CHECK(fx.empty());
+    CHECK(!m.exercise.stale);
+    fx = press(m, "Esc");
+    CHECK(has_effect<tm::StopWatch>(fx));
+    CHECK(!m.exercise.watching);
+}
+
+TEST_CASE("tui detects edits made by an external editor")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "c");
+    auto const root = m.exercise.ws->root;
+    m.handle(tm::CheckDone{failing_report(platform::path_to_utf8(root))});
+    CHECK(!m.exercise.stale);
+    m.handle(tm::EditorDone{true, ""});
+    CHECK(!m.exercise.stale);
+    write_file(root / "src" / "main.dc", "module main;\n// changed\n");
+    m.handle(tm::EditorDone{false, "the editor exited with code 1"});
+    CHECK(m.exercise.stale);
+    REQUIRE(!m.toasts.empty());
+    CHECK(m.toasts.front().error);
+    CHECK(m.toasts.front().text.find("code 1") != std::string::npos);
+    bool found = false;
+    for (auto const& line : m.exercise.preview_lines)
+        found = found || line == "// changed";
+    CHECK(found);
+}
+
+TEST_CASE("tui completing an exercise records progress and offers the next one")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "c");
+    runner::CheckReport pass;
+    pass.exercise = "fundamentals/variables";
+    pass.outcome = runner::Outcome::Passed;
+    pass.passed = 3;
+    pass.total = 3;
+    pass.duration_ms = 420;
+    m.handle(tm::CheckDone{pass});
+    CHECK(m.status_of("fundamentals/variables") == progress::Status::Completed);
+    REQUIRE(!m.toasts.empty());
+    CHECK(m.toasts.front().text.find("completed") != std::string::npos);
+    auto fx = press(m, "n");
+    CHECK(fx.empty());
+    CHECK(m.exercise.ex->id != "fundamentals/variables");
+}
+
+TEST_CASE("tui hints persist and the solution is shown after a confirmation without touching files")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    auto const before = w.exercise_file("fundamentals/variables", "src/main.dc");
+    press(m, "h");
+    CHECK_EQ(m.exercise.hints_shown, 1);
+    press(m, "h");
+    CHECK_EQ(m.exercise.hints_shown, 2);
+    {
+        auto p = learndc::app::load_progress(*w.ctx);
+        REQUIRE(p.has_value());
+        CHECK_EQ(p->exercises.at("fundamentals/variables").hint_level, 2);
+        CHECK(!p->exercises.at("fundamentals/variables").solution_viewed);
+    }
+    press(m, "s");
+    CHECK(m.dialog.kind == tm::DialogKind::Solution);
+    CHECK(!m.exercise.solution.has_value());
+    press(m, "n");
+    CHECK(!m.dialog.open());
+    CHECK(!m.exercise.solution.has_value());
+    press(m, "s");
+    press(m, "y");
+    REQUIRE(m.exercise.solution.has_value());
+    REQUIRE(m.exercise.solution->files.size() == 1);
+    CHECK(!m.exercise.solution->files[0].rows.empty());
+    CHECK(m.exercise.solution->files[0].unified.find("+    i32 total = price + tax;") != std::string::npos);
+    CHECK(m.exercise.solution->explanation.find("Adding the tax") != std::string::npos);
+    CHECK_EQ(w.exercise_file("fundamentals/variables", "src/main.dc"), before);
+    {
+        auto p = learndc::app::load_progress(*w.ctx);
+        REQUIRE(p.has_value());
+        CHECK(p->exercises.at("fundamentals/variables").solution_viewed);
+    }
+    press(m, "Esc");
+    CHECK(!m.exercise.solution.has_value());
+    CHECK(m.screen == tm::Screen::Exercise);
+}
+
+TEST_CASE("tui reset needs a typed y and always makes a backup")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    auto const root = m.exercise.ws->root;
+    write_file(root / "src" / "main.dc", "module main;\n// my work\n");
+    press(m, "R");
+    CHECK(m.dialog.kind == tm::DialogKind::Reset);
+    press(m, "Enter");
+    CHECK(m.dialog.open());
+    CHECK_EQ(w.exercise_file("fundamentals/variables", "src/main.dc"), "module main;\n// my work\n");
+    press(m, "x");
+    press(m, "Enter");
+    CHECK(m.dialog.open());
+    press(m, "Backspace");
+    press(m, "y");
+    CHECK_EQ(m.dialog.input, "y");
+    press(m, "Enter");
+    CHECK(!m.dialog.open());
+    CHECK_EQ(w.exercise_file("fundamentals/variables", "src/main.dc"), std::string(tui_main_source));
+    REQUIRE(!m.toasts.empty());
+    auto const& message = m.toasts.back().text;
+    CHECK(message.find("saved in") != std::string::npos);
+    CHECK(std::filesystem::exists(w.ctx->dirs.backups_dir));
+    bool backed_up = false;
+    std::error_code ec;
+    for (auto const& entry : std::filesystem::recursive_directory_iterator(w.ctx->dirs.backups_dir, ec))
+        if (entry.is_regular_file() && platform::read_file(entry.path()).value_or("") == "module main;\n// my work\n")
+            backed_up = true;
+    CHECK(backed_up);
+    press(m, "R");
+    press(m, "Esc");
+    CHECK(!m.dialog.open());
+}
+
+TEST_CASE("tui settings are changed through validated selection lists")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "7");
+    auto rows = m.settings_rows();
+    std::size_t theme_row = 0;
+    for (std::size_t i = 0; i < rows.size(); ++i)
+        if (rows[i].key == "ui.theme")
+            theme_row = i;
+    for (std::size_t i = 0; i < theme_row; ++i)
+        press(m, "Down");
+    press(m, "Enter");
+    REQUIRE(m.dialog.kind == tm::DialogKind::Choice);
+    CHECK_EQ(m.dialog.target, "ui.theme");
+    CHECK(std::ranges::find(m.dialog.values, "light") != m.dialog.values.end());
+    while (m.dialog.values[m.dialog.selected] != "light")
+        press(m, "Down");
+    press(m, "Enter");
+    CHECK(!m.dialog.open());
+    CHECK_EQ(w.ctx->settings.ui_theme, "light");
+    CHECK(m.appearance.theme == tm::ThemeId::Light);
+    auto saved = settings::load(w.home / "config.json");
+    REQUIRE(saved.has_value());
+    CHECK_EQ(saved->ui_theme, "light");
+
+    while (m.settings_rows()[m.settings_sel].key != "checks.timeout_seconds")
+        press(m, "Down");
+    press(m, "Enter");
+    REQUIRE(m.dialog.kind == tm::DialogKind::Choice);
+    CHECK(std::ranges::find(m.dialog.values, "30") != m.dialog.values.end());
+    while (m.dialog.values[m.dialog.selected] != "30")
+        press(m, "Down");
+    press(m, "Enter");
+    CHECK_EQ(w.ctx->settings.checks_timeout_seconds, 30);
+
+    while (m.settings_rows()[m.settings_sel].key != "editor.command")
+        press(m, "Up");
+    press(m, "Enter");
+    CHECK(!m.dialog.open());
+    CHECK(!m.toasts.empty());
+}
+
+TEST_CASE("tui honors NO_COLOR and the locale for appearance")
+{
+    TuiWorld plain(false, {}, platform::Env{{"PATH", ""}, {"LANG", "C"}, {"NO_COLOR", "1"}});
+    tm::Model m(*plain.ctx, {100, 30});
+    CHECK(m.appearance.theme == tm::ThemeId::NoColor);
+    TuiWorld ascii(false, [](settings::Settings& s) { s.ui_ascii = "auto"; }, platform::Env{{"PATH", ""}, {"LANG", "C"}});
+    tm::Model m2(*ascii.ctx, {100, 30});
+    CHECK(m2.appearance.ascii);
+    TuiWorld utf(false, [](settings::Settings& s) { s.ui_ascii = "auto"; });
+    tm::Model m3(*utf.ctx, {100, 30});
+    CHECK(!m3.appearance.ascii);
+}
+
+TEST_CASE("tui exercise needs files before checking and starts the workspace on enter")
+{
+    TuiWorld w(false);
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "2");
+    press(m, "Enter");
+    REQUIRE(m.screen == tm::Screen::Exercise);
+    CHECK(!m.exercise.ws.has_value());
+    auto fx = press(m, "c");
+    CHECK(fx.empty());
+    CHECK(!m.toasts.empty());
+    press(m, "Enter");
+    REQUIRE(m.exercise.ws.has_value());
+    CHECK(!m.exercise.files.empty());
+    CHECK(m.status_of(m.exercise.ex->id) == progress::Status::InProgress);
+    fx = press(m, "c");
+    CHECK(has_effect<tm::StartCheck>(fx));
+}
+
+TEST_CASE("tui manual editors show the path instead of launching")
+{
+    TuiWorld w(true, [](settings::Settings& s) { s.editor_preset = "manual"; });
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    auto fx = press(m, "e");
+    CHECK(!has_effect<tm::LaunchEditor>(fx));
+    REQUIRE(!m.toasts.empty());
+    CHECK(m.toasts.front().text.find("src/main.dc") != std::string::npos);
+}
+
+TEST_CASE("tui renders untrusted text safely and within the terminal width")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {80, 24});
+    press(m, "3");
+    auto report = failing_report("/work/variables");
+    report.results[1].observed = "\x1b[31mred\x1b[0m \x1b]0;title\x07 bell\x07 \xe6\xbc\xa2\xe5\xad\x97\xe6\xbc\xa2\xe5\xad\x97\xe6\xbc\xa2\xe5\xad\x97\xe6\xbc\xa2\xe5\xad\x97\xe6\xbc\xa2\xe5\xad\x97\xe6\xbc\xa2\xe5\xad\x97\xe6\xbc\xa2\xe5\xad\x97\xe6\xbc\xa2\xe5\xad\x97\n";
+    report.results[1].observed_visible = report.results[1].observed;
+    report.results[1].diagnostics = "\x1b[1;31merror\x1b[0m: boom \x1b[2J\x1b[H\n";
+    m.handle(tm::CheckDone{report});
+    for (auto const& size : std::vector<std::pair<int, int>>{{100, 30}, {80, 24}, {60, 20}, {44, 13}})
+    {
+        m.handle(tm::Resize{size.first, size.second});
+        auto const out = learndc::tui::render_snapshot(m, size.first, size.second);
+        CHECK(out.find('\x1b') == std::string::npos);
+        for (auto const& line : text::split_lines(out))
+            CHECK(static_cast<int>(text::display_width(line)) <= size.first);
+        CHECK_EQ(static_cast<int>(text::split_lines(out).size()), size.second);
+    }
+    m.handle(tm::Resize{100, 30});
+    auto const wide = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(wide.find("red") != std::string::npos);
+    CHECK(wide.find("\xe6\xbc\xa2") != std::string::npos);
+}
+
+TEST_CASE("tui snapshots of home")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    snap(m, "home", standard_sizes);
+}
+
+TEST_CASE("tui snapshots of learn")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "2");
+    press(m, "Down");
+    press(m, "Down");
+    snap(m, "learn", standard_sizes);
+    press(m, "/");
+    type_text(m, "struct");
+    snap(m, "learn-search", {{100, 30}, {60, 20}});
+}
+
+TEST_CASE("tui snapshots of the exercise screen")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    snap(m, "exercise-fresh", {{100, 30}, {80, 24}, {60, 20}});
+    press(m, "c");
+    m.handle(tm::CheckDone{failing_report("/work/variables")});
+    snap(m, "exercise", standard_sizes);
+    press(m, "Tab");
+    snap(m, "exercise-files", {{100, 30}, {80, 24}, {60, 20}});
+    press(m, "Tab");
+    snap(m, "exercise-results", {{100, 30}, {80, 24}, {60, 20}});
+    press(m, "Tab");
+    press(m, "h");
+    press(m, "h");
+    snap(m, "exercise-hints", {{100, 30}, {80, 24}});
+}
+
+TEST_CASE("tui snapshots of check states")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    std::string const root = "/work/variables";
+    m.handle(tm::Tick{1000});
+    press(m, "c");
+    m.handle(tm::Tick{4600});
+    m.handle(tm::CheckStage{"Running the program"});
+    snap(m, "exercise-running", {{100, 30}, {80, 24}});
+    m.handle(tm::CheckDone{build_error_report(root)});
+    press(m, "Tab");
+    press(m, "Tab");
+    snap(m, "exercise-build-error", {{100, 30}, {80, 24}, {60, 20}});
+    press(m, "l");
+    snap(m, "exercise-raw-log", {{100, 30}});
+    m.handle(tm::FilesChanged{});
+    snap(m, "exercise-stale", {{100, 30}});
+}
+
+TEST_CASE("tui snapshots of toasts")
+{
+    TuiWorld w(false);
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "2");
+    press(m, "Enter");
+    press(m, "Enter");
+    snap(m, "toast-started", {{100, 30}, {60, 20}});
+    press(m, "c");
+    press(m, "x");
+    snap(m, "toast-cancelling", {{100, 30}});
+    m.handle(tm::Tick{9000});
+    CHECK_EQ(m.toasts.size(), 1u);
+    m.handle(tm::Tick{20000});
+    CHECK(m.toasts.empty());
+}
+
+TEST_CASE("tui snapshots of dialogs and the solution")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    m.handle(tm::CheckDone{failing_report("/work/variables")});
+    press(m, "s");
+    snap(m, "dialog-solution", {{100, 30}, {60, 20}});
+    press(m, "y");
+    snap(m, "solution", {{140, 40}, {100, 30}, {80, 24}, {60, 20}});
+    press(m, "Esc");
+    press(m, "R");
+    type_text(m, "y");
+    snap(m, "dialog-reset", {{100, 30}});
+}
+
+TEST_CASE("tui snapshots of help doctor progress bookmarks and settings")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "?");
+    snap(m, "help", standard_sizes);
+    press(m, "Esc");
+    press(m, "6");
+    m.handle(tm::DoctorDone{fixed_doctor()});
+    snap(m, "doctor", standard_sizes);
+    press(m, "4");
+    snap(m, "progress", {{100, 30}, {80, 24}, {60, 20}});
+    press(m, "5");
+    snap(m, "bookmarks", {{100, 30}, {60, 20}});
+    press(m, "7");
+    snap(m, "settings", {{100, 30}, {80, 24}, {60, 20}});
+    press(m, "Enter");
+    snap(m, "settings-dialog", {{100, 30}});
+}
+
+TEST_CASE("tui snapshots of onboarding")
+{
+    TuiWorld w(false, [](settings::Settings& s) { s.onboarding_done = false; });
+    tm::Model m(*w.ctx, {100, 30});
+    snap(m, "onboarding", {{100, 30}, {60, 20}});
+}
+
+TEST_CASE("tui snapshots of the ascii and no color variants")
+{
+    TuiWorld w(true, [](settings::Settings& s) { s.ui_ascii = "on"; s.ui_theme = "no-color"; });
+    tm::Model m(*w.ctx, {100, 30});
+    snap(m, "ascii-home", {{100, 30}, {60, 20}});
+    press(m, "2");
+    snap(m, "ascii-learn", {{100, 30}});
+    press(m, "3");
+    m.handle(tm::CheckDone{failing_report("/work/variables")});
+    snap(m, "ascii-exercise", {{100, 30}, {80, 24}, {60, 20}});
+    auto const colored = learndc::tui::render_snapshot(m, 100, 30, true);
+    CHECK(colored.find("\x1b[3") == std::string::npos);
+    CHECK(colored.find("\x1b[38") == std::string::npos);
+    TuiWorld c(true, [](settings::Settings& s) { s.ui_theme = "dark"; });
+    tm::Model m2(*c.ctx, {100, 30});
+    CHECK(learndc::tui::render_snapshot(m2, 100, 30, true).find("\x1b[") != std::string::npos);
+}
+
 int main(int argc, char** argv)
 {
     g_self = platform::path_to_utf8(platform::executable_path().value_or(std::filesystem::path(argv[0])));
@@ -4952,5 +5938,7 @@ int main(int argc, char** argv)
         }
         return 2;
     }
+    if (char const* only = std::getenv("LEARNDC_TEST_ONLY"); only && *only)
+        std::erase_if(test::registry(), [&](test::Case const& c) { return !c.name.contains(std::string_view(only)); });
     return test::run();
 }

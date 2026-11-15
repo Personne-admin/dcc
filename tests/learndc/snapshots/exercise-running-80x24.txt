@@ -1,0 +1,24 @@
+ Learn DC · Variables and mutation                1 of 6 completed ██░░░░░░░░░░
+╭─ Menu ─────────╮╭─ › Instructions ───────────────────────────────────────────╮
+│   1 Home       ││ Variables and mutation                                     ┃
+│   2 Learn      ││ beginner · 10 min                                          ┃
+│ › 3 Exercise   ││ fix behavior                                               ┃
+│   4 Progress   ││ in progress                                                ┃
+│   5 Bookmarks  ││                                                            │
+│   6 Doctor     ││ Fix the arithmetic so the program prints the right total.  │
+│   7 Settings   ││                                                            │
+│                ││ Goals                                                      │
+│   ? Help       ││ • Make every check pass                                    │
+│                ││ • Read the diagnostics before changing code                │
+│                │╰────────────────────────────────────────────────────────────╯
+│                │ Files   project.dcon  › src/main.dc
+│                │╭─ Results ──────────────────────────────────────────────────╮
+│                ││ ⠇ Checking: Running the program · 3s   x cancels           │
+│                ││                                                            │
+│                ││                                                            │
+│                ││                                                            │
+│  1 of 6 done   ││                                                            │
+│  ██░░░░░░░░░░  ││                                                            │
+╰────────────────╯╰────────────────────────────────────────────────────────────╯
+
+ x cancel  e edit  Tab pane  w watch  ? help  q quit

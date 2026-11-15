@@ -1,0 +1,20 @@
+  1  2  3 Exercise  4  5  6  7
+ Instructions   Files   Results
+2 of 3 checks passed · 0.31s
+╭─ › Results ──────────────────────────────────────────────╮
+│ ✗ 2 of 3 checks passed · 0.31s                           │
+│   ✓ pass      Compiles                                   │
+│   ✗ FAIL      Prints the total  (compare)                │
+│       The program output differs from what the exercise  │
+│       expects.                                           │
+│       Expected: Total: 42⏎                               │
+│       Observed: Total: 38·⏎                              │
+│       Hint: Check which operator combines the price and  │
+│             the tax.                                     │
+│   ✓ pass      Handles zero tax                           │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+╰──────────────────────────────────────────────────────────╯
+ Up Down scroll  l raw output  c check  e edit  Tab pane

@@ -1,0 +1,20 @@
+  1  2  3 Exercise  4  5  6  7
+╭─ Solution: Variables and … ─ your files vs the solution ─╮
+│ src/main.dc                                              │
+│ --- your src/main.dc                                     │
+│ +++ solution src/main.dc                                 │
+│ @@ -6,7 +6,7 @@                                          │
+│  {                                                       │
+│      i32 price = 40;                                     │
+│      i32 tax = 2;                                        │
+│ -    i32 total = price - tax;                            │
+│ +    i32 total = price + tax;                            │
+│      io::println("Total: {}", total);                    │
+│      return 0;                                           │
+│  }                                                       │
+│                                                          │
+│ Why it works                                             │
+│ Adding the tax to the price gives the total. The minus   │
+│ sign subtracted it instead.                              │
+╰──────────────────────────────────────────────────────────╯
+ Up Down scroll  Esc close solution  ? help  q quit

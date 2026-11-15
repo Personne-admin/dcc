@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
+import codecs
+import fcntl
 import json
 import os
+import pty
+import select
 import shutil
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import threading
 import time
+import unicodedata
 from pathlib import Path
 
 LEARNDC = None
@@ -54,6 +61,224 @@ def expect_json(args, code=0, **kw):
     except ValueError as e:
         check(False, f"`learndc {' '.join(args)}` did not print JSON: {e}\n{out}")
         return {}
+
+
+class MiniTerm:
+    def __init__(self, cols, rows):
+        self.cols = cols
+        self.rows = rows
+        self.grid = [[" "] * cols for _ in range(rows)]
+        self.x = 0
+        self.y = 0
+        self.alt = False
+        self.alt_entered = 0
+        self.alt_left = 0
+        self.pending = ""
+
+    def resize(self, cols, rows):
+        self.cols = cols
+        self.rows = rows
+        self.grid = [[" "] * cols for _ in range(rows)]
+        self.x = min(self.x, cols - 1)
+        self.y = min(self.y, rows - 1)
+
+    def text(self):
+        return "\n".join("".join(row).rstrip() for row in self.grid)
+
+    def _newline(self):
+        if self.y == self.rows - 1:
+            self.grid.pop(0)
+            self.grid.append([" "] * self.cols)
+        else:
+            self.y += 1
+
+    def _clear(self, x0, y0, x1, y1):
+        for y in range(y0, y1 + 1):
+            for x in range(self.cols):
+                if (y == y0 and x < x0) or (y == y1 and x > x1):
+                    continue
+                self.grid[y][x] = " "
+
+    def _csi(self, params, final):
+        private = params[:1] in ("?", ">", "<", "=")
+        nums = [int(p) if p.isdigit() else 0 for p in params.lstrip("?><=").split(";")] if params.lstrip("?><=") else []
+        n = nums[0] if nums and nums[0] > 0 else 1
+        if self.x >= self.cols:
+            self.x = self.cols - 1
+        if final == "A":
+            self.y = max(0, self.y - n)
+        elif final == "B":
+            self.y = min(self.rows - 1, self.y + n)
+        elif final == "C":
+            self.x = min(self.cols - 1, self.x + n)
+        elif final == "D":
+            self.x = max(0, self.x - n)
+        elif final == "E":
+            self.y = min(self.rows - 1, self.y + n)
+            self.x = 0
+        elif final == "F":
+            self.y = max(0, self.y - n)
+            self.x = 0
+        elif final == "G":
+            self.x = min(self.cols - 1, n - 1)
+        elif final in ("H", "f"):
+            row = nums[0] if len(nums) > 0 and nums[0] > 0 else 1
+            col = nums[1] if len(nums) > 1 and nums[1] > 0 else 1
+            self.y = min(self.rows - 1, row - 1)
+            self.x = min(self.cols - 1, col - 1)
+        elif final == "J":
+            mode = nums[0] if nums else 0
+            if mode == 0:
+                self._clear(self.x, self.y, self.cols - 1, self.rows - 1)
+            elif mode == 1:
+                self._clear(0, 0, self.x, self.y)
+            else:
+                self._clear(0, 0, self.cols - 1, self.rows - 1)
+        elif final == "K":
+            mode = nums[0] if nums else 0
+            if mode == 0:
+                self._clear(self.x, self.y, self.cols - 1, self.y)
+            elif mode == 1:
+                self._clear(0, self.y, self.x, self.y)
+            else:
+                self._clear(0, self.y, self.cols - 1, self.y)
+        elif final in ("h", "l") and private:
+            for v in nums:
+                if v in (47, 1047, 1049):
+                    if final == "h":
+                        self.alt = True
+                        self.alt_entered += 1
+                    else:
+                        self.alt = False
+                        self.alt_left += 1
+
+    def feed(self, data):
+        text = self.pending + data
+        self.pending = ""
+        i = 0
+        while i < len(text):
+            c = text[i]
+            if c == "\x1b":
+                if i + 1 >= len(text):
+                    self.pending = text[i:]
+                    return
+                n = text[i + 1]
+                if n == "[":
+                    j = i + 2
+                    while j < len(text) and not ("@" <= text[j] <= "~"):
+                        j += 1
+                    if j >= len(text):
+                        self.pending = text[i:]
+                        return
+                    self._csi(text[i + 2 : j], text[j])
+                    i = j + 1
+                elif n in "]P_^X":
+                    j = i + 2
+                    while j < len(text) and text[j] != "\x07" and not (text[j] == "\x1b" and j + 1 < len(text) and text[j + 1] == "\\"):
+                        j += 1
+                    if j >= len(text):
+                        self.pending = text[i:]
+                        return
+                    i = j + (1 if text[j] == "\x07" else 2)
+                elif n in "()*+":
+                    if i + 2 >= len(text):
+                        self.pending = text[i:]
+                        return
+                    i += 3
+                else:
+                    i += 2
+                continue
+            i += 1
+            if c == "\r":
+                self.x = 0
+            elif c == "\n":
+                self._newline()
+            elif c == "\b":
+                self.x = max(0, self.x - 1)
+            elif c == "\t":
+                self.x = min(self.cols - 1, (self.x // 8 + 1) * 8)
+            elif ord(c) < 0x20 or ord(c) == 0x7F:
+                continue
+            else:
+                if unicodedata.combining(c):
+                    continue
+                w = 2 if unicodedata.east_asian_width(c) in ("W", "F") else 1
+                if self.x + w > self.cols:
+                    self.x = 0
+                    self._newline()
+                self.grid[self.y][self.x] = c
+                if w == 2 and self.x + 1 < self.cols:
+                    self.grid[self.y][self.x + 1] = ""
+                self.x += w
+
+
+class PtyProcess:
+    def __init__(self, argv, env, cols, rows):
+        self.master, self.slave = pty.openpty()
+        fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+        self.before = termios.tcgetattr(self.slave)
+        self.term = MiniTerm(cols, rows)
+        self.raw = bytearray()
+        self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+        def become_controlling():
+            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+        self.proc = subprocess.Popen(argv, stdin=self.slave, stdout=self.slave, stderr=self.slave, env=env, start_new_session=True, preexec_fn=become_controlling, close_fds=True)
+
+    def pump(self, timeout=0.1):
+        ready, _, _ = select.select([self.master], [], [], timeout)
+        if not ready:
+            return False
+        try:
+            data = os.read(self.master, 65536)
+        except OSError:
+            return False
+        if not data:
+            return False
+        self.raw += data
+        self.term.feed(self.decoder.decode(data))
+        return True
+
+    def wait_for(self, predicate, timeout=30):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            self.pump(0.1)
+            if predicate(self.term.text()):
+                return True
+            if self.proc.poll() is not None:
+                while self.pump(0.05):
+                    pass
+                return predicate(self.term.text())
+        return False
+
+    def send(self, data):
+        os.write(self.master, data if isinstance(data, bytes) else data.encode())
+
+    def resize(self, cols, rows):
+        fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+        self.term.resize(cols, rows)
+
+    def finish(self, timeout=20):
+        deadline = time.time() + timeout
+        while time.time() < deadline and self.proc.poll() is None:
+            self.pump(0.1)
+        rc = self.proc.poll()
+        if rc is None:
+            self.proc.kill()
+            rc = self.proc.wait()
+            rc = None
+        while self.pump(0.05):
+            pass
+        after = termios.tcgetattr(self.slave)
+        return rc, after
+
+    def close(self):
+        for fd in (self.master, self.slave):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
 
 def make_content(real_content: Path, target: Path):
@@ -373,6 +598,55 @@ def journey_run(ws: Path):
     check("Hello" in out, f"run prints the program output: {out!r}")
 
 
+def journey_tui(tmp: Path):
+    print("journey: terminal interface in a pty")
+    home = tmp / "tui home"
+    editor = tmp / "tui editor.py"
+    editor.write_text(f"#!{sys.executable}\nimport sys\nopen(sys.argv[-1], 'a').write('// marker from the fake editor\\n')\n")
+    editor.chmod(0o755)
+    env = dict(ENV)
+    env.update({"LEARNDC_HOME": str(home), "TERM": "xterm-256color", "LANG": "C.UTF-8"})
+    for key, value in [("onboarding.done", "true"), ("ui.open_continue", "false"), ("editor.preset", "custom"), ("editor.command", json.dumps([str(editor)]))]:
+        expect(["config", "set", key, value], 0, env=env)
+    session = PtyProcess([LEARNDC], env, 100, 30)
+    try:
+        check(session.wait_for(lambda t: "Menu" in t and "Your paths" in t), f"home screen renders\n{session.term.text()}")
+        check(b"\x1b[?1049h" in session.raw, "the alternate screen is entered")
+        first = session.term.text().splitlines()
+        check(all(len(line) <= 100 for line in first), "no line is wider than the terminal")
+        session.send("2")
+        check(session.wait_for(lambda t: "Your first DC program" in t and "Fundamentals" in t), f"learn screen lists the exercise\n{session.term.text()}")
+        session.send("\r")
+        check(session.wait_for(lambda t: "Enter start" in t and "Press Enter to create" in t), f"exercise screen offers to start\n{session.term.text()}")
+        session.send("\r")
+        check(session.wait_for(lambda t: "src/main.dc" in t and "Preview" in t), f"starting creates and previews the files\n{session.term.text()}")
+        workspace = home / "workspaces" / "fundamentals" / "hello-world" / "src" / "main.dc"
+        check(workspace.exists(), "the workspace file exists")
+        session.send("e")
+        deadline = time.time() + 30
+        while time.time() < deadline and "marker from the fake editor" not in (workspace.read_text() if workspace.exists() else ""):
+            session.pump(0.1)
+        check("marker from the fake editor" in workspace.read_text(), "the terminal editor ran and edited the workspace file")
+        check(session.wait_for(lambda t: "marker from the fake editor" in t and "Menu" in t), f"the screen redraws and the preview refreshes after the editor\n{session.term.text()}")
+        check(session.term.alt_entered >= 2, f"the alternate screen is entered again after the editor ({session.term.alt_entered})")
+        session.resize(80, 24)
+        check(session.wait_for(lambda t: len(t.splitlines()) >= 20 and all(len(line) <= 80 for line in t.splitlines()) and "Menu" in t), f"the layout follows a resize to 80x24\n{session.term.text()}")
+        session.send("?")
+        check(session.wait_for(lambda t: "Keys on the Exercise screen" in t), f"help opens\n{session.term.text()}")
+        session.send("\x1b")
+        check(session.wait_for(lambda t: "Keys on the Exercise screen" not in t and "Menu" in t), "escape closes help")
+        session.send("q")
+        rc, after = session.finish()
+        check(rc == 0, f"q quits with exit code 0, got {rc}")
+        check(session.term.alt_entered >= 1 and session.term.alt_left == session.term.alt_entered and not session.term.alt, f"the alternate screen is left as often as it was entered ({session.term.alt_entered}/{session.term.alt_left})")
+        check(after == session.before, "the terminal attributes are restored after quitting")
+    finally:
+        if session.proc.poll() is None:
+            session.proc.kill()
+            session.proc.wait()
+        session.close()
+
+
 def journey_validate():
     print("journey: dev validate")
     rc, out, err = expect(["dev", "validate", "--backend", "dpm", "--id", "fundamentals/hello-world"], 0)
@@ -426,6 +700,7 @@ def main():
         journey_export_import(tmp)
         journey_validate()
         journey_watch()
+        journey_tui(tmp)
         journey_embedded()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
