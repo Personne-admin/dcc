@@ -112,7 +112,7 @@ class InstallerDiscovery(unittest.TestCase):
             self.assertEqual(component.find('w:RemoveFolder', NS).attrib['On'], 'uninstall')
             key = component.find('w:RegistryValue', NS)
             self.assertEqual(key.attrib['KeyPath'], 'yes')
-            self.assertEqual(key.attrib['Root'], 'HKMU')
+            self.assertEqual(key.attrib['Root'], 'HKLM')
             self.assertIsNotNone(xml.find(".//w:Feature/w:ComponentRef[@Id='c_start_menu']", NS))
 
     def test_path_entry_appends_the_installed_bin_directory(self):

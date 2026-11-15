@@ -7,6 +7,16 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 work="$(mktemp -d)"
 export WINEPREFIX="$work/prefix" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml="
 wine wineboot --init >/dev/null 2>&1
+msiinfo export "$msi" Registry | tr -d '\r' > "$work/registry.idt"
+python3 - "$work/registry.idt" <<'PYREG'
+import csv
+import sys
+with open(sys.argv[1], newline='') as f:
+    rows = list(csv.DictReader(f, delimiter='\t'))[2:]
+expected = {'c_path_entry', 'c_installer_options', 'c_start_menu'}
+assert {r['Component_'] for r in rows} == expected, rows
+assert all(r['Root'] == '2' for r in rows), rows
+PYREG
 msiinfo export "$msi" Shortcut | tr -d '\r' > "$work/shortcut.idt"
 msiinfo export "$msi" Environment | tr -d '\r' > "$work/environment.idt"
 grep -q 'Learn DC' "$work/shortcut.idt" || { echo "error: no Learn DC shortcut in the MSI" >&2; cat "$work/shortcut.idt" >&2; exit 1; }

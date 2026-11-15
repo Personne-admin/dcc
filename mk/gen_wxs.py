@@ -108,7 +108,7 @@ def main():
         f'<Shortcut Id="s_learndc" Name="{SHORTCUT_NAME}" Description="Learn the DC language with interactive exercises" '
         f'Target="[#{learndc_file_id}]" WorkingDirectory="PersonalFolder" />'
         f'<RemoveFolder Id="r_start_menu" On="uninstall" />'
-        f'<RegistryValue Root="HKMU" Key="{INSTALLER_KEY}" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />'
+        f'<RegistryValue Root="HKLM" Key="{INSTALLER_KEY}" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />'
         f"</Component>"
         f"</DirectoryRef>"
     )
