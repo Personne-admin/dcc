@@ -489,7 +489,8 @@ export namespace learndc::tui::model
                               "h             reveal the next hint",
                               "s             show the reference solution (asks first)",
                               "l             show or hide the raw compiler and program output",
-                              "n             go to the next exercise      b  bookmark",
+                              "n             go to the next exercise",
+                              "b             bookmark this exercise",
                               "R             reset the exercise to its starter files (backup first)"};
                 break;
             case Screen::Progress:
