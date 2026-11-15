@@ -125,15 +125,15 @@ export namespace learndc::progress
         }
     }
 
-    inline void reveal_hint(Progress& p, std::string_view id, int level, std::string_view now)
+    inline void reveal_hint(Progress& p, std::string_view id, int level, [[maybe_unused]] std::string_view now)
     {
-        auto& e = mark_started(p, id, now);
+        auto& e = p.exercises[std::string(id)];
         e.hint_level = std::clamp(std::max(e.hint_level, level), 0, 3);
     }
 
-    inline void mark_solution_viewed(Progress& p, std::string_view id, std::string_view now)
+    inline void mark_solution_viewed(Progress& p, std::string_view id, [[maybe_unused]] std::string_view now)
     {
-        mark_started(p, id, now).solution_viewed = true;
+        p.exercises[std::string(id)].solution_viewed = true;
     }
 
     inline void set_active(Progress& p, std::string_view id)

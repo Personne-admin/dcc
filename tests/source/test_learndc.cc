@@ -4866,6 +4866,19 @@ TEST_CASE("cli export refuses to overwrite learndc's own data files")
     CHECK_EQ(f.run({"export", "--output", platform::path_to_utf8(f.temp.path / "ok.json")}).code, 0);
 }
 
+TEST_CASE("cli hints and solutions do not start an exercise")
+{
+    CliFixture f;
+    REQUIRE(f.run({"hint", "basics/one"}).code == 0);
+    auto after_hint = f.run({"progress", "--json"});
+    CHECK(after_hint.out.find("\"in_progress\": 0") != std::string::npos);
+    f.run({"solution", "basics/one", "--show"});
+    auto after_solution = f.run({"progress", "--json"});
+    CHECK(after_solution.out.find("\"in_progress\": 0") != std::string::npos);
+    REQUIRE(f.run({"start", "basics/one"}).code == 0);
+    CHECK(f.run({"progress", "--json"}).out.find("\"in_progress\": 1") != std::string::npos);
+}
+
 TEST_CASE("cli moves a damaged settings file aside and keeps working")
 {
     CliFixture f;
