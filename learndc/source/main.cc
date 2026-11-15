@@ -24,7 +24,11 @@ int main(int argc, char** argv)
     io.cancel = &g_cancel;
     bool const interactive = args.empty() && io.stdin_tty && io.stdout_tty;
     if (!interactive)
+    {
         std::signal(2, on_interrupt);
+        std::signal(15, on_interrupt);
+        std::signal(1, on_interrupt);
+    }
     int const code = learndc::cli::run(args, io);
     if (g_cancel.load() && code == 0)
         return 130;

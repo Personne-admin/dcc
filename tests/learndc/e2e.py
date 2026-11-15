@@ -592,6 +592,41 @@ def journey_watch():
     check(any("Watch stopped" in c for c in chunks), "watch prints a stop message")
 
 
+def journey_terminate(tmp: Path):
+    print("journey: SIGTERM stops a running build")
+    pidfile = tmp / "fake-dpm.pid"
+    script = tmp / "fake-dpm.sh"
+    script.write_text(f"#!/bin/sh\nif [ \"$1\" = build ]; then echo $$ > '{pidfile}'; exec sleep 60; fi\necho dpm 0.0.0\n")
+    script.chmod(0o755)
+    env = dict(ENV)
+    env["LEARNDC_DPM"] = str(script)
+    p = subprocess.Popen([LEARNDC, "check", "fundamentals/hello-world"], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    deadline = time.time() + 60
+    while time.time() < deadline and not pidfile.exists():
+        time.sleep(0.1)
+    check(pidfile.exists(), "the fake build tool started")
+    time.sleep(0.3)
+    p.send_signal(signal.SIGTERM)
+    try:
+        rc = p.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        rc = None
+    check(rc not in (None, -signal.SIGTERM), f"check handles SIGTERM instead of dying from it, got {rc}")
+    pid = int(pidfile.read_text().strip()) if pidfile.exists() else 0
+    gone = False
+    for _ in range(50):
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            gone = True
+            break
+        time.sleep(0.1)
+    if not gone and pid:
+        os.kill(pid, signal.SIGKILL)
+    check(gone, "the build tool does not outlive learndc after SIGTERM")
+
+
 def journey_run(ws: Path):
     print("journey: run")
     rc, out, err = expect(["run", "fundamentals/hello-world"], 0)
@@ -700,6 +735,7 @@ def main():
         journey_export_import(tmp)
         journey_validate()
         journey_watch()
+        journey_terminate(tmp)
         journey_tui(tmp)
         journey_embedded()
     finally:
