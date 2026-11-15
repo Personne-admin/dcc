@@ -41,6 +41,9 @@ endif
 LEARNDC_MODULE_OBJS := $(filter-out $(HOST_PROCESS_OBJ),$(MODULE_OBJS))
 LEARNDC_PCM_FILES := $(filter $(PCM_DIR)/learndc.%.pcm,$(MODULE_PCM_FILES))
 
+$(PCM_DIR)/learndc.cli.pcm: $(VERSION_STAMP) $(REVISION_STAMP)
+$(OBJ_DIR)/learndc.cli.pcm.o: $(VERSION_STAMP) $(REVISION_STAMP)
+
 ifneq ($(LEARNDC_STANDALONE),1)
 $(LEARNDC_PCM_FILES): $(wildcard $(PCM_DIR)/dcc.host.process.pcm)
 endif
