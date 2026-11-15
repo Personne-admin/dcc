@@ -241,6 +241,19 @@ export namespace learndc::text
         return out;
     }
 
+    [[nodiscard]] inline std::string collapse_crlf(std::string_view s)
+    {
+        std::string out;
+        out.reserve(s.size());
+        for (std::size_t i = 0; i < s.size(); ++i)
+        {
+            if (s[i] == '\r' && i + 1 < s.size() && s[i + 1] == '\n')
+                continue;
+            out += s[i];
+        }
+        return out;
+    }
+
     namespace detail
     {
         struct Range

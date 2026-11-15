@@ -624,8 +624,8 @@ export namespace learndc::runner
         std::string o(observed);
         if (endings == catalog::LineEndings::Portable)
         {
-            e = text::normalize_newlines(e);
-            o = text::normalize_newlines(o);
+            e = text::collapse_crlf(e);
+            o = text::collapse_crlf(o);
         }
         switch (match)
         {

@@ -3448,6 +3448,8 @@ TEST_CASE("output matching modes and line endings")
     CHECK(!runner::output_matches("a\nb\n", "a\nb", StdoutMatch::Exact, LineEndings::Portable));
     CHECK(runner::output_matches("a\nb\n", "a\r\nb\r\n", StdoutMatch::Exact, LineEndings::Portable));
     CHECK(!runner::output_matches("a\nb\n", "a\r\nb\r\n", StdoutMatch::Exact, LineEndings::Exact));
+    CHECK(!runner::output_matches("a\nb", "a\rb", StdoutMatch::Exact, LineEndings::Portable));
+    CHECK(runner::output_matches("a\rb", "a\rb", StdoutMatch::Exact, LineEndings::Portable));
     CHECK(runner::output_matches("a\nb", "  a\nb\n\n", StdoutMatch::Trimmed, LineEndings::Portable));
     CHECK(!runner::output_matches("a b", "a  b", StdoutMatch::Trimmed, LineEndings::Portable));
     CHECK(runner::output_matches("needle", "hay needle stack", StdoutMatch::Contains, LineEndings::Portable));
