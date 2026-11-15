@@ -42,8 +42,6 @@ import dcc.backend.object.inspect;
 
 #include "compdb.hh"
 
-#include <array>
-#include <cstdio>
 
 namespace
 {
