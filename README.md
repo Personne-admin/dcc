@@ -91,6 +91,40 @@ required.
 
 See the build instructions below.
 
+## Getting started
+
+With dcc and dpm installed (or `build/bin` on PATH after a source build),
+create and run a project:
+
+```sh
+dpm new hello
+cd hello
+dpm run
+```
+
+`dpm new` writes `project.dcon`, `src/main.dc` and `.gitignore` from the
+built-in executable template and works offline. `dpm run` builds the hosted
+program with libdcext and runs it, which prints `Hello, world!`. Use
+`dpm build` to build without running and `dpm test` to run the tests under
+`tests/` (a new project has none yet, so it reports that and succeeds).
+
+Continue with [the beginner guide](docs/getting-started.md), which explains the
+generated `Status(Error)` main, arrays and formatted output. DPM manifests,
+templates and tasks are described in [docs/dpm-templates.md](docs/dpm-templates.md)
+and [docs/dpm-tasks.md](docs/dpm-tasks.md).
+
+## Targets
+
+- `x86_64-elf`: Linux executables, hosted with `-flibdcext` or freestanding;
+  LLVM and custom backends.
+- `x86_64-coff`: Windows PE executables with `-flibdcext windows`; LLVM and
+  custom backends.
+- `x86-elf`: freestanding 32-bit ELF executables with the LLVM backend. The
+  program defines `_start`; libdcext is not available for 32-bit x86.
+- `x86-coff`: 32-bit COFF objects with the LLVM backend; PE32 executables are
+  not supported.
+- `i8086-binary` and `i8086-mz`: flat/COM and MZ images with the custom backend.
+
 ## Building the compiler
 
 Build dependencies: a C++26-capable clang with module support, LLVM, GNU
@@ -109,43 +143,6 @@ make install    # installs dcc, dccd, and libdcext to PREFIX (default /usr/local
 `ENABLE_LLVM`, `ENABLE_ASAN`, and `BUILD_TYPE` are overridable via
 `make VAR=value`; see `GNUmakefile` for the full list of targets.
 
-## Using dc from a Zig build system
-
-As there is currently no custom build tool for dc projects, a DCC SDK is
-provided for the Zig build system for use in any user projects. In order to use
-DCC from a project which uses Zig build, add the SDK to it:
-
-```bash
-zig fetch --save git+https://github.com/Personne-admin/dcc.git
-```
-
-then in `build.zig` add dc sources:
-
-```zig
-const dcc = @import("dcc");
-
-pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
-
-    const artifact = dcc.sdk.compile(b, .{
-        .name = "hello",
-        .source_file = b.path("src/main.dc"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    b.installFile(artifact.output_file, "bin/hello");
-}
-```
-
-`dcc.sdk.CompileOptions` mirrors the driver's flags directly: `libdcext`,
-`position_independent_code`, `no_red_zone`, `no_stack_protector`, `code_model`,
-`bounds_check`, and so on;  
-Supported targets are `x86_64-elf`, `x86-elf`, `x86_64-coff`, and `x86-coff`;  
-dc doesn't assume a hosted OS, so Zig's `linux` and `freestanding` os tags both
-map to the plain ELF target.
-
 ## Freestanding by default
 
 A dc program has no implicit prelude: no allocator, no I/O, nothing assumed
@@ -153,8 +150,7 @@ about the host. This is intentional, dc is meant to be as usable for a
 kernel or a microcontroller as for a regular userspace binary.
 
 `libdcext` is the opt-in hosted standard library. It's only linked in and its
-prelude only injected when you pass `-flibdcext` to the driver (or set
-`.libdcext = true` in the Zig SDK options). Its `Error` type combines known
+prelude only injected when you pass `-flibdcext` to the driver. Its `Error` type combines known
 standard-library errors without allocation; see [standard errors](docs/errors.md).
 Hosted modules can use `Array(T)`, `print` and `println` without imports or
 allocator setup; see [hosted library basics](docs/hosted.md) for cleanup and
@@ -162,8 +158,8 @@ error handling.
 Without `-flibdcext`, you get exactly the
 language and `core::*` compiler intrinsics, nothing else.
 
-Start with [the beginner guide](docs/getting-started.md): `dpm new hello`,
-`cd hello`, then `dpm run`. The generated hosted main returns `Status(Error)`.
+DPM projects enable libdcext for hosted products automatically; see
+[Getting started](#getting-started).
 
 ## Whole-program output
 
@@ -178,12 +174,11 @@ in the graph, and symbols named by module-level asm. Reachability then follows
 references (calls, function and global addresses, initializers) across
 modules. Imported symbols with no definition in the graph stay `extern`.
 
-Under `-flibdcext`, the std modules come from source, so the archive is not
-needed for them. An object or `-S` output from `-fwhole-program -flibdcext`
-must be linked with only libdcext's assembly members (`memory.asm.o`,
-`crt0.asm.o`, `syscall.asm.o`). Linking the whole archive duplicates the std
-symbols, so the driver rejects `-fwhole-program -flibdcext` for executables and
-shared libraries.
+Under `-flibdcext`, whole-program builds compile the library from its
+installed sources, including the selected startup code, so no library archive
+is needed. An object from `-fwhole-program -c -flibdcext` links with `dcc`
+like any other object. Separate (non-whole-program) builds link the static
+libdcext archive instead.
 
 ## Tooling
 
@@ -194,6 +189,10 @@ The `vscode/` extension (DC Language Support) wraps `dccd` for syntax
 highlighting and editor integration in VS Code. The first-party
 [Neovim integration](docs/neovim.md) uses native Neovim 0.11+ LSP APIs on
 Linux and Windows, with no external plugin dependencies.
+
+Projects that already use the Zig build system can call dcc through the SDK
+in `zig/dcc_sdk.zig`; dpm is the primary build tool and Zig is not needed to
+build or use dcc.
 
 ## License
 
