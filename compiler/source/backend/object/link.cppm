@@ -301,4 +301,28 @@ export namespace dcc::backend::object
         }
         return result;
     }
+    [[nodiscard]] inline host::process::Result link_shared_library(std::filesystem::path const& object, std::filesystem::path const& output,
+                                                                   BackendOptions const& opts)
+    {
+        host::process::Command command;
+        command.inherit_env = true;
+        command.argv = {host::process::linker_path("ld.lld"), "-m", "elf_x86_64", "--shared", "-o", output.string(), object.string()};
+        for (auto const& path : opts.additional_objects)
+            command.argv.push_back(path);
+        for (auto const& path : opts.library_paths)
+            command.argv.push_back("-L" + path);
+        for (auto const& path : opts.runtime_paths)
+        {
+            command.argv.push_back("-rpath");
+            command.argv.push_back(path);
+        }
+        for (auto const& lib : opts.libraries)
+            command.argv.push_back("-l" + lib);
+        for (auto const& arg : opts.linker_args)
+            command.argv.push_back(arg);
+        auto result = host::process::run(command);
+        if (!result.started && result.error.starts_with("cannot find "))
+            result.error = std::format("linker '{}' not found; dcc needs ld.lld beside dcc or on PATH to write shared libraries", command.argv.front());
+        return result;
+    }
 } // namespace dcc::backend::object

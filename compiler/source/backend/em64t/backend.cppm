@@ -634,18 +634,7 @@ namespace dcc::backend
 
                 auto so_path = work_dir / "out.so";
 
-                host::process::Command command;
-                command.inherit_env = true;
-                command.argv = {host::process::linker_path("ld.lld"), "-m", "elf_x86_64", "--shared", "-o", so_path.string(), obj_path.string()};
-                for (auto const& obj : opts.additional_objects)
-                    command.argv.push_back(obj);
-                for (auto const& lp : opts.library_paths)
-                    command.argv.push_back("-L" + lp);
-                for (auto const& lib : opts.libraries)
-                    command.argv.push_back("-l" + lib);
-                for (auto const& la : opts.linker_args)
-                    command.argv.push_back(la);
-                auto linked = host::process::run(command);
+                auto linked = object::link_shared_library(obj_path, so_path, opts);
                 if (!linked.ok())
                 {
                     artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: linking failed:\n" + linked.out + linked.err + linked.error});

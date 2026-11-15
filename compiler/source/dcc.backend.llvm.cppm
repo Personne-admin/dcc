@@ -1994,8 +1994,23 @@ namespace dcc::backend
                 bool want_ir = opts.requested_artifacts.contains(ArtifactKind::LlvmIrText);
                 bool want_asm = opts.requested_artifacts.contains(ArtifactKind::AsmText);
                 bool want_obj = opts.requested_artifacts.contains(ArtifactKind::ObjectBytes);
-                bool want_exe = opts.requested_artifacts.contains(ArtifactKind::ExecutableBytes);
+                bool want_so = opts.requested_artifacts.contains(ArtifactKind::SharedLibraryBytes);
+                bool want_exe = opts.requested_artifacts.contains(ArtifactKind::ExecutableBytes) || want_so;
                 bool need_codegen = want_asm || want_obj || want_exe;
+                if (want_so && (opts.target.object_format != ObjectFormat::Elf || opts.target.arch != target::Arch::X86_64))
+                {
+                    add_diag(diags, {}, std::format("LLVM backend: shared library output is supported only for x86_64 ELF targets (target: '{}'); use -fbackend "
+                                                    "custom for Windows DLLs",
+                                                    opts.target.triple));
+                    LLVMDisposeModule(llvm_mod);
+                    return artifact;
+                }
+                if (want_so && !opts.target.position_independent_code)
+                {
+                    add_diag(diags, {}, "LLVM backend: shared library requires -fPIC");
+                    LLVMDisposeModule(llvm_mod);
+                    return artifact;
+                }
                 bool need_llvm_passes = opts.opt_level > dcc::ir::pass::OptLevel::O0;
 
                 if (want_exe)
@@ -2253,8 +2268,10 @@ namespace dcc::backend
 
                 if (want_exe && !obj_bytes_for_link.empty())
                 {
-                    auto link_result = link_executable(obj_bytes_for_link, opts, diags);
-                    if (link_result)
+                    auto link_result = link_executable(obj_bytes_for_link, opts, diags, want_so);
+                    if (link_result && want_so)
+                        artifact.shared_library_bytes = std::move(*link_result);
+                    else if (link_result)
                         artifact.executable_bytes = std::move(*link_result);
                 }
 
@@ -2264,7 +2281,7 @@ namespace dcc::backend
 
         private:
             [[nodiscard]] static std::optional<std::vector<std::byte>> link_executable(std::vector<std::byte> const& object_bytes, BackendOptions const& opts,
-                                                                                       std::vector<BackendDiagnostic>& diags)
+                                                                                       std::vector<BackendDiagnostic>& diags, bool shared)
             {
                 namespace fs = std::filesystem;
 
@@ -2310,7 +2327,7 @@ namespace dcc::backend
                     }
                 } cleanup{.obj = obj_path, .exe = exe_path};
 
-                auto linked = object::link_executable(obj_path, exe_path, opts);
+                auto linked = shared ? object::link_shared_library(obj_path, exe_path, opts) : object::link_executable(obj_path, exe_path, opts);
                 if (!linked.ok())
                 {
                     add_diag(diags, {}, "linker error:\n" + linked.out + linked.err + linked.error);

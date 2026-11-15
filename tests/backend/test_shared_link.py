@@ -49,23 +49,31 @@ def cbuild_shared(directory, name, source):
     return library
 
 
-def test_custom_shared_library_output(root):
-    out = root / "shared out" / "libplugin.so"
-    out.parent.mkdir(parents=True)
+def test_shared_library_output(root):
     source = root / "plugin.dc"
     source.write_text("module plugin;\n\n@nomangle public i32 plugin_twice(i32 x) {\n    return x * 2;\n}\n")
-    r = dcc(source, "-shared", "-fPIC", "-fbackend=custom", "-o", out)
-    check(r.returncode == 0, "custom backend writes a shared library into a path with spaces", r.stderr)
-    if r.returncode != 0:
-        return
-    check("DYN (Shared object file)" in readelf("-h", out), "the custom shared library is ET_DYN")
-    user = root / "use_plugin.c"
-    user.write_text("int plugin_twice(int);\nint main(void) { return plugin_twice(21) == 42 ? 0 : 1; }\n")
-    exe = root / "use_plugin"
-    r = run([CC, user, "-o", exe, f"-L{out.parent}", "-lplugin", f"-Wl,-rpath,{out.parent}"])
-    check(r.returncode == 0, "a C program links against the dcc shared library", r.stderr)
-    if r.returncode == 0:
-        check(run([exe]).returncode == 0, "the C program calls into the dcc shared library")
+    consumer = root / "consumer.dc"
+    consumer.write_text("module main;\n\n@nomangle extern i32 plugin_twice(i32 x);\n\npublic i32 main() {\n    return if plugin_twice(21) == 42 { 0 } else { 1 };\n}\n")
+    for backend in ("llvm", "custom"):
+        out = root / f"shared out {backend}" / "libplugin.so"
+        out.parent.mkdir(parents=True)
+        r = dcc(source, "-shared", "-fPIC", f"-fbackend={backend}", "-o", out)
+        check(r.returncode == 0, f"{backend}: writes a shared library into a path with spaces", r.stderr)
+        if r.returncode != 0:
+            continue
+        check("DYN (Shared object file)" in readelf("-h", out), f"{backend}: the shared library is ET_DYN")
+        user = root / "use_plugin.c"
+        user.write_text("int plugin_twice(int);\nint main(void) { return plugin_twice(21) == 42 ? 0 : 1; }\n")
+        exe = root / f"use_plugin_{backend}"
+        r = run([CC, user, "-o", exe, f"-L{out.parent}", "-lplugin", f"-Wl,-rpath,{out.parent}"])
+        check(r.returncode == 0, f"{backend}: a C program links against the dcc shared library", r.stderr)
+        if r.returncode == 0:
+            check(run([exe]).returncode == 0, f"{backend}: the C program calls into the dcc shared library")
+        exe = root / f"dc_consumer_{backend}"
+        r = dcc(consumer, "-o", exe, "-flibdcext", f"-fbackend={backend}", "-fwhole-program", f"-L{out.parent}", "-lplugin", "-rpath", str(out.parent))
+        check(r.returncode == 0, f"{backend}: a DC program links against a DC shared library", r.stderr)
+        if r.returncode == 0:
+            check(run([exe]).returncode == 0, f"{backend}: the DC program calls the DC shared library")
 
 
 SHIM_C = """int shim_add(int a, int b) { return a + b + 1000; }
@@ -297,7 +305,7 @@ def main():
         return 1
     with tempfile.TemporaryDirectory(prefix="dcc shared link ") as directory:
         root = Path(directory)
-        test_custom_shared_library_output(root)
+        test_shared_library_output(root)
         test_consume_shared_library(root)
         test_static_builds_stay_static(root)
         test_link_diagnostics(root)

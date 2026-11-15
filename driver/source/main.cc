@@ -1896,9 +1896,9 @@ auto main(int argc, char** argv) -> int
                     return 1;
                 }
 
-                if (kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes))
+                if (kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes) && target.object_format == dcc::target::ObjectFormat::Coff)
                 {
-                    std::println(std::cerr, "dcc: error: LLVM backend does not support shared library output; use -fbackend custom");
+                    std::println(std::cerr, "dcc: error: LLVM backend does not support DLL output; use -fbackend custom");
                     return 1;
                 }
 
