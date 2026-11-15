@@ -1,19 +1,19 @@
   1  2  3  4  5  6  7  8 Review
-╭─────────────────────────────────────── 1 due · 0 missed ─╮
-│ Flashcards                                               │
-│ 1 unlocked · 1 locked until their lesson is complete     │
+╭─ › Flashcards ─────────────────────────────────── 1 due ─╮
+│   ╭─ FRONT ─────────────────────────── Basics drill ─╮   │
+│   │                                                  │   │
+│   │                                                  │   │
+│   │                      Front                       │   │
+│   │                                                  │   │
+│   │                                                  │   │
+│   ╰──────────────────────────────────────────────────╯   │
 │                                                          │
-│ Card 1 of 1 · Basics drill                               │
-│                                                          │
-│   Front                                                  │
-│                                                          │
-│   Recall the answer, then turn the card over.            │
-│                                                          │
-│ Questions to try again                                   │
-│   None. Every question you answered is solved.           │
-│                                                          │
-│                                                          │
-│                                                          │
+│                      ◉  card 1 of 1                      │
+│       Recall the answer, then turn the card over.        │
+╰──────────────────────────────────────────────────────────╯
+╭─ Try again ─────────────────────────────────── 0 missed ─╮
+│ Every question you answered is solved. Questions you     │
+│ miss come back here.                                     │
 │                                                          │
 │                                                          │
 ╰──────────────────────────────────────────────────────────╯

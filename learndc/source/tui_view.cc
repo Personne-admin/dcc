@@ -1662,86 +1662,165 @@ namespace learndc::tui
             draw_scrollbar(ui, main, start, total, text_area.h);
         }
 
-        void draw_review(Ui& ui, Rect main)
+        void draw_centered(Ui& ui, Rect area, int y, std::vector<Line> const& lines)
+        {
+            for (std::size_t i = 0; i < lines.size(); ++i)
+            {
+                int const row = y + to_int(i);
+                if (row >= area.bottom())
+                    break;
+                int const w = line_width(lines[i]);
+                int const x = area.x + std::max(0, (area.w - w) / 2);
+                draw_line(ui, Rect{x, row, area.right() - x, 1}, row, lines[i]);
+            }
+        }
+
+        [[nodiscard]] std::vector<Line> card_text(Ui const& ui, std::string_view source, int width, Role role, bool bold)
+        {
+            std::vector<Line> out;
+            for (auto const& piece : text::wrap(clean_line(markdown_inline(source)), to_size(std::max(4, width))))
+                out.push_back(text_line(piece, plain(role, bold)));
+            std::ignore = ui;
+            return out;
+        }
+
+        void draw_flashcards(Ui& ui, Rect pane, bool focused)
         {
             auto const& m = ui.m;
             auto const& rs = m.review_state;
             auto const queue = m.review_queue();
-            auto const inner = draw_box(ui, main, "", false, std::format("{} due{}{} missed", rs.index < rs.due.size() ? rs.due.size() - rs.index : 0, ui.sep(), queue.missed.size()));
+            std::size_t const left = rs.index < rs.due.size() ? rs.due.size() - rs.index : 0;
+            auto const inner =
+                draw_box(ui, pane, focused ? std::format("{} Flashcards", ui.gl.sel) : std::string("Flashcards"), focused, std::format("{} due", left));
             if (inner.empty())
                 return;
-            int const width = std::max(8, inner.w - 1);
-            std::vector<Line> lines;
-            lines.push_back(text_line("Flashcards", plain(Role::Accent, true)));
-            add_wrapped(lines, std::format("{} unlocked{}{} locked until their lesson is complete", queue.cards_unlocked, ui.sep(), queue.cards_locked), width,
-                        plain(Role::Muted));
-            lines.push_back({});
+            catalog::Exercise const* ex = nullptr;
+            catalog::Card const* card = nullptr;
             if (rs.index < rs.due.size())
             {
                 auto const& key = rs.due[rs.index];
                 auto const hash = key.find('#');
-                auto const* ex = m.ctx->catalog.find(key.substr(0, hash));
-                catalog::Card const* card = nullptr;
+                ex = m.ctx->catalog.find(key.substr(0, hash));
                 if (ex)
                     for (auto const& c : ex->cards)
                         if (c.id == key.substr(hash + 1))
                             card = &c;
-                if (card)
-                {
-                    lines.push_back(text_line(std::format("Card {} of {}{}{}", rs.index + 1, rs.due.size(), ui.sep(), clean_line(ex->title)), plain(Role::Muted)));
-                    lines.push_back({});
-                    std::vector<Line> front;
-                    markdown_lines(ui, front, card->front, width - 4, false);
-                    for (auto& l : front)
-                    {
-                        Line x;
-                        x.push_back({"  ", plain(Role::Text)});
-                        append(x, l);
-                        lines.push_back(std::move(x));
-                    }
-                    lines.push_back({});
-                    if (rs.flipped)
-                    {
-                        lines.push_back(text_line(std::format("  {}", std::string(to_size(std::max(4, std::min(width - 4, 40))), '-')), plain(Role::Border)));
-                        std::vector<Line> back;
-                        markdown_lines(ui, back, card->back, width - 4, false);
-                        for (auto& l : back)
-                        {
-                            Line x;
-                            x.push_back({"  ", plain(Role::Text)});
-                            append(x, l);
-                            lines.push_back(std::move(x));
-                        }
-                        lines.push_back({});
-                        lines.push_back(text_line("  How well did you remember it: again, hard, good or easy?", plain(Role::Accent, true)));
-                    }
-                    else
-                        lines.push_back(text_line("  Recall the answer, then turn the card over.", plain(Role::Muted)));
-                }
             }
-            else if (rs.rated > 0)
-                lines.push_back(text_line(std::format("{} Session done: {} card{} reviewed.", ui.gl.done, rs.rated, rs.rated == 1 ? "" : "s"), plain(Role::Ok, true)));
-            else if (queue.cards_unlocked == 0)
-                lines.push_back(text_line("No cards yet. Lessons add theirs once you complete them.", plain(Role::Muted)));
-            else if (queue.next_due_day)
-                lines.push_back(text_line(std::format("Nothing is due. The next card comes back in {} day(s).", std::max(1, *queue.next_due_day - app::today_day())), plain(Role::Muted)));
-            lines.push_back({});
-            lines.push_back(text_line("Questions to try again", plain(Role::Accent, true)));
+            if (!card)
+            {
+                std::vector<Line> lines;
+                if (rs.rated > 0)
+                    lines.push_back(
+                        text_line(std::format("{} Session done: {} card{} reviewed.", ui.gl.done, rs.rated, rs.rated == 1 ? "" : "s"), plain(Role::Ok, true)));
+                else if (queue.cards_unlocked == 0)
+                    lines.push_back(text_line("No cards yet. Lessons add theirs once you complete them.", plain(Role::Muted)));
+                else if (queue.next_due_day)
+                    lines.push_back(
+                        text_line(std::format("Nothing is due. The next card comes back in {} day(s).", std::max(1, *queue.next_due_day - app::today_day())),
+                                  plain(Role::Muted)));
+                else
+                    lines.push_back(text_line("Nothing is due right now.", plain(Role::Muted)));
+                lines.push_back({});
+                for (auto const& piece :
+                     text::wrap(std::format("{} unlocked{}{} locked until their lesson is complete", queue.cards_unlocked, ui.sep(), queue.cards_locked),
+                                to_size(std::max(8, inner.w - 2))))
+                    lines.push_back(text_line(piece, plain(Role::Muted)));
+                draw_centered(ui, inner, inner.y + std::max(0, inner.h / 2 - 2), lines);
+                return;
+            }
+            int const card_w = std::clamp(inner.w - 4, 12, 64);
+            int const text_w = card_w - 6;
+            auto front = card_text(ui, card->front, text_w, Role::Text, true);
+            std::vector<Line> body;
+            if (rs.flipped)
+            {
+                for (auto const& l : card_text(ui, card->front, text_w, Role::Muted, false))
+                    body.push_back(l);
+                std::string rule;
+                for (int i = 0; i < std::min(text_w, 24); ++i)
+                    rule += ui.gl.h;
+                body.push_back(text_line(rule, plain(Role::Border)));
+                for (auto const& l : card_text(ui, card->back, text_w, Role::Accent, true))
+                    body.push_back(l);
+            }
+            else
+                body = std::move(front);
+            int const stack = static_cast<int>(std::min<std::size_t>(2, left > 0 ? left - 1 : 0));
+            int const card_h = std::clamp(to_int(body.size()) + 4, 7, std::max(7, inner.h - 4 - stack));
+            int const card_x = inner.x + (inner.w - card_w) / 2;
+            int const card_y = inner.y + std::max(0, (inner.h - card_h - stack - 2) / 2);
+            Rect const card_rect{card_x, card_y, card_w, card_h};
+            ui.g.fill(card_rect, plain(Role::Text));
+            auto const card_inner = draw_box(ui, card_rect, rs.flipped ? "BACK" : "FRONT", focused, clean_line(ex->title),
+                                             rs.flipped ? std::optional<Role>(Role::Accent) : std::nullopt);
+            Rect const all{0, 0, ui.g.width(), ui.g.height()};
+            for (int k = 1; k <= stack; ++k)
+            {
+                int const y = card_rect.bottom() - 1 + k;
+                int const x0 = card_rect.x + 2 * k;
+                int const x1 = card_rect.right() - 1 - 2 * k;
+                if (y >= inner.bottom() || x1 <= x0)
+                    break;
+                ui.g.put(x0, y, ui.gl.bl, plain(Role::Border), all);
+                for (int x = x0 + 1; x < x1; ++x)
+                    ui.g.put(x, y, ui.gl.h, plain(Role::Border), all);
+                ui.g.put(x1, y, ui.gl.br, plain(Role::Border), all);
+            }
+            if (!card_inner.empty())
+            {
+                int const start = card_inner.y + std::max(0, (card_inner.h - to_int(body.size())) / 2);
+                draw_centered(ui, card_inner, start, body);
+            }
+            int const below = card_rect.bottom() + stack + 1;
+            if (below < inner.bottom())
+            {
+                Line dots;
+                std::size_t const total = rs.due.size();
+                std::string marks;
+                for (std::size_t i = 0; i < total && i < 20; ++i)
+                    marks += i < rs.index    ? std::string(ui.ascii ? "*" : "\xE2\x97\x8F")
+                             : i == rs.index ? std::string(ui.ascii ? "o" : "\xE2\x97\x89")
+                                             : std::string(ui.ascii ? "." : "\xE2\x97\x8B");
+                dots.push_back({marks, plain(Role::Accent)});
+                dots.push_back({std::format("  card {} of {}", rs.index + 1, total), plain(Role::Muted)});
+                draw_centered(ui, inner, below, {dots});
+                if (below + 1 < inner.bottom())
+                    draw_centered(
+                        ui, inner, below + 1,
+                        card_text(ui, rs.flipped ? "How well did you remember it: again, hard, good or easy?" : "Recall the answer, then turn the card over.",
+                                  std::max(8, inner.w - 4), rs.flipped ? Role::Accent : Role::Muted, rs.flipped));
+            }
+        }
+
+        void draw_missed(Ui& ui, Rect pane, bool focused)
+        {
+            auto const& m = ui.m;
+            auto const& rs = m.review_state;
+            auto const queue = m.review_queue();
+            auto const inner = draw_box(ui, pane, focused ? std::format("{} Try again", ui.gl.sel) : std::string("Try again"), focused,
+                                        std::format("{} missed", queue.missed.size()));
+            if (inner.empty())
+                return;
+            std::vector<Line> lines;
             int focus = -1;
             if (queue.missed.empty())
-                lines.push_back(text_line("  None. Every question you answered is solved.", plain(Role::Muted)));
+                for (auto const& piece :
+                     text::wrap("Every question you answered is solved. Questions you miss come back here.", to_size(std::max(8, inner.w - 1))))
+                    lines.push_back(text_line(piece, plain(Role::Muted)));
             for (std::size_t i = 0; i < queue.missed.size(); ++i)
             {
                 auto const& mref = queue.missed[i];
-                bool const selected = rs.on_missed && i == std::min(rs.missed_sel, queue.missed.size() - 1);
+                bool const selected = focused && i == std::min(rs.missed_sel, queue.missed.size() - 1);
                 Line l;
                 l.push_back({selected ? std::format("{} ", ui.gl.sel) : std::string("  "), plain(Role::Accent, true)});
-                l.push_back({activity::type_word(mref.question->type), plain(Role::Text, selected)});
-                l.push_back({std::format("{}{}", ui.sep(), clean_line(mref.lesson->title)), plain(Role::Muted)});
-                l.push_back({std::format("{}{} {}", ui.sep(), mref.attempts, mref.attempts == 1 ? "try" : "tries"), plain(Role::Muted)});
+                l.push_back({fit(ui, activity::type_word(mref.question->type), std::max(4, inner.w - 4)), plain(selected ? Role::Accent : Role::Text, true)});
                 if (selected)
                     focus = to_int(lines.size());
                 lines.push_back(std::move(l));
+                lines.push_back(text_line(
+                    "  " + fit(ui, std::format("{}{}{} {}", clean_line(mref.lesson->title), ui.sep(), mref.attempts, mref.attempts == 1 ? "try" : "tries"),
+                               std::max(4, inner.w - 2)),
+                    plain(Role::Muted)));
             }
             int const total = to_int(lines.size());
             int const start = focus >= 0 ? first_visible(focus, total, inner.h) : 0;
@@ -1750,9 +1829,25 @@ namespace learndc::tui
                 auto const idx = start + i;
                 if (idx >= total)
                     break;
-                draw_line(ui, inner, inner.y + i, lines[to_size(idx)], idx == focus);
+                bool const selected = idx == focus;
+                draw_line(ui, inner, inner.y + i, lines[to_size(idx)], selected);
             }
-            draw_scrollbar(ui, main, start, total, inner.h);
+            draw_scrollbar(ui, pane, start, total, inner.h);
+        }
+
+        void draw_review(Ui& ui, Rect main)
+        {
+            auto const& rs = ui.m.review_state;
+            if (main.w >= 70)
+            {
+                int const right_w = std::clamp(main.w * 2 / 5, 26, 44);
+                draw_flashcards(ui, Rect{main.x, main.y, main.w - right_w, main.h}, !rs.on_missed);
+                draw_missed(ui, Rect{main.x + main.w - right_w, main.y, right_w, main.h}, rs.on_missed);
+                return;
+            }
+            int const missed_h = std::clamp(main.h / 3, 4, 8);
+            draw_flashcards(ui, Rect{main.x, main.y, main.w, main.h - missed_h}, !rs.on_missed);
+            draw_missed(ui, Rect{main.x, main.y + main.h - missed_h, main.w, missed_h}, rs.on_missed);
         }
 
         void draw_exercise(Ui& ui, Rect main)

@@ -1,30 +1,30 @@
  Test · Review                                                        1 of 6 completed ██░░░░░░░░░░
-╭─ Menu ───────────────╮╭─────────────────────────────────────────────────────── 1 due · 0 missed ─╮
-│   1 Home             ││ Flashcards                                                               │
-│   2 Learn            ││ 1 unlocked · 1 locked until their lesson is complete                     │
-│   3 Lesson           ││                                                                          │
-│   4 Progress         ││ Card 1 of 1 · Basics drill                                               │
-│   5 Bookmarks        ││                                                                          │
-│   6 Doctor           ││   Front                                                                  │
-│   7 Settings         ││                                                                          │
-│ › 8 Review           ││   ----------------------------------------                               │
-│                      ││   Back                                                                   │
-│   ? Help             ││                                                                          │
-│                      ││   How well did you remember it: again, hard, good or easy?               │
-│                      ││                                                                          │
-│                      ││ Questions to try again                                                   │
-│                      ││   None. Every question you answered is solved.                           │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+╭─ Menu ───────────────╮╭─ › Flashcards ───────────────────── 1 due ─╮╭─ Try again ───── 0 missed ─╮
+│   1 Home             ││                                            ││ Every question you         │
+│   2 Learn            ││                                            ││ answered is solved.        │
+│   3 Lesson           ││                                            ││ Questions you miss come    │
+│   4 Progress         ││                                            ││ back here.                 │
+│   5 Bookmarks        ││                                            ││                            │
+│   6 Doctor           ││                                            ││                            │
+│   7 Settings         ││                                            ││                            │
+│ › 8 Review           ││                                            ││                            │
+│                      ││   ╭─ BACK ────────────── Basics drill ─╮   ││                            │
+│   ? Help             ││   │                                    │   ││                            │
+│                      ││   │               Front                │   ││                            │
+│                      ││   │      ────────────────────────      │   ││                            │
+│                      ││   │                Back                │   ││                            │
+│                      ││   │                                    │   ││                            │
+│                      ││   ╰────────────────────────────────────╯   ││                            │
+│                      ││                                            ││                            │
+│                      ││               ◉  card 1 of 1               ││                            │
+│                      ││    How well did you remember it: again,    ││                            │
+│                      ││            hard, good or easy?             ││                            │
+│                      ││                                            ││                            │
+│                      ││                                            ││                            │
+│                      ││                                            ││                            │
+│                      ││                                            ││                            │
+│                      ││                                            ││                            │
+│                      ││                                            ││                            │
+╰──────────────────────╯╰────────────────────────────────────────────╯╰────────────────────────────╯
  Turn the card over with Space first, then rate it
  Space turn over  a h g e rate  Tab cards or questions  Enter open  ? help  q quit
