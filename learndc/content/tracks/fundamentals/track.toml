@@ -1,0 +1,5 @@
+schema = 1
+id = "fundamentals"
+title = "Fundamentals"
+summary = "Programs, values, functions, branches, loops and reading compiler errors."
+exercises = ["hello-world"]

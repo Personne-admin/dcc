@@ -1,0 +1,39 @@
+schema = 1
+id = "fundamentals/hello-world"
+revision = 1
+title = "Your first DC program"
+summary = "Greet someone by name with a formatted println."
+kind = "complete-program"
+chapter = "getting-started"
+difficulty = "beginner"
+estimated_minutes = 5
+concepts = ["main", "println", "format placeholders", "Status"]
+tags = ["output", "strings"]
+objectives = [
+    "Read a hosted main that returns Status(Error)",
+    "Store text in a []const char variable",
+    "Print a value with a {} placeholder and propagate errors with ?",
+]
+entry_file = "src/main.dc"
+product = "hello"
+prerequisites = []
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Greets Ada, then welcomes her"
+expect_stdout = """
+Hello, Ada!
+Welcome to DC.
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Both lines must match exactly, including the comma, the exclamation mark and the final full stop."

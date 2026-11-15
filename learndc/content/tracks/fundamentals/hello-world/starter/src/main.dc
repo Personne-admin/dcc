@@ -1,0 +1,6 @@
+module main;
+
+public Status(Error) main() {
+    println("Hello, world!")?;
+    return Status::Ok;
+}
