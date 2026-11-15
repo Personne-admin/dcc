@@ -39,6 +39,21 @@ export namespace learndc::progress
         return std::nullopt;
     }
 
+    inline constexpr int current_schema = 2;
+
+    struct StageProgress
+    {
+        std::string achieved_at;
+        int achieved_revision = 0;
+        std::string last;
+        std::string last_checked_at;
+        int hint_level = 0;
+
+        [[nodiscard]] bool achieved() const { return !achieved_at.empty(); }
+
+        friend bool operator==(StageProgress const&, StageProgress const&) = default;
+    };
+
     struct ExerciseProgress
     {
         Status status = Status::NotStarted;
@@ -52,13 +67,15 @@ export namespace learndc::progress
         int completed_revision = 0;
         int last_passed = 0;
         int last_total = 0;
+        std::string last_fingerprint;
+        std::map<std::string, StageProgress> stages;
 
         friend bool operator==(ExerciseProgress const&, ExerciseProgress const&) = default;
     };
 
     struct Progress
     {
-        int schema = 1;
+        int schema = current_schema;
         std::map<std::string, ExerciseProgress> exercises;
         std::string active_exercise;
         std::vector<std::string> bookmarks;
@@ -105,14 +122,15 @@ export namespace learndc::progress
         return e;
     }
 
-    inline void record_check(Progress& p, std::string_view id, int passed, int total, int revision, std::string_view now)
+    inline void record_check(Progress& p, std::string_view id, int passed, int total, int revision, std::string_view now,
+                             std::optional<bool> complete = std::nullopt)
     {
         auto& e = mark_started(p, id, now);
         ++e.attempts;
         e.last_passed = passed;
         e.last_total = total;
         e.last_checked_at = std::string(now);
-        if (total > 0 && passed >= total)
+        if (complete.value_or(total > 0 && passed >= total))
         {
             ++e.passes;
             if (e.status != Status::Completed || e.completed_revision < revision)
@@ -123,6 +141,65 @@ export namespace learndc::progress
             }
             e.status = Status::Completed;
         }
+    }
+
+    struct StageOutcome
+    {
+        std::string id;
+        bool passed = false;
+        bool ran = true;
+        int revision = 1;
+    };
+
+    inline void record_stages(Progress& p, std::string_view id, std::vector<StageOutcome> const& outcomes, std::string_view fingerprint, std::string_view now)
+    {
+        auto& e = p.exercises[std::string(id)];
+        e.last_fingerprint = std::string(fingerprint);
+        for (auto const& o : outcomes)
+        {
+            auto& st = e.stages[o.id];
+            st.last = !o.ran ? "not-run" : o.passed ? "pass" : "fail";
+            st.last_checked_at = std::string(now);
+            if (o.passed && (!st.achieved() || st.achieved_revision < o.revision))
+            {
+                if (!st.achieved())
+                    st.achieved_at = std::string(now);
+                st.achieved_revision = o.revision;
+            }
+        }
+    }
+
+    inline void reveal_stage_hint(Progress& p, std::string_view id, std::string_view stage, int level)
+    {
+        auto& st = p.exercises[std::string(id)].stages[std::string(stage)];
+        st.hint_level = std::clamp(std::max(st.hint_level, level), 0, 3);
+    }
+
+    inline void forget_stage_results(Progress& p, std::string_view id)
+    {
+        auto it = p.exercises.find(std::string(id));
+        if (it == p.exercises.end())
+            return;
+        it->second.last_fingerprint.clear();
+        for (auto& [name, st] : it->second.stages)
+        {
+            st.last.clear();
+            st.last_checked_at.clear();
+        }
+    }
+
+    inline void record_lecture(Progress& p, std::string_view id, bool understood, int revision, std::string_view now)
+    {
+        auto& e = mark_started(p, id, now);
+        ++e.attempts;
+        e.last_checked_at = std::string(now);
+        if (!understood)
+            return;
+        ++e.passes;
+        if (e.status != Status::Completed || e.completed_at.empty())
+            e.completed_at = std::string(now);
+        e.completed_revision = std::max(e.completed_revision, revision);
+        e.status = Status::Completed;
     }
 
     inline void reveal_hint(Progress& p, std::string_view id, int level, [[maybe_unused]] std::string_view now)
@@ -160,7 +237,7 @@ export namespace learndc::progress
     {
         auto const text_or_null = [](std::string const& s) { return s.empty() ? json::Json(nullptr) : json::Json(s); };
         auto root = json::Json::make_object();
-        root.set("schema", json::Json(1));
+        root.set("schema", json::Json(current_schema));
         root.set("active_exercise", text_or_null(p.active_exercise));
         auto exercises = json::Json::make_object();
         for (auto const& [id, e] : p.exercises)
@@ -177,6 +254,23 @@ export namespace learndc::progress
             o.set("completed_revision", json::Json(e.completed_revision));
             o.set("last_passed", json::Json(e.last_passed));
             o.set("last_total", json::Json(e.last_total));
+            if (!e.last_fingerprint.empty())
+                o.set("last_fingerprint", json::Json(e.last_fingerprint));
+            if (!e.stages.empty())
+            {
+                auto stages = json::Json::make_object();
+                for (auto const& [name, st] : e.stages)
+                {
+                    auto so = json::Json::make_object();
+                    so.set("achieved_at", text_or_null(st.achieved_at));
+                    so.set("achieved_revision", json::Json(st.achieved_revision));
+                    so.set("last", text_or_null(st.last));
+                    so.set("last_checked_at", text_or_null(st.last_checked_at));
+                    so.set("hint_level", json::Json(st.hint_level));
+                    stages.set(name, std::move(so));
+                }
+                o.set("stages", std::move(stages));
+            }
             exercises.set(id, std::move(o));
         }
         root.set("exercises", std::move(exercises));
@@ -254,12 +348,13 @@ export namespace learndc::progress
             auto n = s->as_int();
             if (!n)
                 return detail::bad("'schema' must be a number");
-            if (*n != 1)
+            if (*n != 1 && *n != current_schema)
             {
                 if (unsupported_schema != nullptr)
                     *unsupported_schema = static_cast<int>(*n);
-                return detail::bad(std::format("unsupported progress schema {} (this learndc supports 1)", *n));
+                return detail::bad(std::format("unsupported progress schema {} (this learndc supports 1 and {})", *n, current_schema));
             }
+            p.schema = static_cast<int>(*n);
         }
         else
             return detail::bad("'schema' is missing");
@@ -314,6 +409,41 @@ export namespace learndc::progress
                     if (!b)
                         return detail::bad(std::format("exercise '{}': 'solution_viewed' must be true or false", id));
                     ep.solution_viewed = *b;
+                }
+                auto fingerprint = detail::opt_string(value, "last_fingerprint");
+                if (!fingerprint)
+                    return detail::bad(std::format("exercise '{}': {}", id, fingerprint.error().message));
+                ep.last_fingerprint = std::move(*fingerprint);
+                if (auto const* stages = value.find("stages"))
+                {
+                    auto const* stage_map = stages->as_object();
+                    if (stage_map == nullptr)
+                        return detail::bad(std::format("exercise '{}': 'stages' must be an object", id));
+                    for (auto const& [name, sv] : *stage_map)
+                    {
+                        if (!sv.is_object())
+                            return detail::bad(std::format("exercise '{}': stage '{}' must be an object", id, name));
+                        StageProgress st;
+                        auto achieved = detail::opt_string(sv, "achieved_at");
+                        auto last = detail::opt_string(sv, "last");
+                        auto stage_checked = detail::opt_string(sv, "last_checked_at");
+                        auto rev = detail::opt_int(sv, "achieved_revision", 0, 1000000);
+                        auto hint_level = detail::opt_int(sv, "hint_level", 0, 3);
+                        for (auto const* r : {&achieved, &last, &stage_checked})
+                            if (!*r)
+                                return detail::bad(std::format("exercise '{}' stage '{}': {}", id, name, r->error().message));
+                        for (auto const* r : {&rev, &hint_level})
+                            if (!*r)
+                                return detail::bad(std::format("exercise '{}' stage '{}': {}", id, name, r->error().message));
+                        if (!last->empty() && *last != "pass" && *last != "fail" && *last != "not-run")
+                            return detail::bad(std::format("exercise '{}' stage '{}': 'last' must be pass, fail or not-run", id, name));
+                        st.achieved_at = std::move(*achieved);
+                        st.last = std::move(*last);
+                        st.last_checked_at = std::move(*stage_checked);
+                        st.achieved_revision = *rev;
+                        st.hint_level = *hint_level;
+                        ep.stages.emplace(name, std::move(st));
+                    }
                 }
                 p.exercises.emplace(id, std::move(ep));
             }
@@ -425,6 +555,13 @@ export namespace learndc::progress
             return p;
         }
 
+        [[nodiscard]] std::filesystem::path schema1_backup_file() const
+        {
+            auto p = m_file;
+            p += ".schema1.bak";
+            return p;
+        }
+
         [[nodiscard]] std::expected<Loaded, text::Error> load() const
         {
             auto first = detail::read_progress(m_file);
@@ -451,6 +588,7 @@ export namespace learndc::progress
                     lock.error().busy ? std::format("another learndc is updating '{}'; try again", platform::path_to_utf8(m_file)) : lock.error().message});
             Loaded loaded;
             auto current = detail::read_progress(m_file);
+            int const read_schema = current.progress.schema;
             bool changed_on_disk = false;
             switch (current.kind)
             {
@@ -497,9 +635,16 @@ export namespace learndc::progress
             if (current.kind == detail::ReadKind::Ok)
             {
                 if (auto raw = platform::read_file(m_file))
+                {
                     if (auto r = platform::atomic_write(backup_file(), *raw); !r)
                         return std::unexpected(r.error());
+                    std::error_code ec;
+                    if (read_schema == 1 && !std::filesystem::exists(schema1_backup_file(), ec))
+                        if (auto r = platform::atomic_write(schema1_backup_file(), *raw); !r)
+                            return std::unexpected(r.error());
+                }
             }
+            loaded.progress.schema = current_schema;
             if (auto r = platform::atomic_write(m_file, to_json(loaded.progress).dump(2) + "\n"); !r)
                 return std::unexpected(r.error());
             return loaded;
@@ -546,7 +691,7 @@ export namespace learndc::progress
     {
         auto root = json::Json::make_object();
         root.set("format", json::Json("learndc-progress"));
-        root.set("schema", json::Json(1));
+        root.set("schema", json::Json(current_schema));
         root.set("exported_at", json::Json(exported_at));
         root.set("progress", to_json(p));
         return root.dump(2) + "\n";
@@ -563,8 +708,9 @@ export namespace learndc::progress
         auto const* schema = parsed->find("schema");
         if (schema == nullptr || !schema->is_int())
             return std::unexpected(text::Error{"the export has no schema number"});
-        if (*schema->as_int() != 1)
-            return std::unexpected(text::Error{std::format("unsupported export schema {} (this learndc supports 1)", *schema->as_int())});
+        if (*schema->as_int() != 1 && *schema->as_int() != current_schema)
+            return std::unexpected(
+                text::Error{std::format("unsupported export schema {} (this learndc supports 1 and {})", *schema->as_int(), current_schema)});
         auto const* body = parsed->find("progress");
         if (body == nullptr)
             return std::unexpected(text::Error{"the export has no progress object"});
@@ -590,6 +736,47 @@ export namespace learndc::progress
         [[nodiscard]] inline Status merge_status(Status a, Status b)
         {
             return static_cast<Status>(std::max(static_cast<int>(a), static_cast<int>(b)));
+        }
+
+        [[nodiscard]] inline StageProgress merge_stage(StageProgress const& a, StageProgress const& b)
+        {
+            StageProgress m;
+            m.achieved_at = earliest(a.achieved_at, b.achieved_at);
+            m.achieved_revision = std::max(a.achieved_revision, b.achieved_revision);
+            bool const b_newer = b.last_checked_at > a.last_checked_at;
+            m.last = b_newer ? b.last : a.last;
+            m.last_checked_at = latest(a.last_checked_at, b.last_checked_at);
+            m.hint_level = std::max(a.hint_level, b.hint_level);
+            return m;
+        }
+
+        [[nodiscard]] inline ExerciseProgress merge_exercise(ExerciseProgress const& cur, ExerciseProgress const& in)
+        {
+            ExerciseProgress m = cur;
+            m.status = merge_status(cur.status, in.status);
+            m.attempts = std::max(cur.attempts, in.attempts);
+            m.passes = std::max(cur.passes, in.passes);
+            m.hint_level = std::max(cur.hint_level, in.hint_level);
+            m.solution_viewed = cur.solution_viewed || in.solution_viewed;
+            m.first_started_at = earliest(cur.first_started_at, in.first_started_at);
+            m.last_checked_at = latest(cur.last_checked_at, in.last_checked_at);
+            m.completed_at = earliest(cur.completed_at, in.completed_at);
+            m.completed_revision = std::max(cur.completed_revision, in.completed_revision);
+            if (in.last_checked_at > cur.last_checked_at)
+            {
+                m.last_passed = in.last_passed;
+                m.last_total = in.last_total;
+                m.last_fingerprint = in.last_fingerprint;
+            }
+            for (auto const& [name, st] : in.stages)
+            {
+                auto it = m.stages.find(name);
+                if (it == m.stages.end())
+                    m.stages.emplace(name, st);
+                else
+                    it->second = merge_stage(it->second, st);
+            }
+            return m;
         }
 
         inline void diff_exercise(std::string const& id, ExerciseProgress const* from, ExerciseProgress const& to, std::vector<Change>& out)
@@ -628,20 +815,7 @@ export namespace learndc::progress
             }
             auto const& cur = current.exercises.at(id);
             auto& m = it->second;
-            m.status = detail::merge_status(cur.status, in.status);
-            m.attempts = std::max(cur.attempts, in.attempts);
-            m.passes = std::max(cur.passes, in.passes);
-            m.hint_level = std::max(cur.hint_level, in.hint_level);
-            m.solution_viewed = cur.solution_viewed || in.solution_viewed;
-            m.first_started_at = detail::earliest(cur.first_started_at, in.first_started_at);
-            m.last_checked_at = detail::latest(cur.last_checked_at, in.last_checked_at);
-            m.completed_at = detail::earliest(cur.completed_at, in.completed_at);
-            m.completed_revision = std::max(cur.completed_revision, in.completed_revision);
-            if (in.last_checked_at > cur.last_checked_at)
-            {
-                m.last_passed = in.last_passed;
-                m.last_total = in.last_total;
-            }
+            m = detail::merge_exercise(cur, in);
             if (cur.status != in.status)
                 plan.conflicts.push_back(
                     Conflict{id, "status", std::string(to_string(cur.status)), std::string(to_string(in.status)), std::string(to_string(m.status))});
@@ -680,6 +854,67 @@ export namespace learndc::progress
             if (!current.workspaces.contains(id))
                 plan.changes.push_back(Change{id, "workspace", "", path});
         return plan;
+    }
+
+    inline bool migrate_renamed(Progress& p, std::map<std::string, std::string> const& renamed)
+    {
+        bool changed = false;
+        auto const target = [&](std::string const& id) -> std::string const* {
+            auto it = renamed.find(id);
+            return it == renamed.end() ? nullptr : &it->second;
+        };
+        for (auto const& [from, to] : renamed)
+        {
+            auto it = p.exercises.find(from);
+            if (it == p.exercises.end())
+                continue;
+            auto old = std::move(it->second);
+            p.exercises.erase(it);
+            auto existing = p.exercises.find(to);
+            if (existing == p.exercises.end())
+                p.exercises.emplace(to, std::move(old));
+            else
+                existing->second = detail::merge_exercise(existing->second, old);
+            changed = true;
+        }
+        std::vector<std::string> bookmarks;
+        for (auto const& b : p.bookmarks)
+        {
+            auto const* t = target(b);
+            if (t != nullptr)
+                changed = true;
+            auto const& id = t != nullptr ? *t : b;
+            if (std::ranges::find(bookmarks, id) == bookmarks.end())
+                bookmarks.push_back(id);
+        }
+        p.bookmarks = std::move(bookmarks);
+        std::vector<std::string> recent;
+        for (auto const& r : p.recent)
+        {
+            auto const* t = target(r);
+            if (t != nullptr)
+                changed = true;
+            auto const& id = t != nullptr ? *t : r;
+            if (std::ranges::find(recent, id) == recent.end())
+                recent.push_back(id);
+        }
+        p.recent = std::move(recent);
+        if (auto const* t = target(p.active_exercise))
+        {
+            p.active_exercise = *t;
+            changed = true;
+        }
+        for (auto const& [from, to] : renamed)
+        {
+            auto it = p.workspaces.find(from);
+            if (it == p.workspaces.end())
+                continue;
+            if (!p.workspaces.contains(to))
+                p.workspaces.emplace(to, it->second);
+            p.workspaces.erase(from);
+            changed = true;
+        }
+        return changed;
     }
 
     inline void apply_import(Progress& current, ImportPlan const& plan)

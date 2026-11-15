@@ -2465,12 +2465,12 @@ TEST_CASE("progress store refuses to overwrite a newer schema")
 {
     TempDir t;
     progress::ProgressStore store(t.path / "progress.json", t.path / "progress.lock");
-    write_file(store.file(), "{\"schema\":2,\"future\":true}");
+    write_file(store.file(), "{\"schema\":3,\"future\":true}");
     auto loaded = store.load();
     REQUIRE(!loaded);
-    CHECK(loaded.error().message.find("unsupported progress schema 2") != std::string::npos);
+    CHECK(loaded.error().message.find("unsupported progress schema 3") != std::string::npos);
     CHECK(!store.update([](progress::Progress& p) { progress::set_active(p, "a/b"); }));
-    CHECK_EQ(slurp(store.file()), "{\"schema\":2,\"future\":true}");
+    CHECK_EQ(slurp(store.file()), "{\"schema\":3,\"future\":true}");
     CHECK(entries_with_prefix(t.path, "progress.json.corrupt-").empty());
 }
 
@@ -2542,7 +2542,7 @@ TEST_CASE("progress export parses and rejects foreign files")
     auto parsed = json::parse(exported);
     REQUIRE(parsed);
     CHECK_EQ(parsed->find("format")->as_string().value(), "learndc-progress");
-    CHECK_EQ(parsed->find("schema")->as_int().value(), 1);
+    CHECK_EQ(parsed->find("schema")->as_int().value(), progress::current_schema);
     CHECK_EQ(parsed->find("exported_at")->as_string().value(), "2026-03-01T00:00:00Z");
     auto back = progress::parse_export(exported);
     REQUIRE(back);
@@ -2551,9 +2551,9 @@ TEST_CASE("progress export parses and rejects foreign files")
     CHECK(!progress::parse_export("nonsense"));
     CHECK(!progress::parse_export("{\"schema\":1,\"progress\":{}}"));
     CHECK(!progress::parse_export("{\"format\":\"other\",\"schema\":1,\"progress\":{\"schema\":1}}"));
-    auto future = progress::parse_export("{\"format\":\"learndc-progress\",\"schema\":2,\"progress\":{\"schema\":1}}");
+    auto future = progress::parse_export("{\"format\":\"learndc-progress\",\"schema\":3,\"progress\":{\"schema\":1}}");
     REQUIRE(!future);
-    CHECK(future.error().message.find("unsupported export schema 2") != std::string::npos);
+    CHECK(future.error().message.find("unsupported export schema 3") != std::string::npos);
     CHECK(!progress::parse_export("{\"format\":\"learndc-progress\",\"schema\":1}"));
     CHECK(!progress::parse_export("{\"format\":\"learndc-progress\",\"schema\":1,\"progress\":{\"schema\":1,\"exercises\":5}}"));
 }
@@ -7548,4 +7548,668 @@ int main(int argc, char** argv)
     if (char const* only = std::getenv("LEARNDC_TEST_ONLY"); only && *only)
         std::erase_if(test::registry(), [&](test::Case const& c) { return !c.name.contains(std::string_view(only)); });
     return test::run();
+}
+
+SECTION("learndc.academy");
+
+namespace
+{
+    constexpr std::string_view lecture_toml = R"(schema = 1
+id = "basics/intro"
+revision = 1
+title = "How things work"
+summary = "A short lecture."
+difficulty = "beginner"
+estimated_minutes = 5
+concepts = ["scope", "defer"]
+objectives = ["Understand scopes"]
+prerequisites = []
+
+[[examples]]
+name = "demo"
+expect_stdout = "hi\n"
+
+[[questions]]
+prompt = "Pick two"
+choices = ["one", "two", "three"]
+answer = 2
+explanation = "Two is right."
+
+[[questions]]
+prompt = "Pick one"
+choices = ["one", "two"]
+answer = 1
+explanation = "One is right."
+)";
+
+    constexpr std::string_view boss_toml = R"(schema = 1
+id = "more/boss"
+revision = 1
+title = "The Keeper"
+summary = "Defeat the keeper."
+kind = "challenge"
+difficulty = "intermediate"
+estimated_minutes = 40
+concepts = ["arrays"]
+objectives = ["Win"]
+entry_file = "src/main.dc"
+product = "prog"
+prerequisites = ["more/three"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 4
+story = "A keeper guards the shelf."
+
+[[stages]]
+id = "first"
+title = "First stage"
+summary = "Do the first part."
+hints = ["first hint", "second hint"]
+
+[[stages]]
+id = "second"
+title = "Second stage"
+summary = "Do the second part."
+revision = 2
+hints = ["only hint"]
+
+[[stages]]
+id = "bonus"
+title = "Bonus stage"
+summary = "Optional extra."
+optional = true
+hints = ["bonus hint"]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "first works"
+stage = "first"
+harness = "checks/first_check.dc"
+
+[[checks]]
+kind = "run"
+name = "second prints"
+stage = "second"
+expect_stdout = "ok\n"
+
+[[checks]]
+kind = "harness"
+name = "bonus works"
+stage = "bonus"
+harness = "checks/bonus_check.dc"
+)";
+
+    catalog::ContentSource academy_source()
+    {
+        auto s = base_source();
+        s.files["catalog.toml"] = "schema = 1\ntitle = \"Test\"\ntracks = [\"basics\", \"more\"]\n\n[renamed]\n\"old/one\" = \"basics/one\"\n";
+        s.files["tracks/basics/track.toml"] = "schema = 1\nid = \"basics\"\ntitle = \"Basics\"\nsummary = \"Start here\"\ngoal = \"Learn the "
+                                              "basics.\"\nexercises = [\"intro\", \"one\", \"two\"]\n";
+        s.files["tracks/more/track.toml"] = "schema = 1\nid = \"more\"\ntitle = \"More\"\nsummary = \"Go on\"\nexercises = [\"three\", \"boss\"]\n";
+        s.add("tracks/basics/intro/lecture.toml", std::string(lecture_toml));
+        s.add("tracks/basics/intro/README.md", "# How things work\n\n## First\n\nText.\n\n```dc example=demo\n```\n\n## Second\n\nMore text.\n");
+        s.add("tracks/basics/intro/examples/demo.dc", "module main;\n\npublic i32 main() {\n    return 0;\n}\n");
+        auto const dir = std::string("tracks/more/boss/");
+        s.add(dir + "exercise.toml", std::string(boss_toml));
+        s.add(dir + "README.md", "# The Keeper\n\nBrief.\n");
+        s.add(dir + "hints.md", std::string(valid_hints));
+        s.add(dir + "explanation.md", "Because.\n");
+        s.add(dir + "starter/project.dcon", "dpm::v1::Project { name = \"prog\" }\n");
+        s.add(dir + "starter/src/main.dc", "module main;\n");
+        s.add(dir + "solution/src/main.dc", "module main;\n// solved\n");
+        s.add(dir + "checks/first_check.dc", "module first_check;\n");
+        s.add(dir + "checks/bonus_check.dc", "module bonus_check;\n");
+        return s;
+    }
+
+    std::string const boss_file = "tracks/more/boss/exercise.toml";
+    std::string const lecture_file = "tracks/basics/intro/lecture.toml";
+
+    runner::CheckReport staged_report(bool first, bool second, bool bonus, std::string fingerprint = "fp1")
+    {
+        runner::CheckReport r;
+        r.exercise = "more/boss";
+        r.fingerprint = std::move(fingerprint);
+        auto result = [](std::string name, std::string stage, bool pass) {
+            runner::CheckResult c;
+            c.name = std::move(name);
+            c.stage_id = std::move(stage);
+            c.kind = catalog::CheckKind::Harness;
+            c.verdict = pass ? runner::Verdict::Pass : runner::Verdict::Fail;
+            return c;
+        };
+        runner::CheckResult build;
+        build.name = "Compiles";
+        build.verdict = runner::Verdict::Pass;
+        r.results = {build, result("first works", "first", first), result("second prints", "second", second), result("bonus works", "bonus", bonus)};
+        r.passed = 1 + (first ? 1 : 0) + (second ? 1 : 0) + (bonus ? 1 : 0);
+        r.total = 4;
+        r.outcome = r.passed == r.total ? runner::Outcome::Passed : runner::Outcome::Failed;
+        r.stages = {{"first", "First stage", false, true, first, 1, first ? 1 : 0, 1},
+                    {"second", "Second stage", false, true, second, 2, second ? 1 : 0, 1},
+                    {"bonus", "Bonus stage", true, true, bonus, 1, bonus ? 1 : 0, 1}};
+        r.complete = first && second;
+        return r;
+    }
+} // namespace
+
+TEST_CASE("academy catalog loads lectures stages bosses chapters and renames")
+{
+    auto loaded = catalog::Catalog::load(academy_source());
+    if (!loaded)
+        dump_errors(loaded.error());
+    REQUIRE(loaded);
+    auto const& c = *loaded;
+    auto const* intro = c.find("basics/intro");
+    REQUIRE(intro != nullptr);
+    CHECK(intro->is_lecture());
+    CHECK(intro->checks.empty());
+    REQUIRE(intro->questions.size() == 2u);
+    CHECK_EQ(intro->questions[0].answer, 2);
+    CHECK_EQ(intro->questions[0].choices.size(), 3u);
+    REQUIRE(intro->examples.size() == 1u);
+    CHECK(intro->readme.find("public i32 main()") != std::string::npos);
+    CHECK(intro->readme.find("example=demo") == std::string::npos);
+    CHECK_EQ(intro->chapter_number, 1);
+
+    auto const* boss = c.find("more/boss");
+    REQUIRE(boss != nullptr);
+    CHECK(boss->is_boss());
+    CHECK(boss->staged());
+    CHECK_EQ(boss->boss->rating, 4);
+    REQUIRE(boss->stages.size() == 3u);
+    CHECK_EQ(boss->stages[1].revision, 2);
+    CHECK(boss->stages[2].optional);
+    CHECK_EQ(boss->stages[0].hints.size(), 2u);
+    CHECK_EQ(boss->checks_of("first").size(), 1u);
+    CHECK_EQ(boss->checks[0].kind, catalog::CheckKind::Build);
+    CHECK(boss->checks[0].stage.empty());
+    CHECK_EQ(boss->chapter_number, 2);
+
+    CHECK(c.find("old/one") == c.find("basics/one"));
+    REQUIRE(c.find("basics/one")->former_ids.size() == 1u);
+    CHECK_EQ(c.find("basics/one")->former_ids[0], "old/one");
+    REQUIRE(c.find_track("basics") != nullptr);
+    CHECK_EQ(c.find_track("basics")->goal, "Learn the basics.");
+    CHECK_EQ(c.find_track("more")->number, 2);
+}
+
+TEST_CASE("academy catalog rejects broken stages bosses and lectures")
+{
+    auto expect_error = [](catalog::ContentSource s, std::string_view needle) {
+        auto errors = errors_of(s);
+        if (!has_error(errors, needle))
+        {
+            std::println(std::cerr, "    expected an error containing '{}'", needle);
+            dump_errors(errors);
+        }
+        CHECK(has_error(errors, needle));
+    };
+    {
+        auto s = academy_source();
+        edit(s, boss_file, "stage = \"second\"", "stage = \"third\"");
+        expect_error(s, "names the unknown stage 'third'");
+    }
+    {
+        auto s = academy_source();
+        edit(s, boss_file, "stage = \"second\"\n", "");
+        expect_error(s, "check 'second prints' must name its stage");
+    }
+    {
+        auto s = academy_source();
+        edit(s, boss_file, "stage = \"bonus\"", "stage = \"first\"");
+        expect_error(s, "stage 'bonus' has no checks");
+    }
+    {
+        auto s = academy_source();
+        edit(s, boss_file, "hints = [\"only hint\"]\n", "");
+        expect_error(s, "boss stage 'second' needs at least one hint");
+    }
+    {
+        auto s = academy_source();
+        edit(s, boss_file, "id = \"second\"", "id = \"first\"");
+        expect_error(s, "stage id 'first' is used more than once");
+    }
+    {
+        auto s = academy_source();
+        edit(s, boss_file, "rating = 4", "rating = 9");
+        expect_error(s, "key 'rating' must be between 1 and 5");
+    }
+    {
+        auto s = academy_source();
+        edit(s, "tracks/basics/one/exercise.toml", "[[checks]]\nkind = \"run\"\nname = \"Prints\"\n",
+             "[[checks]]\nkind = \"run\"\nname = \"Prints\"\nstage = \"x\"\n");
+        expect_error(s, "names stage 'x' but the exercise has no [[stages]]");
+    }
+    {
+        auto s = academy_source();
+        edit(s, boss_file, "[[checks]]\nkind = \"build\"\nname = \"Compiles\"\n", "[[checks]]\nkind = \"build\"\nname = \"Compiles\"\nstage = \"first\"\n");
+        expect_error(s, "key 'stage' is not valid for a build check");
+    }
+    {
+        auto s = academy_source();
+        edit(s, lecture_file, "answer = 2", "answer = 4");
+        expect_error(s, "answer 4 is not one of the 3 choices");
+    }
+    {
+        auto s = academy_source();
+        edit(s, lecture_file, "choices = [\"one\", \"two\"]", "choices = [\"one\"]");
+        expect_error(s, "a question needs two to six choices");
+    }
+    {
+        auto s = academy_source();
+        s.files.erase("tracks/basics/intro/examples/demo.dc");
+        expect_error(s, "example file 'examples/demo.dc' does not exist");
+    }
+    {
+        auto s = academy_source();
+        edit(s, "tracks/basics/intro/README.md", "example=demo", "example=other");
+        expect_error(s, "example 'other' is not declared in [[examples]]");
+    }
+    {
+        auto s = academy_source();
+        s.add("tracks/basics/intro/hints.md", std::string(valid_hints));
+        expect_error(s, "unexpected file 'hints.md' in a lecture directory");
+    }
+    {
+        auto s = academy_source();
+        s.add("tracks/basics/intro/exercise.toml", exercise_toml("basics", "intro"));
+        expect_error(s, "either exercise.toml or lecture.toml, not both");
+    }
+    {
+        auto s = academy_source();
+        s.files["catalog.toml"] += "\"old/two\" = \"basics/missing\"\n";
+        expect_error(s, "'old/two' is renamed to 'basics/missing', which does not exist");
+    }
+    {
+        auto s = academy_source();
+        s.files["catalog.toml"] += "\"basics/two\" = \"basics/one\"\n";
+        expect_error(s, "'basics/two' is listed in [renamed] but still exists");
+    }
+    {
+        auto s = academy_source();
+        edit(s, "tracks/more/three/exercise.toml", "prerequisites = [\"basics/two\"]", "prerequisites = [\"old/one\"]");
+        expect_error(s, "prerequisite 'old/one' was renamed to 'basics/one'");
+    }
+    {
+        auto s = academy_source();
+        edit(s, boss_file, "kind = \"challenge\"", "kind = \"lecture\"");
+        expect_error(s, "kind 'lecture' belongs in lecture.toml");
+    }
+}
+
+TEST_CASE("academy recommendations skip bonus lessons")
+{
+    auto s = academy_source();
+    edit(s, "tracks/basics/two/exercise.toml", "starter_state = \"fails-checks\"", "starter_state = \"fails-checks\"\noptional = true");
+    edit(s, "tracks/more/three/exercise.toml", "prerequisites = [\"basics/two\"]", "prerequisites = [\"basics/one\"]");
+    auto loaded = catalog::Catalog::load(s);
+    REQUIRE(loaded);
+    std::set<std::string> done = {"basics/intro", "basics/one"};
+    auto const* next = loaded->next_recommended([&](std::string_view id) { return done.contains(std::string(id)); }, "basics/one");
+    REQUIRE(next != nullptr);
+    CHECK_EQ(next->id, "more/three");
+}
+
+TEST_CASE("academy progress keeps stage records through json and merges them")
+{
+    progress::Progress p;
+    progress::record_check(p, "more/boss", 2, 4, 1, "2026-01-01T00:00:00Z", false);
+    progress::record_stages(p, "more/boss", {{"first", true, true, 1}, {"second", false, true, 2}, {"bonus", false, false, 1}}, "fp1", "2026-01-01T00:00:00Z");
+    progress::reveal_stage_hint(p, "more/boss", "second", 1);
+    auto const& e = p.exercises.at("more/boss");
+    CHECK(e.status == progress::Status::InProgress);
+    CHECK(e.stages.at("first").achieved());
+    CHECK_EQ(e.stages.at("first").achieved_revision, 1);
+    CHECK(!e.stages.at("second").achieved());
+    CHECK_EQ(e.stages.at("second").last, "fail");
+    CHECK_EQ(e.stages.at("bonus").last, "not-run");
+    CHECK_EQ(e.stages.at("second").hint_level, 1);
+    CHECK_EQ(e.last_fingerprint, "fp1");
+
+    progress::record_stages(p, "more/boss", {{"first", false, true, 1}}, "fp2", "2026-01-02T00:00:00Z");
+    CHECK(p.exercises.at("more/boss").stages.at("first").achieved());
+    CHECK_EQ(p.exercises.at("more/boss").stages.at("first").achieved_at, "2026-01-01T00:00:00Z");
+    CHECK_EQ(p.exercises.at("more/boss").stages.at("first").last, "fail");
+    progress::record_stages(p, "more/boss", {{"first", true, true, 3}}, "fp3", "2026-01-03T00:00:00Z");
+    CHECK_EQ(p.exercises.at("more/boss").stages.at("first").achieved_revision, 3);
+    CHECK_EQ(p.exercises.at("more/boss").stages.at("first").achieved_at, "2026-01-01T00:00:00Z");
+
+    auto back = progress::from_json(progress::to_json(p));
+    REQUIRE(back);
+    CHECK(*back == p);
+    CHECK_EQ(progress::to_json(p).find("schema")->as_int().value(), progress::current_schema);
+
+    progress::Progress other;
+    progress::record_stages(other, "more/boss", {{"second", true, true, 2}}, "fpx", "2026-01-05T00:00:00Z");
+    auto plan = progress::plan_import(p, other);
+    auto const& merged = plan.merged.exercises.at("more/boss").stages;
+    CHECK(merged.at("first").achieved());
+    CHECK(merged.at("second").achieved());
+    CHECK_EQ(merged.at("second").last, "pass");
+
+    CHECK(!progress::from_json(*json::parse(R"({"schema":2,"exercises":{"a/b":{"status":"in-progress","stages":{"x":{"last":"maybe"}}}}})")));
+    CHECK(!progress::from_json(*json::parse(R"({"schema":2,"exercises":{"a/b":{"status":"in-progress","stages":[]}}})")));
+    CHECK(!progress::from_json(*json::parse(R"({"schema":2,"exercises":{"a/b":{"status":"in-progress","stages":{"x":{"hint_level":7}}}}})")));
+}
+
+TEST_CASE("academy progress migration renames records bookmarks recent and workspaces")
+{
+    progress::Progress p;
+    progress::record_check(p, "old/one", 2, 2, 1, "2026-01-01T00:00:00Z");
+    progress::record_check(p, "basics/one", 1, 2, 1, "2026-02-01T00:00:00Z");
+    progress::record_check(p, "old/two", 1, 3, 1, "2026-01-03T00:00:00Z");
+    progress::toggle_bookmark(p, "old/one");
+    progress::toggle_bookmark(p, "basics/one");
+    progress::set_active(p, "old/two");
+    p.workspaces["old/two"] = "/somewhere";
+    std::map<std::string, std::string> renamed = {{"old/one", "basics/one"}, {"old/two", "basics/two"}, {"old/none", "basics/none"}};
+    CHECK(progress::migrate_renamed(p, renamed));
+    CHECK(!p.exercises.contains("old/one"));
+    CHECK(!p.exercises.contains("old/two"));
+    REQUIRE(p.exercises.contains("basics/one"));
+    auto const& one = p.exercises.at("basics/one");
+    CHECK(one.status == progress::Status::Completed);
+    CHECK_EQ(one.attempts, 1);
+    CHECK_EQ(one.completed_at, "2026-01-01T00:00:00Z");
+    CHECK_EQ(one.first_started_at, "2026-01-01T00:00:00Z");
+    CHECK_EQ(one.last_checked_at, "2026-02-01T00:00:00Z");
+    CHECK_EQ(p.exercises.at("basics/two").last_passed, 1);
+    CHECK_EQ(p.bookmarks.size(), 1u);
+    CHECK_EQ(p.bookmarks[0], "basics/one");
+    CHECK_EQ(p.active_exercise, "basics/two");
+    CHECK_EQ(p.workspaces.at("basics/two"), "/somewhere");
+    CHECK(!p.workspaces.contains("old/two"));
+    CHECK(std::ranges::find(p.recent, "old/one") == p.recent.end());
+    CHECK(!progress::migrate_renamed(p, renamed));
+}
+
+TEST_CASE("academy progress store reads schema 1 and keeps a one-time backup")
+{
+    TempDir t;
+    progress::ProgressStore store(t.path / "progress.json", t.path / "progress.lock");
+    std::string const v1 =
+        R"({"schema":1,"active_exercise":"a/b","exercises":{"a/b":{"status":"completed","attempts":2,"passes":1}},"bookmarks":[],"workspaces":{},"recent":[]})";
+    write_file(store.file(), v1);
+    auto loaded = store.load();
+    REQUIRE(loaded);
+    CHECK(progress::is_completed(loaded->progress, "a/b"));
+    CHECK_EQ(loaded->progress.schema, 1);
+    auto updated = store.update([](progress::Progress& p) { progress::set_active(p, "a/c"); });
+    REQUIRE(updated);
+    CHECK_EQ(slurp(store.schema1_backup_file()), v1);
+    auto reread = json::parse(slurp(store.file()));
+    REQUIRE(reread);
+    CHECK_EQ(reread->find("schema")->as_int().value(), 2);
+    REQUIRE(store.update([](progress::Progress& p) { progress::set_active(p, "a/d"); }));
+    CHECK_EQ(slurp(store.schema1_backup_file()), v1);
+    auto again = store.load();
+    REQUIRE(again);
+    CHECK(progress::is_completed(again->progress, "a/b"));
+    CHECK_EQ(again->progress.active_exercise, "a/d");
+}
+
+TEST_CASE("academy stage views tell verified regressed unverified outdated and current apart")
+{
+    auto loaded = catalog::Catalog::load(academy_source());
+    REQUIRE(loaded);
+    auto const& boss = *loaded->find("more/boss");
+    progress::Progress p;
+    auto views = learndc::app::stage_views(boss, p, "fp1");
+    REQUIRE(views.size() == 3u);
+    CHECK(views[0].state == learndc::app::StageState::Current);
+    CHECK(views[1].state == learndc::app::StageState::Todo);
+    CHECK(views[2].state == learndc::app::StageState::Todo);
+
+    progress::record_stages(p, "more/boss", {{"first", true, true, 1}, {"second", false, true, 2}, {"bonus", false, true, 1}}, "fp1", "t1");
+    views = learndc::app::stage_views(boss, p, "fp1");
+    CHECK(views[0].state == learndc::app::StageState::Verified);
+    CHECK(views[1].state == learndc::app::StageState::Current);
+    CHECK(views[1].failing_now);
+    REQUIRE(learndc::app::focus_stage(views) != nullptr);
+    CHECK_EQ(learndc::app::focus_stage(views)->stage->id, "second");
+
+    views = learndc::app::stage_views(boss, p, "edited");
+    CHECK(views[0].state == learndc::app::StageState::Unverified);
+    CHECK(!views[1].failing_now);
+
+    progress::record_stages(p, "more/boss", {{"first", false, true, 1}, {"second", true, true, 2}}, "fp2", "t2");
+    views = learndc::app::stage_views(boss, p, "fp2");
+    CHECK(views[0].state == learndc::app::StageState::Regressed);
+    CHECK(views[1].state == learndc::app::StageState::Verified);
+    CHECK_EQ(learndc::app::focus_stage(views)->stage->id, "first");
+
+    p.exercises["more/boss"].stages["second"].achieved_revision = 1;
+    views = learndc::app::stage_views(boss, p, "fp2");
+    CHECK(views[1].state == learndc::app::StageState::Outdated);
+}
+
+TEST_CASE("academy app records stages completion boss victory and chapter completion")
+{
+    TempDir t;
+    write_source(academy_source(), t.path / "content");
+    learndc::app::OpenOptions oo;
+    oo.home = t.path / "home";
+    oo.content_dir = t.path / "content";
+    oo.env = platform::Env{{"PATH", ""}};
+    auto ctx = learndc::app::open(oo);
+    REQUIRE(ctx.has_value());
+    REQUIRE(ctx->has_content());
+    auto const& boss = *ctx->catalog.find("more/boss");
+    REQUIRE(ctx->store.update([](progress::Progress& p) { progress::record_check(p, "more/three", 2, 2, 1, "t0"); }));
+
+    auto rec = learndc::app::record_report(*ctx, boss, staged_report(true, false, false));
+    REQUIRE(rec);
+    CHECK(!rec->completed_now);
+    REQUIRE(rec->stages_achieved.size() == 1u);
+    CHECK_EQ(rec->stages_achieved[0], "First stage");
+
+    rec = learndc::app::record_report(*ctx, boss, staged_report(false, true, false, "fp2"));
+    REQUIRE(rec);
+    CHECK(!rec->completed_now);
+    REQUIRE(rec->stages_achieved.size() == 1u);
+    auto p = learndc::app::load_progress(*ctx);
+    REQUIRE(p);
+    CHECK(!progress::is_completed(*p, "more/boss"));
+    CHECK(p->exercises.at("more/boss").stages.at("first").achieved());
+
+    rec = learndc::app::record_report(*ctx, boss, staged_report(true, true, false, "fp3"));
+    REQUIRE(rec);
+    CHECK(rec->completed_now);
+    CHECK(rec->boss_defeated);
+    CHECK(rec->chapter_completed);
+    CHECK_EQ(rec->chapter_number, 2);
+    CHECK_EQ(rec->chapter_title, "More");
+    CHECK(rec->stages_achieved.empty());
+    p = learndc::app::load_progress(*ctx);
+    REQUIRE(p);
+    CHECK(progress::is_completed(*p, "more/boss"));
+    CHECK(!p->exercises.at("more/boss").stages.at("bonus").achieved());
+
+    auto sum = learndc::app::summarize(*ctx, *p);
+    CHECK_EQ(sum.bosses_total, 1);
+    CHECK_EQ(sum.bosses_defeated, 1);
+    CHECK_EQ(sum.tracks[1].boss_id, "more/boss");
+    auto earned = learndc::app::achievements(*ctx, *p);
+    CHECK(std::ranges::any_of(
+        earned, [](auto const& a) { return a.boss && a.title == "Boss defeated: The Keeper" && a.detail.find("bonus 0 of 1") != std::string::npos; }));
+    CHECK(std::ranges::any_of(earned, [](auto const& a) { return a.title == "Chapter 2 complete: More"; }));
+
+    rec = learndc::app::record_report(*ctx, boss, staged_report(true, true, true, "fp4"));
+    REQUIRE(rec);
+    CHECK(!rec->completed_now);
+    REQUIRE(rec->stages_achieved.size() == 1u);
+    CHECK_EQ(rec->stages_achieved[0], "Bonus stage");
+
+    auto hint = learndc::app::reveal_stage_hint(*ctx, boss, "first", std::nullopt);
+    REQUIRE(hint);
+    CHECK_EQ(hint->text, "first hint");
+    hint = learndc::app::reveal_stage_hint(*ctx, boss, "first", std::nullopt);
+    REQUIRE(hint);
+    CHECK_EQ(hint->text, "second hint");
+    hint = learndc::app::reveal_stage_hint(*ctx, boss, "first", std::nullopt);
+    REQUIRE(hint);
+    CHECK_EQ(hint->level, 2);
+    CHECK(!learndc::app::reveal_stage_hint(*ctx, boss, "missing", std::nullopt));
+    CHECK(!learndc::app::reveal_stage_hint(*ctx, boss, "first", 3));
+}
+
+TEST_CASE("academy lectures are completed by answering their questions")
+{
+    TempDir t;
+    write_source(academy_source(), t.path / "content");
+    learndc::app::OpenOptions oo;
+    oo.home = t.path / "home";
+    oo.content_dir = t.path / "content";
+    oo.env = platform::Env{{"PATH", ""}};
+    auto ctx = learndc::app::open(oo);
+    REQUIRE(ctx.has_value());
+    auto const& intro = *ctx->catalog.find("basics/intro");
+    CHECK(!learndc::app::answer_lecture(*ctx, intro, {2}));
+    CHECK(!learndc::app::answer_lecture(*ctx, intro, {2, 7}));
+    auto wrong = learndc::app::answer_lecture(*ctx, intro, {1, 1});
+    REQUIRE(wrong);
+    CHECK_EQ(wrong->correct, 1);
+    CHECK(!wrong->right[0]);
+    CHECK(wrong->right[1]);
+    CHECK(!wrong->record.completed_now);
+    auto p = learndc::app::load_progress(*ctx);
+    REQUIRE(p);
+    CHECK(p->exercises.at("basics/intro").status == progress::Status::InProgress);
+    auto right = learndc::app::answer_lecture(*ctx, intro, {2, 1});
+    REQUIRE(right);
+    CHECK(right->record.completed_now);
+    CHECK_EQ(right->record.next_id, "basics/one");
+    p = learndc::app::load_progress(*ctx);
+    REQUIRE(p);
+    CHECK(progress::is_completed(*p, "basics/intro"));
+    CHECK_EQ(p->exercises.at("basics/intro").attempts, 2);
+    CHECK(!learndc::app::start_exercise(*ctx, intro, std::nullopt));
+}
+
+TEST_CASE("academy opening new content migrates old ids and keeps the old workspace")
+{
+    TempDir t;
+    auto const home = t.path / "home";
+    auto const content = t.path / "content";
+    write_source(academy_source(), content);
+    auto old_source = academy_source();
+    catalog::ContentSource renamed_source;
+    renamed_source.label = "old";
+    renamed_source.add("catalog.toml", "schema = 1\ntitle = \"Old\"\ntracks = [\"old\"]\n");
+    renamed_source.add("tracks/old/track.toml", "schema = 1\nid = \"old\"\ntitle = \"Old\"\nsummary = \"s\"\nexercises = [\"one\"]\n");
+    for (auto const& [path, bytes] : old_source.files)
+        if (path.starts_with("tracks/basics/one/"))
+            renamed_source.add("tracks/old/one/" + path.substr(18),
+                               path.ends_with("exercise.toml") ? text::replace_all(bytes, "basics/one", "old/one") : bytes);
+    auto old_loaded = catalog::Catalog::load(renamed_source);
+    if (!old_loaded)
+        dump_errors(old_loaded.error());
+    REQUIRE(old_loaded);
+    auto dirs = platform::resolve_dirs(platform::Overrides{home}, platform::Env{}, platform::host_os());
+    REQUIRE(dirs);
+    auto const old_root = workspace::default_root(*dirs, *old_loaded->find("old/one"));
+    REQUIRE(workspace::start(*old_loaded->find("old/one"), old_root));
+    write_file(old_root / "src" / "main.dc", "module main;\n// my old work\n");
+    progress::ProgressStore store(dirs->progress_file, dirs->progress_lock);
+    REQUIRE(store.update([](progress::Progress& p) {
+        progress::record_check(p, "old/one", 2, 2, 1, "2026-01-01T00:00:00Z");
+        progress::toggle_bookmark(p, "old/one");
+        progress::set_active(p, "old/one");
+    }));
+
+    learndc::app::OpenOptions oo;
+    oo.home = home;
+    oo.content_dir = content;
+    oo.env = platform::Env{{"PATH", ""}};
+    auto ctx = learndc::app::open(oo);
+    REQUIRE(ctx.has_value());
+    auto p = learndc::app::load_progress(*ctx);
+    REQUIRE(p);
+    CHECK(progress::is_completed(*p, "basics/one"));
+    CHECK(!p->exercises.contains("old/one"));
+    CHECK_EQ(p->active_exercise, "basics/one");
+    CHECK(progress::is_bookmarked(*p, "basics/one"));
+    REQUIRE(p->workspaces.contains("basics/one"));
+    auto const* one = ctx->catalog.find("basics/one");
+    auto ws = learndc::app::find_workspace(*ctx, *p, *one);
+    REQUIRE(ws);
+    REQUIRE(ws->has_value());
+    CHECK_EQ((*ws)->meta.exercise, "basics/one");
+    CHECK(std::filesystem::equivalent((*ws)->root, old_root));
+    CHECK_EQ(slurp(old_root / "src" / "main.dc"), "module main;\n// my old work\n");
+    auto again = learndc::app::open(oo);
+    REQUIRE(again.has_value());
+    auto p2 = learndc::app::load_progress(*again);
+    REQUIRE(p2);
+    CHECK(*p2 == *p);
+}
+
+TEST_CASE("academy cli lists chapters shows lectures and answers them")
+{
+    TempDir t;
+    auto const content = t.path / "content";
+    write_source(academy_source(), content);
+    auto run = [&](std::vector<std::string> args) {
+        std::ostringstream out;
+        std::ostringstream err;
+        std::istringstream in;
+        learndc::cli::Io io;
+        io.out = &out;
+        io.err = &err;
+        io.in = &in;
+        io.env = platform::Env{{"PATH", ""}};
+        io.cwd = t.path;
+        args.insert(args.begin(), {"--home", platform::path_to_utf8(t.path / "home"), "--content-dir", platform::path_to_utf8(content)});
+        CliRun r;
+        r.code = learndc::cli::run(args, io);
+        r.out = out.str();
+        r.err = err.str();
+        return r;
+    };
+    auto listed = run({"list"});
+    CHECK_EQ(listed.code, 0);
+    CHECK(listed.out.find("Chapter 1: Basics") != std::string::npos);
+    CHECK(listed.out.find("Chapter 2: More") != std::string::npos);
+    CHECK(listed.out.find("lecture") != std::string::npos);
+    CHECK(listed.out.find("BOSS") != std::string::npos);
+    auto shown = run({"show", "basics/intro"});
+    CHECK_EQ(shown.code, 0);
+    CHECK(shown.out.find("Pick two") != std::string::npos);
+    CHECK(shown.out.find("learndc answer basics/intro N N") != std::string::npos);
+    CHECK_EQ(run({"start", "basics/intro"}).code, 2);
+    CHECK_EQ(run({"check", "basics/intro"}).code, 2);
+    auto wrong = run({"answer", "basics/intro", "3", "1"});
+    CHECK_EQ(wrong.code, 1);
+    CHECK(wrong.out.find("Two is right.") != std::string::npos);
+    CHECK_EQ(run({"answer", "basics/intro", "x"}).code, 2);
+    auto right = run({"answer", "basics/intro", "2", "1", "--json"});
+    CHECK_EQ(right.code, 0);
+    auto j = json::parse(right.out);
+    REQUIRE(j);
+    CHECK_EQ(j->find("correct")->as_int().value(), 2);
+    CHECK(j->find("completed_now")->as_bool().value());
+    auto boss = run({"show", "more/boss"});
+    CHECK_EQ(boss.code, 0);
+    CHECK(boss.out.find("BOSS FIGHT") != std::string::npos);
+    CHECK(boss.out.find("[>] 1. First stage") != std::string::npos);
+    CHECK(boss.out.find("Bonus stage (bonus)") != std::string::npos);
+    auto stage_hint = run({"hint", "more/boss", "--stage", "second"});
+    CHECK_EQ(stage_hint.code, 0);
+    CHECK(stage_hint.out.find("only hint") != std::string::npos);
+    auto prog = run({"progress", "--json"});
+    auto pj = json::parse(prog.out);
+    REQUIRE(pj);
+    auto const* tracks = pj->find("tracks")->as_array();
+    REQUIRE(tracks != nullptr);
+    CHECK_EQ((*tracks)[1].find("boss")->as_string().value(), "more/boss");
 }

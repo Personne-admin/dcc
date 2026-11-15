@@ -117,9 +117,8 @@ export namespace learndc::cli
                 v.push_back(CommandSpec{std::move(name), std::move(usage), std::move(summary), std::move(options), lo, hi, rest, std::move(details)});
             };
             auto const unlimited = std::numeric_limits<std::size_t>::max();
-            add("list", "list [--track ID] [--status STATUS] [--difficulty LEVEL] [--kind KIND] [--json]", "List exercises",
-                {value_option("track", "ID", "only this track"),
-                 value_option("status", "STATUS", "not-started, in-progress, completed or unfinished"),
+            add("list", "list [--track ID] [--status STATUS] [--difficulty LEVEL] [--kind KIND] [--json]", "List the chapters and their lessons",
+                {value_option("track", "ID", "only this chapter"), value_option("status", "STATUS", "not-started, in-progress, completed or unfinished"),
                  value_option("difficulty", "LEVEL", "beginner, intermediate or advanced"), value_option("kind", "KIND", "exercise kind"),
                  flag_option("json", "print JSON")},
                 0, 0);
@@ -136,11 +135,15 @@ export namespace learndc::cli
                  value_option("backend", "BACKEND", "dpm (default), llvm or custom")},
                 0, 1);
             add("watch", "watch [id]", "Re-run the checks whenever a file changes (Ctrl+C ends)", {}, 0, 1);
-            add("hint", "hint [id] [N] [--level N]", "Reveal the next hint (or hint N)", {value_option("level", "N", "hint level 1..3")}, 0, 2);
+            add("hint", "hint [id] [N] [--level N] [--stage STAGE]", "Reveal the next hint (or hint N)",
+                {value_option("level", "N", "hint level 1..3"), value_option("stage", "STAGE", "a hint for this stage of a multi-stage exercise")}, 0, 2);
             add("solution", "solution [id] --show|--diff", "Show the reference solution or compare it with your files",
                 {flag_option("show", "print the solution files"), flag_option("diff", "diff your files against the solution")}, 0, 1);
             add("reset", "reset <id> [--yes] [--no-backup]", "Restore the starter files of an exercise",
                 {flag_option("yes", "do not ask for confirmation"), flag_option("no-backup", "skip the backup of your files")}, 1, 1);
+            add("answer", "answer <id> [CHOICE...] [--json]",
+                "Answer the questions of a lecture (one choice number each; none marks a lecture without questions as read)",
+                {flag_option("json", "print JSON")}, 1, unlimited);
             add("progress", "progress [--json]", "Show your progress", {flag_option("json", "print JSON")}, 0, 0);
             add("review", "review [--json]", "List exercises worth revisiting", {flag_option("json", "print JSON")}, 0, 0);
             add("bookmark", "bookmark <id> [--remove]", "Bookmark an exercise", {flag_option("remove", "remove the bookmark")}, 1, 1);
@@ -439,22 +442,65 @@ export namespace learndc::cli
             j.set("bookmarked", json::Json(progress::is_bookmarked(p, ex.id)));
             auto it = p.exercises.find(ex.id);
             j.set("needs_revisit", json::Json(it != p.exercises.end() && progress::needs_revisit(it->second, ex.revision)));
+            j.set("chapter_number", json::Json(ex.chapter_number));
+            j.set("lecture", json::Json(ex.is_lecture()));
+            j.set("boss", json::Json(ex.is_boss()));
+            j.set("optional", json::Json(ex.optional));
+            if (ex.staged())
+            {
+                auto stages = json::Json::make_array();
+                for (auto const& st : ex.stages)
+                {
+                    auto sj = json::Json::make_object();
+                    sj.set("id", json::Json(st.id));
+                    sj.set("title", json::Json(st.title));
+                    sj.set("optional", json::Json(st.optional));
+                    bool achieved = false;
+                    if (it != p.exercises.end())
+                        if (auto s_it = it->second.stages.find(st.id); s_it != it->second.stages.end())
+                            achieved = s_it->second.achieved();
+                    sj.set("achieved", json::Json(achieved));
+                    stages.push(std::move(sj));
+                }
+                j.set("stages", std::move(stages));
+            }
             return j;
         }
 
-        inline void print_exercise_table(Session const& s, std::vector<catalog::Exercise const*> const& items, progress::Progress const& p)
+        [[nodiscard]] inline std::string lesson_type(catalog::Exercise const& e)
+        {
+            if (e.is_boss())
+                return "BOSS";
+            if (e.is_lecture())
+                return "lecture";
+            if (e.staged())
+                return "quest";
+            return e.kind == catalog::ExerciseKind::Challenge ? "challenge" : "practice";
+        }
+
+        inline void print_exercise_table(Session const& s, std::vector<catalog::Exercise const*> const& items, progress::Progress const& p,
+                                         bool grouped = false)
         {
             std::size_t id_w = 2;
             for (auto const* e : items)
                 id_w = std::max(id_w, text::display_width(e->id));
-            std::print(s.out(), "{}  {}  {}  {}  {}\n", pad("ID", id_w), pad("STATUS", 11), pad("LEVEL", 12), pad("MIN", 3), "TITLE");
+            std::print(s.out(), "{}  {}  {}  {}  {}  {}\n", pad("ID", id_w), pad("STATUS", 11), pad("TYPE", 9), pad("LEVEL", 12), pad("MIN", 3), "TITLE");
+            std::string chapter;
             for (auto const* e : items)
             {
+                if (grouped && e->track != chapter)
+                {
+                    chapter = e->track;
+                    if (auto const* t = s.ctx.catalog.find_track(e->track))
+                        std::print(s.out(), "{}\n", paint(s, "1", std::format("Chapter {}: {}", t->number, t->title)));
+                }
                 auto const status = status_name(p, e->id);
                 std::string_view const code = status == "completed" ? "32" : status == "in-progress" ? "33" : "2";
                 auto shown = pad(status, 11);
-                std::print(s.out(), "{}  {}  {}  {:>3}  {}{}\n", pad(e->id, id_w), paint(s, code, shown), pad(catalog::to_string(e->difficulty), 12),
-                           e->estimated_minutes, e->title, progress::is_bookmarked(p, e->id) ? " *" : "");
+                auto const type = lesson_type(*e);
+                std::print(s.out(), "{}  {}  {}  {}  {:>3}  {}{}{}\n", pad(e->id, id_w), paint(s, code, shown),
+                           type == "BOSS" ? paint(s, "1;31", pad(type, 9)) : pad(type, 9), pad(catalog::to_string(e->difficulty), 12), e->estimated_minutes,
+                           e->title, e->optional ? " (bonus)" : "", progress::is_bookmarked(p, e->id) ? " *" : "");
             }
         }
 
@@ -517,7 +563,7 @@ export namespace learndc::cli
                 s.out() << "No exercises match.\n";
                 return app::exit_ok;
             }
-            print_exercise_table(s, items, p);
+            print_exercise_table(s, items, p, true);
             return app::exit_ok;
         }
 
@@ -553,6 +599,129 @@ export namespace learndc::cli
             return std::string(catalog::to_string(kind));
         }
 
+        [[nodiscard]] inline std::string stage_mark(Session const& s, app::StageView const& v)
+        {
+            switch (v.state)
+            {
+                case app::StageState::Verified:
+                    return paint(s, "32", "[x]");
+                case app::StageState::Regressed:
+                    return paint(s, "31", "[!]");
+                case app::StageState::Unverified:
+                case app::StageState::Outdated:
+                    return paint(s, "33", "[~]");
+                case app::StageState::Current:
+                    return paint(s, "1;36", "[>]");
+                case app::StageState::Todo:
+                    return paint(s, "2", "[ ]");
+            }
+            return "[ ]";
+        }
+
+        inline int show_lecture(Session& s, catalog::Exercise const& ex, progress::Progress const& p)
+        {
+            if (s.json())
+            {
+                auto j = exercise_json(s.ctx, ex, p);
+                j.set("objectives", strings_json(ex.objectives));
+                j.set("readme", json::Json(ex.readme));
+                auto qs = json::Json::make_array();
+                for (auto const& q : ex.questions)
+                {
+                    auto qj = json::Json::make_object();
+                    qj.set("prompt", json::Json(q.prompt));
+                    qj.set("choices", strings_json(q.choices));
+                    qs.push(std::move(qj));
+                }
+                j.set("questions", std::move(qs));
+                emit_json(s, j);
+                return app::exit_ok;
+            }
+            auto& o = s.out();
+            std::print(o, "{}\n", paint(s, "1", ex.title));
+            std::print(o, "{}  |  lecture  |  {}  |  about {} min  |  {}\n\n", ex.id, catalog::to_string(ex.difficulty), ex.estimated_minutes,
+                       status_name(p, ex.id));
+            std::print(o, "{}", markdown::render_plain(ex.readme, 80, true));
+            if (ex.questions.empty())
+            {
+                std::print(o, "\nMark it as read with: learndc answer {}\n", ex.id);
+                return app::exit_ok;
+            }
+            std::print(o, "\n{}\n", paint(s, "1", "Check your understanding"));
+            int n = 0;
+            for (auto const& q : ex.questions)
+            {
+                std::print(o, "\n{}. {}\n", ++n, markdown::render_plain(q.prompt, 76, false));
+                int c = 0;
+                for (auto const& choice : q.choices)
+                    std::print(o, "   {}) {}\n", ++c, choice);
+            }
+            std::vector<std::string> sample(ex.questions.size(), "N");
+            std::print(o, "\nAnswer with: learndc answer {} {}\n", ex.id, text::join(sample, " "));
+            return app::exit_ok;
+        }
+
+        inline int cmd_answer(Session& s)
+        {
+            if (auto f = prepare(s))
+                return report_failure(s, *f);
+            auto found = app::find_exercise(s.ctx, s.args.positionals[0]);
+            if (!found)
+                return report_failure(s, found.error());
+            auto const& ex = **found;
+            std::vector<int> answers;
+            for (std::size_t i = 1; i < s.args.positionals.size(); ++i)
+            {
+                auto const& word = s.args.positionals[i];
+                int v = 0;
+                auto r = std::from_chars(word.data(), word.data() + word.size(), v);
+                if (r.ec != std::errc() || r.ptr != word.data() + word.size())
+                    return usage_error(s, std::format("'{}' is not a choice number", text::sanitize(word)));
+                answers.push_back(v);
+            }
+            auto out = app::answer_lecture(s.ctx, ex, answers);
+            if (!out)
+                return report_failure(s, out.error());
+            flush_warnings(s);
+            if (s.json())
+            {
+                auto j = json::Json::make_object();
+                j.set("lecture", json::Json(ex.id));
+                j.set("correct", json::Json(out->correct));
+                j.set("total", json::Json(out->total));
+                auto right = json::Json::make_array();
+                for (bool b : out->right)
+                    right.push(json::Json(b));
+                j.set("right", std::move(right));
+                j.set("completed_now", json::Json(out->record.completed_now));
+                j.set("next", out->record.next_id.empty() ? json::Json() : json::Json(out->record.next_id));
+                emit_json(s, j);
+                return out->correct == out->total ? app::exit_ok : app::exit_failed;
+            }
+            auto& o = s.out();
+            for (std::size_t i = 0; i < out->right.size(); ++i)
+            {
+                auto const& q = ex.questions[i];
+                if (out->right[i])
+                    std::print(o, "{} {}. {}\n", paint(s, "32", s.style.ascii ? "[ok]" : "\xE2\x9C\x93"), i + 1,
+                               q.choices[static_cast<std::size_t>(q.answer - 1)]);
+                else
+                    std::print(o, "{} {}. not quite. {}\n", paint(s, "31", s.style.ascii ? "[x]" : "\xE2\x9C\x97"), i + 1,
+                               text::trim(markdown::render_plain(q.explanation, 76, false)));
+            }
+            if (out->total == 0)
+                std::print(o, "{} marked as read.\n", ex.title);
+            else
+                std::print(o, "{} of {} right.\n", out->correct, out->total);
+            if (out->record.completed_now)
+                std::print(o, "{}\n", paint(s, "1;32", "Lecture completed."));
+            if (out->record.chapter_completed)
+                std::print(o, "{}\n", paint(s, "1;32", std::format("Chapter {} complete: {}", out->record.chapter_number, out->record.chapter_title)));
+            if (out->correct == out->total && !out->record.next_id.empty())
+                std::print(o, "Next recommended: {} - {}\n", out->record.next_id, out->record.next_title);
+            return out->correct == out->total ? app::exit_ok : app::exit_failed;
+        }
+
         inline int cmd_show(Session& s)
         {
             if (auto f = prepare(s))
@@ -562,6 +731,8 @@ export namespace learndc::cli
             if (!found)
                 return report_failure(s, found.error());
             auto const& ex = **found;
+            if (ex.is_lecture())
+                return show_lecture(s, ex, p);
             auto ws = app::find_workspace(s.ctx, p, ex);
             std::string workspace_path;
             if (ws && *ws)
@@ -596,9 +767,11 @@ export namespace learndc::cli
                 return app::exit_ok;
             }
             auto& o = s.out();
+            if (ex.is_boss())
+                std::print(o, "{}  difficulty {} of 5\n", paint(s, "1;31", "BOSS FIGHT"), ex.boss->rating);
             std::print(o, "{}\n", paint(s, "1", ex.title));
-            std::print(o, "{}  |  {}  |  {}  |  about {} min  |  {}\n", ex.id, catalog::to_string(ex.kind), catalog::to_string(ex.difficulty),
-                       ex.estimated_minutes, status_name(p, ex.id));
+            std::print(o, "{}  |  {}  |  {}  |  about {} min  |  {}\n", ex.id, lesson_type(ex), catalog::to_string(ex.difficulty), ex.estimated_minutes,
+                       status_name(p, ex.id));
             if (!ex.prerequisites.empty())
             {
                 std::vector<std::string> pre;
@@ -608,13 +781,28 @@ export namespace learndc::cli
             }
             if (!workspace_path.empty())
                 std::print(o, "Workspace: {}\n", workspace_path);
+            if (ex.is_boss())
+                std::print(o, "\n{}", markdown::render_plain(ex.boss->story, 80, false));
             std::print(o, "\n{}\n", ex.summary);
             std::print(o, "\nObjectives\n");
             for (auto const& obj : ex.objectives)
                 std::print(o, "  - {}\n", obj);
-            std::print(o, "\nChecks\n");
-            for (auto const& c : ex.checks)
-                std::print(o, "  - {} ({})\n", c.name, check_kind_name(c.kind));
+            if (ex.staged())
+            {
+                std::string fingerprint;
+                if (ws && *ws)
+                    fingerprint = runner::workspace_fingerprint((*ws)->root);
+                std::print(o, "\nStages\n");
+                for (auto const& v : app::stage_views(ex, p, fingerprint))
+                    std::print(o, "  {} {}. {}{}  ({})\n", stage_mark(s, v), v.number, v.stage->title, v.stage->optional ? " (bonus)" : "",
+                               app::to_string(v.state));
+            }
+            else
+            {
+                std::print(o, "\nChecks\n");
+                for (auto const& c : ex.checks)
+                    std::print(o, "  - {} ({})\n", c.name, check_kind_name(c.kind));
+            }
             if (!ex.readme.empty())
                 std::print(o, "\n{}", markdown::render_plain(markdown::drop_section(ex.readme, "Acceptance criteria"), 80, true));
             if (workspace_path.empty())
@@ -754,7 +942,7 @@ export namespace learndc::cli
         inline int finish_check(Session& s, catalog::Exercise const& ex, runner::CheckReport const& report, bool as_json)
         {
             auto rec = app::record_report(s.ctx, ex, report);
-            int const code = app::exit_code_for(report);
+            int const code = rec && rec->all_passed ? app::exit_ok : app::exit_code_for(report);
             if (!rec)
             {
                 std::print(s.err(), "learndc: warning: could not save your progress: {}\n", rec.error().message);
@@ -765,6 +953,8 @@ export namespace learndc::cli
             {
                 auto j = runner::to_json(report);
                 j.set("completed_now", json::Json(rec->completed_now));
+                j.set("boss_defeated", json::Json(rec->boss_defeated));
+                j.set("chapter_completed", json::Json(rec->chapter_completed));
                 if (rec->next_id.empty())
                     j.set("next", json::Json());
                 else
@@ -773,10 +963,16 @@ export namespace learndc::cli
                 return code;
             }
             s.out() << runner::render_text(report, s.style);
+            for (auto const& title : rec->stages_achieved)
+                std::print(s.out(), "{} {}\n", paint(s, "1;32", "Stage cleared:"), title);
             if (rec->all_passed)
             {
-                if (rec->completed_now)
+                if (rec->boss_defeated)
+                    std::print(s.out(), "\n{}\n", paint(s, "1;31", std::format("{} BOSS DEFEATED: {}", s.style.ascii ? "[X]" : "\xE2\x98\xA0", ex.title)));
+                else if (rec->completed_now)
                     std::print(s.out(), "\n{}\n", paint(s, "1;32", "Exercise completed."));
+                if (rec->chapter_completed)
+                    std::print(s.out(), "{}\n", paint(s, "1;32", std::format("Chapter {} complete: {}", rec->chapter_number, rec->chapter_title)));
                 if (!rec->next_id.empty())
                     std::print(s.out(), "Next recommended: {} - {}\n  learndc start {}\n", rec->next_id, rec->next_title, rec->next_id);
                 else if (rec->completed_now)
@@ -890,6 +1086,16 @@ export namespace learndc::cli
             auto target = app::resolve_target(s.ctx, *s.loaded, id, s.io.cwd, false);
             if (!target)
                 return report_failure(s, target.error());
+            if (target->exercise->is_lecture())
+                return report_failure(s, app::Failure{app::exit_usage, std::format("'{}' is a lecture and has no hints", target->exercise->id)});
+            if (auto stage = s.args.value("stage"))
+            {
+                auto sh = app::reveal_stage_hint(s.ctx, *target->exercise, *stage, level);
+                if (!sh)
+                    return report_failure(s, sh.error());
+                std::print(s.out(), "Hint {} of {} for {}\n\n{}", sh->level, sh->count, sh->stage_title, markdown::render_plain(sh->text));
+                return app::exit_ok;
+            }
             auto hint = app::reveal_hint(s.ctx, *target->exercise, level);
             if (!hint)
                 return report_failure(s, hint.error());
@@ -1012,6 +1218,12 @@ export namespace learndc::cli
                     tj.set("total", json::Json(t.total));
                     tj.set("completed", json::Json(t.completed));
                     tj.set("in_progress", json::Json(t.in_progress));
+                    tj.set("number", json::Json(t.number));
+                    tj.set("bonus_total", json::Json(t.bonus_total));
+                    tj.set("bonus_completed", json::Json(t.bonus_completed));
+                    tj.set("boss", t.boss_id.empty() ? json::Json() : json::Json(t.boss_id));
+                    tj.set("boss_defeated", json::Json(t.boss_defeated));
+                    tj.set("done", json::Json(t.done));
                     tracks.push(std::move(tj));
                 }
                 root.set("tracks", std::move(tracks));
@@ -1036,6 +1248,20 @@ export namespace learndc::cli
                     ej.set("last_passed", json::Json(e.last_passed));
                     ej.set("last_total", json::Json(e.last_total));
                     ej.set("needs_revisit", json::Json(progress::needs_revisit(e, ex.revision)));
+                    if (!e.stages.empty())
+                    {
+                        auto stages = json::Json::make_object();
+                        for (auto const& [name, st] : e.stages)
+                        {
+                            auto sj = json::Json::make_object();
+                            sj.set("achieved", json::Json(st.achieved()));
+                            sj.set("achieved_at", json::Json(st.achieved_at));
+                            sj.set("last", json::Json(st.last));
+                            sj.set("hint_level", json::Json(st.hint_level));
+                            stages.set(name, std::move(sj));
+                        }
+                        ej.set("stages", std::move(stages));
+                    }
                     exercises.push(std::move(ej));
                 }
                 root.set("exercises", std::move(exercises));
@@ -1044,12 +1270,29 @@ export namespace learndc::cli
             }
             auto& o = s.out();
             int const pct = sum.total > 0 ? sum.completed * 100 / sum.total : 0;
-            std::print(o, "{} of {} exercises completed ({}%), {} in progress\n\n", sum.completed, sum.total, pct, sum.in_progress);
+            std::print(o, "{} of {} lessons completed ({}%), {} in progress\n", sum.completed, sum.total, pct, sum.in_progress);
+            if (sum.bosses_total > 0)
+                std::print(o, "{} of {} chapters complete, {} of {} bosses defeated\n", sum.chapters_done, sum.tracks.size(), sum.bosses_defeated,
+                           sum.bosses_total);
+            s.out() << '\n';
             std::size_t w = 4;
             for (auto const& t : sum.tracks)
-                w = std::max(w, text::display_width(t.title));
+                w = std::max(w, text::display_width(t.title) + 4);
             for (auto const& t : sum.tracks)
-                std::print(o, "  {}  {:>2}/{:<2}  {}\n", pad(t.title, w), t.completed, t.total, bar(s, t.completed, t.total, 20));
+            {
+                std::string boss;
+                if (!t.boss_id.empty())
+                    boss = t.boss_defeated ? std::format("  boss defeated: {}", t.boss_title) : std::format("  boss: {}", t.boss_title);
+                std::print(o, "  {}  {:>2}/{:<2}  {}{}\n", pad(std::format("{:>2}. {}", t.number, t.title), w), t.completed, t.total,
+                           bar(s, t.completed, t.total, 20), boss);
+            }
+            auto const earned = app::achievements(s.ctx, p);
+            if (!earned.empty())
+            {
+                std::print(o, "\nAchievements\n");
+                for (auto const& a : earned)
+                    std::print(o, "  {}{}\n", a.title, a.detail.empty() ? "" : std::format(" ({})", a.detail));
+            }
             if (!sum.active.empty())
                 std::print(o, "\nActive exercise: {}\n", sum.active);
             if (!sum.recent.empty())
@@ -1262,8 +1505,63 @@ export namespace learndc::cli
             }
         }
 
+        [[nodiscard]] inline ValidationRow validate_lecture(Session& s, catalog::Exercise const& ex, runner::Backend backend,
+                                                            std::filesystem::path const& scratch)
+        {
+            ValidationRow row;
+            row.id = ex.id;
+            row.backend = std::string(runner::to_string(backend));
+            row.starter = "lecture";
+            auto const begin = std::chrono::steady_clock::now();
+            int passed = 0;
+            for (auto const& example : ex.examples)
+            {
+                catalog::Exercise probe;
+                probe.id = ex.id;
+                probe.track = ex.track;
+                probe.name = ex.name + "-" + example.name;
+                probe.title = ex.title;
+                probe.kind = catalog::ExerciseKind::CompleteProgram;
+                probe.entry_file = "src/main.dc";
+                probe.product = "example";
+                probe.required_tools = {"dcc", "dpm"};
+                probe.starter["project.dcon"] = "dpm::v1::Project {\n    name = \"example\",\n    version = \"0.1.0\",\n    products = {\n        { name = "
+                                                "\"example\", entry = \"src/main.dc\" },\n    },\n}\n";
+                probe.starter["src/main.dc"] = example.source;
+                catalog::Check build;
+                build.kind = catalog::CheckKind::Build;
+                build.name = "Compiles";
+                catalog::Check run;
+                run.kind = catalog::CheckKind::Run;
+                run.name = std::format("example {} prints the documented output", example.name);
+                run.expect_stdout = example.expect_stdout;
+                probe.checks = {build, run};
+                auto root = scratch / std::format("{}-{}-example-{}", ex.track, ex.name, example.name);
+                auto started = workspace::start(probe, root);
+                if (!started)
+                {
+                    row.ok = false;
+                    row.detail += std::format("example {}: cannot create a workspace: {}\n", example.name, started.error().message);
+                    continue;
+                }
+                auto report = runner::run_checks(probe, root, app::runner_options(s.ctx, backend, s.io.cancel));
+                if (report.outcome == runner::Outcome::Passed)
+                    ++passed;
+                else
+                {
+                    row.ok = false;
+                    row.detail += std::format("example {} does not behave as the lecture says:\n{}", example.name, runner::render_text(report, s.style));
+                }
+            }
+            row.solution = ex.examples.empty() ? "no examples" : std::format("examples {}/{}", passed, ex.examples.size());
+            row.millis = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count();
+            return row;
+        }
+
         [[nodiscard]] inline ValidationRow validate_one(Session& s, catalog::Exercise const& ex, runner::Backend backend, std::filesystem::path const& scratch)
         {
+            if (ex.is_lecture())
+                return validate_lecture(s, ex, backend, scratch);
             ValidationRow row;
             row.id = ex.id;
             row.backend = std::string(runner::to_string(backend));
@@ -1324,6 +1622,15 @@ export namespace learndc::cli
                 }
             }
 
+            if (ex.staged())
+                for (auto const& st : starter_report.stages)
+                    if (st.passed)
+                    {
+                        row.ok = false;
+                        row.starter = "passes a stage";
+                        row.detail += std::format("the starter already passes stage '{}'; every stage must start failing\n", st.id);
+                    }
+
             auto solution_root = scratch / (slug + "-solution");
             auto sol_started = workspace::start(ex, solution_root);
             if (!sol_started)
@@ -1335,6 +1642,11 @@ export namespace learndc::cli
             }
             write_overlay(solution_root, ex.solution);
             auto solution_report = runner::run_checks(ex, solution_root, opt);
+            if (solution_report.outcome == runner::Outcome::Passed && !solution_report.complete)
+            {
+                row.ok = false;
+                row.detail += "the reference solution passes every check but is not complete\n";
+            }
             if (solution_report.outcome == runner::Outcome::Passed)
                 row.solution = std::format("passes {}/{}", solution_report.passed, solution_report.total);
             else
@@ -1524,11 +1836,12 @@ export namespace learndc::cli
         detail::Session session{*ctx, *parsed, io, style, std::nullopt};
         using Handler = int (*)(detail::Session&);
         static std::map<std::string, Handler, std::less<>> const handlers = {
-            {"list", detail::cmd_list},       {"search", detail::cmd_search}, {"show", detail::cmd_show},   {"start", detail::cmd_start},
-            {"next", detail::cmd_next},       {"edit", detail::cmd_edit},     {"run", detail::cmd_run},     {"check", detail::cmd_check},
-            {"watch", detail::cmd_watch},     {"hint", detail::cmd_hint},     {"solution", detail::cmd_solution}, {"reset", detail::cmd_reset},
+            {"list", detail::cmd_list},         {"search", detail::cmd_search}, {"show", detail::cmd_show},         {"start", detail::cmd_start},
+            {"next", detail::cmd_next},         {"edit", detail::cmd_edit},     {"run", detail::cmd_run},           {"check", detail::cmd_check},
+            {"watch", detail::cmd_watch},       {"hint", detail::cmd_hint},     {"solution", detail::cmd_solution}, {"reset", detail::cmd_reset},
             {"progress", detail::cmd_progress}, {"review", detail::cmd_review}, {"bookmark", detail::cmd_bookmark}, {"config", detail::cmd_config},
-            {"doctor", detail::cmd_doctor},   {"export", detail::cmd_export}, {"import", detail::cmd_import}, {"dev", detail::cmd_dev},
+            {"doctor", detail::cmd_doctor},     {"export", detail::cmd_export}, {"import", detail::cmd_import},     {"dev", detail::cmd_dev},
+            {"answer", detail::cmd_answer},
         };
         auto it = handlers.find(parsed->command);
         if (it == handlers.end())

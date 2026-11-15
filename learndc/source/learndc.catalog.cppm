@@ -45,6 +45,7 @@ export namespace learndc::catalog
         MultiModule,
         Libdcext,
         Challenge,
+        Lecture,
     };
 
     enum class Difficulty
@@ -89,7 +90,7 @@ export namespace learndc::catalog
             std::string_view text;
         };
 
-        constexpr std::array<Name<ExerciseKind>, 9> kind_names = {{
+        constexpr std::array<Name<ExerciseKind>, 10> kind_names = {{
             {ExerciseKind::RepairCompilation, "repair-compilation"},
             {ExerciseKind::FixBehavior, "fix-behavior"},
             {ExerciseKind::ImplementFunction, "implement-function"},
@@ -99,6 +100,7 @@ export namespace learndc::catalog
             {ExerciseKind::MultiModule, "multi-module"},
             {ExerciseKind::Libdcext, "libdcext"},
             {ExerciseKind::Challenge, "challenge"},
+            {ExerciseKind::Lecture, "lecture"},
         }};
 
         constexpr std::array<Name<Difficulty>, 3> difficulty_names = {{
@@ -280,6 +282,7 @@ export namespace learndc::catalog
         std::string harness;
         bool expect_build_success = true;
         std::string diagnostic_contains;
+        std::string stage;
 
         [[nodiscard]] std::string harness_stem() const
         {
@@ -287,6 +290,37 @@ export namespace learndc::catalog
                 return harness.substr(7, harness.size() - 10);
             return {};
         }
+    };
+
+    struct Question
+    {
+        std::string prompt;
+        std::vector<std::string> choices;
+        int answer = 1;
+        std::string explanation;
+    };
+
+    struct Stage
+    {
+        std::string id;
+        std::string title;
+        std::string summary;
+        bool optional = false;
+        int revision = 1;
+        std::vector<std::string> hints;
+    };
+
+    struct Boss
+    {
+        std::string story;
+        int rating = 3;
+    };
+
+    struct Example
+    {
+        std::string name;
+        std::string source;
+        std::string expect_stdout;
     };
 
     struct Exercise
@@ -321,6 +355,34 @@ export namespace learndc::catalog
         std::map<std::string, std::string> starter;
         std::map<std::string, std::string> solution;
         std::map<std::string, std::string> check_files;
+        bool optional = false;
+        std::optional<Boss> boss;
+        std::vector<Stage> stages;
+        std::vector<Question> questions;
+        std::vector<Example> examples;
+        std::vector<std::string> former_ids;
+        int chapter_number = 0;
+
+        [[nodiscard]] bool is_lecture() const { return kind == ExerciseKind::Lecture; }
+        [[nodiscard]] bool is_boss() const { return boss.has_value(); }
+        [[nodiscard]] bool staged() const { return !stages.empty(); }
+
+        [[nodiscard]] Stage const* find_stage(std::string_view stage_id) const
+        {
+            for (auto const& st : stages)
+                if (st.id == stage_id)
+                    return &st;
+            return nullptr;
+        }
+
+        [[nodiscard]] std::vector<Check const*> checks_of(std::string_view stage_id) const
+        {
+            std::vector<Check const*> out;
+            for (auto const& c : checks)
+                if (c.stage == stage_id)
+                    out.push_back(&c);
+            return out;
+        }
 
         [[nodiscard]] bool supports_platform(std::string_view platform) const { return std::ranges::find(platforms, platform) != platforms.end(); }
         [[nodiscard]] bool supports_backend(std::string_view backend) const { return std::ranges::find(backends, backend) != backends.end(); }
@@ -331,6 +393,8 @@ export namespace learndc::catalog
         std::string id;
         std::string title;
         std::string summary;
+        std::string goal;
+        int number = 0;
         std::vector<std::string> exercise_names;
         std::vector<std::string> exercise_ids;
     };
@@ -418,6 +482,19 @@ export namespace learndc::catalog
                     return std::nullopt;
                 }
                 return v->integer;
+            }
+
+            [[nodiscard]] std::optional<bool> boolean(std::string_view key)
+            {
+                auto const* v = get(key);
+                if (v == nullptr)
+                    return std::nullopt;
+                if (!v->is_boolean())
+                {
+                    wrong_type(key, *v, "true or false");
+                    return std::nullopt;
+                }
+                return v->boolean;
             }
 
             [[nodiscard]] std::optional<std::vector<std::string>> strings(std::string_view key, bool required = true, bool allow_empty = true,
@@ -545,12 +622,13 @@ export namespace learndc::catalog
         [[nodiscard]] inline std::span<std::string_view const> allowed_check_keys(CheckKind kind)
         {
             static constexpr std::array<std::string_view, 3> build = {"kind", "name", "hint"};
-            static constexpr std::array<std::string_view, 11> run = {"kind",   "name",         "hint",           "args",         "stdin",       "expect_stdout",
-                                                                    "stdout_match", "line_endings", "expect_stderr_contains", "expect_exit", "max_seconds"};
-            static constexpr std::array<std::string_view, 10> harness = {"kind",         "name",          "hint",   "harness",
-                                                                        "expect_exit",  "expect_stdout", "stdout_match", "line_endings",
-                                                                        "expect_stderr_contains", "max_seconds"};
-            static constexpr std::array<std::string_view, 5> diagnostic = {"kind", "name", "hint", "expect_build", "diagnostic_contains"};
+            static constexpr std::array<std::string_view, 12> run = {
+                "kind",        "name",        "hint", "args", "stdin", "expect_stdout", "stdout_match", "line_endings", "expect_stderr_contains",
+                "expect_exit", "max_seconds", "stage"};
+            static constexpr std::array<std::string_view, 11> harness = {
+                "kind",        "name", "hint", "harness", "expect_exit", "expect_stdout", "stdout_match", "line_endings", "expect_stderr_contains",
+                "max_seconds", "stage"};
+            static constexpr std::array<std::string_view, 6> diagnostic = {"kind", "name", "hint", "expect_build", "diagnostic_contains", "stage"};
             switch (kind)
             {
             case CheckKind::Build:
@@ -612,6 +690,9 @@ export namespace learndc::catalog
                 check.name = *name;
             if (auto hint = r.string("hint", false))
                 check.hint = *hint;
+            if (kind && *kind != CheckKind::Build)
+                if (auto st = r.string("stage", false))
+                    check.stage = *st;
             if (!kind)
             {
                 r.reject_unknown();
@@ -772,8 +853,12 @@ export namespace learndc::catalog
             if (auto s = r.string("summary"))
                 ex.summary = *s;
             if (auto k = read_enum(r, "kind", kind_names, true))
+            {
                 ex.kind = *k;
-            if (auto s = r.string("chapter"))
+                if (*k == ExerciseKind::Lecture)
+                    r.report(r.pos_of("kind"), "kind 'lecture' belongs in lecture.toml; an exercise.toml needs a practice kind");
+            }
+            if (auto s = r.string("chapter", false))
             {
                 ex.chapter = *s;
                 if (!is_slug(*s))
@@ -840,6 +925,65 @@ export namespace learndc::catalog
                 ex.starter_state = *s;
             if (auto t = r.integer("build_timeout_seconds", 10, 600, false))
                 ex.build_timeout_seconds = static_cast<int>(*t);
+            if (auto o = r.boolean("optional"))
+                ex.optional = *o;
+            if (auto const* boss = r.get("boss"))
+            {
+                if (!boss->is_table())
+                    r.wrong_type("boss", *boss, "a table ([boss])");
+                else
+                {
+                    Reader br(*boss, file, errors);
+                    Boss b;
+                    if (auto v = br.string("story"))
+                        b.story = *v;
+                    if (auto v = br.integer("rating", 1, 5))
+                        b.rating = static_cast<int>(*v);
+                    br.reject_unknown();
+                    ex.boss = std::move(b);
+                }
+            }
+            if (auto const* stages = r.get("stages"))
+            {
+                if (!stages->is_table_array())
+                    r.wrong_type("stages", *stages, "an array of tables ([[stages]])");
+                else
+                    for (auto const& table : stages->items)
+                    {
+                        Reader sr(table, file, errors);
+                        auto const stage_errors = errors.size();
+                        Stage st;
+                        if (auto v = sr.string("id"))
+                        {
+                            st.id = *v;
+                            if (!is_slug(*v))
+                                sr.report(sr.pos_of("id"), std::format("stage id '{}' must use lowercase letters, digits and hyphens", *v));
+                        }
+                        if (auto v = sr.string("title"))
+                            st.title = *v;
+                        if (auto v = sr.string("summary"))
+                            st.summary = *v;
+                        if (auto v = sr.boolean("optional"))
+                            st.optional = *v;
+                        if (auto v = sr.integer("revision", 1, 1000000, false))
+                            st.revision = static_cast<int>(*v);
+                        if (auto v = sr.strings("hints", false, true))
+                        {
+                            st.hints = std::move(*v);
+                            if (st.hints.size() > 3)
+                                sr.report(sr.pos_of("hints"), "a stage has at most three hints");
+                        }
+                        sr.reject_unknown();
+                        if (errors.size() != stage_errors)
+                            continue;
+                        if (ex.find_stage(st.id) != nullptr)
+                        {
+                            errors.push_back({file, table.pos.line, table.pos.column, std::format("stage id '{}' is used more than once", st.id)});
+                            continue;
+                        }
+                        ex.stages.push_back(std::move(st));
+                    }
+            }
 
             auto const* checks = r.get("checks");
             if (checks == nullptr)
@@ -865,6 +1009,32 @@ export namespace learndc::catalog
                     r.report(checks->pos, "at least one check is required");
             }
             r.reject_unknown();
+
+            for (auto const& check : ex.checks)
+            {
+                if (check.kind == CheckKind::Build)
+                    continue;
+                if (ex.stages.empty())
+                {
+                    if (!check.stage.empty())
+                        errors.push_back({file, 1, 1, std::format("check '{}' names stage '{}' but the exercise has no [[stages]]", check.name, check.stage)});
+                }
+                else if (check.stage.empty())
+                    errors.push_back({file, 1, 1, std::format("check '{}' must name its stage (stage = \"...\") because the exercise has stages", check.name)});
+                else if (ex.find_stage(check.stage) == nullptr)
+                    errors.push_back({file, 1, 1, std::format("check '{}' names the unknown stage '{}'", check.name, check.stage)});
+            }
+            for (auto const& st : ex.stages)
+            {
+                if (ex.checks_of(st.id).empty())
+                    errors.push_back({file, 1, 1, std::format("stage '{}' has no checks", st.id)});
+                if (ex.boss && st.hints.empty())
+                    errors.push_back({file, 1, 1, std::format("boss stage '{}' needs at least one hint (hints = [...])", st.id)});
+            }
+            if (!ex.stages.empty() && std::ranges::all_of(ex.stages, [](Stage const& st) { return st.optional; }))
+                errors.push_back({file, 1, 1, "at least one stage must be required (optional = false)"});
+            if (ex.boss && ex.stages.size() < 2)
+                errors.push_back({file, 1, 1, "a boss fight needs at least two [[stages]]"});
 
             if (!std::ranges::any_of(ex.checks, [](Check const& c) { return c.kind == CheckKind::Build; }))
             {
@@ -970,6 +1140,197 @@ export namespace learndc::catalog
                 return std::nullopt;
             return pending;
         }
+
+        [[nodiscard]] inline std::string expand_examples(std::string_view readme, std::vector<Example> const& examples, std::string_view file,
+                                                         std::vector<ContentError>& errors)
+        {
+            std::string out;
+            auto const lines = text::split_lines(readme);
+            for (std::size_t i = 0; i < lines.size(); ++i)
+            {
+                auto const trimmed = text::trim(lines[i]);
+                constexpr std::string_view marker = "```dc example=";
+                if (!trimmed.starts_with(marker))
+                {
+                    out += lines[i];
+                    out += '\n';
+                    continue;
+                }
+                auto const name = std::string(text::trim(trimmed.substr(marker.size())));
+                auto it = std::ranges::find(examples, name, &Example::name);
+                if (it == examples.end())
+                {
+                    errors.push_back({std::string(file), static_cast<int>(i) + 1, 1, std::format("example '{}' is not declared in [[examples]]", name)});
+                    continue;
+                }
+                if (i + 1 >= lines.size() || text::trim(lines[i + 1]) != "```")
+                {
+                    errors.push_back({std::string(file), static_cast<int>(i) + 1, 1,
+                                      "an example fence must be closed on the next line; the code comes from the example file"});
+                    continue;
+                }
+                ++i;
+                out += "```dc\n";
+                out += it->source;
+                if (!it->source.ends_with('\n'))
+                    out += '\n';
+                out += "```\n";
+            }
+            return out;
+        }
+
+        [[nodiscard]] inline std::optional<PendingExercise> parse_lecture(ContentSource const& source, std::string_view track, std::string_view name,
+                                                                          std::vector<ContentError>& errors)
+        {
+            auto const before = errors.size();
+            std::string const dir = std::format("tracks/{}/{}", track, name);
+            std::string const file = dir + "/lecture.toml";
+            auto doc = parse_toml_file(source, file, errors);
+            if (!doc)
+                return std::nullopt;
+            PendingExercise pending;
+            pending.file = file;
+            Exercise& ex = pending.exercise;
+            ex.track = std::string(track);
+            ex.name = std::string(name);
+            ex.dir = dir;
+            ex.kind = ExerciseKind::Lecture;
+            ex.platforms = {"linux", "windows"};
+            ex.backends = {"llvm", "custom"};
+            Reader r(*doc, file, errors);
+            if (!read_schema(r))
+                return std::nullopt;
+            if (auto id = r.string("id"))
+            {
+                ex.id = *id;
+                auto const expected = std::format("{}/{}", track, name);
+                if (!is_exercise_id(*id))
+                    r.report(r.pos_of("id"), std::format("id '{}' must look like <track>/<name> using lowercase letters, digits and hyphens", *id));
+                else if (*id != expected)
+                    r.report(r.pos_of("id"), std::format("id '{}' must equal '{}' (the track and directory name)", *id, expected));
+            }
+            if (auto rev = r.integer("revision", 1, 1000000))
+                ex.revision = static_cast<int>(*rev);
+            if (auto s = r.string("title"))
+                ex.title = *s;
+            if (auto s = r.string("summary"))
+                ex.summary = *s;
+            if (auto d = read_enum(r, "difficulty", difficulty_names, true))
+                ex.difficulty = *d;
+            if (auto m = r.integer("estimated_minutes", 1, 1000))
+                ex.estimated_minutes = static_cast<int>(*m);
+            if (auto v = r.strings("concepts", true, false))
+                ex.concepts = std::move(*v);
+            if (auto v = r.strings("tags", false, true))
+                ex.tags = std::move(*v);
+            if (auto v = r.strings("objectives", true, false))
+                ex.objectives = std::move(*v);
+            pending.prerequisites_key = r.pos_of("prerequisites");
+            if (auto v = r.strings("prerequisites", true, true, &pending.prerequisite_positions))
+            {
+                ex.prerequisites = std::move(*v);
+                for (std::size_t i = 0; i < ex.prerequisites.size(); ++i)
+                    if (!is_exercise_id(ex.prerequisites[i]))
+                        r.report(pending.prerequisite_positions[i], std::format("prerequisite '{}' is not a valid exercise id", ex.prerequisites[i]));
+            }
+            if (auto o = r.boolean("optional"))
+                ex.optional = *o;
+            if (auto const* questions = r.get("questions"))
+            {
+                if (!questions->is_table_array())
+                    r.wrong_type("questions", *questions, "an array of tables ([[questions]])");
+                else
+                    for (auto const& table : questions->items)
+                    {
+                        Reader qr(table, file, errors);
+                        auto const question_errors = errors.size();
+                        Question q;
+                        if (auto v = qr.string("prompt"))
+                            q.prompt = *v;
+                        if (auto v = qr.strings("choices", true, false))
+                        {
+                            q.choices = std::move(*v);
+                            if (q.choices.size() < 2 || q.choices.size() > 6)
+                                qr.report(qr.pos_of("choices"), "a question needs two to six choices");
+                        }
+                        if (auto v = qr.integer("answer", 1, 6))
+                        {
+                            q.answer = static_cast<int>(*v);
+                            if (!q.choices.empty() && q.answer > static_cast<int>(q.choices.size()))
+                                qr.report(qr.pos_of("answer"), std::format("answer {} is not one of the {} choices", q.answer, q.choices.size()));
+                        }
+                        if (auto v = qr.string("explanation"))
+                            q.explanation = *v;
+                        qr.reject_unknown();
+                        if (errors.size() == question_errors)
+                            ex.questions.push_back(std::move(q));
+                    }
+            }
+            if (auto const* examples = r.get("examples"))
+            {
+                if (!examples->is_table_array())
+                    r.wrong_type("examples", *examples, "an array of tables ([[examples]])");
+                else
+                    for (auto const& table : examples->items)
+                    {
+                        Reader er(table, file, errors);
+                        Example e;
+                        if (auto v = er.string("name"))
+                        {
+                            e.name = *v;
+                            if (!is_harness_stem(*v))
+                                er.report(er.pos_of("name"), std::format("example name '{}' must match [a-z][a-z0-9_]*", *v));
+                            else if (auto const* code = source.get(std::format("{}/examples/{}.dc", dir, *v)))
+                                e.source = *code;
+                            else
+                                er.report(er.pos_of("name"), std::format("example file 'examples/{}.dc' does not exist", *v));
+                        }
+                        if (auto v = er.string("expect_stdout", true, true))
+                            e.expect_stdout = *v;
+                        er.reject_unknown();
+                        if (std::ranges::find(ex.examples, e.name, &Example::name) != ex.examples.end())
+                            er.report(table.pos, std::format("example '{}' is declared more than once", e.name));
+                        else
+                            ex.examples.push_back(std::move(e));
+                    }
+            }
+            r.reject_unknown();
+            if (!ex.examples.empty())
+                ex.required_tools = {"dcc", "dpm"};
+
+            for (auto const& [path, content] : source.files)
+            {
+                if (!path.starts_with(dir + "/"))
+                    continue;
+                auto const rest = path.substr(dir.size() + 1);
+                if (rest == "lecture.toml" || rest == "README.md")
+                    continue;
+                if (rest.starts_with("examples/"))
+                {
+                    auto const leaf = rest.substr(9);
+                    auto const stem = leaf.ends_with(".dc") ? leaf.substr(0, leaf.size() - 3) : std::string();
+                    if (stem.empty() || !is_harness_stem(stem))
+                        errors.push_back({path, 1, 1, "example files must be examples/<name>.dc with a name matching [a-z][a-z0-9_]*"});
+                    else if (std::ranges::find(ex.examples, stem, &Example::name) == ex.examples.end())
+                        errors.push_back({path, 1, 1, std::format("example file '{}' is not declared in [[examples]]", rest)});
+                    continue;
+                }
+                errors.push_back({path, 1, 1, std::format("unexpected file '{}' in a lecture directory (lecture.toml, README.md and examples/ only)", rest)});
+            }
+            auto const readme_path = dir + "/README.md";
+            if (auto const* content = source.get(readme_path))
+            {
+                check_ascii(readme_path, *content, errors);
+                if (text::trim(*content).empty())
+                    errors.push_back({readme_path, 1, 1, "file is empty"});
+                ex.readme = expand_examples(*content, ex.examples, readme_path, errors);
+            }
+            else
+                errors.push_back({readme_path, 1, 1, "file is missing"});
+            if (errors.size() != before)
+                return std::nullopt;
+            return pending;
+        }
     } // namespace detail
 
     class Catalog
@@ -991,12 +1352,27 @@ export namespace learndc::catalog
             detail::Reader r(*root, "catalog.toml", errors);
             std::vector<std::string> track_names;
             std::vector<toml::Position> track_positions;
+            std::vector<std::tuple<std::string, std::string, toml::Position>> renames;
             if (detail::read_schema(r))
             {
                 if (auto t = r.string("title"))
                     catalog.m_title = *t;
                 if (auto names = r.strings("tracks", true, false, &track_positions))
                     track_names = std::move(*names);
+                if (auto const* rn = r.get("renamed"))
+                {
+                    if (!rn->is_table())
+                        r.wrong_type("renamed", *rn, "a table ([renamed])");
+                    else
+                        for (auto const& e : rn->entries)
+                        {
+                            if (!e.value.is_string())
+                                errors.push_back(
+                                    {"catalog.toml", e.pos.line, e.pos.column, std::format("renamed '{}' must map to an exercise id string", e.key)});
+                            else
+                                renames.push_back({e.key, e.value.text, e.pos});
+                        }
+                }
                 r.reject_unknown();
             }
             else
@@ -1051,12 +1427,29 @@ export namespace learndc::catalog
                 {
                     auto const& prereq = p.exercise.prerequisites[k];
                     auto const pos = p.prerequisite_positions[k];
+                    auto const moved = std::ranges::find_if(renames, [&](auto const& rn) { return std::get<0>(rn) == prereq; });
                     if (prereq == p.exercise.id)
                         errors.push_back({p.file, pos.line, pos.column, std::format("exercise '{}' lists itself as a prerequisite", prereq)});
+                    else if (moved != renames.end())
+                        errors.push_back({p.file, pos.line, pos.column, std::format("prerequisite '{}' was renamed to '{}'", prereq, std::get<1>(*moved))});
                     else if (!index.contains(prereq))
                         errors.push_back({p.file, pos.line, pos.column, std::format("prerequisite '{}' does not exist", prereq)});
                 }
             detect_cycles(pending, index, errors);
+            for (auto const& [from, to, pos] : renames)
+            {
+                if (!is_exercise_id(from))
+                    errors.push_back({"catalog.toml", pos.line, pos.column, std::format("renamed id '{}' is not a valid exercise id", from)});
+                else if (index.contains(from))
+                    errors.push_back({"catalog.toml", pos.line, pos.column, std::format("'{}' is listed in [renamed] but still exists", from)});
+                else if (!index.contains(to))
+                    errors.push_back({"catalog.toml", pos.line, pos.column, std::format("'{}' is renamed to '{}', which does not exist", from, to)});
+                else
+                {
+                    pending[index.at(to)].exercise.former_ids.push_back(from);
+                    catalog.m_renamed[from] = to;
+                }
+            }
 
             if (!errors.empty())
                 return std::unexpected(std::move(errors));
@@ -1074,8 +1467,13 @@ export namespace learndc::catalog
         [[nodiscard]] Exercise const* find(std::string_view id) const
         {
             auto it = m_index.find(std::string(id));
+            if (it == m_index.end())
+                if (auto moved = m_renamed.find(std::string(id)); moved != m_renamed.end())
+                    it = m_index.find(moved->second);
             return it == m_index.end() ? nullptr : &m_exercises[it->second];
         }
+
+        [[nodiscard]] std::map<std::string, std::string> const& renamed() const { return m_renamed; }
 
         [[nodiscard]] Track const* find_track(std::string_view id) const
         {
@@ -1193,7 +1591,7 @@ export namespace learndc::catalog
             for (std::size_t step = 0; step < order.size(); ++step)
             {
                 auto const* e = order[(start + step) % order.size()];
-                if (!completed(e->id) && prerequisites_met(*e, completed))
+                if (!e->optional && !completed(e->id) && prerequisites_met(*e, completed))
                     return e;
             }
             return nullptr;
@@ -1204,6 +1602,7 @@ export namespace learndc::catalog
         std::vector<Track> m_tracks;
         std::vector<Exercise> m_exercises;
         std::map<std::string, std::size_t> m_index;
+        std::map<std::string, std::string> m_renamed;
 
         [[nodiscard]] std::vector<Exercise const*> all_pointers() const
         {
@@ -1262,6 +1661,9 @@ export namespace learndc::catalog
                 track.title = *s;
             if (auto s = r.string("summary"))
                 track.summary = *s;
+            if (auto s = r.string("goal", false))
+                track.goal = *s;
+            track.number = static_cast<int>(catalog.m_tracks.size()) + 1;
             std::vector<toml::Position> positions;
             std::vector<std::string> names;
             if (auto v = r.strings("exercises", true, true, &positions))
@@ -1295,16 +1697,27 @@ export namespace learndc::catalog
                     errors.push_back({file, positions[i].line, positions[i].column, std::format("exercise '{}' is listed more than once", name)});
                     continue;
                 }
-                if (!directories.contains(name) || !source.contains(std::format("{}{}/exercise.toml", prefix, name)))
+                bool const has_exercise = source.contains(std::format("{}{}/exercise.toml", prefix, name));
+                bool const has_lecture = source.contains(std::format("{}{}/lecture.toml", prefix, name));
+                if (!directories.contains(name) || (!has_exercise && !has_lecture))
                 {
-                    errors.push_back(
-                        {file, positions[i].line, positions[i].column, std::format("exercise '{}' has no {}{}/exercise.toml", name, prefix, name)});
+                    errors.push_back({file, positions[i].line, positions[i].column,
+                                      std::format("exercise '{}' has no {}{}/exercise.toml or lecture.toml", name, prefix, name)});
+                    continue;
+                }
+                if (has_exercise && has_lecture)
+                {
+                    errors.push_back({std::format("{}{}/lecture.toml", prefix, name), 1, 1, "a lesson has either exercise.toml or lecture.toml, not both"});
                     continue;
                 }
                 track.exercise_names.push_back(name);
                 track.exercise_ids.push_back(std::format("{}/{}", track_name, name));
-                if (auto ex = detail::parse_exercise(source, track_name, name, errors))
+                auto ex = has_lecture ? detail::parse_lecture(source, track_name, name, errors) : detail::parse_exercise(source, track_name, name, errors);
+                if (ex)
+                {
+                    ex->exercise.chapter_number = static_cast<int>(catalog.m_tracks.size()) + 1;
                     pending.push_back(std::move(*ex));
+                }
             }
             for (auto const& dir : directories)
                 if (!listed.contains(dir))

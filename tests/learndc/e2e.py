@@ -400,7 +400,7 @@ def journey_start_and_check(real_content: Path):
     check(data.get("outcome") == "passed" and data.get("completed_now") is False, "second pass is not a new completion")
     check(data.get("next") == "fundamentals/hello-again", "json next")
     rc, out, err = expect(["progress"], 0)
-    check("1 of 2 exercises completed" in out, "progress text")
+    check("1 of 2 lessons completed" in out, "progress text")
 
     data = expect_json(["next", "--json"])
     check(data["next"]["id"] == "fundamentals/hello-again", "next recommends hello-again")

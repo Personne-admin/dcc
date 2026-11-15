@@ -332,6 +332,18 @@ export namespace learndc::workspace
         return out;
     }
 
+    [[nodiscard]] inline std::expected<void, WorkspaceError> retarget(Workspace& ws, std::string_view exercise_id)
+    {
+        if (ws.meta.exercise == exercise_id)
+            return {};
+        auto meta = ws.meta;
+        meta.exercise = std::string(exercise_id);
+        if (auto r = detail::write_meta(ws.root, meta); !r)
+            return std::unexpected(r.error());
+        ws.meta = std::move(meta);
+        return {};
+    }
+
     [[nodiscard]] inline std::expected<Workspace, WorkspaceError> load(std::filesystem::path const& root_in)
     {
         auto const root = detail::normalized_root(root_in);

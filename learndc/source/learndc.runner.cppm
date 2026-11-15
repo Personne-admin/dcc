@@ -172,6 +172,19 @@ export namespace learndc::runner
         std::string diagnostics;
         std::vector<Location> locations;
         std::string hint;
+        std::string stage_id;
+    };
+
+    struct StageResult
+    {
+        std::string id;
+        std::string title;
+        bool optional = false;
+        bool ran = false;
+        bool passed = false;
+        int revision = 1;
+        int checks_passed = 0;
+        int checks_total = 0;
     };
 
     struct CheckReport
@@ -189,7 +202,32 @@ export namespace learndc::runner
         std::vector<CheckResult> results;
         std::string log_path;
         std::string safety_note;
+        std::vector<StageResult> stages;
+        std::string fingerprint;
+        bool complete = false;
+
+        [[nodiscard]] StageResult const* find_stage(std::string_view id) const
+        {
+            for (auto const& st : stages)
+                if (st.id == id)
+                    return &st;
+            return nullptr;
+        }
     };
+
+    [[nodiscard]] inline std::string fingerprint_of(std::map<std::string, std::string> const& files)
+    {
+        std::string joined;
+        for (auto const& [path, bytes] : files)
+        {
+            joined += path;
+            joined += '\0';
+            joined += std::to_string(bytes.size());
+            joined += '\0';
+            joined += bytes;
+        }
+        return workspace::hash_hex(joined);
+    }
 
     struct TextStyle
     {
@@ -578,6 +616,11 @@ export namespace learndc::runner
         }
     } // namespace detail
 
+    [[nodiscard]] inline std::string workspace_fingerprint(std::filesystem::path const& root)
+    {
+        return fingerprint_of(detail::read_workspace(root));
+    }
+
     [[nodiscard]] inline std::vector<Location> parse_locations(std::string_view diagnostics)
     {
         std::vector<Location> out;
@@ -925,9 +968,12 @@ export namespace learndc::runner
                 return spec;
             }
 
+            std::string fingerprint;
+
             [[nodiscard]] std::expected<void, std::string> sync_project()
             {
                 auto files = read_workspace(ws_root);
+                fingerprint = fingerprint_of(files);
                 return sync_tree(project_dir, files, {".dpm", "project.lock.dcon", "compile_commands.json"});
             }
 
@@ -1128,14 +1174,19 @@ export namespace learndc::runner
                 case catalog::CheckKind::Run:
                 case catalog::CheckKind::Harness: {
                     bool const harness = check.kind == catalog::CheckKind::Harness;
-                    auto& project = s.build_project();
-                    if (!project.ok)
+                    bool const independent = harness && s.ex.staged();
+                    std::filesystem::path binary;
+                    if (!independent)
                     {
-                        if (project.cancelled)
-                            return finish(cancelled_result(check));
-                        return finish(skipped(check, "not run because the program did not build"));
+                        auto& project = s.build_project();
+                        if (!project.ok)
+                        {
+                            if (project.cancelled)
+                                return finish(cancelled_result(check));
+                            return finish(skipped(check, "not run because the program did not build"));
+                        }
+                        binary = project.binary;
                     }
-                    std::filesystem::path binary = project.binary;
                     std::filesystem::path cwd = s.project_dir;
                     if (harness)
                     {
@@ -1204,6 +1255,44 @@ export namespace learndc::runner
             return finish(std::move(r));
         }
 
+        inline void summarize_stages(CheckReport& report, catalog::Exercise const& ex)
+        {
+            for (std::size_t i = 0; i < report.results.size() && i < ex.checks.size(); ++i)
+                report.results[i].stage_id = ex.checks[i].stage;
+            bool build_ok = false;
+            for (auto const& r : report.results)
+                if (r.kind == catalog::CheckKind::Build)
+                    build_ok = r.verdict == Verdict::Pass;
+            for (auto const& st : ex.stages)
+            {
+                StageResult out;
+                out.id = st.id;
+                out.title = st.title;
+                out.optional = st.optional;
+                out.revision = st.revision;
+                bool all = true;
+                for (auto const& r : report.results)
+                {
+                    if (r.stage_id != st.id)
+                        continue;
+                    ++out.checks_total;
+                    if (r.verdict == Verdict::Pass || r.verdict == Verdict::Fail || r.verdict == Verdict::Error)
+                        out.ran = true;
+                    if (r.verdict == Verdict::Pass)
+                        ++out.checks_passed;
+                    else
+                        all = false;
+                }
+                out.passed = out.ran && all && out.checks_total > 0;
+                report.stages.push_back(std::move(out));
+            }
+            if (ex.stages.empty())
+                report.complete = report.outcome == Outcome::Passed;
+            else
+                report.complete = (report.outcome == Outcome::Passed || report.outcome == Outcome::Failed) && build_ok &&
+                                  std::ranges::all_of(report.stages, [](StageResult const& st) { return st.optional || st.passed; });
+        }
+
         inline void finalize(CheckReport& report, std::chrono::steady_clock::time_point begin)
         {
             report.passed = 0;
@@ -1264,6 +1353,7 @@ export namespace learndc::runner
                     report.results.push_back(detail::skipped(check, "not run because the first check could not start"));
             }
             detail::finalize(report, begin);
+            detail::summarize_stages(report, ex);
         };
 
         detail::Session s(ex, source_root, opt);
@@ -1307,11 +1397,14 @@ export namespace learndc::runner
             }
             s.stage(std::format("Check {} of {}: {}", index, ex.checks.size(), check.name));
             auto result = detail::run_one(s, check);
+            result.stage_id = check.stage;
             if (result.verdict == Verdict::Cancelled)
                 stop = true;
             report.results.push_back(std::move(result));
         }
         detail::finalize(report, begin);
+        detail::summarize_stages(report, ex);
+        report.fingerprint = s.fingerprint;
 
         auto const log_file = opt.dirs.logs_dir / platform::path_from_utf8(detail::slug_of(ex.id)) / "last-check.log";
         s.log += std::format("\noutcome: {} ({} of {} passed)\n", to_string(report.outcome), report.passed, report.total);
@@ -1444,6 +1537,8 @@ export namespace learndc::runner
             locations.push(to_json(loc));
         j.set("locations", std::move(locations));
         j.set("hint", r.hint);
+        if (!r.stage_id.empty())
+            j.set("stage", r.stage_id);
         return j;
     }
 
@@ -1466,6 +1561,24 @@ export namespace learndc::runner
         j.set("results", std::move(results));
         j.set("log_path", report.log_path);
         j.set("safety_note", report.safety_note);
+        j.set("complete", report.complete);
+        if (!report.stages.empty())
+        {
+            auto stages = json::Json::make_array();
+            for (auto const& st : report.stages)
+            {
+                auto o = json::Json::make_object();
+                o.set("id", st.id);
+                o.set("title", st.title);
+                o.set("optional", st.optional);
+                o.set("ran", st.ran);
+                o.set("passed", st.passed);
+                o.set("checks_passed", st.checks_passed);
+                o.set("checks_total", st.checks_total);
+                stages.push(std::move(o));
+            }
+            j.set("stages", std::move(stages));
+        }
         return j;
     }
 
@@ -1539,8 +1652,7 @@ export namespace learndc::runner
             headline += " (cancelled)";
         std::string_view const color = report.outcome == Outcome::Passed ? "1;32" : report.outcome == Outcome::Cancelled ? "1;33" : "1;31";
         out += std::format("{}: {}\n", report.exercise, detail::paint(style, color, headline));
-        for (auto const& r : report.results)
-        {
+        auto print_result = [&](CheckResult const& r) {
             std::string label;
             std::string glyph;
             std::string_view code = "0";
@@ -1574,7 +1686,7 @@ export namespace learndc::runner
             }
             out += std::format("  {} {}  {}\n", detail::paint(style, code, glyph), detail::paint(style, code, label), r.name);
             if (r.verdict == Verdict::Pass)
-                continue;
+                return;
             std::string const indent = "      ";
             if (!r.summary.empty())
                 out += std::format("{}{} (stage: {})\n", indent, r.summary, to_string(r.stage));
@@ -1609,6 +1721,33 @@ export namespace learndc::runner
             }
             if (!r.hint.empty() && r.verdict == Verdict::Fail)
                 out += std::format("{}{} {}\n", indent, detail::paint(style, "1;36", "Hint:"), r.hint);
+        };
+        if (report.stages.empty())
+            for (auto const& r : report.results)
+                print_result(r);
+        else
+        {
+            for (auto const& r : report.results)
+                if (r.stage_id.empty())
+                    print_result(r);
+            int number = 0;
+            int required_left = 0;
+            for (auto const& st : report.stages)
+            {
+                ++number;
+                std::string_view const state = st.passed ? "passing" : st.ran ? "failing" : "not run";
+                std::string_view const code = st.passed ? "1;32" : st.ran ? "1;31" : "2";
+                if (!st.passed && !st.optional)
+                    ++required_left;
+                out += std::format("Stage {}: {}{}  {}\n", number, st.title, st.optional ? " (bonus)" : "", detail::paint(style, code, state));
+                for (auto const& r : report.results)
+                    if (r.stage_id == st.id)
+                        print_result(r);
+            }
+            if (report.complete)
+                out += detail::paint(style, "1;32", "Every required stage passes.") + "\n";
+            else
+                out += std::format("{} required stage{} still to go.\n", required_left, required_left == 1 ? "" : "s");
         }
         if (!report.log_path.empty())
             out += std::format("Full log: {}\n", report.log_path);

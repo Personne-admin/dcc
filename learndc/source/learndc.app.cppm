@@ -89,6 +89,73 @@ export namespace learndc::app
         [[nodiscard]] bool has_content() const { return content_error.empty(); }
     };
 
+    struct MigrationReport
+    {
+        int records = 0;
+        int workspaces = 0;
+        std::vector<std::string> problems;
+    };
+
+    inline MigrationReport migrate_renamed_lessons(Context& ctx)
+    {
+        MigrationReport out;
+        auto const& renamed = ctx.catalog.renamed();
+        auto loaded = ctx.store.load();
+        if (!loaded)
+            return out;
+        auto const& p = loaded->progress;
+        std::map<std::string, std::string> adopt;
+        for (auto const& [from, to] : renamed)
+        {
+            auto const* ex = ctx.catalog.find(to);
+            if (ex == nullptr)
+                continue;
+            std::filesystem::path root;
+            if (auto it = p.workspaces.find(from); it != p.workspaces.end())
+                root = platform::path_from_utf8(it->second);
+            else if (!p.workspaces.contains(to))
+            {
+                auto const slash = from.find('/');
+                root = ctx.dirs.workspaces_dir / platform::path_from_utf8(from.substr(0, slash)) / platform::path_from_utf8(from.substr(slash + 1));
+            }
+            if (root.empty())
+                continue;
+            auto ws = workspace::load(root);
+            if (!ws || ws->meta.exercise != from)
+                continue;
+            if (auto r = workspace::retarget(*ws, to); !r)
+            {
+                out.problems.push_back(r.error().message);
+                continue;
+            }
+            if (root != workspace::default_root(ctx.dirs, *ex))
+                adopt[to] = platform::path_to_utf8(ws->root);
+            ++out.workspaces;
+        }
+        bool const needs_progress = std::ranges::any_of(renamed, [&](auto const& kv) {
+            return p.exercises.contains(kv.first) || p.workspaces.contains(kv.first) || progress::is_bookmarked(p, kv.first) ||
+                   std::ranges::find(p.recent, kv.first) != p.recent.end() || p.active_exercise == kv.first;
+        });
+        if (!needs_progress && adopt.empty())
+            return out;
+        for (auto const& [from, to] : renamed)
+            if (p.exercises.contains(from))
+                ++out.records;
+        auto updated = ctx.store.update([&](progress::Progress& pr) {
+            progress::migrate_renamed(pr, renamed);
+            for (auto const& [id, path] : adopt)
+                pr.workspaces[id] = path;
+        });
+        if (!updated)
+            out.problems.push_back(updated.error().message);
+        else
+            for (auto& w : updated->warnings)
+                ctx.warnings.push_back(std::move(w));
+        for (auto const& problem : out.problems)
+            ctx.warnings.push_back("could not move older progress to the new lesson layout: " + problem);
+        return out;
+    }
+
     [[nodiscard]] inline Result<Context> open(OpenOptions const& options)
     {
         platform::Overrides overrides;
@@ -152,6 +219,8 @@ export namespace learndc::app
             else
                 ctx.catalog = std::move(*cat);
         }
+        if (ctx.content_error.empty() && !ctx.catalog.renamed().empty())
+            migrate_renamed_lessons(ctx);
         return Result<Context>(std::move(ctx));
     }
 
@@ -245,6 +314,9 @@ export namespace learndc::app
         auto loaded = workspace::load(workspace_root_for(ctx, p, ex));
         if (loaded)
         {
+            if (std::ranges::find(ex.former_ids, loaded->meta.exercise) != ex.former_ids.end())
+                if (auto r = workspace::retarget(*loaded, ex.id); !r)
+                    return std::unexpected(failure_of(r.error()));
             if (loaded->meta.exercise != ex.id)
                 return failure(exit_refused, std::format("'{}' is the workspace of '{}', not '{}'", platform::path_to_utf8(loaded->root),
                                                          text::sanitize(loaded->meta.exercise), ex.id));
@@ -295,7 +367,7 @@ export namespace learndc::app
                 return std::unexpected(ex.error());
             t.exercise = *ex;
             t.how = Resolved::Argument;
-            if (enclosing && enclosing->meta.exercise == t.exercise->id)
+            if (enclosing && ctx.catalog.find(enclosing->meta.exercise) == t.exercise)
                 t.workspace = std::move(enclosing);
         }
         else if (enclosing)
@@ -325,6 +397,13 @@ export namespace learndc::app
                 return std::unexpected(ws.error());
             t.workspace = std::move(*ws);
         }
+        if (t.workspace && t.workspace->meta.exercise != t.exercise->id &&
+            std::ranges::find(t.exercise->former_ids, t.workspace->meta.exercise) != t.exercise->former_ids.end())
+            if (auto r = workspace::retarget(*t.workspace, t.exercise->id); !r)
+                return std::unexpected(failure_of(r.error()));
+        if (t.exercise->is_lecture() && need_workspace)
+            return failure(exit_usage, std::format("'{}' is a lecture; read it with 'learndc show {}' and answer it with 'learndc answer {}'", t.exercise->id,
+                                                   t.exercise->id, t.exercise->id));
         if (need_workspace && !t.workspace)
             return failure(exit_not_found, std::format("there is no workspace for '{}' yet; run 'learndc start {}'", t.exercise->id, t.exercise->id));
         return t;
@@ -340,6 +419,8 @@ export namespace learndc::app
 
     [[nodiscard]] inline Result<StartOutcome> start_exercise(Context& ctx, catalog::Exercise const& ex, std::optional<std::filesystem::path> const& dir)
     {
+        if (ex.is_lecture())
+            return failure(exit_usage, std::format("'{}' is a lecture and has no workspace; read it with 'learndc show {}'", ex.id, ex.id));
         auto p = load_progress(ctx);
         if (!p)
             return std::unexpected(p.error());
@@ -418,33 +499,83 @@ export namespace learndc::app
         bool recorded = false;
         bool all_passed = false;
         bool completed_now = false;
+        bool boss_defeated = false;
+        bool chapter_completed = false;
+        std::string chapter_title;
+        int chapter_number = 0;
+        std::vector<std::string> stages_achieved;
         std::string next_id;
         std::string next_title;
     };
+
+    [[nodiscard]] inline bool chapter_done(Context const& ctx, progress::Progress const& p, std::string_view track_id)
+    {
+        auto const* track = ctx.catalog.find_track(track_id);
+        if (track == nullptr)
+            return false;
+        for (auto const& id : track->exercise_ids)
+            if (auto const* e = ctx.catalog.find(id); e != nullptr && !e->optional && !progress::is_completed(p, id))
+                return false;
+        return true;
+    }
+
+    inline void fill_completion(Context const& ctx, catalog::Exercise const& ex, progress::Progress const& before, progress::Progress const& after,
+                                CheckRecord& rec)
+    {
+        rec.completed_now = progress::is_completed(after, ex.id) && !progress::is_completed(before, ex.id);
+        rec.boss_defeated = rec.completed_now && ex.is_boss();
+        if (rec.completed_now && !chapter_done(ctx, before, ex.track) && chapter_done(ctx, after, ex.track))
+        {
+            rec.chapter_completed = true;
+            if (auto const* t = ctx.catalog.find_track(ex.track))
+            {
+                rec.chapter_title = t->title;
+                rec.chapter_number = t->number;
+            }
+        }
+        if (progress::is_completed(after, ex.id))
+            if (auto const* next = ctx.catalog.next_recommended(completed_predicate(after), ex.id))
+            {
+                rec.next_id = next->id;
+                rec.next_title = next->title;
+            }
+    }
 
     [[nodiscard]] inline Result<CheckRecord> record_report(Context& ctx, catalog::Exercise const& ex, runner::CheckReport const& report)
     {
         CheckRecord rec;
         if (report.outcome != runner::Outcome::Passed && report.outcome != runner::Outcome::Failed)
             return rec;
-        bool was_completed = false;
+        progress::Progress before;
         auto const now = platform::now_utc_iso8601();
+        bool const complete = ex.staged() ? report.complete : report.outcome == runner::Outcome::Passed;
+        std::vector<progress::StageOutcome> outcomes;
+        for (auto const& st : report.stages)
+            outcomes.push_back({st.id, st.passed, st.ran, st.revision});
         auto updated = update_progress(ctx, [&](progress::Progress& pr) {
-            was_completed = progress::is_completed(pr, ex.id);
-            progress::record_check(pr, ex.id, report.passed, report.total, ex.revision, now);
+            before = pr;
+            auto const it = pr.exercises.find(ex.id);
+            std::set<std::string> had;
+            if (it != pr.exercises.end())
+                for (auto const& [name, st] : it->second.stages)
+                    if (st.achieved())
+                        had.insert(name);
+            progress::record_check(pr, ex.id, report.passed, report.total, ex.revision, now, complete);
+            if (ex.staged())
+                progress::record_stages(pr, ex.id, outcomes, report.fingerprint, now);
+            else
+                pr.exercises[ex.id].last_fingerprint = report.fingerprint;
             progress::set_active(pr, ex.id);
+            rec.stages_achieved.clear();
+            for (auto const& st : ex.stages)
+                if (!had.contains(st.id) && pr.exercises[ex.id].stages[st.id].achieved())
+                    rec.stages_achieved.push_back(st.title);
         });
         if (!updated)
             return std::unexpected(updated.error());
         rec.recorded = true;
-        rec.all_passed = report.outcome == runner::Outcome::Passed;
-        rec.completed_now = rec.all_passed && !was_completed;
-        if (rec.all_passed)
-            if (auto const* next = ctx.catalog.next_recommended(completed_predicate(*updated), ex.id))
-            {
-                rec.next_id = next->id;
-                rec.next_title = next->title;
-            }
+        rec.all_passed = complete;
+        fill_completion(ctx, ex, before, *updated, rec);
         return rec;
     }
 
@@ -542,6 +673,190 @@ export namespace learndc::app
         return progress::is_bookmarked(*updated, ex.id);
     }
 
+    struct LectureOutcome
+    {
+        int correct = 0;
+        int total = 0;
+        std::vector<bool> right;
+        CheckRecord record;
+    };
+
+    [[nodiscard]] inline Result<LectureOutcome> answer_lecture(Context& ctx, catalog::Exercise const& ex, std::vector<int> const& answers)
+    {
+        if (!ex.is_lecture())
+            return failure(exit_usage, std::format("'{}' is not a lecture", ex.id));
+        if (answers.size() != ex.questions.size())
+            return failure(exit_usage, ex.questions.empty() ? std::format("'{}' has no questions; answer it with no choices to mark it as read", ex.id)
+                                                            : std::format("'{}' has {} question{}; give one choice for each", ex.id, ex.questions.size(),
+                                                                          ex.questions.size() == 1 ? "" : "s"));
+        LectureOutcome out;
+        out.total = static_cast<int>(ex.questions.size());
+        for (std::size_t i = 0; i < answers.size(); ++i)
+        {
+            auto const& q = ex.questions[i];
+            if (answers[i] < 1 || answers[i] > static_cast<int>(q.choices.size()))
+                return failure(exit_usage, std::format("question {} has choices 1 to {}", i + 1, q.choices.size()));
+            bool const ok = answers[i] == q.answer;
+            out.right.push_back(ok);
+            if (ok)
+                ++out.correct;
+        }
+        bool const understood = out.correct == out.total;
+        auto const now = platform::now_utc_iso8601();
+        progress::Progress before;
+        auto updated = update_progress(ctx, [&](progress::Progress& pr) {
+            before = pr;
+            progress::record_lecture(pr, ex.id, understood, ex.revision, now);
+            progress::set_active(pr, ex.id);
+        });
+        if (!updated)
+            return std::unexpected(updated.error());
+        out.record.recorded = true;
+        out.record.all_passed = understood;
+        fill_completion(ctx, ex, before, *updated, out.record);
+        return out;
+    }
+
+    enum class StageState
+    {
+        Verified,
+        Regressed,
+        Unverified,
+        Outdated,
+        Current,
+        Todo,
+    };
+
+    [[nodiscard]] inline std::string_view to_string(StageState s)
+    {
+        switch (s)
+        {
+            case StageState::Verified:
+                return "passing";
+            case StageState::Regressed:
+                return "passed before, failing now";
+            case StageState::Unverified:
+                return "passed before, not checked since your last change";
+            case StageState::Outdated:
+                return "passed in an older version of this stage";
+            case StageState::Current:
+                return "current objective";
+            case StageState::Todo:
+                return "not reached yet";
+        }
+        return "";
+    }
+
+    struct StageView
+    {
+        catalog::Stage const* stage = nullptr;
+        int number = 0;
+        StageState state = StageState::Todo;
+        bool achieved = false;
+        bool failing_now = false;
+        int hint_level = 0;
+        std::string achieved_at;
+    };
+
+    [[nodiscard]] inline std::vector<StageView> stage_views(catalog::Exercise const& ex, progress::Progress const& p, std::string_view current_fingerprint)
+    {
+        std::vector<StageView> out;
+        progress::ExerciseProgress const empty;
+        auto it = p.exercises.find(ex.id);
+        auto const& e = it == p.exercises.end() ? empty : it->second;
+        bool const fresh = !current_fingerprint.empty() && current_fingerprint == e.last_fingerprint;
+        bool current_assigned = false;
+        int number = 0;
+        for (auto const& st : ex.stages)
+        {
+            StageView v;
+            v.stage = &st;
+            v.number = ++number;
+            progress::StageProgress sp;
+            if (auto s_it = e.stages.find(st.id); s_it != e.stages.end())
+                sp = s_it->second;
+            v.achieved = sp.achieved();
+            v.achieved_at = sp.achieved_at;
+            v.hint_level = sp.hint_level;
+            v.failing_now = fresh && sp.last == "fail";
+            if (v.achieved && sp.achieved_revision < st.revision)
+                v.state = StageState::Outdated;
+            else if (fresh && sp.last == "pass")
+                v.state = StageState::Verified;
+            else if (v.achieved && v.failing_now)
+                v.state = StageState::Regressed;
+            else if (v.achieved)
+                v.state = StageState::Unverified;
+            else
+                v.state = StageState::Todo;
+            out.push_back(v);
+        }
+        for (auto& v : out)
+            if (!current_assigned && !v.stage->optional && (v.state == StageState::Todo || v.state == StageState::Outdated || v.state == StageState::Regressed))
+            {
+                if (v.state == StageState::Todo)
+                    v.state = StageState::Current;
+                current_assigned = true;
+            }
+        if (!current_assigned)
+            for (auto& v : out)
+                if (v.state == StageState::Todo)
+                {
+                    v.state = StageState::Current;
+                    break;
+                }
+        return out;
+    }
+
+    [[nodiscard]] inline StageView const* focus_stage(std::vector<StageView> const& views)
+    {
+        for (auto const& v : views)
+            if (v.state == StageState::Current || v.state == StageState::Regressed || v.state == StageState::Outdated)
+                if (!v.stage->optional)
+                    return &v;
+        for (auto const& v : views)
+            if (v.state == StageState::Current)
+                return &v;
+        return nullptr;
+    }
+
+    struct StageHintOutcome
+    {
+        std::string stage_title;
+        int level = 0;
+        int count = 0;
+        std::string text;
+    };
+
+    [[nodiscard]] inline Result<StageHintOutcome> reveal_stage_hint(Context& ctx, catalog::Exercise const& ex, std::string_view stage_id,
+                                                                    std::optional<int> level)
+    {
+        auto const* st = ex.find_stage(stage_id);
+        if (st == nullptr)
+            return failure(exit_not_found, std::format("'{}' has no stage '{}'", ex.id, text::sanitize(stage_id)));
+        if (st->hints.empty())
+            return failure(exit_not_found, std::format("stage '{}' has no hints of its own; try 'learndc hint {}'", st->id, ex.id));
+        int const count = static_cast<int>(st->hints.size());
+        if (level && (*level < 1 || *level > count))
+            return failure(exit_usage, std::format("stage '{}' has hints 1 to {}", st->id, count));
+        auto p = load_progress(ctx);
+        if (!p)
+            return std::unexpected(p.error());
+        int current = 0;
+        if (auto it = p->exercises.find(ex.id); it != p->exercises.end())
+            if (auto s_it = it->second.stages.find(st->id); s_it != it->second.stages.end())
+                current = s_it->second.hint_level;
+        StageHintOutcome out;
+        out.stage_title = st->title;
+        out.count = count;
+        out.level = level ? *level : std::min(current + 1, count);
+        out.text = st->hints[static_cast<std::size_t>(out.level - 1)];
+        auto updated = update_progress(ctx, [&](progress::Progress& pr) { progress::reveal_stage_hint(pr, ex.id, st->id, out.level); });
+        if (!updated)
+            return std::unexpected(updated.error());
+        return out;
+    }
+
     struct TrackSummary
     {
         std::string id;
@@ -549,6 +864,14 @@ export namespace learndc::app
         int total = 0;
         int completed = 0;
         int in_progress = 0;
+        int number = 0;
+        std::string goal;
+        int bonus_total = 0;
+        int bonus_completed = 0;
+        std::string boss_id;
+        std::string boss_title;
+        bool boss_defeated = false;
+        bool done = false;
     };
 
     struct Summary
@@ -562,6 +885,9 @@ export namespace learndc::app
         std::string active;
         std::vector<std::string> recent;
         std::vector<std::string> bookmarks;
+        int bosses_total = 0;
+        int bosses_defeated = 0;
+        int chapters_done = 0;
     };
 
     [[nodiscard]] inline Summary summarize(Context const& ctx, progress::Progress const& p)
@@ -569,22 +895,50 @@ export namespace learndc::app
         Summary s;
         for (auto const& track : ctx.catalog.tracks())
         {
-            TrackSummary t{track.id, track.title, 0, 0, 0};
+            TrackSummary t;
+            t.id = track.id;
+            t.title = track.title;
+            t.number = track.number;
+            t.goal = track.goal;
             for (auto const& id : track.exercise_ids)
             {
-                ++t.total;
+                auto const* ex = ctx.catalog.find(id);
                 auto const status = progress::status_of(p, id);
+                if (ex != nullptr && ex->is_boss() && t.boss_id.empty())
+                {
+                    t.boss_id = id;
+                    t.boss_title = ex->title;
+                    t.boss_defeated = status == progress::Status::Completed;
+                }
+                if (ex != nullptr && ex->optional)
+                {
+                    ++t.bonus_total;
+                    if (status == progress::Status::Completed)
+                        ++t.bonus_completed;
+                    continue;
+                }
+                ++t.total;
                 if (status == progress::Status::Completed)
                     ++t.completed;
                 else if (status == progress::Status::InProgress)
                     ++t.in_progress;
             }
+            t.done = t.total > 0 && t.completed == t.total;
             s.total += t.total;
             s.completed += t.completed;
             s.in_progress += t.in_progress;
             s.tracks.push_back(std::move(t));
         }
         s.not_started = s.total - s.completed - s.in_progress;
+        for (auto const& t : s.tracks)
+        {
+            if (!t.boss_id.empty())
+                ++s.bosses_total;
+            if (t.boss_defeated)
+                ++s.bosses_defeated;
+            if (t.done)
+                ++s.chapters_done;
+        }
         for (auto const& ex : ctx.catalog.exercises())
             if (auto it = p.exercises.find(ex.id); it != p.exercises.end() && progress::needs_revisit(it->second, ex.revision))
                 ++s.needs_revisit;
@@ -592,6 +946,60 @@ export namespace learndc::app
         s.recent = p.recent;
         s.bookmarks = p.bookmarks;
         return s;
+    }
+
+    struct Achievement
+    {
+        std::string title;
+        std::string detail;
+        bool boss = false;
+    };
+
+    [[nodiscard]] inline std::vector<Achievement> achievements(Context const& ctx, progress::Progress const& p)
+    {
+        std::vector<Achievement> out;
+        auto const summary = summarize(ctx, p);
+        for (auto const& t : summary.tracks)
+        {
+            if (!t.boss_id.empty() && t.boss_defeated)
+            {
+                Achievement a;
+                a.boss = true;
+                a.title = std::format("Boss defeated: {}", t.boss_title);
+                auto const* boss = ctx.catalog.find(t.boss_id);
+                auto it = p.exercises.find(t.boss_id);
+                if (boss != nullptr && it != p.exercises.end())
+                {
+                    auto const& e = it->second;
+                    bool clean = e.hint_level == 0 && !e.solution_viewed;
+                    int bonus_total = 0;
+                    int bonus_done = 0;
+                    for (auto const& st : boss->stages)
+                    {
+                        auto s_it = e.stages.find(st.id);
+                        if (s_it != e.stages.end() && s_it->second.hint_level > 0)
+                            clean = false;
+                        if (st.optional)
+                        {
+                            ++bonus_total;
+                            if (s_it != e.stages.end() && s_it->second.achieved())
+                                ++bonus_done;
+                        }
+                    }
+                    std::vector<std::string> notes;
+                    if (clean)
+                        notes.push_back("no hints, no solution");
+                    if (bonus_total > 0)
+                        notes.push_back(std::format("bonus {} of {}", bonus_done, bonus_total));
+                    a.detail = text::join(notes, ", ");
+                }
+                out.push_back(std::move(a));
+            }
+            if (t.done)
+                out.push_back({std::format("Chapter {} complete: {}", t.number, t.title),
+                               t.bonus_total > 0 ? std::format("bonus lessons {} of {}", t.bonus_completed, t.bonus_total) : std::string(), false});
+        }
+        return out;
     }
 
     struct ReviewItem
