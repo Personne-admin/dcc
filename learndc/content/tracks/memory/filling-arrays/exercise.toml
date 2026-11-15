@@ -15,7 +15,7 @@ objectives = [
 ]
 entry_file = "src/main.dc"
 product = "evens"
-prerequisites = ["data/tagged-enums"]
+prerequisites = ["memory/array-basics"]
 requires = ["dcc", "dpm"]
 min_dcc = "0.6.0"
 platforms = ["linux", "windows"]

@@ -1,0 +1,38 @@
+module find_it;
+
+import std::slice;
+import inventory;
+using inventory::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+Status(Error) stock(Array(Item)* shelf, []const char name, u32 count) {
+    shelf.push(Item { name = name, count = count })?;
+    return Status::Ok;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array(Item) shelf = {};
+    defer shelf.deinit();
+    expect(position(&shelf, "apple").is_none(), "nothing is found on an empty shelf", &failures);
+    if !stock(&shelf, "apple", 3).is_ok() || !stock(&shelf, "pear", 0).is_ok() || !stock(&shelf, "plum", 9).is_ok() {
+        return 1;
+    }
+    Optional(usize) plum = position(&shelf, "plum");
+    expect(plum.is_some() && plum.some_or(99) == 2, "position finds plum at index 2", &failures);
+    Optional(usize) apple = position(&shelf, "apple");
+    expect(apple.is_some() && apple.some_or(99) == 0, "position finds apple at index 0", &failures);
+    expect(position(&shelf, "app").is_none(), "a prefix of a name is not a match", &failures);
+    expect(position(&shelf, "apples").is_none(), "a longer name is not a match", &failures);
+    expect(count_of(&shelf, "plum") == 9, "count_of reads the count of plum", &failures);
+    expect(count_of(&shelf, "fig") == 0, "count_of is 0 for a missing item", &failures);
+    return failures;
+}

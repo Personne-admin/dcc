@@ -1,0 +1,31 @@
+module ledger;
+
+import std::slice;
+import inventory;
+using inventory::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+Status(Error) stock(Array(Item)* shelf, []const char name, u32 count) {
+    shelf.push(Item { name = name, count = count })?;
+    return Status::Ok;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array(Item) shelf = {};
+    defer shelf.deinit();
+    expect(total_units(&shelf) == 0, "an empty shelf holds 0 units", &failures);
+    if !stock(&shelf, "apple", 10).is_ok() || !stock(&shelf, "pear", 4).is_ok() || !stock(&shelf, "plum", 1).is_ok() {
+        return 1;
+    }
+    expect(total_units(&shelf) == 15, "10 + 4 + 1 units", &failures);
+    return failures;
+}

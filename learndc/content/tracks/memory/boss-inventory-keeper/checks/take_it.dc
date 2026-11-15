@@ -1,0 +1,45 @@
+module take_it;
+
+import std::slice;
+import inventory;
+using inventory::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+Status(Error) stock(Array(Item)* shelf, []const char name, u32 count) {
+    shelf.push(Item { name = name, count = count })?;
+    return Status::Ok;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array(Item) shelf = {};
+    defer shelf.deinit();
+    if !stock(&shelf, "apple", 10).is_ok() || !stock(&shelf, "pear", 4).is_ok() || !stock(&shelf, "plum", 1).is_ok() {
+        return 1;
+    }
+    expect(take(&shelf, "apple", 3).is_ok(), "taking 3 of 10 apples works", &failures);
+    expect(shelf.items()[0].count == 7, "7 apples are left", &failures);
+    match take(&shelf, "fig", 1) {
+        Status::Ok => expect(false, "taking a fig fails with Unknown", &failures),
+        Status::Err(e) => expect(e == StockError::Unknown, "taking a fig fails with Unknown", &failures),
+    }
+    match take(&shelf, "pear", 5) {
+        Status::Ok => expect(false, "taking 5 of 4 pears fails with NotEnough", &failures),
+        Status::Err(e) => expect(e == StockError::NotEnough, "taking 5 of 4 pears fails with NotEnough", &failures),
+    }
+    expect(shelf.items()[1].count == 4, "a refused order changes nothing", &failures);
+    expect(take(&shelf, "plum", 1).is_ok(), "taking the last plum works", &failures);
+    expect(shelf.len() == 2, "an item that reaches 0 leaves the shelf", &failures);
+    if shelf.len() == 2 {
+        expect(std::slice::eq(shelf.items()[1].name, "pear"), "the other entries keep their order", &failures);
+    }
+    return failures;
+}

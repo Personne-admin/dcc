@@ -1,0 +1,18 @@
+module main;
+
+Status(Error) visit(i32 guests) {
+    println("door opened")?;
+    defer println("door closed");
+    if guests == 0 {
+        println("nobody came")?;
+        return Status::Ok;
+    }
+    println("{} guests inside", guests)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    visit(0)?;
+    visit(3)?;
+    return Status::Ok;
+}

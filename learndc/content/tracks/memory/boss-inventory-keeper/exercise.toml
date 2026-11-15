@@ -1,0 +1,147 @@
+schema = 1
+id = "memory/boss-inventory-keeper"
+revision = 1
+title = "The Inventory Keeper"
+summary = "Run the market storeroom: an owning Array of items, searches, refusals with typed errors and a night shift that cleans up after itself."
+kind = "challenge"
+difficulty = "intermediate"
+estimated_minutes = 60
+concepts = ["Array", "ownership", "defer", "pointers", "Optional", "Status", "custom errors", "match", "slices"]
+tags = ["boss", "memory", "errors", "structs"]
+objectives = [
+    "Grow and search an owning Array(Item) through a pointer",
+    "Refuse impossible orders with a custom error type and leave the shelf unchanged",
+    "Own the shelf in main, release it with defer and print a complete report",
+]
+entry_file = "src/main.dc"
+product = "inventory_keeper"
+prerequisites = ["memory/map-lookup"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 3
+story = """
+The old storekeeper of the night market has retired and left you a crate of
+deliveries, a stack of orders and one rule: *nothing leaves the storeroom
+unless it is on the shelf, and nobody goes home before the shelf is put
+away*. Build the storeroom one shelf at a time.
+"""
+
+[[stages]]
+id = "stock-up"
+title = "Stock the shelf"
+summary = "add pushes a new Item for every name, and kinds counts the entries."
+hints = [
+    "The shelf is an Array(Item) that belongs to the caller; you receive a pointer to it. shelf.push(...) and shelf.len() work through the pointer.",
+    "Build the item with a struct literal, Item { name = name, count = count }, and pass the push failure on with ?.",
+]
+
+[[stages]]
+id = "find-it"
+title = "Find it again"
+summary = "position returns the index of a name, and count_of its count or 0."
+hints = [
+    "Walk shelf.items() and keep your own index counter. Text cannot be compared with ==; std::slice::eq(a, b) compares the characters.",
+    "count_of can reuse position: match on the Optional and read shelf.items()[index].count in the Some arm.",
+]
+
+[[stages]]
+id = "no-duplicates"
+title = "One entry per item"
+summary = "Adding a name that is already on the shelf raises its count instead of adding a second entry."
+hints = [
+    "Ask position first. Only push when the name is not on the shelf yet.",
+    "shelf.items() lends you the elements as a mutable slice, so shelf.items()[index].count += count changes the stored item.",
+]
+
+[[stages]]
+id = "take-it"
+title = "Refuse what you cannot pack"
+summary = "take fails with Unknown or NotEnough without touching the shelf, subtracts otherwise and removes an item that reaches 0."
+hints = [
+    "Check both refusals before you change anything. Returning StockError::Unknown from a Status(StockError) function is the failure.",
+    "Item* item = &shelf.items()[index]; gives you a pointer to the stored entry. shelf.remove(index) takes an entry out and keeps the others in order.",
+]
+
+[[stages]]
+id = "night-shift"
+title = "The night shift"
+summary = "main owns the shelf, releases it with defer, stocks the deliveries, packs every order and prints the report."
+hints = [
+    "Create the shelf with Array(Item) shelf = {}; and put defer shelf.deinit(); on the very next line.",
+    "match on the Status that take returns: Status::Ok => ..., Status::Err(e) => match e { ... }. Count the orders with your own usize counter.",
+]
+
+[[stages]]
+id = "ledger"
+title = "Bonus: the ledger"
+summary = "total_units adds up every count on the shelf."
+optional = true
+hints = ["Start a u32 total at 0 and add item.count for every item in shelf.items()."]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "add and kinds stock new items"
+stage = "stock-up"
+harness = "checks/stock_up.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "position and count_of find items by name"
+stage = "find-it"
+harness = "checks/find_it.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "add merges a name that is already stocked"
+stage = "no-duplicates"
+harness = "checks/no_duplicates.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "take refuses, subtracts and removes"
+stage = "take-it"
+harness = "checks/take_it.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "The night shift report"
+stage = "night-shift"
+expect_stdout = """
+delivery: 3 kinds
+order 1: 5 x apple packed
+order 2: 6 x pear refused, not enough in stock
+order 3: 1 x fig refused, unknown item
+order 4: 4 x pear packed
+order 5: 2 x plum packed
+left on the shelf:
+  apple 10
+  plum 5
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Both apple deliveries share one entry (12 + 3), the second pear order empties the pear entry, and the report lists what is left in shelf order."
+
+[[checks]]
+kind = "harness"
+name = "total_units adds every count"
+stage = "ledger"
+harness = "checks/ledger.dc"
+expect_exit = 0
+max_seconds = 10

@@ -1,0 +1,38 @@
+module stock_up;
+
+import std::slice;
+import inventory;
+using inventory::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+Status(Error) stock(Array(Item)* shelf, []const char name, u32 count) {
+    shelf.push(Item { name = name, count = count })?;
+    return Status::Ok;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array(Item) shelf = {};
+    defer shelf.deinit();
+    expect(kinds(&shelf) == 0, "an empty shelf has 0 kinds", &failures);
+    if !add(&shelf, "apple", 3).is_ok() || !add(&shelf, "pear", 2).is_ok() || !add(&shelf, "fig", 1).is_ok() {
+        println("FAIL  add reported an error");
+        return 1;
+    }
+    expect(shelf.len() == 3, "three different items make three entries", &failures);
+    expect(kinds(&shelf) == 3, "kinds counts the entries", &failures);
+    if shelf.len() == 3 {
+        []const Item items = shelf.items();
+        expect(std::slice::eq(items[0].name, "apple") && items[0].count == 3, "the first entry is apple with 3", &failures);
+        expect(std::slice::eq(items[2].name, "fig") && items[2].count == 1, "entries keep the order they arrived in", &failures);
+    }
+    return failures;
+}

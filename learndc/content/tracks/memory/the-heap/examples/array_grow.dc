@@ -1,0 +1,17 @@
+module main;
+
+public Status(Error) main() {
+    Array(i32) scores = {};
+    defer scores.deinit();
+    println("at first: {} scores", scores.len())?;
+    scores.push(70)?;
+    scores.push(85)?;
+    scores.push(92)?;
+    println("after three pushes: {} scores", scores.len())?;
+    i32 total = 0;
+    for score in scores.items() {
+        total += score;
+    }
+    println("total: {}", total)?;
+    return Status::Ok;
+}

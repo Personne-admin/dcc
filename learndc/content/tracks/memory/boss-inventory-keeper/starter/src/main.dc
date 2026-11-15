@@ -1,0 +1,30 @@
+module main;
+
+import inventory;
+using inventory::*;
+
+struct Order {
+    []const char name;
+    u32 count;
+}
+
+public Status(Error) main() {
+    []const Order deliveries = {
+        { "apple", 12 },
+        { "pear", 4 },
+        { "plum", 7 },
+        { "apple", 3 },
+    };
+    []const Order orders = {
+        { "apple", 5 },
+        { "pear", 6 },
+        { "fig", 1 },
+        { "pear", 4 },
+        { "plum", 2 },
+    };
+
+    // Stage 5, the night shift, starts here: create the shelf, stock it with
+    // the deliveries, pack the orders and print the report.
+    println("delivery: {} kinds", 0)?;
+    return Status::Ok;
+}

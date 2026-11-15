@@ -1,0 +1,39 @@
+module no_duplicates;
+
+import std::slice;
+import inventory;
+using inventory::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+Status(Error) stock(Array(Item)* shelf, []const char name, u32 count) {
+    shelf.push(Item { name = name, count = count })?;
+    return Status::Ok;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array(Item) shelf = {};
+    defer shelf.deinit();
+    if !add(&shelf, "apple", 3).is_ok() || !add(&shelf, "pear", 2).is_ok() || !add(&shelf, "apple", 4).is_ok() {
+        println("FAIL  add reported an error");
+        return 1;
+    }
+    expect(shelf.len() == 2, "adding apple twice keeps one apple entry", &failures);
+    if shelf.len() == 2 {
+        expect(shelf.items()[0].count == 7, "the apple entry now holds 3 + 4 = 7", &failures);
+        expect(shelf.items()[1].count == 2, "pear is untouched", &failures);
+    }
+    if !add(&shelf, "pear", 0).is_ok() {
+        return 1;
+    }
+    expect(shelf.len() == 2, "adding 0 of a known item adds no entry", &failures);
+    return failures;
+}

@@ -1,0 +1,16 @@
+module main;
+
+public Status(Error) main() {
+    Array(i32) squares = {};
+    defer squares.deinit();
+    for i32 n in 1..=5 {
+        squares.push(n * n)?;
+    }
+    i32 sum = 0;
+    for square in squares.items() {
+        println("{}", square)?;
+        sum += square;
+    }
+    println("{} squares, sum {}", squares.len(), sum)?;
+    return Status::Ok;
+}

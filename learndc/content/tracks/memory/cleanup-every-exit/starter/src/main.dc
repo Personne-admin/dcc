@@ -1,0 +1,23 @@
+module main;
+
+Status(Error) checkout(i32 price, i32 paid) {
+    println("till opened")?;
+    if price == 0 {
+        println("nothing to pay")?;
+        return Status::Ok;
+    }
+    if paid < price {
+        println("{} more needed", price - paid)?;
+        return Status::Ok;
+    }
+    println("change: {}", paid - price)?;
+    println("till closed")?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    checkout(0, 0)?;
+    checkout(30, 20)?;
+    checkout(30, 50)?;
+    return Status::Ok;
+}

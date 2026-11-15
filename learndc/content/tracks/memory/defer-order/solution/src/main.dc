@@ -1,0 +1,14 @@
+module main;
+
+public Status(Error) main() {
+    println("lights on")?;
+    defer println("lights off");
+    println("music on")?;
+    defer println("music off");
+    {
+        println("cake served")?;
+        defer println("plates cleared");
+    }
+    println("party running")?;
+    return Status::Ok;
+}

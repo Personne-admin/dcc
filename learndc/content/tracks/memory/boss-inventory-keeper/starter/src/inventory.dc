@@ -1,0 +1,37 @@
+module inventory;
+
+import std::slice;
+
+public struct Item {
+    []const char name;
+    u32 count;
+}
+
+public enum StockError {
+    Unknown,
+    NotEnough,
+}
+
+public usize kinds(const Array(Item)* shelf) {
+    return 0;
+}
+
+public Status(Error) add(Array(Item)* shelf, []const char name, u32 count) {
+    return Status::Ok;
+}
+
+public Optional(usize) position(const Array(Item)* shelf, []const char name) {
+    return Optional::None;
+}
+
+public u32 count_of(const Array(Item)* shelf, []const char name) {
+    return 0;
+}
+
+public Status(StockError) take(Array(Item)* shelf, []const char name, u32 count) {
+    return Status::Ok;
+}
+
+public u32 total_units(const Array(Item)* shelf) {
+    return 0;
+}

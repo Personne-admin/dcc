@@ -1,0 +1,15 @@
+module main;
+
+public Status(Error) main() {
+    println("pitch tent")?;
+    defer println("pack tent");
+    println("light fire")?;
+    defer println("put out fire");
+    for day in 1..=2 {
+        println("day {} starts", day)?;
+        defer println("day {} ends", day);
+        println("  hike")?;
+    }
+    println("sleep")?;
+    return Status::Ok;
+}

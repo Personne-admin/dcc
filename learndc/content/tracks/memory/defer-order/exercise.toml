@@ -1,0 +1,43 @@
+schema = 1
+id = "memory/defer-order"
+revision = 1
+title = "Tidy up in reverse"
+summary = "Register cleanup with defer and see deferred statements run in reverse order at the end of each scope."
+kind = "complete-program"
+difficulty = "beginner"
+estimated_minutes = 8
+concepts = ["defer", "scope", "block", "reverse order"]
+tags = ["memory", "cleanup"]
+objectives = [
+    "Write a defer right after the thing it cleans up",
+    "Predict that several defers run last-in, first-out",
+    "Use a block to end a scope early",
+]
+entry_file = "src/main.dc"
+product = "party"
+prerequisites = ["memory/scope-and-lifetime"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Everything is switched off in reverse order"
+expect_stdout = """
+lights on
+music on
+cake served
+plates cleared
+party running
+music off
+lights off
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The plates are cleared when the inner block ends, before the party runs. The music goes off before the lights because it was switched on after them."

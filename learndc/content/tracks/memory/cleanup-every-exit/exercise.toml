@@ -1,0 +1,44 @@
+schema = 1
+id = "memory/cleanup-every-exit"
+revision = 1
+title = "Close the till on every exit"
+summary = "Find the early returns that skip the cleanup, then replace the repeated cleanup with one defer."
+kind = "fix-behavior"
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["defer", "early return", "cleanup", "Status"]
+tags = ["memory", "cleanup", "debugging"]
+objectives = [
+    "Spot exits that skip a cleanup step",
+    "Replace repeated cleanup lines with a single defer",
+]
+entry_file = "src/main.dc"
+product = "till"
+prerequisites = ["memory/defer-order"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The till closes after every checkout"
+expect_stdout = """
+till opened
+nothing to pay
+till closed
+till opened
+10 more needed
+till closed
+till opened
+change: 20
+till closed
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Every checkout must end with till closed, including the two that stop early."

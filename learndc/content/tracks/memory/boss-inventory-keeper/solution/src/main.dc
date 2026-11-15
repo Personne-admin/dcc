@@ -1,0 +1,50 @@
+module main;
+
+import inventory;
+using inventory::*;
+
+struct Order {
+    []const char name;
+    u32 count;
+}
+
+public Status(Error) main() {
+    Array(Item) shelf = {};
+    defer shelf.deinit();
+
+    []const Order deliveries = {
+        { "apple", 12 },
+        { "pear", 4 },
+        { "plum", 7 },
+        { "apple", 3 },
+    };
+    []const Order orders = {
+        { "apple", 5 },
+        { "pear", 6 },
+        { "fig", 1 },
+        { "pear", 4 },
+        { "plum", 2 },
+    };
+    for delivery in deliveries {
+        add(&shelf, delivery.name, delivery.count)?;
+    }
+    println("delivery: {} kinds", kinds(&shelf))?;
+
+    usize number = 0;
+    for order in orders {
+        number += 1;
+        match take(&shelf, order.name, order.count) {
+            Status::Ok => println("order {}: {} x {} packed", number, order.count, order.name)?,
+            Status::Err(e) => match e {
+                StockError::Unknown => println("order {}: {} x {} refused, unknown item", number, order.count, order.name)?,
+                StockError::NotEnough => println("order {}: {} x {} refused, not enough in stock", number, order.count, order.name)?,
+            },
+        }
+    }
+
+    println("left on the shelf:")?;
+    for item in shelf.items() {
+        println("  {} {}", item.name, item.count)?;
+    }
+    return Status::Ok;
+}

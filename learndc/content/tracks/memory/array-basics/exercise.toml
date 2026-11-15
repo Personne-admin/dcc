@@ -1,0 +1,42 @@
+schema = 1
+id = "memory/array-basics"
+revision = 1
+title = "Your first growable array"
+summary = "Create an Array(i32), release it with defer, push values into it and read them back."
+kind = "complete-program"
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["Array", "push", "items", "len", "deinit", "defer", "heap"]
+tags = ["memory", "arrays"]
+objectives = [
+    "Create an empty Array(i32) with {} and release it with defer deinit",
+    "Push values and pass a failed allocation on with ?",
+    "Read the elements back with items() and count them with len()",
+]
+entry_file = "src/main.dc"
+product = "squares"
+prerequisites = ["memory/the-heap"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the squares, their count and their sum"
+expect_stdout = """
+1
+4
+9
+16
+25
+5 squares, sum 55
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Push n * n for every n in 1..=5, print each element of items(), then use len() for the count."

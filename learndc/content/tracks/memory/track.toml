@@ -3,4 +3,4 @@ id = "memory"
 title = "Ownership and Cleanup"
 summary = "Understand when values live and die, clean up with defer and own growable memory."
 goal = "Release every resource exactly once with defer, and build, lend and search owning Array and Map values."
-exercises = ["filling-arrays", "map-lookup"]
+exercises = ["scope-and-lifetime", "defer-order", "cleanup-every-exit", "the-heap", "array-basics", "filling-arrays", "map-lookup", "boss-inventory-keeper"]

@@ -1,0 +1,10 @@
+module main;
+
+public Status(Error) main() {
+    // 1. Create an empty Array(i32) called squares.
+    // 2. Release it with defer on the next line.
+    // 3. Push n * n for every n from 1 to 5.
+    // 4. Print every element, one per line.
+    // 5. Print the count and the sum: "5 squares, sum 55".
+    return Status::Ok;
+}

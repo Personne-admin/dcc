@@ -714,6 +714,67 @@ def journey_embedded():
     expect(["dev", "validate", "--backend", "dpm", "--id", "fundamentals/hello-world"], 0, env=env)
 
 
+def journey_academy(tmp: Path, real_content: Path):
+    print("journey: academy migration, lecture and boss")
+    home = tmp / "academy home"
+    old_ws = home / "workspaces" / "fundamentals" / "hello-world"
+    (old_ws / "src").mkdir(parents=True)
+    (old_ws / ".learndc").mkdir()
+    shutil.copy(real_content / "tracks" / "first-steps" / "hello-world" / "starter" / "project.dcon", old_ws / "project.dcon")
+    (old_ws / "src" / "main.dc").write_text("module main;\n// my old work\n")
+    (old_ws / ".learndc" / "workspace.json").write_text(json.dumps({"schema": 1, "exercise": "fundamentals/hello-world", "revision": 2,
+                                                                  "created_at": "2026-01-01T00:00:00Z", "starter": {}}))
+    old = {"schema": 1, "active_exercise": "types/owned-array", "bookmarks": ["types/owned-array"], "workspaces": {}, "recent": ["fundamentals/hello-world"],
+           "exercises": {"fundamentals/hello-world": {"status": "completed", "attempts": 3, "passes": 1, "completed_revision": 2,
+                                                      "completed_at": "2026-01-02T00:00:00Z"},
+                         "types/owned-array": {"status": "in-progress", "attempts": 1}}}
+    (home / "progress.json").write_text(json.dumps(old))
+    env = {"LEARNDC_HOME": str(home), "LEARNDC_CONTENT_DIR": str(real_content)}
+    prog = expect_json(["progress", "--json"], env=env)
+    ids = {e["id"]: e for e in prog["exercises"]}
+    check(ids.get("first-steps/hello-world", {}).get("status") == "completed", f"completion moved to the new id: {ids}")
+    check("memory/filling-arrays" in ids, "in-progress record moved")
+    check(prog["active_exercise"] == "memory/filling-arrays", "active exercise moved")
+    check(prog["bookmarks"] == ["memory/filling-arrays"], "bookmark moved")
+    check((home / "progress.json.schema1.bak").read_text() == json.dumps(old), "schema 1 backup kept")
+    data = expect_json(["show", "first-steps/hello-world", "--json"], env=env)
+    check(Path(data["workspace"]) == old_ws, f"old workspace kept in place: {data['workspace']}")
+    meta = json.loads((old_ws / ".learndc" / "workspace.json").read_text())
+    check(meta["exercise"] == "first-steps/hello-world", "workspace retargeted")
+    check((old_ws / "src" / "main.dc").read_text() == "module main;\n// my old work\n", "learner file untouched")
+    again = expect_json(["progress", "--json"], env=env)
+    check(again == prog, "a second start changes nothing")
+
+    rc, out, err = expect(["show", "memory/scope-and-lifetime"], 0, env=env)
+    check("Check your understanding" in out and "learndc answer memory/scope-and-lifetime" in out, "lecture shows its questions")
+    expect(["answer", "memory/scope-and-lifetime", "1", "1", "1"], 1, env=env)
+    rc, out, err = expect(["answer", "memory/scope-and-lifetime", "2", "2", "2"], 0, env=env)
+    check("Lecture completed." in out, "lecture completes")
+
+    boss = "memory/boss-inventory-keeper"
+    rc, out, err = expect(["start", boss], 0, env=env)
+    ws = home / "workspaces" / "memory" / "boss-inventory-keeper"
+    data = expect_json(["check", boss, "--json"], 1, env=env)
+    check(data.get("stages") and not any(st["passed"] for st in data["stages"]), "the starter clears no stage")
+    solution = real_content / "tracks" / "memory" / "boss-inventory-keeper" / "solution" / "src"
+    shutil.copy(solution / "inventory.dc", ws / "src" / "inventory.dc")
+    rc, out, err = expect(["check", boss], 1, env=env)
+    check("Stage cleared: Stock the shelf" in out and "1 required stage still to go." in out, f"partial victory reported\n{out}")
+    prog = expect_json(["progress", "--json"], env=env)
+    stages = {e["id"]: e for e in prog["exercises"]}[boss]["stages"]
+    check(stages["take-it"]["achieved"] and not stages["night-shift"]["achieved"], f"stage records after the first pass: {stages}")
+    rc, out, err = expect(["show", boss], 0, env=env)
+    check("[x] 4. Refuse what you cannot pack" in out and "[>] 5. The night shift" in out, f"a new process shows the same objectives\n{out}")
+    (ws / "src" / "inventory.dc").write_text((ws / "src" / "inventory.dc").read_text() + "\n")
+    rc, out, err = expect(["show", boss], 0, env=env)
+    check("[~] 1. Stock the shelf" in out, f"an edit makes old passes unverified\n{out}")
+    shutil.copy(solution / "main.dc", ws / "src" / "main.dc")
+    rc, out, err = expect(["check", boss], 0, env=env)
+    check("BOSS DEFEATED: The Inventory Keeper" in out, f"boss defeated\n{out}")
+    rc, out, err = expect(["progress"], 0, env=env)
+    check("Boss defeated: The Inventory Keeper" in out, f"achievement listed\n{out}")
+
+
 def main():
     global LEARNDC, DCC, DPM, HOME, CONTENT, ENV
     if len(sys.argv) != 4:
@@ -748,6 +809,7 @@ def main():
         journey_terminate(tmp)
         journey_tui(tmp)
         journey_embedded()
+        journey_academy(tmp, real_content)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     if FAILURES:

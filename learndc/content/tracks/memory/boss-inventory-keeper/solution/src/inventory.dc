@@ -1,0 +1,70 @@
+module inventory;
+
+import std::slice;
+
+public struct Item {
+    []const char name;
+    u32 count;
+}
+
+public enum StockError {
+    Unknown,
+    NotEnough,
+}
+
+public usize kinds(const Array(Item)* shelf) {
+    return shelf.len();
+}
+
+public Optional(usize) position(const Array(Item)* shelf, []const char name) {
+    usize index = 0;
+    for item in shelf.items() {
+        if std::slice::eq(item.name, name) {
+            return Optional::Some(index);
+        }
+        index += 1;
+    }
+    return Optional::None;
+}
+
+public Status(Error) add(Array(Item)* shelf, []const char name, u32 count) {
+    Optional(usize) found = position(shelf, name);
+    if found.is_some() {
+        shelf.items()[found.unwrap_some()].count += count;
+        return Status::Ok;
+    }
+    shelf.push(Item { name = name, count = count })?;
+    return Status::Ok;
+}
+
+public u32 count_of(const Array(Item)* shelf, []const char name) {
+    return match position(shelf, name) {
+        Optional::Some(index) => shelf.items()[index].count,
+        Optional::None => 0,
+    };
+}
+
+public Status(StockError) take(Array(Item)* shelf, []const char name, u32 count) {
+    Optional(usize) found = position(shelf, name);
+    if found.is_none() {
+        return StockError::Unknown;
+    }
+    usize index = found.unwrap_some();
+    Item* item = &shelf.items()[index];
+    if item.count < count {
+        return StockError::NotEnough;
+    }
+    item.count -= count;
+    if item.count == 0 {
+        shelf.remove(index);
+    }
+    return Status::Ok;
+}
+
+public u32 total_units(const Array(Item)* shelf) {
+    u32 total = 0;
+    for item in shelf.items() {
+        total += item.count;
+    }
+    return total;
+}

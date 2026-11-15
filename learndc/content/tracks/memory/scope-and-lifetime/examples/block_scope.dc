@@ -1,0 +1,12 @@
+module main;
+
+public Status(Error) main() {
+    i32 total = 10;
+    {
+        i32 bonus = 5;
+        total += bonus;
+        println("inside the block: bonus {}, total {}", bonus, total)?;
+    }
+    println("after the block: total {}", total)?;
+    return Status::Ok;
+}

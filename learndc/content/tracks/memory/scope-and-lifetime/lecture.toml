@@ -1,0 +1,77 @@
+schema = 1
+id = "memory/scope-and-lifetime"
+revision = 1
+title = "Scopes, lifetimes and defer"
+summary = "Why every value has a lifetime, why some things need cleaning up, and how defer writes the cleanup once."
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["scope", "lifetime", "block", "defer", "cleanup", "early return"]
+tags = ["lecture", "memory"]
+objectives = [
+    "Say where a local variable can be used and when it disappears",
+    "Explain why an early return can skip cleanup code",
+    "Predict the order in which deferred statements run",
+]
+prerequisites = ["errors/custom-errors"]
+
+[[examples]]
+name = "block_scope"
+expect_stdout = """
+inside the block: bonus 5, total 15
+after the block: total 15
+"""
+
+[[examples]]
+name = "defer_once"
+expect_stdout = """
+door opened
+nobody came
+door closed
+door opened
+3 guests inside
+door closed
+"""
+
+[[examples]]
+name = "defer_order"
+expect_stdout = """
+pitch tent
+light fire
+day 1 starts
+  hike
+day 1 ends
+day 2 starts
+  hike
+day 2 ends
+sleep
+put out fire
+pack tent
+"""
+
+[[questions]]
+prompt = "A `for` loop body contains `defer println(\"bye\");`. When does it print?"
+choices = [
+    "Once, when the function returns",
+    "At the end of every iteration of the loop",
+    "Immediately, before the rest of the body",
+    "Never, because defer only works in main",
+]
+answer = 2
+explanation = "A deferred statement belongs to the block it is written in. The loop body is a block that ends once per iteration."
+
+[[questions]]
+prompt = "A function writes `defer a();` and later `defer b();`. Which call runs first when the function ends?"
+choices = ["a()", "b()", "Both at the same time", "Whichever the compiler prefers"]
+answer = 2
+explanation = "Deferred statements run in reverse order: the last one registered runs first, like taking plates off a stack."
+
+[[questions]]
+prompt = "Why is `defer` safer than writing the cleanup call before every `return`?"
+choices = [
+    "It makes the program faster",
+    "It also runs on an early return or a failing `?`, so a new exit cannot forget it",
+    "It lets the cleanup fail silently",
+    "It runs the cleanup when the program starts",
+]
+answer = 2
+explanation = "The cleanup is written once, next to what it cleans up, and runs on every way out of the scope."

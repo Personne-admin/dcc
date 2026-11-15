@@ -1,0 +1,67 @@
+schema = 1
+id = "memory/the-heap"
+revision = 1
+title = "Owning memory: Array and the heap"
+summary = "How a growable Array keeps its elements on the heap, who owns that memory, and how to lend an array to a function."
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = ["heap", "Array", "ownership", "deinit", "push", "items", "borrowing", "pointers"]
+tags = ["lecture", "memory"]
+objectives = [
+    "Describe what an Array(T) value holds and where its elements live",
+    "Name the one owner that must release an array, and when",
+    "Lend an array to a function with a pointer and know when a borrowed slice becomes invalid",
+]
+prerequisites = ["memory/cleanup-every-exit"]
+
+[[examples]]
+name = "array_grow"
+expect_stdout = """
+at first: 0 scores
+after three pushes: 3 scores
+total: 247
+"""
+
+[[examples]]
+name = "fill_by_pointer"
+expect_stdout = """
+5 numbers
+3
+2
+1
+2
+1
+"""
+
+[[questions]]
+prompt = "What does `defer values.deinit();` right after `Array(i32) values = {};` guarantee?"
+choices = [
+    "The array can never grow",
+    "The array's memory is given back exactly once, however the function exits",
+    "The array is copied at the end of the function",
+    "The array is cleared after every push",
+]
+answer = 2
+explanation = "The deferred deinit runs on every exit from the scope, including an early return or a `?` that passes an error upward."
+
+[[questions]]
+prompt = "Why does `values.push(x)` need a `?`?"
+choices = [
+    "Because x might be negative",
+    "Because pushing may have to allocate more memory, and allocation can fail",
+    "Because push prints a message",
+    "It does not; the ? is decoration",
+]
+answer = 2
+explanation = "push returns a Status: when the array is full it asks the allocator for a bigger block, and that request can fail."
+
+[[questions]]
+prompt = "You keep `[]const i32 view = values.items();` and then call `values.push(5)?;`. Can you still read `view`?"
+choices = [
+    "Yes, a slice always stays valid",
+    "No: the push may have moved the elements, so get a fresh slice with items()",
+    "Only its first element",
+    "Yes, but only on the custom backend",
+]
+answer = 2
+explanation = "A slice borrows the storage as it was. Growing the array can move the storage to a new block, leaving the old view pointing at memory that was given back."

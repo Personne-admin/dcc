@@ -1,0 +1,22 @@
+module main;
+
+Status(Error) add_countdown(Array(i32)* out, i32 from) {
+    i32 n = from;
+    while n > 0 {
+        out.push(n)?;
+        n -= 1;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Array(i32) numbers = {};
+    defer numbers.deinit();
+    add_countdown(&numbers, 3)?;
+    add_countdown(&numbers, 2)?;
+    println("{} numbers", numbers.len())?;
+    for n in numbers.items() {
+        println("{}", n)?;
+    }
+    return Status::Ok;
+}

@@ -1,0 +1,11 @@
+module main;
+
+public Status(Error) main() {
+    println("lights on")?;
+    println("music on")?;
+    {
+        println("cake served")?;
+    }
+    println("party running")?;
+    return Status::Ok;
+}
