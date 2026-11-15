@@ -4714,7 +4714,9 @@ TEST_CASE("cli exit codes for usage content and lookup errors")
     CHECK_EQ(f.run({"--version"}).code, 3);
     CHECK_EQ(f.run({"config", "list"}).code, 0);
     write_file(f.home / "config.json", "{broken");
-    CHECK_EQ(f.run({"config", "list"}).code, 3);
+    auto const moved = f.run({"config", "list"});
+    CHECK_EQ(moved.code, 0);
+    CHECK(moved.err.find("damaged") != std::string::npos);
 }
 
 TEST_CASE("cli list search and show output and json")
@@ -4862,6 +4864,21 @@ TEST_CASE("cli export refuses to overwrite learndc's own data files")
     CHECK_EQ(slurp(progress_file), before);
     CHECK(!std::filesystem::exists(f.home / "config.json"));
     CHECK_EQ(f.run({"export", "--output", platform::path_to_utf8(f.temp.path / "ok.json")}).code, 0);
+}
+
+TEST_CASE("cli moves a damaged settings file aside and keeps working")
+{
+    CliFixture f;
+    std::filesystem::create_directories(f.home);
+    write_file(f.home / "config.json", "{bad");
+    auto r = f.run({"config", "set", "ui.theme", "light"});
+    CHECK_EQ(r.code, 0);
+    CHECK(r.err.find("damaged") != std::string::npos);
+    CHECK(r.err.find("config.json.corrupt-") != std::string::npos);
+    CHECK_EQ(entries_with_prefix(f.home, "config.json.corrupt-").size(), 1u);
+    CHECK_EQ(slurp(entries_with_prefix(f.home, "config.json.corrupt-")[0]), "{bad");
+    CHECK(f.run({"config", "get", "ui.theme"}).out.find("light") != std::string::npos);
+    CHECK_EQ(f.run({"doctor"}).code == 3, false);
 }
 
 TEST_CASE("app resolves the exercise from the argument then the enclosing workspace then the active exercise")

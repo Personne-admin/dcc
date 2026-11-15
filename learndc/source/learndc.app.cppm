@@ -100,7 +100,26 @@ export namespace learndc::app
         ctx.os = options.os;
         auto loaded_settings = settings::load(ctx.dirs.config_file);
         if (!loaded_settings)
-            return failure(exit_data, std::format("{}: {}", platform::path_to_utf8(ctx.dirs.config_file), loaded_settings.error().message));
+        {
+            if (!platform::read_file(ctx.dirs.config_file))
+                return failure(exit_data, loaded_settings.error().message);
+            auto stamp = platform::now_utc_iso8601();
+            std::erase_if(stamp, [](char c) { return c == '-' || c == ':'; });
+            auto quarantine = ctx.dirs.config_file;
+            quarantine += std::format(".corrupt-{}", stamp);
+            for (int n = 1; std::filesystem::exists(quarantine); ++n)
+            {
+                quarantine = ctx.dirs.config_file;
+                quarantine += std::format(".corrupt-{}-{}", stamp, n);
+            }
+            std::error_code ec;
+            std::filesystem::rename(ctx.dirs.config_file, quarantine, ec);
+            if (ec)
+                return failure(exit_data, std::format("{} and could not be moved aside: {}", loaded_settings.error().message, ec.message()));
+            ctx.warnings.push_back(std::format("the settings file was damaged ({}); it was moved to '{}' and the defaults are in use",
+                                               loaded_settings.error().message, platform::path_to_utf8(quarantine)));
+            loaded_settings = settings::Settings{};
+        }
         ctx.settings = std::move(*loaded_settings);
         ctx.tools = toolchain::resolve(toolchain::Inputs{ctx.settings, ctx.env, options.self_exe, options.os});
 

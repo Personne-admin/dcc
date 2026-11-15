@@ -1470,6 +1470,9 @@ export namespace learndc::cli
             std::print(*io.err, "learndc: {}\n", ctx.error().message);
             return ctx.error().code;
         }
+        for (auto const& w : ctx->warnings)
+            std::print(*io.err, "learndc: warning: {}\n", w);
+        ctx->warnings.clear();
 
         if (parsed->version)
         {
