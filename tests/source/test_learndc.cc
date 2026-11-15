@@ -3093,6 +3093,19 @@ namespace
     }
 }
 
+TEST_CASE("relative tool paths are made absolute")
+{
+    TempDir t;
+    auto const fake = make_fake(t.path / "bin", "dpm");
+    auto in = inputs_for(t.path / "nowhere");
+    in.env["LEARNDC_DPM"] = platform::path_to_utf8(std::filesystem::relative(fake, std::filesystem::current_path()));
+    REQUIRE(in.env["LEARNDC_DPM"].find("..") != std::string::npos);
+    auto located = toolchain::locate("dpm", "", "LEARNDC_DPM", in);
+    REQUIRE(located.found());
+    CHECK(located.path->is_absolute());
+    CHECK_EQ(std::filesystem::weakly_canonical(*located.path), std::filesystem::weakly_canonical(fake));
+}
+
 TEST_CASE("toolchain precedence is settings then environment then sibling then PATH")
 {
     TempDir t;

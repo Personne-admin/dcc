@@ -166,6 +166,13 @@ export namespace learndc::toolchain
                 probe.detail = "not found";
             out.searched.push_back(std::move(probe));
         }
+        if (out.path && out.path->is_relative())
+        {
+            std::error_code ec;
+            auto absolute = std::filesystem::absolute(*out.path, ec);
+            if (!ec)
+                out.path = absolute.lexically_normal();
+        }
         return out;
     }
 
