@@ -12,6 +12,7 @@ import learndc.workspace;
 import learndc.toolchain;
 import learndc.runner;
 import learndc.watch;
+import learndc.editor;
 import dcc.host.process;
 
 #define main harness_main
@@ -31,6 +32,7 @@ namespace workspace = learndc::workspace;
 namespace toolchain = learndc::toolchain;
 namespace runner = learndc::runner;
 namespace watch = learndc::watch;
+namespace editor = learndc::editor;
 
 namespace
 {
@@ -4040,6 +4042,273 @@ TEST_CASE("watcher wait returns on change and stops on cancel and never writes")
     CHECK_EQ(files, 1u);
 }
 
+SECTION("learndc.editor");
+
+TEST_CASE("command line parsing posix rules")
+{
+    using editor::Syntax;
+    auto a = editor::parse_command_line("nvim +{line} \"{file}\"", Syntax::Posix);
+    REQUIRE(a.has_value());
+    CHECK_EQ(a->size(), 3u);
+    CHECK_EQ((*a)[1], "+{line}");
+    CHECK_EQ((*a)[2], "{file}");
+    auto b = editor::parse_command_line("code --goto 'a b' c\\ d \"e \\\" f\" ''", Syntax::Posix);
+    REQUIRE(b.has_value());
+    REQUIRE((b->size()) == 6u);
+    CHECK_EQ((*b)[2], "a b");
+    CHECK_EQ((*b)[3], "c d");
+    CHECK_EQ((*b)[4], "e \" f");
+    CHECK_EQ((*b)[5], "");
+    auto c = editor::parse_command_line("\"/opt/Editor (x86)/ed\" -x", Syntax::Posix);
+    REQUIRE(c.has_value());
+    CHECK_EQ((*c)[0], "/opt/Editor (x86)/ed");
+    for (std::string_view const bad : {"vim | cat", "vim; rm x", "vim $HOME", "vim `x`", "vim > f", "vim < f", "vim & x", "vim (x)", "vim \"$HOME\"", "", "   ", "'unterminated",
+                                       "vim \\", "vim\nfoo"})
+    {
+        auto r = editor::parse_command_line(bad, Syntax::Posix);
+        CHECK(!r.has_value());
+        if (!r)
+            CHECK(!r.error().message.empty());
+    }
+}
+
+TEST_CASE("command line parsing windows rules")
+{
+    using editor::Syntax;
+    auto a = editor::parse_command_line("\"C:\\Program Files (x86)\\Vim\\vim.exe\" +{line} {file}", Syntax::Windows);
+    REQUIRE(a.has_value());
+    REQUIRE((a->size()) == 3u);
+    CHECK_EQ((*a)[0], "C:\\Program Files (x86)\\Vim\\vim.exe");
+    auto b = editor::parse_command_line("notepad.exe C:\\dir\\file.txt \"a\\\"b\" \"c\\\\\"", Syntax::Windows);
+    REQUIRE(b.has_value());
+    REQUIRE((b->size()) == 4u);
+    CHECK_EQ((*b)[1], "C:\\dir\\file.txt");
+    CHECK_EQ((*b)[2], "a\"b");
+    CHECK_EQ((*b)[3], "c\\");
+    auto c = editor::parse_command_line("it's 'quoted' x", Syntax::Windows);
+    REQUIRE(c.has_value());
+    CHECK_EQ((*c)[0], "it's");
+    CHECK(!editor::parse_command_line("a | b", Syntax::Windows).has_value());
+    CHECK(!editor::parse_command_line("a & b", Syntax::Windows).has_value());
+    CHECK(!editor::parse_command_line("\"open", Syntax::Windows).has_value());
+}
+
+TEST_CASE("placeholder expansion stays inside single arguments")
+{
+    editor::Placeholders ph;
+    ph.file = "/tmp/My Files/h\xC3\xA9llo w\xC3\xB6rld/\xE5\xB7\xA5\xE5\x85\xB7 {line}.dc";
+    ph.workspace = "/tmp/My Files/h\xC3\xA9llo w\xC3\xB6rld";
+    ph.line = 12;
+    ph.column = 3;
+    auto argv = editor::expand({"ed", "+{line},{column}", "{file}", "--root={workspace}", "{unknown}", "{{file}", "plain"}, ph);
+    REQUIRE((argv.size()) == 7u);
+    CHECK_EQ(argv[1], "+12,3");
+    CHECK_EQ(argv[2], ph.file);
+    CHECK_EQ(argv[3], "--root=" + ph.workspace);
+    CHECK_EQ(argv[4], "{unknown}");
+    CHECK_EQ(argv[5], "{" + ph.file);
+    CHECK_EQ(argv[6], "plain");
+}
+
+TEST_CASE("editor presets and folder variants")
+{
+    auto nvim = editor::preset("nvim", false);
+    REQUIRE(nvim.has_value());
+    CHECK(nvim->kind == editor::Kind::Terminal);
+    CHECK_EQ(nvim->argv_template[1], "+{line}");
+    auto nano = editor::preset("nano", false);
+    CHECK_EQ(nano->argv_template[1], "+{line},{column}");
+    auto code = editor::preset("code", false);
+    CHECK(code->kind == editor::Kind::Gui);
+    CHECK_EQ(code->argv_template[1], "--goto");
+    CHECK_EQ(code->argv_template[2], "{file}:{line}:{column}");
+    CHECK_EQ(code->folder_template, (std::vector<std::string>{"code", "{workspace}"}));
+    auto waiting = editor::preset("code", true);
+    CHECK_EQ(waiting->argv_template[1], "--wait");
+    auto notepad = editor::preset("notepad", false);
+    CHECK_EQ(notepad->argv_template[0], "notepad.exe");
+    CHECK(!editor::preset("emacs", false).has_value());
+    editor::Placeholders ph;
+    ph.workspace = "/w s";
+    CHECK_EQ(editor::expand(code->folder_template, ph), (std::vector<std::string>{"code", "/w s"}));
+}
+
+TEST_CASE("editor resolution precedence")
+{
+    TempDir t;
+    auto const bin = t.path / "bin";
+    make_fake(bin, "nvim");
+    make_fake(bin, "vim");
+    make_fake(bin, "nano");
+    make_fake(bin, "code");
+    platform::Env env;
+    env["PATH"] = platform::path_to_utf8(bin);
+    settings::Settings s;
+    auto const os = platform::Os::Linux;
+
+    auto detected = editor::resolve(s, env, std::nullopt, os);
+    CHECK(detected.source == editor::Source::Detected);
+    CHECK_EQ(detected.label, "nvim");
+    CHECK(detected.kind == editor::Kind::Terminal);
+
+    env["EDITOR"] = "nano";
+    auto from_editor = editor::resolve(s, env, std::nullopt, os);
+    CHECK(from_editor.source == editor::Source::Editor);
+    CHECK_EQ(from_editor.label, "nano");
+    CHECK_EQ(from_editor.argv_template[1], "+{line},{column}");
+
+    env["VISUAL"] = "vim";
+    auto from_visual = editor::resolve(s, env, std::nullopt, os);
+    CHECK(from_visual.source == editor::Source::Visual);
+    CHECK_EQ(from_visual.label, "vim");
+
+    s.editor_preset = "code";
+    auto from_settings = editor::resolve(s, env, std::nullopt, os);
+    CHECK(from_settings.source == editor::Source::Settings);
+    CHECK(from_settings.kind == editor::Kind::Gui);
+
+    auto from_override = editor::resolve(s, env, std::string("myed --flag {file}"), os);
+    CHECK(from_override.source == editor::Source::Override);
+    CHECK_EQ(from_override.argv_template, (std::vector<std::string>{"myed", "--flag", "{file}"}));
+
+    auto appended = editor::resolve(s, env, std::string("myed --flag"), os);
+    CHECK_EQ(appended.argv_template.back(), "{file}");
+
+    auto bad = editor::resolve(s, env, std::string("myed | cat"), os);
+    CHECK(bad.manual());
+    CHECK(bad.source == editor::Source::Override);
+    CHECK(!bad.problem.empty());
+
+    s.editor_preset = "custom";
+    s.editor_command = {"my editor", "--at", "{file}:{line}"};
+    auto custom = editor::resolve(s, env, std::nullopt, os);
+    CHECK(custom.source == editor::Source::Settings);
+    CHECK_EQ(custom.argv_template[0], "my editor");
+
+    s.editor_command.clear();
+    auto empty_custom = editor::resolve(s, env, std::nullopt, os);
+    CHECK(empty_custom.manual());
+    CHECK(!empty_custom.problem.empty());
+
+    s.editor_preset = "manual";
+    CHECK(editor::resolve(s, env, std::nullopt, os).manual());
+
+    s.editor_preset = "auto";
+    s.editor_kind = "gui";
+    s.editor_wait = true;
+    auto forced = editor::resolve(s, env, std::nullopt, os);
+    CHECK(forced.kind == editor::Kind::Gui);
+    CHECK(forced.wait);
+
+    platform::Env empty;
+    empty["PATH"] = platform::path_to_utf8(t.path / "nothing");
+    s = settings::Settings{};
+    auto none = editor::resolve(s, empty, std::nullopt, os);
+    CHECK(none.manual());
+    CHECK(none.source == editor::Source::Manual);
+
+    platform::Env broken;
+    broken["PATH"] = platform::path_to_utf8(bin);
+    broken["VISUAL"] = "bad | cmd";
+    auto skipped = editor::resolve(s, broken, std::nullopt, os);
+    CHECK(skipped.source == editor::Source::Detected);
+    CHECK_EQ(skipped.warnings.size(), 1u);
+}
+
+namespace
+{
+    editor::EditorChoice fake_editor_choice(editor::Kind kind, bool wait)
+    {
+        settings::Settings s;
+        s.editor_preset = "custom";
+        s.editor_command = {g_self, "--fake-editor", "{file}", "two words", "line={line}", "col={column}", "\xE5\xB7\xA5\xE5\x85\xB7"};
+        s.editor_kind = kind == editor::Kind::Terminal ? "terminal" : "gui";
+        s.editor_wait = wait;
+        return editor::resolve(s, platform::Env{}, std::nullopt, platform::Os::Linux);
+    }
+}
+
+TEST_CASE("terminal editor launch passes arguments unsplit")
+{
+    TempDir t;
+    auto const dir = t.path / "My Work" / "h\xC3\xA9llo \xE5\xB7\xA5";
+    auto const file = dir / "main file.dc";
+    write_file(file, "start\n");
+    auto choice = fake_editor_choice(editor::Kind::Terminal, false);
+    CHECK(editor::mode_of(choice) == editor::Mode::Terminal);
+    editor::Placeholders ph;
+    ph.file = platform::path_to_utf8(file);
+    ph.workspace = platform::path_to_utf8(dir);
+    ph.line = 9;
+    ph.column = 4;
+    auto r = editor::launch(choice, ph);
+    CHECK(r.ok);
+    CHECK(r.mode == editor::Mode::Terminal);
+    CHECK_EQ(r.exit_code.value_or(-1), 0);
+    CHECK_EQ(slurp(file), "start\nedited\n");
+    auto const argv_dump = slurp(platform::path_to_utf8(file) + ".argv");
+    auto const expected = std::format("{}\ntwo words\nline=9\ncol=4\n\xE5\xB7\xA5\xE5\x85\xB7\n", ph.file);
+    CHECK_EQ(argv_dump, expected);
+}
+
+TEST_CASE("gui editors can launch blocking or detached")
+{
+    TempDir t;
+    auto const file = t.path / "a b" / "main.dc";
+    write_file(file, "x\n");
+    editor::Placeholders ph;
+    ph.file = platform::path_to_utf8(file);
+    ph.workspace = platform::path_to_utf8(t.path / "a b");
+    auto waiting = fake_editor_choice(editor::Kind::Gui, true);
+    CHECK(editor::mode_of(waiting) == editor::Mode::GuiWait);
+    auto r = editor::launch(waiting, ph);
+    CHECK(r.ok);
+    CHECK_EQ(slurp(file), "x\nedited\n");
+
+    write_file(file, "y\n");
+    auto detached = fake_editor_choice(editor::Kind::Gui, false);
+    CHECK(editor::mode_of(detached) == editor::Mode::GuiDetached);
+    auto d = editor::launch(detached, ph);
+    CHECK(d.ok);
+    bool seen = false;
+    for (int i = 0; i < 100 && !seen; ++i)
+    {
+        seen = slurp(file) == "y\nedited\n";
+        if (!seen)
+            std::this_thread::sleep_for(50ms);
+    }
+    CHECK(seen);
+}
+
+TEST_CASE("manual editors and unstartable editors report instead of failing silently")
+{
+    editor::EditorChoice manual;
+    editor::Placeholders ph;
+    ph.file = "/tmp/x.dc";
+    ph.workspace = "/tmp";
+    auto m = editor::launch(manual, ph);
+    CHECK(!m.ok);
+    CHECK(m.mode == editor::Mode::Manual);
+    CHECK_EQ(m.shown_path, "/tmp/x.dc");
+    CHECK(m.message.find("/tmp/x.dc") != std::string::npos);
+
+    settings::Settings s;
+    s.editor_preset = "custom";
+    s.editor_command = {"/nonexistent/learndc-editor", "{file}"};
+    s.editor_kind = "terminal";
+    auto choice = editor::resolve(s, platform::Env{}, std::nullopt, platform::Os::Linux);
+    auto r = editor::launch(choice, ph);
+    CHECK(!r.ok);
+    CHECK(r.message.find("could not start") != std::string::npos);
+
+    auto nvim = editor::preset("nvim", false);
+    editor::LaunchOptions folder;
+    folder.folder = true;
+    auto f = editor::launch(*nvim, ph, folder);
+    CHECK(!f.ok);
+    CHECK(f.message.find("folder") != std::string::npos);
+}
+
 int main(int argc, char** argv)
 {
     g_self = platform::path_to_utf8(platform::executable_path().value_or(std::filesystem::path(argv[0])));
@@ -4107,6 +4376,18 @@ int main(int argc, char** argv)
             std::string all{std::istreambuf_iterator<char>(std::cin), std::istreambuf_iterator<char>()};
             std::cout << all;
             std::cout.flush();
+            return 0;
+        }
+        if (mode == "--fake-editor" && argc >= 3)
+        {
+            std::filesystem::path const file = platform::path_from_utf8(argv[2]);
+            {
+                std::ofstream out(file, std::ios::binary | std::ios::app);
+                out << "edited\n";
+            }
+            std::ofstream dump(platform::path_from_utf8(std::string(argv[2]) + ".argv"), std::ios::binary | std::ios::trunc);
+            for (int i = 2; i < argc; ++i)
+                dump << argv[i] << "\n";
             return 0;
         }
         if (mode == "--progress-worker" && argc == 6)
