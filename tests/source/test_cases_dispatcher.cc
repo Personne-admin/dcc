@@ -3067,10 +3067,14 @@ namespace
                     std::println(std::cerr, "    FAIL  EXPECT-EXECUTABLE-VALID: bad ELF magic  ({}:{})", path.string(), exp.base_line);
                 }
 
-                if (static_cast<int>(exe[4]) != 2)
+                bool const elf32 = target.arch == dcc::target::Arch::X86;
+                int const expected_class = elf32 ? 1 : 2;
+                std::uint16_t const expected_machine = elf32 ? 0x03 : 0x3E;
+                if (static_cast<int>(exe[4]) != expected_class)
                 {
                     elf_valid = false;
-                    std::println(std::cerr, "    FAIL  EXPECT-EXECUTABLE-VALID: EI_CLASS != 2 (64-bit)  ({}:{})", path.string(), exp.base_line);
+                    std::println(std::cerr, "    FAIL  EXPECT-EXECUTABLE-VALID: EI_CLASS != {} ({}-bit)  ({}:{})", expected_class, elf32 ? 32 : 64, path.string(),
+                                 exp.base_line);
                 }
 
                 auto e_type =
@@ -3083,11 +3087,11 @@ namespace
 
                 auto e_machine =
                     static_cast<std::uint16_t>(static_cast<unsigned char>(exe[18])) | (static_cast<std::uint16_t>(static_cast<unsigned char>(exe[19])) << 8);
-                if (e_machine != 0x3E)
+                if (e_machine != expected_machine)
                 {
                     elf_valid = false;
-                    std::println(std::cerr, "    FAIL  EXPECT-EXECUTABLE-VALID: e_machine != 0x3E (x86-64), got {:#x}  ({}:{})", e_machine, path.string(),
-                                 exp.base_line);
+                    std::println(std::cerr, "    FAIL  EXPECT-EXECUTABLE-VALID: e_machine != {:#x} ({}), got {:#x}  ({}:{})", expected_machine,
+                                 elf32 ? "i386" : "x86-64", e_machine, path.string(), exp.base_line);
                 }
 
                 if (!elf_valid)

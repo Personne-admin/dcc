@@ -1343,9 +1343,10 @@ namespace
         if (!i8086_link_options(opts, target))
             return 1;
 
-        if (target.triple != "x86_64-elf" && target.triple != "x86_64-coff")
+        bool const elf32 = target.arch == dcc::target::Arch::X86 && target.object_format == dcc::target::ObjectFormat::Elf;
+        if (target.arch != dcc::target::Arch::X86_64 && !elf32)
         {
-            std::println(std::cerr, "dcc: error: executable linking is currently only supported for x86_64-elf (target: '{}')", target.triple);
+            std::println(std::cerr, "dcc: error: executable linking is supported for x86_64-elf, x86_64-coff and x86-elf, not '{}'", target.triple);
             return 1;
         }
 
@@ -1360,10 +1361,13 @@ namespace
                 std::println(std::cerr, "dcc: error: cannot find input file '{}'", in.string());
                 return 1;
             }
-            if (canon.extension() != ".a" && !dcc::backend::object::object_matches_target(canon, target.object_format == dcc::target::ObjectFormat::Coff))
+            if (canon.extension() != ".a" && !dcc::backend::object::object_matches_target(canon, target.object_format == dcc::target::ObjectFormat::Coff, elf32))
             {
                 std::println(std::cerr, "dcc: error: incompatible input '{}': not an {} object for target '{}'", in.string(),
-                             target.object_format == dcc::target::ObjectFormat::Coff ? "x86_64 COFF" : "x86_64 ELF", target.triple);
+                             target.object_format == dcc::target::ObjectFormat::Coff ? "x86_64 COFF"
+                             : elf32                                                 ? "i386 ELF"
+                                                                                     : "x86_64 ELF",
+                             target.triple);
                 return 1;
             }
             objects.push_back(canon.string());

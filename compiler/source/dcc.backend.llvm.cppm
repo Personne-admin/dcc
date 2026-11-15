@@ -2003,7 +2003,7 @@ namespace dcc::backend
                     bool is_elf_target = opts.target.object_format == ObjectFormat::Elf || opts.target.triple.contains("elf");
                     bool is_coff_target = opts.target.object_format == ObjectFormat::Coff || opts.target.triple.contains("coff");
 
-                    if (is_elf_target && opts.target.triple != "x86_64-elf")
+                    if (is_elf_target && opts.target.arch != target::Arch::X86_64 && opts.target.arch != target::Arch::X86)
                     {
                         add_diag(diags, {}, std::format("executable linking is currently only supported for x86_64-elf (target: '{}')", opts.target.triple));
                         LLVMDisposeModule(llvm_mod);

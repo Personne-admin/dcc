@@ -62,7 +62,7 @@ export namespace dcc::backend::object
         if (coff)
             add({"-m", "i386pep", "--subsystem", "console", "--entry", "_start"});
         else
-            add({"--static", "--no-dynamic-linker", "--fatal-warnings"});
+            add({"-m", opts.target.arch == target::Arch::X86 ? "elf_i386" : "elf_x86_64", "--static", "--no-dynamic-linker", "--fatal-warnings"});
         add({"-o", output.string(), object.string()});
         for (auto const& path : opts.additional_objects)
             add({path});

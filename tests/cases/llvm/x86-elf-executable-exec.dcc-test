@@ -1,0 +1,34 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module main;
+asm @[intel, arch("x86")] {
+    ".text\n.global _start\n_start:\nmov eax, [esp]\nand esp, -16\nsub esp, 12\npush eax\ncall dcc_main\nmov ebx, eax\nmov eax, 1\nint 0x80\nud2\n"
+};
+struct Pair { i32 a; i64 b; }
+@nomangle Pair g_pair = { a = 3, b = 0x100000000 };
+@nomangle i32(*)(i32, i32) g_op = null;
+i32 add(i32 a, i32 b) { return a + b; }
+i64 sum(i32* values, usize count) {
+    i64 total = 0;
+    for usize i = 0; i < count; i++ { total = total + values[i] as i64; }
+    return total;
+}
+@nomangle public i32 dcc_main(i32 argc) {
+    if sizeof(usize) != 4 || sizeof(void*) != 4 { return 1; }
+    if argc != 1 { return 2; }
+    i32[5] values = { 1, 2, 3, 4, 5 };
+    if sum(&values[0], 5) != 15 { return 3; }
+    if g_pair.b >> 32 != 1 || g_pair.a != 3 { return 4; }
+    g_op = add;
+    if g_op(40, 2) != 42 { return 5; }
+    u64 big = 0x123456789 + argc as u64;
+    u64 divisor = 6 + argc as u64;
+    if big / divisor != 0x299C335C || big % divisor != 6 { return 6; }
+    i64 negative = 0 - big as i64;
+    if negative / divisor as i64 != 0 - 0x299C335C || negative % divisor as i64 != -6 { return 7; }
+    u64 wide = 0xFFFFFFFFFFFFFFFF;
+    if wide / (0x100000000 + argc as u64) != 0xFFFFFFFF || wide % (0x100000000 + argc as u64) != 0 { return 8; }
+    return 42;
+}
+=== EXPECT-EXECUTABLE ===
+RUN-EXIT: 42

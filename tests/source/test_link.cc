@@ -478,7 +478,7 @@ TEST_CASE("linking with no inputs is an error")
     CHECK_NE(r.rc, 0);
 }
 
-TEST_CASE("non-x86_64 link targets are rejected")
+TEST_CASE("link targets reject mismatched objects and unsupported formats")
 {
     TempDir td;
     write_solo(td);
@@ -488,7 +488,12 @@ TEST_CASE("non-x86_64 link targets are rejected")
 
     auto r32 = run_dcc("-target x86-elf -o " + shell_quote(td.file("x32")) + " " + shell_quote(solo_o));
     CHECK_NE(r32.rc, 0);
-    CHECK(output_contains(r32, "only supported for x86_64-elf"));
+    CHECK(output_contains(r32, "not an i386 ELF object for target 'x86-elf'"));
+    CHECK(!std::filesystem::exists(td.file("x32")));
+
+    auto r_pe32 = run_dcc("-target x86-coff -o " + shell_quote(td.file("xpe32")) + " " + shell_quote(solo_o));
+    CHECK_NE(r_pe32.rc, 0);
+    CHECK(output_contains(r_pe32, "executable linking is supported for x86_64-elf, x86_64-coff and x86-elf, not 'x86-coff'"));
 
     auto r_coff = run_dcc("-target x86_64-coff -o " + shell_quote(td.file("xcoff")) + " " + shell_quote(solo_o));
     CHECK_NE(r_coff.rc, 0);

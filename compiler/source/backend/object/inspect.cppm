@@ -4,7 +4,7 @@ import std;
 
 export namespace dcc::backend::object
 {
-    [[nodiscard]] bool object_matches_target(std::filesystem::path const& path, bool coff)
+    [[nodiscard]] bool object_matches_target(std::filesystem::path const& path, bool coff, bool elf32 = false)
     {
         std::ifstream input(path, std::ios::binary);
         std::array<unsigned char, 20> header{};
@@ -13,8 +13,8 @@ export namespace dcc::backend::object
             return false;
         if (coff)
             return header[0] == 0x64 && header[1] == 0x86;
-        return header[0] == 0x7f && header[1] == 'E' && header[2] == 'L' && header[3] == 'F' && header[4] == 2 && header[5] == 1 && header[16] == 1 &&
-               header[17] == 0 && header[18] == 62 && header[19] == 0;
+        return header[0] == 0x7f && header[1] == 'E' && header[2] == 'L' && header[3] == 'F' && header[4] == (elf32 ? 1 : 2) && header[5] == 1 &&
+               header[16] == 1 && header[17] == 0 && header[18] == (elf32 ? 3 : 62) && header[19] == 0;
     }
 
     [[nodiscard]] bool object_defines(std::filesystem::path const& path, std::string_view symbol)
