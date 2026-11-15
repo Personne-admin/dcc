@@ -9,6 +9,7 @@ import learndc.diff;
 import learndc.settings;
 import learndc.progress;
 import learndc.workspace;
+import learndc.toolchain;
 import dcc.host.process;
 
 #define main harness_main
@@ -25,6 +26,7 @@ namespace diff = learndc::diff;
 namespace settings = learndc::settings;
 namespace progress = learndc::progress;
 namespace workspace = learndc::workspace;
+namespace toolchain = learndc::toolchain;
 
 namespace
 {
@@ -2095,6 +2097,11 @@ namespace
         return ex;
     }
 
+    std::string slurp(std::filesystem::path const& p)
+    {
+        return platform::read_file(p).value_or("<missing>");
+    }
+
     bool symlink_supported(std::filesystem::path const& dir)
     {
         std::error_code ec;
@@ -2102,11 +2109,6 @@ namespace
         bool const ok = !ec;
         std::filesystem::remove(dir.parent_path() / "probe-link", ec);
         return ok;
-    }
-
-    std::string slurp(std::filesystem::path const& p)
-    {
-        return platform::read_file(p).value_or("<missing>");
     }
 
     std::vector<std::filesystem::path> entries_with_prefix(std::filesystem::path const& dir, std::string_view prefix)
@@ -3030,6 +3032,199 @@ TEST_CASE("workspace diffs against starter and solution")
 
     write_file(root / "src" / "main.dc", std::string("bin\0ary", 7));
     CHECK(workspace::starter_diff(started->workspace, ex).find("Binary files") != std::string::npos);
+}
+
+SECTION("learndc.toolchain");
+
+namespace
+{
+    std::filesystem::path make_fake(std::filesystem::path const& dir, std::string const& name)
+    {
+        std::filesystem::create_directories(dir);
+        auto const target = dir / name;
+        std::filesystem::copy_file(g_self, target, std::filesystem::copy_options::overwrite_existing);
+        return target;
+    }
+
+    toolchain::Inputs inputs_for(std::filesystem::path const& path_dir, std::optional<std::filesystem::path> self = std::nullopt)
+    {
+        toolchain::Inputs in;
+        in.env["PATH"] = platform::path_to_utf8(path_dir);
+        in.self_exe = std::move(self);
+        in.os = platform::Os::Linux;
+        return in;
+    }
+}
+
+TEST_CASE("toolchain precedence is settings then environment then sibling then PATH")
+{
+    TempDir t;
+    auto const via_settings = make_fake(t.path / "s", "my-dcc");
+    auto const via_env = make_fake(t.path / "e", "env-dcc");
+    auto const sibling = make_fake(t.path / "bin", "dcc");
+    make_fake(t.path / "bin", "learndc");
+    auto const via_path = make_fake(t.path / "p", "dcc");
+
+    auto in = inputs_for(t.path / "p", t.path / "bin" / "learndc");
+    auto found = toolchain::locate("dcc", "", "LEARNDC_DCC", in);
+    REQUIRE(found.found());
+    CHECK(*found.path == sibling);
+    CHECK(found.source == toolchain::Source::Sibling);
+
+    auto no_sibling = inputs_for(t.path / "p", t.path / "nothing" / "learndc");
+    found = toolchain::locate("dcc", "", "LEARNDC_DCC", no_sibling);
+    REQUIRE(found.found());
+    CHECK(*found.path == via_path);
+    CHECK(found.source == toolchain::Source::Path);
+
+    in.env["LEARNDC_DCC"] = platform::path_to_utf8(via_env);
+    found = toolchain::locate("dcc", "", "LEARNDC_DCC", in);
+    REQUIRE(found.found());
+    CHECK(*found.path == via_env);
+    CHECK(found.source == toolchain::Source::Environment);
+
+    found = toolchain::locate("dcc", platform::path_to_utf8(via_settings), "LEARNDC_DCC", in);
+    REQUIRE(found.found());
+    CHECK(*found.path == via_settings);
+    CHECK(found.source == toolchain::Source::Settings);
+    CHECK(found.warnings.empty());
+    CHECK_EQ(found.searched.size(), 4u);
+}
+
+TEST_CASE("toolchain falls through invalid overrides with a warning")
+{
+    TempDir t;
+    auto const via_path = make_fake(t.path / "p", "dpm");
+    auto in = inputs_for(t.path / "p");
+    in.env["LEARNDC_DPM"] = platform::path_to_utf8(t.path / "missing" / "dpm");
+    write_file(t.path / "plain.txt", "not executable");
+    std::filesystem::permissions(t.path / "plain.txt", std::filesystem::perms::owner_read | std::filesystem::perms::owner_write);
+    auto found = toolchain::locate("dpm", platform::path_to_utf8(t.path / "plain.txt"), "LEARNDC_DPM", in);
+    REQUIRE(found.found());
+    CHECK(*found.path == via_path);
+    CHECK(found.source == toolchain::Source::Path);
+    CHECK_EQ(found.warnings.size(), 2u);
+    auto const report = found.searched_text();
+    CHECK(report.find("tools.dpm") != std::string::npos);
+    CHECK(report.find("LEARNDC_DPM") != std::string::npos);
+    CHECK(report.find("PATH") != std::string::npos);
+    CHECK(report.find("next to learndc") != std::string::npos);
+}
+
+TEST_CASE("toolchain reports every location when nothing is found")
+{
+    TempDir t;
+    std::filesystem::create_directories(t.path / "empty");
+    auto in = inputs_for(t.path / "empty", t.path / "bin" / "learndc");
+    auto found = toolchain::locate("dcc", "", "LEARNDC_DCC", in);
+    CHECK(!found.found());
+    CHECK(found.source == toolchain::Source::None);
+    CHECK_EQ(found.searched.size(), 4u);
+    auto const report = found.searched_text();
+    CHECK(report.find("tools.dcc (not set)") != std::string::npos);
+    CHECK(report.find("LEARNDC_DCC (not set)") != std::string::npos);
+    CHECK(report.find(platform::path_to_utf8(t.path / "bin" / "dcc")) != std::string::npos);
+    CHECK(report.find("PATH for 'dcc'") != std::string::npos);
+    in.self_exe.reset();
+    CHECK(toolchain::locate("dcc", "", "LEARNDC_DCC", in).searched_text().find("unknown") != std::string::npos);
+}
+
+TEST_CASE("toolchain resolves a bare name from settings through PATH")
+{
+    TempDir t;
+    auto const target = make_fake(t.path / "p", "dcc-nightly");
+    auto in = inputs_for(t.path / "p");
+    auto found = toolchain::locate("dcc", "dcc-nightly", "LEARNDC_DCC", in);
+    REQUIRE(found.found());
+    CHECK(*found.path == target);
+    CHECK(found.source == toolchain::Source::Settings);
+}
+
+TEST_CASE("toolchain handles Windows executable names")
+{
+    TempDir t;
+    auto const sibling = make_fake(t.path / "bin", "dcc.exe");
+    make_fake(t.path / "bin", "dpm.exe");
+    make_fake(t.path / "p", "dccd.exe");
+    toolchain::Inputs in;
+    in.os = platform::Os::Windows;
+    in.env["Path"] = platform::path_to_utf8(t.path / "p");
+    in.env["PATHEXT"] = ".COM;.EXE";
+    in.self_exe = t.path / "bin" / "learndc.exe";
+    auto dcc = toolchain::locate("dcc", "", "LEARNDC_DCC", in);
+    REQUIRE(dcc.found());
+    CHECK(*dcc.path == sibling);
+    CHECK(dcc.source == toolchain::Source::Sibling);
+    auto dccd = toolchain::locate("dccd", "", "LEARNDC_DCCD", in);
+    REQUIRE(dccd.found());
+    CHECK(dccd.source == toolchain::Source::Path);
+    CHECK(platform::path_to_utf8(dccd.path->filename()) == "dccd.exe");
+    in.env["learndc_dpm"] = platform::path_to_utf8(t.path / "bin" / "dpm");
+    auto dpm = toolchain::locate("dpm", "", "LEARNDC_DPM", in);
+    REQUIRE(dpm.found());
+    CHECK(dpm.source == toolchain::Source::Environment);
+    CHECK(platform::path_to_utf8(dpm.path->filename()) == "dpm.exe");
+}
+
+TEST_CASE("toolchain resolve covers dcc dpm and dccd")
+{
+    TempDir t;
+    make_fake(t.path / "bin", "dcc");
+    make_fake(t.path / "bin", "dpm");
+    make_fake(t.path / "bin", "learndc");
+    toolchain::Inputs in = inputs_for(t.path / "empty", t.path / "bin" / "learndc");
+    auto tc = toolchain::resolve(in);
+    CHECK(tc.dcc.found());
+    CHECK(tc.dpm.found());
+    CHECK(!tc.dccd.found());
+    in.settings.tools_dcc = platform::path_to_utf8(t.path / "bin" / "dpm");
+    tc = toolchain::resolve(in);
+    CHECK(tc.dcc.source == toolchain::Source::Settings);
+    CHECK(platform::path_to_utf8(tc.dcc.path->filename()) == "dpm");
+}
+
+TEST_CASE("toolchain runs version with a timeout")
+{
+    TempDir t;
+    auto const good = make_fake(t.path, "gooddcc");
+    auto info = toolchain::version(good);
+    REQUIRE(info);
+    CHECK_EQ(info->line, "fakedcc 1.2.3 (test)");
+    CHECK_EQ(info->number.value(), "1.2.3");
+
+    auto const failing = make_fake(t.path, "faildcc");
+    auto failed = toolchain::version(failing);
+    REQUIRE(!failed);
+    CHECK(failed.error().message.find("status 3") != std::string::npos);
+
+    auto const silent = make_fake(t.path, "silentdcc");
+    CHECK(!toolchain::version(silent));
+
+    auto const hung = make_fake(t.path, "hangdcc");
+    auto const start = std::chrono::steady_clock::now();
+    auto slow = toolchain::version(hung, std::chrono::milliseconds(300));
+    auto const elapsed = std::chrono::steady_clock::now() - start;
+    REQUIRE(!slow);
+    CHECK(slow.error().message.find("did not finish") != std::string::npos);
+    CHECK(elapsed < std::chrono::seconds(5));
+
+    auto missing = toolchain::version(t.path / "nonexistent");
+    REQUIRE(!missing);
+    CHECK(missing.error().message.find("cannot run") != std::string::npos);
+}
+
+TEST_CASE("toolchain version parsing and comparison")
+{
+    CHECK_EQ(toolchain::parse_version("dcc 0.6.0-dev (5be14a3)").value(), "0.6.0");
+    CHECK_EQ(toolchain::parse_version("v1.22.3").value(), "1.22.3");
+    CHECK_EQ(toolchain::parse_version("tool version 2.0").value(), "2.0");
+    CHECK(!toolchain::parse_version("no digits here"));
+    CHECK(!toolchain::parse_version("build 12"));
+    CHECK(toolchain::version_at_least("0.6.0", "0.6.0"));
+    CHECK(toolchain::version_at_least("0.10.0", "0.9.5"));
+    CHECK(toolchain::version_at_least("1.0", "0.9.9"));
+    CHECK(!toolchain::version_at_least("0.5.9", "0.6.0"));
+    CHECK(!toolchain::version_at_least("garbage", "0.6.0"));
 }
 
 int main(int argc, char** argv)
