@@ -634,38 +634,21 @@ namespace dcc::backend
 
                 auto so_path = work_dir / "out.so";
 
-                std::string link_cmd = std::format("ld.lld --shared -o {} {}", so_path.string(), obj_path.string());
-
+                host::process::Command command;
+                command.inherit_env = true;
+                command.argv = {host::process::linker_path("ld.lld"), "-m", "elf_x86_64", "--shared", "-o", so_path.string(), obj_path.string()};
                 for (auto const& obj : opts.additional_objects)
-                    link_cmd += " " + obj;
-
+                    command.argv.push_back(obj);
                 for (auto const& lp : opts.library_paths)
-                    link_cmd += " -L" + lp;
-
+                    command.argv.push_back("-L" + lp);
                 for (auto const& lib : opts.libraries)
-                    link_cmd += " -l" + lib;
-
+                    command.argv.push_back("-l" + lib);
                 for (auto const& la : opts.linker_args)
-                    link_cmd += " " + la;
-
-                link_cmd += " 2>&1";
-                auto* pipe = popen(link_cmd.c_str(), "r");
-                if (!pipe)
+                    command.argv.push_back(la);
+                auto linked = host::process::run(command);
+                if (!linked.ok())
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot run linker"});
-                    cleanup();
-                    return std::nullopt;
-                }
-
-                std::string link_output;
-                std::array<char, 4096> buf;
-                while (std::fgets(buf.data(), static_cast<int>(buf.size()), pipe))
-                    link_output += buf.data();
-
-                int link_rc = pclose(pipe);
-                if (link_rc != 0)
-                {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: linking failed:\n" + link_output});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: linking failed:\n" + linked.out + linked.err + linked.error});
                     cleanup();
                     return std::nullopt;
                 }
