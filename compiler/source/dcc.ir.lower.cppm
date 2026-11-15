@@ -8123,6 +8123,16 @@ export namespace dcc::ir::lower
             auto* exit_code = m_ctx.zext(integer, failed);
             block->instructions.push_back(exit_code);
             block->terminator = m_ctx.ret(exit_code);
+            if (declaration.range.valid() && m_source_manager)
+            {
+                adapter->decl_file_id = static_cast<std::uint32_t>(declaration.range.begin.fileId);
+                if (auto lc = m_source_manager->line_col(declaration.range.begin))
+                    adapter->decl_line = lc->line;
+                auto location = make_source_loc(declaration.range, 0);
+                for (auto* instruction : block->instructions)
+                    instruction->debug_loc = location;
+                block->terminator->debug_loc = location;
+            }
             m_module->functions.push_back(adapter);
             return adapter;
         }

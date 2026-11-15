@@ -29,6 +29,14 @@ Result(i32, i32) make(i32 x) {
 }
 """
 
+status_main = """module main;
+
+public Status(Error) main() {
+    println("status main")?;
+    return Status::Ok;
+}
+"""
+
 
 def program_os(path):
     if path.stem.endswith("-windows") or path.stem == "win64-stack-probe":
@@ -46,6 +54,8 @@ def compile_one(job):
 with tempfile.TemporaryDirectory(prefix="dcc-debug-info-") as directory:
     regression_source = Path(directory) / "unwrap_err.dc"
     regression_source.write_text(regression)
+    status_source = Path(directory) / "status_main.dc"
+    status_source.write_text(status_main)
 
     jobs = []
     for backend in ("llvm", "custom"):
@@ -60,6 +70,8 @@ with tempfile.TemporaryDirectory(prefix="dcc-debug-info-") as directory:
                 jobs.append((source, program_os(source), backend, level))
             for os_name in ("linux", "freestanding"):
                 jobs.append((regression_source, os_name, backend, level))
+            for os_name in ("linux", "windows"):
+                jobs.append((status_source, os_name, backend, level))
 
     failures = 0
     with ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
