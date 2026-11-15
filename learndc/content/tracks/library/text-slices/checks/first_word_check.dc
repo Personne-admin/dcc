@@ -1,0 +1,24 @@
+module first_word_check;
+
+import std::mem;
+import words;
+
+i32 expect([]const char text, []const char want) {
+    []const char got = words::first_word(text);
+    if std::mem::equal(got, want) {
+        return 0;
+    }
+    println("first_word(\"{}\"): expected \"{}\", got \"{}\"", text, want, got).unwrap();
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    failures += expect("hello world", "hello");
+    failures += expect("one two three", "one");
+    failures += expect("single", "single");
+    failures += expect("", "");
+    failures += expect(" leading", "");
+    failures += expect("a b", "a");
+    return if failures == 0 { 0 } else { 1 };
+}

@@ -1,0 +1,29 @@
+module words;
+
+public usize count_char([]const char text, char target) {
+    usize total = 0;
+    for usize i = 0; i < text.len; i++ {
+        if text[i] == target {
+            total++;
+        }
+    }
+    return total;
+}
+
+public Optional(usize) find_char([]const char text, char target) {
+    for usize i = 0; i < text.len; i++ {
+        if text[i] == target {
+            return Optional::Some(i);
+        }
+    }
+    return Optional::None;
+}
+
+public []const char first_word([]const char text) {
+    for usize i = 0; i < text.len; i++ {
+        if text[i] == ' ' {
+            return text[0..i];
+        }
+    }
+    return text;
+}

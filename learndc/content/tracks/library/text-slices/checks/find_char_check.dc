@@ -1,0 +1,27 @@
+module find_char_check;
+
+import words;
+
+i32 expect([]const char text, char target, Optional(usize) want) {
+    Optional(usize) got = words::find_char(text, target);
+    if got.is_some() != want.is_some() {
+        println("find_char(\"{}\", '{}'): expected {}, got {}", text, target, if want.is_some() { "a position" } else { "none" }, if got.is_some() { "a position" } else { "none" }).unwrap();
+        return 1;
+    }
+    if got.is_some() && got.unwrap_some() != want.unwrap_some() {
+        println("find_char(\"{}\", '{}'): expected {}, got {}", text, target, want.unwrap_some(), got.unwrap_some()).unwrap();
+        return 1;
+    }
+    return 0;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    failures += expect("banana", 'b', Optional::Some(0 as usize));
+    failures += expect("banana", 'n', Optional::Some(2 as usize));
+    failures += expect("banana", 'a', Optional::Some(1 as usize));
+    failures += expect("banana", 'z', Optional::None);
+    failures += expect("", 'a', Optional::None);
+    failures += expect("a b", ' ', Optional::Some(1 as usize));
+    return if failures == 0 { 0 } else { 1 };
+}

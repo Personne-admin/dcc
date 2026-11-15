@@ -1,0 +1,42 @@
+schema = 1
+id = "library/formatting"
+revision = 1
+title = "Format a receipt"
+summary = "Use width, alignment, precision and integer-base format specs to line up a table."
+kind = "fix-behavior"
+chapter = "formatting"
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["format specs", "width", "alignment", "precision", "integer bases"]
+tags = ["output", "formatting"]
+objectives = [
+    "Set a field width and alignment with {:<N} and {:>N}",
+    "Round a float to a fixed number of decimals with {:.2}",
+    "Print integers zero-padded and in binary or hexadecimal with {:04}, {:08b} and {:X}",
+]
+entry_file = "src/main.dc"
+product = "receipt"
+prerequisites = ["types/owned-array"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints an aligned receipt"
+expect_stdout = """
+Item      Qty    Price
+apple       3     0.50
+melon      12    12.25
+fig       100     3.75
+id 0042 flags 00000101 mask FF
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Compare each column with the header: names are left-aligned in 8 columns, quantities right-aligned in 5, prices right-aligned in 9 with two decimals."

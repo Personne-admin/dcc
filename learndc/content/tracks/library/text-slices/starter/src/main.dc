@@ -1,0 +1,19 @@
+module main;
+
+import words;
+
+public Status(Error) main() {
+    []const char text = "the quick brown fox";
+    println("text: {}", text)?;
+    println("spaces: {}", words::count_char(text, ' '))?;
+
+    Optional(usize) found = words::find_char(text, 'q');
+    if found.is_some() {
+        println("first q at: {}", found.unwrap_some())?;
+    } else {
+        println("no q")?;
+    }
+
+    println("first word: {}", words::first_word(text))?;
+    return Status::Ok;
+}

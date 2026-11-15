@@ -1,0 +1,25 @@
+module main;
+
+Status(Error) header() {
+    println("{:<8}{:>5}{:>9}", "Item", "Qty", "Price")?;
+    return Status::Ok;
+}
+
+Status(Error) row([]const char name, u32 qty, f64 price) {
+    println("{:<8}{:>5}{:>9.2}", name, qty, price)?;
+    return Status::Ok;
+}
+
+Status(Error) footer(u32 id, u8 flags, u32 mask) {
+    println("id {:04} flags {:08b} mask {:X}", id, flags, mask)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    header()?;
+    row("apple", 3, 0.5)?;
+    row("melon", 12, 12.25)?;
+    row("fig", 100, 3.75)?;
+    footer(42, 5, 255)?;
+    return Status::Ok;
+}

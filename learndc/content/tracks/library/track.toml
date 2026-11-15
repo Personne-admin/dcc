@@ -1,0 +1,5 @@
+schema = 1
+id = "library"
+title = "Everyday libdcext"
+summary = "Format output, work with text slices and keep values in a map using the hosted standard library."
+exercises = ["formatting", "text-slices", "map-lookup"]

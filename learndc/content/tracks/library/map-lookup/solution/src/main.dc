@@ -1,0 +1,53 @@
+module main;
+
+import std::map;
+
+using Stock = std::map::Map(u32, u32);
+
+Status(Error) add_stock(Stock* stock, u32 part, u32 qty) {
+    Optional(u32*) slot = stock.get_ptr(part);
+    if slot.is_some() {
+        u32* count = slot.unwrap_some();
+        *count = *count + qty;
+    } else {
+        stock.put(part, qty)?;
+    }
+    return Status::Ok;
+}
+
+u32 quantity(const Stock* stock, u32 part) {
+    return stock.get(part).some_or(0);
+}
+
+bool take(Stock* stock, u32 part, u32 qty) {
+    Optional(u32*) slot = stock.get_ptr(part);
+    if slot.is_none() {
+        return false;
+    }
+    u32* count = slot.unwrap_some();
+    if *count < qty {
+        return false;
+    }
+    *count = *count - qty;
+    return true;
+}
+
+public Status(Error) main() {
+    Stock stock = {};
+    defer stock.deinit();
+
+    add_stock(&stock, 101, 10)?;
+    add_stock(&stock, 202, 4)?;
+    add_stock(&stock, 101, 5)?;
+
+    println("part 101: {}", quantity(&stock, 101))?;
+    println("part 202: {}", quantity(&stock, 202))?;
+    println("part 303: {}", quantity(&stock, 303))?;
+
+    println("take 12 of 101: {}", take(&stock, 101, 12))?;
+    println("take 9 of 202: {}", take(&stock, 202, 9))?;
+    println("part 101: {}", quantity(&stock, 101))?;
+    println("part 202: {}", quantity(&stock, 202))?;
+    println("parts tracked: {}", stock.len())?;
+    return Status::Ok;
+}
