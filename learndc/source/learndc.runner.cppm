@@ -767,6 +767,8 @@ export namespace learndc::runner
             if (spec.dcc)
                 command.env["DCC"] = platform::path_to_utf8(*spec.dcc);
             outcome.binary = spec.project_dir / ".dpm" / "out" / "debug" / "host" / platform::path_from_utf8(detail::exe_name(spec.product));
+            std::error_code ec;
+            std::filesystem::remove(outcome.binary, ec);
         }
         else
         {

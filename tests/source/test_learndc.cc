@@ -20,6 +20,7 @@ import learndc.tui.model;
 import learndc.tui;
 import dcc.host.process;
 
+#include <stdlib.h>
 #define main harness_main
 #include "harness.hh"
 #undef main
@@ -3604,6 +3605,46 @@ TEST_CASE("cancelling a sleeping program returns within two seconds")
     CHECK(elapsed < 2s);
 }
 
+namespace
+{
+    struct EnvGuard
+    {
+        explicit EnvGuard(char const* value)
+        {
+            ::setenv("LEARNDC_TEST_FAKE_DPM", value, 1);
+        }
+
+        ~EnvGuard()
+        {
+            ::unsetenv("LEARNDC_TEST_FAKE_DPM");
+        }
+    };
+
+    runner::BuildSpec fake_dpm_spec(std::filesystem::path const& dir)
+    {
+        runner::BuildSpec spec;
+        spec.backend = runner::Backend::Dpm;
+        spec.dpm = std::filesystem::path(g_self);
+        spec.project_dir = dir;
+        spec.entry = "src/main.dc";
+        spec.product = "prog";
+        spec.timeout = 10s;
+        return spec;
+    }
+}
+
+TEST_CASE("a stale dpm binary is not run when the build produced none")
+{
+    TempDir t;
+    auto const stale = t.path / ".dpm" / "out" / "debug" / "host" / "prog";
+    write_file(stale, "stale");
+    EnvGuard guard("ok");
+    auto outcome = runner::build_program(fake_dpm_spec(t.path));
+    CHECK(!outcome.ok);
+    CHECK(!std::filesystem::exists(stale));
+    CHECK_EQ(outcome.exit_code, 0);
+}
+
 TEST_CASE("missing toolchain is reported with the setting names")
 {
     TempDir t;
@@ -5871,6 +5912,23 @@ int main(int argc, char** argv)
     {
         std::string_view const mode{argv[1]};
         auto const stem = std::filesystem::path(argv[0]).filename().string();
+        if (mode == "build")
+        {
+            if (char const* fake = std::getenv("LEARNDC_TEST_FAKE_DPM"))
+            {
+                std::string_view const kind{fake};
+                if (kind == "abort")
+                    std::abort();
+                if (kind == "sleep")
+                    std::this_thread::sleep_for(std::chrono::seconds(60));
+                if (kind == "reject")
+                {
+                    std::cerr << "error: initializer type mismatch\n   | \n 4 | println(\"undefined symbol\")\n";
+                    return 1;
+                }
+                return 0;
+            }
+        }
         if (mode == "--version")
         {
             if (stem.starts_with("hang"))
