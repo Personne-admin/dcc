@@ -11,6 +11,7 @@ import learndc.progress;
 import learndc.workspace;
 import learndc.toolchain;
 import learndc.runner;
+import learndc.watch;
 import dcc.host.process;
 
 #define main harness_main
@@ -29,6 +30,7 @@ namespace progress = learndc::progress;
 namespace workspace = learndc::workspace;
 namespace toolchain = learndc::toolchain;
 namespace runner = learndc::runner;
+namespace watch = learndc::watch;
 
 namespace
 {
@@ -3906,6 +3908,136 @@ TEST_CASE("interactive run reports build errors and program exit")
         CHECK_EQ(out.exit_code.value_or(-1), 4);
         CHECK(out.stage == runner::Stage::Passed);
     }
+}
+
+SECTION("learndc.watch");
+
+namespace
+{
+    void touch_with(std::filesystem::path const& p, std::string_view data)
+    {
+        write_file(p, data);
+    }
+}
+
+TEST_CASE("watch ignore rules")
+{
+    CHECK(watch::ignored(".dpm/out/x"));
+    CHECK(watch::ignored(".learndc/workspace.json"));
+    CHECK(watch::ignored("src/.main.dc.swp"));
+    CHECK(watch::ignored("src/main.dc~"));
+    CHECK(watch::ignored("src/.#main.dc"));
+    CHECK(watch::ignored("src/4913"));
+    CHECK(watch::ignored("src/main.dc.tmp"));
+    CHECK(!watch::ignored("src/main.dc"));
+    CHECK(!watch::ignored("project.dcon"));
+    CHECK(!watch::ignored("src/.dpm/keep.dc"));
+}
+
+TEST_CASE("watch snapshot compare finds added removed and modified files")
+{
+    TempDir t;
+    touch_with(t.path / "src" / "a.dc", "one");
+    touch_with(t.path / "src" / "b.dc", "two");
+    touch_with(t.path / ".dpm" / "out" / "x", "built");
+    touch_with(t.path / "src" / ".a.dc.swp", "swap");
+    auto const first = watch::snapshot(t.path);
+    CHECK_EQ(first.size(), 2u);
+    CHECK(first.contains("src/a.dc"));
+    CHECK(!first.contains(".dpm/out/x"));
+    touch_with(t.path / "src" / "a.dc", "three!");
+    std::filesystem::remove(t.path / "src" / "b.dc");
+    touch_with(t.path / "src" / "c.dc", "new");
+    touch_with(t.path / ".dpm" / "out" / "y", "ignored");
+    auto const changes = watch::compare(first, watch::snapshot(t.path));
+    CHECK_EQ(changes.modified.size(), 1u);
+    CHECK_EQ(changes.modified[0], "src/a.dc");
+    CHECK_EQ(changes.removed.size(), 1u);
+    CHECK_EQ(changes.added.size(), 1u);
+    CHECK_EQ(changes.added[0], "src/c.dc");
+    CHECK(watch::compare(first, first).empty());
+}
+
+TEST_CASE("watch detects atomic rename saves with identical size and mtime")
+{
+    TempDir t;
+    auto const target = t.path / "src" / "main.dc";
+    touch_with(target, "aaaa");
+    auto const before = watch::snapshot(t.path);
+    auto const mtime = std::filesystem::last_write_time(target);
+    auto const tmp = t.path / "src" / "main.dc.tmp";
+    touch_with(tmp, "bbbb");
+    std::filesystem::last_write_time(tmp, mtime);
+    std::filesystem::rename(tmp, target);
+    auto const changes = watch::compare(before, watch::snapshot(t.path));
+    REQUIRE((changes.modified.size()) == 1u);
+    CHECK_EQ(changes.modified[0], "src/main.dc");
+    CHECK(changes.added.empty());
+    CHECK(changes.removed.empty());
+}
+
+TEST_CASE("watcher debounces bursts of changes")
+{
+    TempDir t;
+    auto const file = t.path / "src" / "main.dc";
+    touch_with(file, "v1");
+    watch::Options options;
+    options.debounce = 400ms;
+    watch::Watcher w(t.path, options);
+    auto const t0 = watch::Watcher::Clock::now();
+    CHECK(!w.poll(t0).has_value());
+    touch_with(file, "version two");
+    CHECK(!w.poll(t0 + 10ms).has_value());
+    CHECK(w.pending());
+    CHECK(!w.poll(t0 + 200ms).has_value());
+    touch_with(file, "version three!");
+    CHECK(!w.poll(t0 + 300ms).has_value());
+    CHECK(!w.poll(t0 + 600ms).has_value());
+    auto const done = w.poll(t0 + 800ms);
+    REQUIRE(done.has_value());
+    REQUIRE((done->modified.size()) == 1u);
+    CHECK_EQ(done->modified[0], "src/main.dc");
+    CHECK(!w.poll(t0 + 1500ms).has_value());
+    CHECK(!w.pending());
+}
+
+TEST_CASE("watcher wait returns on change and stops on cancel and never writes")
+{
+    TempDir t;
+    auto const file = t.path / "src" / "main.dc";
+    touch_with(file, "v1");
+    std::atomic<bool> cancel{false};
+    watch::Options options;
+    options.debounce = 50ms;
+    options.interval = 20ms;
+    options.cancel = &cancel;
+    watch::Watcher w(t.path, options);
+    std::thread editor_thread(
+        [&]
+        {
+            std::this_thread::sleep_for(150ms);
+            touch_with(file, "version two");
+        });
+    auto const changes = w.wait();
+    editor_thread.join();
+    REQUIRE(changes.has_value());
+    CHECK_EQ(changes->modified.size(), 1u);
+
+    std::thread canceller(
+        [&]
+        {
+            std::this_thread::sleep_for(150ms);
+            cancel = true;
+        });
+    auto const begin = std::chrono::steady_clock::now();
+    CHECK(!w.wait().has_value());
+    canceller.join();
+    CHECK(std::chrono::steady_clock::now() - begin < 2s);
+    std::size_t files = 0;
+    for (auto const& e : std::filesystem::recursive_directory_iterator(t.path))
+        if (e.is_regular_file())
+            ++files;
+    CHECK_EQ(files, 1u);
 }
 
 int main(int argc, char** argv)
