@@ -821,6 +821,55 @@ def scenario_native_link_requirements():
           "changing a path dependency link requirement invalidates the build", detail(r))
 
 
+def scenario_shared_library_product():
+    app = new_app("sharedapp")
+    native = os.path.join(app, "native libs")
+    os.makedirs(native)
+    source = os.path.join(native, "shim.c")
+
+    def build_shim(offset):
+        write(source, "int shim_add(int a, int b) { return a + b + %d; }\n" % offset)
+        subprocess.run(["cc", "-shared", "-fPIC", "-o", os.path.join(native, "libshim.so"), source], check=True, timeout=60)
+
+    build_shim(1000)
+    write(os.path.join(app, "src", "main.dc"),
+          "module main;\n\n@nomangle extern i32 shim_add(i32 a, i32 b);\n\npublic i32 main()\n{\n    return shim_add(2, 3) - 1000;\n}\n")
+    manifest = """dpm::v1::Project {
+    name = "sharedapp",
+    version = "0.1.0",
+    products = {
+        {
+            name = "sharedapp",
+            link = { "shim" },
+            library_paths = { "native libs" },
+            runtime_paths = { "$ORIGIN/../../../../native libs" },
+        },
+    },
+}
+"""
+    write(os.path.join(app, "project.dcon"), manifest)
+    r = dpm(app, "build", "-v")
+    check(r.returncode == 0 and "-lshim" in r.stderr and "-rpath" in r.stderr, "a product links a shared library from library_paths", detail(r))
+    exe = os.path.join(app, ".dpm", "out", "debug", "host", "sharedapp")
+    elf = subprocess.run(["readelf", "-W", "-l", "-d", exe], capture_output=True, text=True, timeout=60).stdout
+    check("Requesting program interpreter" in elf and "Shared library: [libshim.so]" in elf and "$ORIGIN/../../../../native libs" in elf,
+          "the product has an interpreter, DT_NEEDED and the runtime path", elf)
+    r = dpm(app, "run")
+    check(r.returncode == 5, "the program finds the shared library through runtime_paths", detail(r))
+    check("Fresh sharedapp" in dpm(app, "build").stdout, "an unchanged shared library build is fresh")
+    build_shim(1001)
+    r = dpm(app, "build")
+    check("Building sharedapp" in r.stdout, "replacing the shared library relinks the product", detail(r))
+    check(dpm(app, "run").returncode == 6, "the relinked program runs against the new library")
+    write(os.path.join(app, "project.dcon"), manifest.replace('link = { "shim" },', 'link = { "shim" },\n            link_mode = dpm::v1::LinkMode::Static,'))
+    r = dpm(app, "build")
+    check(r.returncode != 0 and "resolves only to the shared object" in r.stderr, "link_mode Static refuses a shared-only library", detail(r))
+    write(os.path.join(app, "project.dcon"), manifest.replace('library_paths = { "native libs" },', 'library_paths = { "../outside" },'))
+    r = dpm(app, "build")
+    check(r.returncode == 3 and "library_paths entries must be absolute or relative paths inside the package" in r.stderr,
+          "library_paths may not escape the package", detail(r))
+
+
 def scenario_git_dependency():
     repo = make_lib_repo("gitlib", [("1.0.0", 10), ("1.1.0", 11)])
     app = new_app("gitapp")
@@ -2125,6 +2174,7 @@ try:
     scenario_publish_template()
     scenario_path_dependency()
     scenario_native_link_requirements()
+    scenario_shared_library_product()
     scenario_git_dependency()
     scenario_offline_and_cache()
     scenario_assets()

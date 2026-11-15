@@ -168,6 +168,20 @@ export namespace dpm::build
         auto output = output_dir(request.profile, effective.target) / artifact_name(product, effective.target);
         auto entry = (std::filesystem::path{request.project_root} / product.entry).lexically_normal().generic_string();
         auto flags = settings::product_flags(product);
+        for (auto const& dir : product.library_paths)
+        {
+            std::filesystem::path path{dir};
+            flags.push_back("-L" + (path.is_absolute() ? path : std::filesystem::path{request.project_root} / path).lexically_normal().generic_string());
+        }
+        for (auto const& dir : product.runtime_paths)
+        {
+            flags.emplace_back("-rpath");
+            flags.push_back(dir);
+        }
+        if (product.link_mode == manifest::LinkMode::Static)
+            flags.emplace_back("-static");
+        else if (product.link_mode == manifest::LinkMode::Dynamic)
+            flags.emplace_back("-dynamic");
         std::vector<std::filesystem::path> extra_inputs;
         if (!product.linker_script.empty())
         {

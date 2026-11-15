@@ -171,6 +171,18 @@ public struct Dependency
     []const char version = "";
 }
 
+/// How an executable product is linked.
+public enum LinkMode : u8
+{
+    /// Static unless a linked library resolves to a shared object (`lib<name>.so`).
+    Default,
+    /// Always static (`dcc -static`); shared objects are never used.
+    Static,
+    /// Dynamic (`dcc -dynamic`), preferring `lib<name>.so` over `lib<name>.a`.
+    /// Supported for x86_64 Linux executables.
+    Dynamic,
+}
+
 /// One artifact a package builds.
 public struct Product
 {
@@ -184,6 +196,17 @@ public struct Product
     Settings settings = {};
     /// Libraries to link (`dcc -l`).
     []const []const char link = {};
+    /// Directories searched for `link` libraries at build time (`dcc -L`), relative
+    /// to the package root or absolute. The system library directories are searched
+    /// after these for dynamically linked executables.
+    []const []const char library_paths = {};
+    /// Directories the program searches for shared libraries when it runs
+    /// (`dcc -rpath`, recorded as DT_RUNPATH). `$ORIGIN` stands for the directory
+    /// of the executable. Not supported for Windows executables, which load DLLs
+    /// from their own directory and from PATH.
+    []const []const char runtime_paths = {};
+    /// Static or dynamic linking of the product.
+    LinkMode link_mode = LinkMode::Default;
     /// Linker script (`-T`), relative to the package root; the file must exist.
     /// dpm passes the flag and rebuilds when the script changes, so `-T` cannot
     /// be written in `extra_flags`.

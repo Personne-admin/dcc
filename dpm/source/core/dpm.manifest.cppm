@@ -267,6 +267,13 @@ export namespace dpm::manifest
         Range range;
     };
 
+    enum class LinkMode : std::uint8_t
+    {
+        Default,
+        Static,
+        Dynamic,
+    };
+
     struct Product
     {
         std::string name;
@@ -274,6 +281,9 @@ export namespace dpm::manifest
         std::string entry;
         Settings settings;
         std::vector<std::string> link;
+        std::vector<std::string> library_paths;
+        std::vector<std::string> runtime_paths;
+        LinkMode link_mode{LinkMode::Default};
         std::string linker_script;
         std::string run;
         Range range;
@@ -2164,6 +2174,18 @@ export namespace dpm::manifest
                         pr.kind = enumerator<Kind>(item, "kind", kinds);
                         pr.entry = str(item, "entry");
                         pr.link = strs(item, "link");
+                        pr.library_paths = strs(item, "library_paths");
+                        pr.runtime_paths = strs(item, "runtime_paths");
+                        static constexpr std::array<std::string_view, 3> link_modes{"Default", "Static", "Dynamic"};
+                        pr.link_mode = enumerator<LinkMode>(item, "link_mode", link_modes);
+                        if (auto const* n = item.find("library_paths"))
+                            for (auto const& dir : n->items)
+                                if (dir.text.empty() || (!std::filesystem::path{dir.text}.is_absolute() && !is_relative_subpath(dir.text)))
+                                    error(dir, "library_paths entries must be absolute or relative paths inside the package");
+                        if (auto const* n = item.find("runtime_paths"))
+                            for (auto const& dir : n->items)
+                                if (dir.text.empty())
+                                    error(dir, "runtime_paths entries must not be empty");
                         pr.linker_script = str(item, "linker_script");
                         pr.run = str(item, "run");
                         if (auto const* s = field(item, "settings"))

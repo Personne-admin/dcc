@@ -78,6 +78,28 @@ TEST_CASE("a linker script is resolved against the project root and normalized")
     CHECK_EQ(plan.extra_inputs[0].generic_string(), std::string{"/work/proj/link/k.ld"});
 }
 
+TEST_CASE("product library paths runtime paths and link mode become dcc link flags")
+{
+    auto project = base_project();
+    project.products[0].link = {"SDL3"};
+    project.products[0].library_paths = {"native libs/./x64", "/opt/sdl 3/lib"};
+    project.products[0].runtime_paths = {"$ORIGIN/../lib", "/opt/sdl 3/lib"};
+    project.products[0].link_mode = m::LinkMode::Dynamic;
+    auto r = request_for(project);
+    r.project_root = "/work/proj";
+    auto plan = b::plan_product(r, project.products[0]);
+    auto at = std::ranges::find(plan.argv, "-lSDL3");
+    REQUIRE(at != plan.argv.end());
+    CHECK(std::vector<std::string>(at, at + 8) ==
+          strs({"-lSDL3", "-L/work/proj/native libs/x64", "-L/opt/sdl 3/lib", "-rpath", "$ORIGIN/../lib", "-rpath", "/opt/sdl 3/lib", "-dynamic"}));
+    project.products[0].link_mode = m::LinkMode::Static;
+    auto static_plan = b::plan_product(r, project.products[0]);
+    CHECK(std::ranges::find(static_plan.argv, "-static") != static_plan.argv.end());
+    CHECK(std::ranges::find(static_plan.argv, "-dynamic") == static_plan.argv.end());
+    auto plain = b::plan_product(request_for(base_project()), base_project().products[0]);
+    CHECK(std::ranges::none_of(plain.argv, [](std::string const& a) { return a == "-static" || a == "-dynamic" || a == "-rpath" || a.starts_with("-L"); }));
+}
+
 TEST_CASE("the release plan uses release defaults")
 {
     auto project = base_project();
