@@ -8,6 +8,7 @@ import learndc.bundle;
 import learndc.diff;
 import learndc.settings;
 import learndc.progress;
+import learndc.workspace;
 import dcc.host.process;
 
 #define main harness_main
@@ -23,6 +24,7 @@ namespace bundle = learndc::bundle;
 namespace diff = learndc::diff;
 namespace settings = learndc::settings;
 namespace progress = learndc::progress;
+namespace workspace = learndc::workspace;
 
 namespace
 {
@@ -2078,6 +2080,30 @@ namespace
 {
     std::string g_self;
 
+    catalog::Exercise make_exercise(std::string id = "basics/one", int revision = 1)
+    {
+        catalog::Exercise ex;
+        ex.id = id;
+        auto const slash = id.find('/');
+        ex.track = id.substr(0, slash);
+        ex.name = id.substr(slash + 1);
+        ex.revision = revision;
+        ex.starter["project.dcon"] = "dpm::v1::Project { name = \"prog\" }\n";
+        ex.starter["src/main.dc"] = "module main;\npublic i32 main() { return 1; }\n";
+        ex.starter["src/util/helper.dc"] = "module helper;\n";
+        ex.solution["src/main.dc"] = "module main;\npublic i32 main() { return 0; }\n";
+        return ex;
+    }
+
+    bool symlink_supported(std::filesystem::path const& dir)
+    {
+        std::error_code ec;
+        std::filesystem::create_directory_symlink(dir, dir.parent_path() / "probe-link", ec);
+        bool const ok = !ec;
+        std::filesystem::remove(dir.parent_path() / "probe-link", ec);
+        return ok;
+    }
+
     std::string slurp(std::filesystem::path const& p)
     {
         return platform::read_file(p).value_or("<missing>");
@@ -2584,6 +2610,426 @@ TEST_CASE("progress import status conflict keeps the completed side")
     auto imported = progress::import_into(store, incoming);
     REQUIRE(imported);
     CHECK(progress::is_completed(store.load()->progress, "a/one"));
+}
+
+SECTION("learndc.workspace");
+
+TEST_CASE("workspace start creates the starter files and metadata")
+{
+    TempDir t;
+    auto ex = make_exercise();
+    auto const root = t.path / "learn dc" / "\xC3\xBC" "bung \xE5\xB7\xA5\xE5\x85\xB7";
+    auto started = workspace::start(ex, root);
+    REQUIRE(started);
+    CHECK(started->created);
+    CHECK(!started->outdated);
+    CHECK_EQ(started->workspace.meta.exercise, "basics/one");
+    CHECK_EQ(started->workspace.meta.revision, 1);
+    CHECK(!started->workspace.meta.created_at.empty());
+    CHECK_EQ(started->workspace.meta.starter.size(), 3u);
+    CHECK_EQ(started->workspace.meta.starter.at("src/main.dc"), workspace::hash_hex(ex.starter["src/main.dc"]));
+    CHECK_EQ(slurp(root / "src" / "main.dc"), ex.starter["src/main.dc"]);
+    CHECK_EQ(slurp(root / "src" / "util" / "helper.dc"), ex.starter["src/util/helper.dc"]);
+    CHECK(std::filesystem::is_regular_file(root / ".learndc" / "workspace.json"));
+
+    auto loaded = workspace::load(root);
+    REQUIRE(loaded);
+    CHECK_EQ(loaded->meta.exercise, "basics/one");
+    CHECK(loaded->meta.starter == started->workspace.meta.starter);
+    CHECK_EQ(loaded->meta.created_at, started->workspace.meta.created_at);
+    CHECK((workspace::files(*loaded) == std::vector<std::string>{"project.dcon", "src/main.dc", "src/util/helper.dc"}));
+    CHECK(workspace::modified(*loaded).empty());
+    CHECK(workspace::modified(*loaded, ex).empty());
+}
+
+TEST_CASE("workspace fnv1a64 matches known vectors")
+{
+    CHECK_EQ(workspace::fnv1a64(""), 14695981039346656037ull);
+    CHECK_EQ(workspace::fnv1a64("a"), 0xaf63dc4c8601ec8cull);
+    CHECK_EQ(workspace::fnv1a64("foobar"), 0x85944171f73967e8ull);
+    CHECK_EQ(workspace::hash_hex("a"), "af63dc4c8601ec8c");
+    CHECK_EQ(workspace::hash_hex("").size(), 16u);
+}
+
+TEST_CASE("workspace start is idempotent and preserves edits")
+{
+    TempDir t;
+    auto ex = make_exercise();
+    auto const root = t.path / "ws";
+    REQUIRE(workspace::start(ex, root));
+    write_file(root / "src" / "main.dc", "my edit\n");
+    write_file(root / "notes.txt", "mine\n");
+
+    auto again = workspace::start(ex, root);
+    REQUIRE(again);
+    CHECK(!again->created);
+    CHECK(again->restored.empty());
+    CHECK_EQ(slurp(root / "src" / "main.dc"), "my edit\n");
+    CHECK_EQ(slurp(root / "notes.txt"), "mine\n");
+
+    std::filesystem::remove(root / "src" / "util" / "helper.dc");
+    auto healed = workspace::start(ex, root);
+    REQUIRE(healed);
+    CHECK(!healed->created);
+    CHECK_EQ(healed->restored.size(), 1u);
+    CHECK_EQ(slurp(root / "src" / "util" / "helper.dc"), ex.starter["src/util/helper.dc"]);
+    CHECK_EQ(slurp(root / "src" / "main.dc"), "my edit\n");
+
+    auto ex2 = make_exercise("basics/one", 2);
+    auto outdated = workspace::start(ex2, root);
+    REQUIRE(outdated);
+    CHECK(outdated->outdated);
+    CHECK_EQ(slurp(root / "src" / "main.dc"), "my edit\n");
+}
+
+TEST_CASE("workspace start refuses foreign directories")
+{
+    TempDir t;
+    auto ex = make_exercise();
+    auto other = make_exercise("basics/two");
+
+    write_file(t.path / "occupied" / "something.txt", "x");
+    auto refused = workspace::start(ex, t.path / "occupied");
+    REQUIRE(!refused);
+    CHECK(refused.error().kind == workspace::ErrorKind::Refused);
+    CHECK_EQ(slurp(t.path / "occupied" / "something.txt"), "x");
+    CHECK(!std::filesystem::exists(t.path / "occupied" / "project.dcon"));
+    CHECK(!std::filesystem::exists(t.path / "occupied" / ".learndc"));
+
+    REQUIRE(workspace::start(ex, t.path / "ws"));
+    auto wrong = workspace::start(other, t.path / "ws");
+    REQUIRE(!wrong);
+    CHECK(wrong.error().kind == workspace::ErrorKind::Refused);
+    CHECK(wrong.error().message.find("basics/one") != std::string::npos);
+
+    write_file(t.path / "afile", "x");
+    auto onto_file = workspace::start(ex, t.path / "afile");
+    REQUIRE(!onto_file);
+    CHECK(onto_file.error().kind == workspace::ErrorKind::Refused);
+
+    std::filesystem::create_directories(t.path / "empty");
+    auto into_empty = workspace::start(ex, t.path / "empty");
+    REQUIRE(into_empty);
+    CHECK(into_empty->created);
+
+    write_file(t.path / "broken" / ".learndc" / "workspace.json", "{ nope");
+    auto corrupt = workspace::start(ex, t.path / "broken");
+    REQUIRE(!corrupt);
+    CHECK(corrupt.error().kind == workspace::ErrorKind::Corrupt);
+
+    CHECK(!workspace::start(ex, std::filesystem::path{}));
+}
+
+TEST_CASE("workspace start rejects unsafe starter paths before writing anything")
+{
+    TempDir t;
+    std::vector<std::string> const bad = {
+        "../escape.dc", "src/../../escape.dc", "/abs/escape.dc", "a\\b.dc", "C:/escape.dc", "C:escape.dc", ".learndc/workspace.json", ".dpm/out", "a//b.dc", "./a.dc", "", "a/./b.dc",
+        "trail/", "name.",
+    };
+    int index = 0;
+    for (auto const& path : bad)
+    {
+        auto ex = make_exercise();
+        ex.starter[path] = "evil";
+        auto const root = t.path / std::format("ws{}", index++);
+        auto r = workspace::start(ex, root);
+        REQUIRE(!r);
+        CHECK(r.error().kind == workspace::ErrorKind::InvalidPath);
+        CHECK(!std::filesystem::exists(root));
+    }
+    CHECK(!std::filesystem::exists(t.path / "escape.dc"));
+    CHECK(!std::filesystem::exists(t.path.parent_path() / "escape.dc"));
+}
+
+TEST_CASE("workspace refuses symbolic links")
+{
+    TempDir t;
+    std::filesystem::create_directories(t.path / "outside");
+    if (!symlink_supported(t.path / "outside"))
+        return;
+    auto ex = make_exercise();
+
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(t.path / "outside", t.path / "linkroot", ec);
+    REQUIRE(!ec);
+    auto through_root = workspace::start(ex, t.path / "linkroot");
+    REQUIRE(!through_root);
+    CHECK(through_root.error().kind == workspace::ErrorKind::Unsafe);
+    CHECK(std::filesystem::is_empty(t.path / "outside"));
+
+    auto const root = t.path / "ws";
+    REQUIRE(workspace::start(ex, root));
+    std::filesystem::remove_all(root / "src");
+    std::filesystem::create_directory_symlink(t.path / "outside", root / "src", ec);
+    REQUIRE(!ec);
+    auto resumed = workspace::start(ex, root);
+    REQUIRE(!resumed);
+    CHECK(resumed.error().kind == workspace::ErrorKind::Unsafe);
+    CHECK(std::filesystem::is_empty(t.path / "outside"));
+
+    auto ws = workspace::load(root);
+    REQUIRE(ws);
+    auto reset = workspace::reset(*ws, ex, t.path / "backups");
+    REQUIRE(!reset);
+    CHECK(reset.error().kind == workspace::ErrorKind::Unsafe);
+    CHECK(std::filesystem::is_empty(t.path / "outside"));
+
+    std::filesystem::remove(root / "src");
+    std::filesystem::create_directories(root / "src");
+    write_file(t.path / "secret.txt", "secret");
+    std::filesystem::create_symlink(t.path / "secret.txt", root / "src" / "main.dc", ec);
+    REQUIRE(!ec);
+    auto resumed_file = workspace::start(ex, root);
+    REQUIRE(!resumed_file);
+    CHECK(resumed_file.error().kind == workspace::ErrorKind::Unsafe);
+    CHECK_EQ(slurp(t.path / "secret.txt"), "secret");
+
+    std::filesystem::remove(root / "src" / "main.dc");
+    write_file(root / "src" / "main.dc", "x");
+    std::filesystem::create_symlink(t.path / "secret.txt", root / "linked.txt", ec);
+    auto ws2 = workspace::load(root);
+    REQUIRE(ws2);
+    auto listed = workspace::files(*ws2);
+    CHECK(std::ranges::find(listed, std::string("linked.txt")) == listed.end());
+}
+
+TEST_CASE("workspace find_enclosing walks up from nested directories")
+{
+    TempDir t;
+    auto ex = make_exercise();
+    auto const root = t.path / "learn dc" / "\xC3\xBC" "bung";
+    REQUIRE(workspace::start(ex, root));
+    auto found = workspace::find_enclosing(root / "src" / "util");
+    REQUIRE(found.has_value());
+    CHECK_EQ(found->meta.exercise, "basics/one");
+    CHECK(found->root == root);
+    auto at_root = workspace::find_enclosing(root);
+    CHECK(at_root.has_value());
+    std::filesystem::create_directories(t.path / "elsewhere" / "deeper");
+    CHECK(!workspace::find_enclosing(t.path / "elsewhere" / "deeper").has_value());
+    write_file(root / "sub" / ".learndc" / "workspace.json", "{ broken");
+    auto skipped = workspace::find_enclosing(root / "sub");
+    REQUIRE(skipped.has_value());
+    CHECK(skipped->root == root);
+    CHECK(!workspace::load(t.path / "elsewhere"));
+    CHECK(workspace::load(t.path / "elsewhere").error().kind == workspace::ErrorKind::NotFound);
+}
+
+TEST_CASE("workspace files applies the ignore rules")
+{
+    TempDir t;
+    auto ex = make_exercise();
+    auto const root = t.path / "ws";
+    auto started = workspace::start(ex, root);
+    REQUIRE(started);
+    write_file(root / ".dpm" / "out" / "prog", "binary");
+    write_file(root / "src" / ".main.dc.swp", "x");
+    write_file(root / "src" / "main.dc~", "x");
+    write_file(root / "src" / ".#main.dc", "x");
+    write_file(root / "4913", "x");
+    write_file(root / "scratch.tmp", "x");
+    write_file(root / "docs" / "notes.md", "x");
+    write_file(root / "docs" / ".hidden", "x");
+    write_file(root / "\xC3\xBC" "ber.dc", "x");
+    auto listed = workspace::files(started->workspace);
+    CHECK((listed == std::vector<std::string>{"docs/.hidden", "docs/notes.md", "project.dcon", "src/main.dc", "src/util/helper.dc", "\xC3\xBC" "ber.dc"}));
+}
+
+TEST_CASE("workspace modified reports edits additions and removals")
+{
+    TempDir t;
+    auto ex = make_exercise();
+    auto const root = t.path / "ws";
+    auto started = workspace::start(ex, root);
+    REQUIRE(started);
+    write_file(root / "src" / "main.dc", "changed\n");
+    write_file(root / "extra.dc", "new\n");
+    std::filesystem::remove(root / "project.dcon");
+    auto changes = workspace::modified(started->workspace, ex);
+    CHECK_EQ(changes.size(), 3u);
+    auto find = [&](std::string_view path) -> workspace::FileChange const* {
+        for (auto const& c : changes)
+            if (c.path == path)
+                return &c;
+        return nullptr;
+    };
+    REQUIRE(find("src/main.dc") != nullptr);
+    CHECK(find("src/main.dc")->kind == workspace::ChangeKind::Modified);
+    REQUIRE(find("extra.dc") != nullptr);
+    CHECK(find("extra.dc")->kind == workspace::ChangeKind::Added);
+    REQUIRE(find("project.dcon") != nullptr);
+    CHECK(find("project.dcon")->kind == workspace::ChangeKind::Missing);
+    CHECK_EQ(workspace::modified(started->workspace).size(), 3u);
+}
+
+TEST_CASE("workspace reset takes a backup before restoring")
+{
+    TempDir t;
+    auto ex = make_exercise();
+    auto const root = t.path / "ws";
+    auto const backups = t.path / "backups";
+    auto started = workspace::start(ex, root);
+    REQUIRE(started);
+    auto ws = started->workspace;
+    write_file(root / "src" / "main.dc", "my work\n");
+    write_file(root / "notes" / "todo.txt", "remember\n");
+    write_file(root / ".dpm" / "out" / "prog", "build output");
+
+    auto result = workspace::reset(ws, ex, backups);
+    REQUIRE(result);
+    REQUIRE(!result->backup_path.empty());
+    CHECK(result->backup_path.lexically_relative(backups / "basics" / "one").native().find("..") == std::string::npos);
+    CHECK_EQ(slurp(result->backup_path / "src" / "main.dc"), "my work\n");
+    CHECK_EQ(slurp(result->backup_path / "notes" / "todo.txt"), "remember\n");
+    CHECK_EQ(slurp(result->backup_path / "project.dcon"), ex.starter["project.dcon"]);
+    CHECK(!std::filesystem::exists(result->backup_path / ".dpm"));
+    CHECK(!std::filesystem::exists(result->backup_path / ".learndc"));
+
+    CHECK_EQ(slurp(root / "src" / "main.dc"), ex.starter["src/main.dc"]);
+    CHECK(!std::filesystem::exists(root / "notes" / "todo.txt"));
+    CHECK(!std::filesystem::exists(root / "notes"));
+    CHECK(std::filesystem::exists(root / ".dpm" / "out" / "prog"));
+    CHECK_EQ(result->removed.size(), 1u);
+    CHECK_EQ(result->removed[0], "notes/todo.txt");
+    CHECK(result->kept.empty());
+    CHECK(workspace::modified(ws, ex).empty());
+
+    auto second = workspace::reset(ws, ex, backups);
+    REQUIRE(second);
+    CHECK(second->backup_path != result->backup_path);
+    CHECK(std::filesystem::exists(second->backup_path));
+    CHECK_EQ(entries_with_prefix(backups / "basics" / "one", "").size(), 2u);
+}
+
+TEST_CASE("workspace reset refuses a backup directory inside the workspace")
+{
+    TempDir t;
+    auto ex = make_exercise();
+    auto const root = t.path / "ws";
+    auto started = workspace::start(ex, root);
+    REQUIRE(started);
+    auto ws = started->workspace;
+    write_file(root / "src" / "main.dc", "my work\n");
+    auto result = workspace::reset(ws, ex, root / "backups");
+    REQUIRE(!result);
+    CHECK(result.error().kind == workspace::ErrorKind::Refused);
+    CHECK_EQ(slurp(root / "src" / "main.dc"), "my work\n");
+    CHECK(!std::filesystem::exists(root / "backups"));
+
+    ws.meta.exercise = "basics/other";
+    auto wrong = workspace::reset(ws, ex, t.path / "backups");
+    REQUIRE(!wrong);
+    CHECK(wrong.error().kind == workspace::ErrorKind::Refused);
+    CHECK_EQ(slurp(root / "src" / "main.dc"), "my work\n");
+}
+
+TEST_CASE("workspace reset without a backup keeps learner files")
+{
+    TempDir t;
+    auto ex = make_exercise();
+    auto const root = t.path / "ws";
+    auto started = workspace::start(ex, root);
+    REQUIRE(started);
+    auto ws = started->workspace;
+    write_file(root / "src" / "main.dc", "my work\n");
+    write_file(root / "notes.txt", "mine\n");
+    auto result = workspace::reset(ws, ex, t.path / "backups", false);
+    REQUIRE(result);
+    CHECK(result->backup_path.empty());
+    CHECK(!std::filesystem::exists(t.path / "backups"));
+    CHECK_EQ(slurp(root / "src" / "main.dc"), ex.starter["src/main.dc"]);
+    CHECK_EQ(slurp(root / "notes.txt"), "mine\n");
+    CHECK_EQ(result->kept.size(), 1u);
+}
+
+TEST_CASE("workspace reset brings an outdated workspace to the new revision")
+{
+    TempDir t;
+    auto ex = make_exercise();
+    auto const root = t.path / "ws";
+    auto started = workspace::start(ex, root);
+    REQUIRE(started);
+    auto ws = started->workspace;
+    auto ex2 = make_exercise("basics/one", 2);
+    ex2.starter["src/main.dc"] = "module main;\n// new\n";
+    auto result = workspace::reset(ws, ex2, t.path / "backups");
+    REQUIRE(result);
+    CHECK_EQ(ws.meta.revision, 2);
+    CHECK_EQ(workspace::load(root)->meta.revision, 2);
+    CHECK_EQ(slurp(root / "src" / "main.dc"), ex2.starter["src/main.dc"]);
+    CHECK(workspace::modified(ws).empty());
+}
+
+TEST_CASE("workspace fresh_copy makes a sibling for a new revision")
+{
+    TempDir t;
+    auto ex = make_exercise();
+    auto const root = t.path / "learn dc" / "one";
+    auto started = workspace::start(ex, root);
+    REQUIRE(started);
+    write_file(root / "src" / "main.dc", "old work\n");
+    auto ex2 = make_exercise("basics/one", 2);
+    ex2.starter["src/main.dc"] = "module main;\n// v2\n";
+    auto copy = workspace::fresh_copy(started->workspace, ex2);
+    REQUIRE(copy);
+    CHECK(copy->created);
+    CHECK_EQ(platform::path_to_utf8(copy->workspace.root.filename()), "one.r2");
+    CHECK_EQ(copy->workspace.meta.revision, 2);
+    CHECK_EQ(slurp(copy->workspace.root / "src" / "main.dc"), ex2.starter["src/main.dc"]);
+    CHECK_EQ(slurp(root / "src" / "main.dc"), "old work\n");
+    auto twice = workspace::fresh_copy(*workspace::load(root), ex2);
+    REQUIRE(twice);
+    CHECK(!twice->created);
+    auto ex3 = make_exercise("basics/one", 3);
+    auto third = workspace::fresh_copy(copy->workspace, ex3);
+    REQUIRE(third);
+    CHECK_EQ(platform::path_to_utf8(third->workspace.root.filename()), "one.r3");
+    CHECK(!workspace::fresh_copy(started->workspace, make_exercise("basics/other")));
+}
+
+TEST_CASE("workspace default_root follows track and name")
+{
+    TempDir t;
+    auto dirs = platform::resolve_dirs(platform::Overrides{t.path / "home dir"}, platform::Env{});
+    REQUIRE(dirs);
+    auto ex = make_exercise("types/option-basics");
+    CHECK(workspace::default_root(*dirs, ex) == dirs->workspaces_dir / "types" / "option-basics");
+}
+
+TEST_CASE("workspace diffs against starter and solution")
+{
+    TempDir t;
+    auto ex = make_exercise();
+    auto const root = t.path / "ws";
+    auto started = workspace::start(ex, root);
+    REQUIRE(started);
+    CHECK(workspace::starter_diff(started->workspace, ex).empty());
+    CHECK(!workspace::solution_diff(started->workspace, ex).empty());
+
+    write_file(root / "src" / "main.dc", "module main;\npublic i32 main() { return 0; }\n");
+    write_file(root / "extra.dc", "added\n");
+    auto starter = workspace::starter_diff(started->workspace, ex);
+    CHECK(starter.find("--- starter/src/main.dc") != std::string::npos);
+    CHECK(starter.find("+++ yours/src/main.dc") != std::string::npos);
+    CHECK(starter.find("-public i32 main() { return 1; }") != std::string::npos);
+    CHECK(starter.find("+public i32 main() { return 0; }") != std::string::npos);
+    CHECK(starter.find("yours/extra.dc") != std::string::npos);
+    CHECK(starter.find("--- /dev/null") != std::string::npos);
+    CHECK(starter.find("project.dcon") == std::string::npos);
+    CHECK(workspace::solution_diff(started->workspace, ex).empty());
+
+    write_file(root / "src" / "main.dc", "module main;\n");
+    auto solution = workspace::solution_diff(started->workspace, ex);
+    CHECK(solution.find("--- yours/src/main.dc") != std::string::npos);
+    CHECK(solution.find("+++ solution/src/main.dc") != std::string::npos);
+    CHECK(solution.find("+public i32 main() { return 0; }") != std::string::npos);
+    CHECK(solution.find("extra.dc") == std::string::npos);
+    std::filesystem::remove(root / "src" / "main.dc");
+    CHECK(workspace::solution_diff(started->workspace, ex).find("--- /dev/null") != std::string::npos);
+
+    write_file(root / "src" / "main.dc", std::string("bin\0ary", 7));
+    CHECK(workspace::starter_diff(started->workspace, ex).find("Binary files") != std::string::npos);
 }
 
 int main(int argc, char** argv)

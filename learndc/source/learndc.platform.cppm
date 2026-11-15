@@ -470,6 +470,66 @@ export namespace learndc::platform
 #endif
     }
 
+    struct CreateError
+    {
+        bool exists = false;
+        std::string message;
+    };
+
+    [[nodiscard]] inline std::expected<void, CreateError> create_new_file(std::filesystem::path const& path, std::string_view bytes)
+    {
+        auto const fail = [&](bool exists) -> std::unexpected<CreateError> {
+            return std::unexpected(CreateError{exists, std::format("cannot create '{}': {}", path_to_utf8(path), detail::last_error_message())});
+        };
+#if defined(_WIN32)
+        HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (h == INVALID_HANDLE_VALUE)
+        {
+            DWORD const code = GetLastError();
+            return fail(code == ERROR_FILE_EXISTS || code == ERROR_ALREADY_EXISTS);
+        }
+        std::size_t offset = 0;
+        while (offset < bytes.size())
+        {
+            DWORD const chunk = static_cast<DWORD>(std::min<std::size_t>(bytes.size() - offset, 1u << 20));
+            DWORD written = 0;
+            if (!WriteFile(h, bytes.data() + offset, chunk, &written, nullptr) || written == 0)
+            {
+                auto error = fail(false);
+                CloseHandle(h);
+                DeleteFileW(path.c_str());
+                return error;
+            }
+            offset += written;
+        }
+        FlushFileBuffers(h);
+        CloseHandle(h);
+        return {};
+#else
+        int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
+        if (fd < 0)
+            return fail(errno == EEXIST);
+        std::size_t offset = 0;
+        while (offset < bytes.size())
+        {
+            auto const n = ::write(fd, bytes.data() + offset, bytes.size() - offset);
+            if (n < 0)
+            {
+                if (errno == EINTR)
+                    continue;
+                auto error = fail(false);
+                ::close(fd);
+                ::unlink(path.c_str());
+                return error;
+            }
+            offset += static_cast<std::size_t>(n);
+        }
+        ::fsync(fd);
+        ::close(fd);
+        return {};
+#endif
+    }
+
     struct LockError
     {
         bool busy = false;
