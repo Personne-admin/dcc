@@ -1,0 +1,47 @@
+schema = 1
+id = "generics/generic-functions"
+revision = 1
+title = "Generic functions"
+summary = "Turn an i32-only function into one that works for any comparable type."
+kind = "repair-compilation"
+difficulty = "intermediate"
+estimated_minutes = 10
+concepts = ["template parameter", "type deduction", "generic function"]
+tags = ["generics", "functions"]
+objectives = [
+    "Read the diagnostic produced by passing a decimal to an i32 function",
+    "Declare a type parameter with name(T)(T a, T b)",
+    "Explain how T is deduced from the arguments at each call",
+]
+entry_file = "src/main.dc"
+product = "picker"
+prerequisites = ["memory/filling-arrays"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Works for ints, floats and bytes"
+expect_stdout = """
+ints: larger 9, smaller 3
+floats: larger 2.500000, smaller 1.250000
+bytes: larger 200, smaller 100
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "larger should be declared as public T larger(T)(T a, T b)."
+
+[[checks]]
+kind = "harness"
+name = "larger works for signed, unsigned and floating-point types"
+harness = "checks/pick_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Do not keep any i32-specific code in larger; u64 values above 2 billion must work."

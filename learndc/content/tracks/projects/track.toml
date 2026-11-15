@@ -1,5 +1,6 @@
 schema = 1
 id = "projects"
-title = "DPM projects"
-summary = "Split programs into modules, read project diagnostics and build a small multi-module tool."
+title = "Modules and Projects"
+summary = "Split a program into modules, read project diagnostics and build a multi-module tool."
+goal = "Organize code across files and modules, fix broken dpm projects and design a small tool."
 exercises = ["local-modules", "broken-project", "tally"]

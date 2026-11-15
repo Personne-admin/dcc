@@ -1,0 +1,6 @@
+schema = 1
+id = "data"
+title = "Shaping Data"
+summary = "Model the world with structs, enums and tagged enums, and choose behavior with match."
+goal = "Design your own types, change values through pointers and handle every case of an enum with match."
+exercises = ["struct-pointers", "match", "tagged-enums", "mini-calculator"]

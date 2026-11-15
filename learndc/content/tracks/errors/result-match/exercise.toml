@@ -4,7 +4,6 @@ revision = 1
 title = "Success or a reason: Result"
 summary = "Return Ok or Err with your own error enum, then match on both outcomes."
 kind = "implement-function"
-chapter = "errors"
 difficulty = "beginner"
 estimated_minutes = 15
 concepts = ["Result", "Result::Ok", "Result::Err", "error enum", "nested match"]

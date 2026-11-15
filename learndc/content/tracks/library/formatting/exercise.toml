@@ -4,7 +4,6 @@ revision = 1
 title = "Format a receipt"
 summary = "Use width, alignment, precision and integer-base format specs to line up a table."
 kind = "fix-behavior"
-chapter = "formatting"
 difficulty = "beginner"
 estimated_minutes = 10
 concepts = ["format specs", "width", "alignment", "precision", "integer bases"]
@@ -16,7 +15,7 @@ objectives = [
 ]
 entry_file = "src/main.dc"
 product = "receipt"
-prerequisites = ["types/owned-array"]
+prerequisites = ["memory/filling-arrays"]
 requires = ["dcc", "dpm"]
 min_dcc = "0.6.0"
 platforms = ["linux", "windows"]

@@ -4,7 +4,6 @@ revision = 1
 title = "Your own error type"
 summary = "Define an error enum, return it from validators and use it as the error type of main."
 kind = "multi-module"
-chapter = "errors"
 difficulty = "intermediate"
 estimated_minutes = 20
 concepts = ["error enum", "Status(CustomError)", "@implicit_construction", "public import", "exit code"]

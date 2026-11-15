@@ -4,7 +4,6 @@ revision = 1
 title = "Fix a broken project"
 summary = "Follow three different diagnostics to repair a project that does not build."
 kind = "repair-compilation"
-chapter = "modules"
 difficulty = "beginner"
 estimated_minutes = 10
 concepts = ["project.dcon", "module declaration", "entry file", "public"]

@@ -1,0 +1,6 @@
+schema = 1
+id = "first-steps"
+title = "First Steps"
+summary = "Write, build and run your first programs, print text and read the compiler's first error messages."
+goal = "Edit a program, run it, print values with placeholders and fix a compile error by reading the diagnostic."
+exercises = ["hello-world"]

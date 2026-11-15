@@ -1,0 +1,6 @@
+schema = 1
+id = "loops"
+title = "Repetition"
+summary = "Repeat work with while and for, and find the off-by-one mistakes every programmer makes."
+goal = "Write loops that count, accumulate and stop at the right moment, and trace a loop by hand."
+exercises = ["ranges"]

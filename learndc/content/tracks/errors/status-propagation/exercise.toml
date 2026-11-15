@@ -4,7 +4,6 @@ revision = 1
 title = "Passing errors upward with ?"
 summary = "Chain fallible helpers with ? so the first failure stops the program with exit code 1."
 kind = "complete-program"
-chapter = "errors"
 difficulty = "beginner"
 estimated_minutes = 15
 concepts = ["?", "Status(Error)", "Result(T, Error)", "Status::Ok", "exit code"]

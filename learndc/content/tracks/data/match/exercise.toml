@@ -1,0 +1,47 @@
+schema = 1
+id = "data/match"
+revision = 1
+title = "Matching on an enum"
+summary = "Make a match cover every variant of an enum, and see why a wildcard hides mistakes."
+kind = "repair-compilation"
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["enum", "match", "exhaustiveness", "wildcard pattern"]
+tags = ["enums", "match", "diagnostics"]
+objectives = [
+    "Declare a plain enum and name its variants with Type::Variant",
+    "Write a match that handles every variant and read the exhaustiveness error",
+    "Explain why a wildcard arm can silently give a new variant the wrong behavior",
+]
+entry_file = "src/main.dc"
+product = "lights"
+prerequisites = ["loops/ranges"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm"]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Each light has the right action and duration"
+expect_stdout = """
+Red: Stop for 30 seconds
+Yellow: Slow down for 5 seconds
+Green: Go for 25 seconds
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Yellow is 5 seconds. Check which match arm produces the number for Yellow."
+
+[[checks]]
+kind = "harness"
+name = "action and seconds cover every variant"
+harness = "checks/light_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Yellow needs an arm in both action and seconds."

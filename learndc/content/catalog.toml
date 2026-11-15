@@ -1,3 +1,33 @@
 schema = 1
 title = "Learn DC"
-tracks = ["fundamentals", "types", "errors", "library", "projects"]
+tracks = [
+    "first-steps",
+    "values",
+    "functions",
+    "decisions",
+    "loops",
+    "collections",
+    "data",
+    "errors",
+    "memory",
+    "projects",
+    "library",
+    "generics",
+]
+
+[renamed]
+"fundamentals/hello-world" = "first-steps/hello-world"
+"fundamentals/variables" = "values/variables"
+"fundamentals/functions" = "functions/four-functions"
+"fundamentals/diagnostics" = "functions/reading-errors"
+"fundamentals/branches" = "decisions/branches"
+"fundamentals/loops" = "loops/ranges"
+"fundamentals/match" = "data/match"
+"fundamentals/mini-calculator" = "data/mini-calculator"
+"types/fixed-arrays-slices" = "collections/arrays-and-slices"
+"types/structs" = "data/struct-pointers"
+"types/tagged-enums" = "data/tagged-enums"
+"types/owned-array" = "memory/filling-arrays"
+"types/generics" = "generics/generic-functions"
+"library/text-slices" = "collections/text-slices"
+"library/map-lookup" = "memory/map-lookup"

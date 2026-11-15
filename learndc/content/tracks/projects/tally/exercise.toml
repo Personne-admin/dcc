@@ -4,7 +4,6 @@ revision = 1
 title = "Tally a text"
 summary = "Count the lines, words and longest word of a text in a helper module."
 kind = "challenge"
-chapter = "modules"
 difficulty = "intermediate"
 estimated_minutes = 25
 concepts = ["modules", "loops", "slices", "state machines"]

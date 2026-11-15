@@ -1,0 +1,51 @@
+schema = 1
+id = "loops/ranges"
+revision = 1
+title = "Loops and ranges"
+summary = "Fix an off-by-one error in a for loop that sums 1 up to n."
+kind = "fix-behavior"
+difficulty = "beginner"
+estimated_minutes = 8
+concepts = ["for", "range", "inclusive range", "while", "off-by-one"]
+tags = ["loops", "ranges", "debugging"]
+objectives = [
+    "Iterate over a half-open range with for",
+    "Tell exclusive and inclusive range ends apart",
+    "Recognize and repair an off-by-one error from the output",
+]
+entry_file = "src/main.dc"
+product = "loops"
+prerequisites = ["decisions/branches"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Sums are correct and the countdown runs"
+expect_stdout = """
+Sum of 1 to 1 is 1
+Sum of 1 to 5 is 15
+Sum of 1 to 10 is 55
+3...
+2...
+1...
+Liftoff!
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "1 + 2 + 3 + 4 + 5 is 15. The loop currently stops one number too early."
+
+[[checks]]
+kind = "harness"
+name = "sum_to handles small and large n"
+harness = "checks/sum_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "sum_to(0) and sum_to(-3) must be 0 because there is nothing to add."

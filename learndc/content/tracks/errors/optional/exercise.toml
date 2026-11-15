@@ -4,7 +4,6 @@ revision = 1
 title = "Maybe a value: Optional"
 summary = "Return none when there is no answer, and handle both cases with match."
 kind = "implement-function"
-chapter = "errors"
 difficulty = "beginner"
 estimated_minutes = 10
 concepts = ["Optional", "Optional::Some", "Optional::None", "match"]
@@ -16,7 +15,7 @@ objectives = [
 ]
 entry_file = "src/main.dc"
 product = "safediv"
-prerequisites = ["fundamentals/match"]
+prerequisites = ["data/match"]
 requires = ["dcc", "dpm"]
 min_dcc = "0.6.0"
 platforms = ["linux", "windows"]

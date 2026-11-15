@@ -283,12 +283,15 @@ class PtyProcess:
 
 def make_content(real_content: Path, target: Path):
     (target / "tracks" / "fundamentals").mkdir(parents=True)
-    src = real_content / "tracks" / "fundamentals" / "hello-world"
-    shutil.copytree(src, target / "tracks" / "fundamentals" / "hello-world")
+    src = real_content / "tracks" / "first-steps" / "hello-world"
+    hello = target / "tracks" / "fundamentals" / "hello-world"
+    shutil.copytree(src, hello)
+    toml = (hello / "exercise.toml").read_text()
+    (hello / "exercise.toml").write_text(toml.replace('id = "first-steps/hello-world"', 'id = "fundamentals/hello-world"'))
     again = target / "tracks" / "fundamentals" / "hello-again"
     shutil.copytree(src, again)
     toml = (again / "exercise.toml").read_text()
-    toml = toml.replace('id = "fundamentals/hello-world"', 'id = "fundamentals/hello-again"')
+    toml = toml.replace('id = "first-steps/hello-world"', 'id = "fundamentals/hello-again"')
     toml = toml.replace('title = "Your first DC program"', 'title = "Your second DC program"')
     toml = toml.replace("prerequisites = []", 'prerequisites = ["fundamentals/hello-world"]')
     (again / "exercise.toml").write_text(toml)
@@ -387,7 +390,7 @@ def journey_start_and_check(real_content: Path):
     ex = {e["id"]: e for e in prog["exercises"]}["fundamentals/hello-world"]
     check(ex["status"] == "in-progress" and ex["attempts"] == 2, f"in-progress after two failed checks: {ex}")
 
-    solution = (real_content / "tracks" / "fundamentals" / "hello-world" / "solution" / "src" / "main.dc").read_text()
+    solution = (real_content / "tracks" / "first-steps" / "hello-world" / "solution" / "src" / "main.dc").read_text()
     main.write_text(solution)
     rc, out, err = expect(["check", "fundamentals/hello-world"], 0)
     check("Exercise completed" in out, "completion message")
@@ -707,7 +710,7 @@ def journey_embedded():
     print("journey: embedded content")
     env = {"LEARNDC_CONTENT_DIR": ""}
     data = expect_json(["list", "--json"], env=env)
-    check(any(e["id"] == "fundamentals/hello-world" for e in data["exercises"]), "bundled catalog has hello-world")
+    check(any(e["id"] == "first-steps/hello-world" for e in data["exercises"]), "bundled catalog has hello-world")
     expect(["dev", "validate", "--backend", "dpm", "--id", "fundamentals/hello-world"], 0, env=env)
 
 

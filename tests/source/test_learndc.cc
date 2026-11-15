@@ -1775,8 +1775,27 @@ TEST_CASE("real content directory loads")
     CHECK(next->prerequisites.empty());
     for (auto const& e : c.exercises())
     {
+        CHECK(!e.readme.empty());
+        if (e.is_lecture())
+            continue;
         CHECK(e.hints[0] != e.hints[1]);
         CHECK(!e.checks.empty());
+    }
+    CHECK_EQ(hello->id, "first-steps/hello-world");
+    CHECK(!c.renamed().empty());
+    for (auto const& [from, to] : c.renamed())
+    {
+        CHECK(c.find(from) == c.find(to));
+        CHECK(c.find(to) != nullptr);
+    }
+    for (auto const& t : c.tracks())
+    {
+        CHECK(!t.goal.empty());
+        int bosses = 0;
+        for (auto const& id : t.exercise_ids)
+            if (c.find(id)->is_boss())
+                ++bosses;
+        CHECK(bosses <= 1);
     }
 }
 
@@ -1871,7 +1890,7 @@ TEST_CASE("embedded bundle decodes and loads")
         std::println(std::cerr, "    {}", source.error().message);
     REQUIRE(source);
     CHECK(source->contains("catalog.toml"));
-    CHECK(source->contains("tracks/fundamentals/hello-world/exercise.toml"));
+    CHECK(source->contains("tracks/first-steps/hello-world/exercise.toml"));
     auto loaded = catalog::Catalog::load(*source);
     if (!loaded)
         dump_errors(loaded.error());
@@ -3393,15 +3412,15 @@ namespace
             return std::nullopt;
         catalog::ContentSource s;
         s.label = "hello";
-        s.add("catalog.toml", "schema = 1\ntitle = \"T\"\ntracks = [\"fundamentals\"]\n");
-        s.add("tracks/fundamentals/track.toml", "schema = 1\nid = \"fundamentals\"\ntitle = \"F\"\nsummary = \"s\"\nexercises = [\"hello-world\"]\n");
+        s.add("catalog.toml", "schema = 1\ntitle = \"T\"\ntracks = [\"first-steps\"]\n");
+        s.add("tracks/first-steps/track.toml", "schema = 1\nid = \"first-steps\"\ntitle = \"F\"\nsummary = \"s\"\nexercises = [\"hello-world\"]\n");
         for (auto const& [path, bytes] : full->files)
-            if (path.starts_with("tracks/fundamentals/hello-world/"))
+            if (path.starts_with("tracks/first-steps/hello-world/"))
                 s.add(path, bytes);
         auto loaded = catalog::Catalog::load(s);
         if (!loaded)
             return std::nullopt;
-        auto const* ex = loaded->find("fundamentals/hello-world");
+        auto const* ex = loaded->find("first-steps/hello-world");
         if (!ex)
             return std::nullopt;
         return *ex;
@@ -4069,7 +4088,7 @@ TEST_CASE("repeated checks reuse unchanged staging files")
     auto const root = t.path / "ws";
     REQUIRE(workspace::start(*ex, root).has_value());
     auto first = runner::run_checks(*ex, root, o);
-    auto const staged = o.dirs.staging_dir / "fundamentals-hello-world" / "project" / "src" / "main.dc";
+    auto const staged = o.dirs.staging_dir / "first-steps-hello-world" / "project" / "src" / "main.dc";
     REQUIRE(std::filesystem::exists(staged));
     auto const before = std::filesystem::last_write_time(staged);
     std::this_thread::sleep_for(30ms);
@@ -6474,7 +6493,7 @@ TEST_CASE("cli show hint and solution print plain readable markdown without a re
     REQUIRE(source);
     auto loaded = catalog::Catalog::load(*source);
     REQUIRE(loaded);
-    CHECK_EQ(loaded->exercises().size(), 23u);
+    CHECK(loaded->exercises().size() >= 23u);
     for (auto const& ex : loaded->exercises())
     {
         auto const& id = ex.id;
@@ -6492,6 +6511,12 @@ TEST_CASE("cli show hint and solution print plain readable markdown without a re
         if (titles != 1u)
             std::println(std::cerr, "      {}: title printed {} times", id, titles);
         CHECK_EQ(titles, 1u);
+        if (ex.is_lecture())
+        {
+            CHECK_EQ(f.run({"hint", id}).code, 2);
+            CHECK(shown.out.find("learndc answer") != std::string::npos);
+            continue;
+        }
         auto const hint = f.run({"hint", id});
         CHECK_EQ(hint.code, 0);
         for (auto const& line : text::split_lines(hint.out))
@@ -6518,12 +6543,24 @@ TEST_CASE("markdown renders every bundled exercise cleanly at 100 and 60 columns
     REQUIRE(source);
     auto loaded = catalog::Catalog::load(*source);
     REQUIRE(loaded);
-    CHECK_EQ(loaded->exercises().size(), 23u);
+    CHECK(loaded->exercises().size() >= 23u);
     for (auto const& ex : loaded->exercises())
     {
-        std::vector<std::pair<std::string, std::string>> docs = {{"readme", ex.readme}, {"explanation", ex.explanation}};
-        for (std::size_t i = 0; i < ex.hints.size(); ++i)
-            docs.push_back({std::format("hint {}", i + 1), ex.hints[i]});
+        std::vector<std::pair<std::string, std::string>> docs = {{"readme", ex.readme}};
+        if (!ex.is_lecture())
+        {
+            docs.push_back({"explanation", ex.explanation});
+            for (std::size_t i = 0; i < ex.hints.size(); ++i)
+                docs.push_back({std::format("hint {}", i + 1), ex.hints[i]});
+        }
+        for (auto const& st : ex.stages)
+        {
+            docs.push_back({std::format("stage {} summary", st.id), st.summary});
+            for (auto const& h : st.hints)
+                docs.push_back({std::format("stage {} hint", st.id), h});
+        }
+        for (auto const& q : ex.questions)
+            docs.push_back({"question", q.explanation});
         for (auto const& [label, body] : docs)
             for (int width : {100, 60})
                 for (bool ascii : {false, true})
@@ -7384,7 +7421,7 @@ TEST_CASE("tui renders every bundled exercise within the terminal at 100 and 60 
     std::vector<std::string> ids;
     for (auto const& ex : ctx.catalog.exercises())
         ids.push_back(ex.id);
-    CHECK_EQ(ids.size(), 23u);
+    CHECK(ids.size() >= 23u);
     for (auto const& id : ids)
     {
         m.open_exercise(id);
@@ -7652,8 +7689,8 @@ harness = "checks/bonus_check.dc"
     {
         auto s = base_source();
         s.files["catalog.toml"] = "schema = 1\ntitle = \"Test\"\ntracks = [\"basics\", \"more\"]\n\n[renamed]\n\"old/one\" = \"basics/one\"\n";
-        s.files["tracks/basics/track.toml"] = "schema = 1\nid = \"basics\"\ntitle = \"Basics\"\nsummary = \"Start here\"\ngoal = \"Learn the "
-                                              "basics.\"\nexercises = [\"intro\", \"one\", \"two\"]\n";
+        s.files["tracks/basics/track.toml"] =
+            "schema = 1\nid = \"basics\"\ntitle = \"Basics\"\nsummary = \"Start here\"\ngoal = \"Learn the basics.\"\nexercises = [\"intro\", \"one\", \"two\"]\n";
         s.files["tracks/more/track.toml"] = "schema = 1\nid = \"more\"\ntitle = \"More\"\nsummary = \"Go on\"\nexercises = [\"three\", \"boss\"]\n";
         s.add("tracks/basics/intro/lecture.toml", std::string(lecture_toml));
         s.add("tracks/basics/intro/README.md", "# How things work\n\n## First\n\nText.\n\n```dc example=demo\n```\n\n## Second\n\nMore text.\n");
@@ -7786,8 +7823,7 @@ TEST_CASE("academy catalog rejects broken stages bosses and lectures")
     }
     {
         auto s = academy_source();
-        edit(s, "tracks/basics/one/exercise.toml", "[[checks]]\nkind = \"run\"\nname = \"Prints\"\n",
-             "[[checks]]\nkind = \"run\"\nname = \"Prints\"\nstage = \"x\"\n");
+        edit(s, "tracks/basics/one/exercise.toml", "[[checks]]\nkind = \"run\"\nname = \"Prints\"\n", "[[checks]]\nkind = \"run\"\nname = \"Prints\"\nstage = \"x\"\n");
         expect_error(s, "names stage 'x' but the exercise has no [[stages]]");
     }
     {
@@ -7937,8 +7973,7 @@ TEST_CASE("academy progress store reads schema 1 and keeps a one-time backup")
 {
     TempDir t;
     progress::ProgressStore store(t.path / "progress.json", t.path / "progress.lock");
-    std::string const v1 =
-        R"({"schema":1,"active_exercise":"a/b","exercises":{"a/b":{"status":"completed","attempts":2,"passes":1}},"bookmarks":[],"workspaces":{},"recent":[]})";
+    std::string const v1 = R"({"schema":1,"active_exercise":"a/b","exercises":{"a/b":{"status":"completed","attempts":2,"passes":1}},"bookmarks":[],"workspaces":{},"recent":[]})";
     write_file(store.file(), v1);
     auto loaded = store.load();
     REQUIRE(loaded);
@@ -8040,8 +8075,7 @@ TEST_CASE("academy app records stages completion boss victory and chapter comple
     CHECK_EQ(sum.bosses_defeated, 1);
     CHECK_EQ(sum.tracks[1].boss_id, "more/boss");
     auto earned = learndc::app::achievements(*ctx, *p);
-    CHECK(std::ranges::any_of(
-        earned, [](auto const& a) { return a.boss && a.title == "Boss defeated: The Keeper" && a.detail.find("bonus 0 of 1") != std::string::npos; }));
+    CHECK(std::ranges::any_of(earned, [](auto const& a) { return a.boss && a.title == "Boss defeated: The Keeper" && a.detail.find("bonus 0 of 1") != std::string::npos; }));
     CHECK(std::ranges::any_of(earned, [](auto const& a) { return a.title == "Chapter 2 complete: More"; }));
 
     rec = learndc::app::record_report(*ctx, boss, staged_report(true, true, true, "fp4"));
@@ -8109,8 +8143,7 @@ TEST_CASE("academy opening new content migrates old ids and keeps the old worksp
     renamed_source.add("tracks/old/track.toml", "schema = 1\nid = \"old\"\ntitle = \"Old\"\nsummary = \"s\"\nexercises = [\"one\"]\n");
     for (auto const& [path, bytes] : old_source.files)
         if (path.starts_with("tracks/basics/one/"))
-            renamed_source.add("tracks/old/one/" + path.substr(18),
-                               path.ends_with("exercise.toml") ? text::replace_all(bytes, "basics/one", "old/one") : bytes);
+            renamed_source.add("tracks/old/one/" + path.substr(18), path.ends_with("exercise.toml") ? text::replace_all(bytes, "basics/one", "old/one") : bytes);
     auto old_loaded = catalog::Catalog::load(renamed_source);
     if (!old_loaded)
         dump_errors(old_loaded.error());

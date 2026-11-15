@@ -1,0 +1,6 @@
+schema = 1
+id = "functions"
+title = "Functions"
+summary = "Give a piece of work a name, feed it parameters and use the value it returns."
+goal = "Split a problem into small functions, call them from main and read errors about calls that do not fit."
+exercises = ["four-functions", "reading-errors"]

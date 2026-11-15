@@ -1,5 +1,6 @@
 schema = 1
 id = "errors"
-title = "Errors and results"
-summary = "Optional values, Result and Status, propagating failures with ? and defining your own error types."
+title = "When Things Go Wrong"
+summary = "Represent missing values and failures in the type system and pass errors upward with ?."
+goal = "Choose between Optional, Result and Status, propagate failures with ? and define your own error types."
 exercises = ["optional", "result-match", "status-propagation", "custom-errors"]

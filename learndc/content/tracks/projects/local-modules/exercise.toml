@@ -4,7 +4,6 @@ revision = 1
 title = "Split a program into modules"
 summary = "Make a helper module usable from main and add a second helper function."
 kind = "multi-module"
-chapter = "modules"
 difficulty = "beginner"
 estimated_minutes = 10
 concepts = ["module", "import", "public", "qualified names"]
@@ -16,7 +15,7 @@ objectives = [
 ]
 entry_file = "src/main.dc"
 product = "converter"
-prerequisites = ["fundamentals/functions"]
+prerequisites = ["functions/four-functions"]
 requires = ["dcc", "dpm"]
 min_dcc = "0.6.0"
 platforms = ["linux", "windows"]

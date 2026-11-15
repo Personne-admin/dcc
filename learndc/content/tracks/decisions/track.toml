@@ -1,0 +1,6 @@
+schema = 1
+id = "decisions"
+title = "Making Decisions"
+summary = "Let a program choose between paths with conditions, if and else."
+goal = "Combine conditions and write if/else chains that treat every boundary case correctly."
+exercises = ["branches"]
