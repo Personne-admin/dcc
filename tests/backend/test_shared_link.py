@@ -177,6 +177,11 @@ def test_consume_shared_library(root):
         r = dcc(hello, "-o", root / "forced dynamic", "-flibdcext", "-fwhole-program", *flags)
         check(r.returncode != 0 and "needs a shared library to link" in r.stderr, f"{what} without a shared library is rejected instead of writing a broken executable", r.stderr)
 
+    depfile = root / "call.d"
+    exe = root / "with depfile"
+    r = dcc(source, "-o", exe, "-flibdcext", "-fwhole-program", f"-L{libdir}", "-lshim", "--depfile", depfile)
+    check(r.returncode == 0 and "libshim.so" in depfile.read_text(), "the depfile lists the linked shared library", r.stderr + (depfile.read_text() if depfile.exists() else ""))
+
 
 def test_static_builds_stay_static(root):
     hello = root / "hello.dc"

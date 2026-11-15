@@ -806,8 +806,27 @@ namespace
         return true;
     }
 
+    [[nodiscard]] std::vector<std::filesystem::path> depfile_link_inputs(Options const& opts, dcc::target::TargetConfig const& target,
+                                                                         std::set<dcc::backend::ArtifactKind> const& kinds)
+    {
+        if (!kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes) && !kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes))
+            return {};
+        dcc::backend::BackendOptions link;
+        link.target = target;
+        link.library_paths = opts.library_paths;
+        link.libraries = opts.libraries;
+        link.linker_args = opts.linker_args;
+        link.link_mode = opts.link_mode;
+        link.dynamic_linker = opts.dynamic_linker;
+        link.runtime_paths = opts.runtime_paths;
+        auto plan = dcc::backend::object::plan_link(link);
+        if (!plan)
+            return {};
+        return plan->libraries;
+    }
+
     bool emit_depfile(std::filesystem::path const& depfile_path, std::filesystem::path const& target_path, dcc::sema::ModuleInfo const* root,
-                      dcc::sema::ModuleGraph const& graph, dcc::sm::SourceManager const& sm)
+                      dcc::sema::ModuleGraph const& graph, dcc::sm::SourceManager const& sm, std::vector<std::filesystem::path> const& link_inputs = {})
     {
         if (target_path.empty())
         {
@@ -816,6 +835,9 @@ namespace
         }
 
         auto deps = collect_depfile_dependencies(root, graph, sm);
+        for (auto const& input : link_inputs)
+            if (std::ranges::find(deps, input) == deps.end())
+                deps.push_back(input);
 
         if (same_file_path(depfile_path, target_path))
         {
@@ -1941,7 +1963,7 @@ auto main(int argc, char** argv) -> int
                 if (!emit_compdb(opts, input_path, primary_output, module, sema->graph(), session.source_manager(), argc, argv))
                     return 1;
 
-                if (opts.depfile && !emit_depfile(*opts.depfile, primary_output, module, sema->graph(), session.source_manager()))
+                if (opts.depfile && !emit_depfile(*opts.depfile, primary_output, module, sema->graph(), session.source_manager(), depfile_link_inputs(opts, target, kinds)))
                     return 1;
 #else
                 std::println(std::cerr, "dcc: error: LLVM support not compiled into this build of dcc");
@@ -1994,7 +2016,7 @@ auto main(int argc, char** argv) -> int
                 if (!emit_compdb(opts, input_path, primary_output, module, sema->graph(), session.source_manager(), argc, argv))
                     return 1;
 
-                if (opts.depfile && !emit_depfile(*opts.depfile, primary_output, module, sema->graph(), session.source_manager()))
+                if (opts.depfile && !emit_depfile(*opts.depfile, primary_output, module, sema->graph(), session.source_manager(), depfile_link_inputs(opts, target, kinds)))
                     return 1;
             }
         }
