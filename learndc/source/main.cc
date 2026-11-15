@@ -1,15 +1,21 @@
-#include <ftxui.hpp>
-
 import std;
 import learndc.bundle;
-import dcc.host.process;
+import learndc.catalog;
 
 int main()
 {
-    auto document = ftxui::text("learndc") | ftxui::border;
-    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(20), ftxui::Dimension::Fit(document));
-    ftxui::Render(screen, document);
-    std::println("{}", screen.ToString());
-    std::println("bundle bytes: {}", learndc::bundle::raw().size());
+    auto source = learndc::bundle::embedded();
+    if (!source)
+    {
+        std::println(std::cerr, "learndc: {}", source.error().message);
+        return 3;
+    }
+    auto loaded = learndc::catalog::Catalog::load(*source);
+    if (!loaded)
+    {
+        std::print(std::cerr, "{}", learndc::catalog::format_errors(loaded.error()));
+        return 3;
+    }
+    std::println("{} exercises", loaded->exercises().size());
     return 0;
 }

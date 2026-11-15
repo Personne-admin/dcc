@@ -1,0 +1,1419 @@
+export module learndc.catalog;
+
+import std;
+import learndc.text;
+import learndc.toml;
+
+export namespace learndc::catalog
+{
+    constexpr int supported_schema = 1;
+
+    struct ContentError
+    {
+        std::string file;
+        int line = 1;
+        int column = 1;
+        std::string message;
+
+        [[nodiscard]] std::string format() const { return std::format("{}:{}:{}: {}", file, line, column, message); }
+    };
+
+    struct ContentSource
+    {
+        std::string label;
+        std::map<std::string, std::string> files;
+
+        void add(std::string path, std::string data) { files[std::move(path)] = std::move(data); }
+
+        [[nodiscard]] bool contains(std::string_view path) const { return files.find(std::string(path)) != files.end(); }
+
+        [[nodiscard]] std::string const* get(std::string_view path) const
+        {
+            auto it = files.find(std::string(path));
+            return it == files.end() ? nullptr : &it->second;
+        }
+    };
+
+    enum class ExerciseKind
+    {
+        RepairCompilation,
+        FixBehavior,
+        ImplementFunction,
+        CompleteProgram,
+        UnderstandDiagnostics,
+        Refactor,
+        MultiModule,
+        Libdcext,
+        Challenge,
+    };
+
+    enum class Difficulty
+    {
+        Beginner,
+        Intermediate,
+        Advanced,
+    };
+
+    enum class CheckKind
+    {
+        Build,
+        Run,
+        Harness,
+        Diagnostic,
+    };
+
+    enum class StdoutMatch
+    {
+        Exact,
+        Contains,
+        Trimmed,
+    };
+
+    enum class LineEndings
+    {
+        Portable,
+        Exact,
+    };
+
+    enum class StarterState
+    {
+        FailsBuild,
+        FailsChecks,
+    };
+
+    namespace detail
+    {
+        template <typename E> struct Name
+        {
+            E value;
+            std::string_view text;
+        };
+
+        constexpr std::array<Name<ExerciseKind>, 9> kind_names = {{
+            {ExerciseKind::RepairCompilation, "repair-compilation"},
+            {ExerciseKind::FixBehavior, "fix-behavior"},
+            {ExerciseKind::ImplementFunction, "implement-function"},
+            {ExerciseKind::CompleteProgram, "complete-program"},
+            {ExerciseKind::UnderstandDiagnostics, "understand-diagnostics"},
+            {ExerciseKind::Refactor, "refactor"},
+            {ExerciseKind::MultiModule, "multi-module"},
+            {ExerciseKind::Libdcext, "libdcext"},
+            {ExerciseKind::Challenge, "challenge"},
+        }};
+
+        constexpr std::array<Name<Difficulty>, 3> difficulty_names = {{
+            {Difficulty::Beginner, "beginner"},
+            {Difficulty::Intermediate, "intermediate"},
+            {Difficulty::Advanced, "advanced"},
+        }};
+
+        constexpr std::array<Name<CheckKind>, 4> check_kind_names = {{
+            {CheckKind::Build, "build"},
+            {CheckKind::Run, "run"},
+            {CheckKind::Harness, "harness"},
+            {CheckKind::Diagnostic, "diagnostic"},
+        }};
+
+        constexpr std::array<Name<StdoutMatch>, 3> match_names = {{
+            {StdoutMatch::Exact, "exact"},
+            {StdoutMatch::Contains, "contains"},
+            {StdoutMatch::Trimmed, "trimmed"},
+        }};
+
+        constexpr std::array<Name<LineEndings>, 2> ending_names = {{
+            {LineEndings::Portable, "portable"},
+            {LineEndings::Exact, "exact"},
+        }};
+
+        constexpr std::array<Name<StarterState>, 2> state_names = {{
+            {StarterState::FailsBuild, "fails-build"},
+            {StarterState::FailsChecks, "fails-checks"},
+        }};
+
+        template <typename E, std::size_t N> [[nodiscard]] constexpr std::string_view name_of(std::array<Name<E>, N> const& table, E value)
+        {
+            for (auto const& entry : table)
+                if (entry.value == value)
+                    return entry.text;
+            return "unknown";
+        }
+
+        template <typename E, std::size_t N> [[nodiscard]] constexpr std::optional<E> parse_name(std::array<Name<E>, N> const& table, std::string_view text)
+        {
+            for (auto const& entry : table)
+                if (entry.text == text)
+                    return entry.value;
+            return std::nullopt;
+        }
+
+        template <typename E, std::size_t N> [[nodiscard]] std::string expected_list(std::array<Name<E>, N> const& table)
+        {
+            std::string out;
+            for (auto const& entry : table)
+            {
+                if (!out.empty())
+                    out += ", ";
+                out += entry.text;
+            }
+            return out;
+        }
+    } // namespace detail
+
+    [[nodiscard]] constexpr std::string_view to_string(ExerciseKind v)
+    {
+        return detail::name_of(detail::kind_names, v);
+    }
+    [[nodiscard]] constexpr std::string_view to_string(Difficulty v)
+    {
+        return detail::name_of(detail::difficulty_names, v);
+    }
+    [[nodiscard]] constexpr std::string_view to_string(CheckKind v)
+    {
+        return detail::name_of(detail::check_kind_names, v);
+    }
+    [[nodiscard]] constexpr std::string_view to_string(StdoutMatch v)
+    {
+        return detail::name_of(detail::match_names, v);
+    }
+    [[nodiscard]] constexpr std::string_view to_string(LineEndings v)
+    {
+        return detail::name_of(detail::ending_names, v);
+    }
+    [[nodiscard]] constexpr std::string_view to_string(StarterState v)
+    {
+        return detail::name_of(detail::state_names, v);
+    }
+
+    [[nodiscard]] constexpr std::optional<ExerciseKind> parse_exercise_kind(std::string_view s)
+    {
+        return detail::parse_name(detail::kind_names, s);
+    }
+    [[nodiscard]] constexpr std::optional<Difficulty> parse_difficulty(std::string_view s)
+    {
+        return detail::parse_name(detail::difficulty_names, s);
+    }
+
+    [[nodiscard]] inline bool is_slug(std::string_view s)
+    {
+        if (s.empty() || s.front() == '-' || s.back() == '-')
+            return false;
+        char previous = '\0';
+        for (char c : s)
+        {
+            bool const ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+            if (!ok || (c == '-' && previous == '-'))
+                return false;
+            previous = c;
+        }
+        return true;
+    }
+
+    [[nodiscard]] inline bool is_exercise_id(std::string_view s)
+    {
+        auto const slash = s.find('/');
+        if (slash == std::string_view::npos)
+            return false;
+        return is_slug(s.substr(0, slash)) && is_slug(s.substr(slash + 1));
+    }
+
+    [[nodiscard]] inline bool is_identifier(std::string_view s)
+    {
+        if (s.empty() || (s.front() >= '0' && s.front() <= '9'))
+            return false;
+        return std::ranges::all_of(s, [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
+    }
+
+    [[nodiscard]] inline bool is_harness_stem(std::string_view s)
+    {
+        return !s.empty() && s.front() >= 'a' && s.front() <= 'z' && is_identifier(s);
+    }
+
+    [[nodiscard]] inline bool is_version(std::string_view s)
+    {
+        auto parts = text::split(s, '.');
+        if (parts.size() != 3)
+            return false;
+        return std::ranges::all_of(
+            parts, [](std::string const& p) { return !p.empty() && p.size() <= 9 && std::ranges::all_of(p, [](char c) { return c >= '0' && c <= '9'; }); });
+    }
+
+    [[nodiscard]] inline std::optional<std::string> path_problem(std::string_view path)
+    {
+        if (path.empty())
+            return "path is empty";
+        if (path.front() == '/')
+            return "path is absolute";
+        if (path.find('\\') != std::string_view::npos)
+            return "path contains a backslash";
+        if (path.find(':') != std::string_view::npos)
+            return "path contains a colon (drive letters are not allowed)";
+        for (char c : path)
+            if (static_cast<unsigned char>(c) < 0x20 || c == 0x7F)
+                return "path contains a control character";
+        for (auto const& part : text::split(path, '/'))
+        {
+            if (part.empty())
+                return "path contains an empty component";
+            if (part == ".")
+                return "path contains a '.' component";
+            if (part == "..")
+                return "path contains a '..' component";
+            if (part.back() == '.' || part.back() == ' ')
+                return "path component ends with a dot or a space";
+        }
+        return std::nullopt;
+    }
+
+    struct Check
+    {
+        CheckKind kind = CheckKind::Build;
+        std::string name;
+        std::string hint;
+        std::vector<std::string> args;
+        std::string stdin_text;
+        std::optional<std::string> expect_stdout;
+        StdoutMatch stdout_match = StdoutMatch::Exact;
+        LineEndings line_endings = LineEndings::Portable;
+        std::optional<std::string> expect_stderr_contains;
+        int expect_exit = 0;
+        int max_seconds = 10;
+        std::string harness;
+        bool expect_build_success = true;
+        std::string diagnostic_contains;
+
+        [[nodiscard]] std::string harness_stem() const
+        {
+            if (harness.size() > 10 && harness.starts_with("checks/") && harness.ends_with(".dc"))
+                return harness.substr(7, harness.size() - 10);
+            return {};
+        }
+    };
+
+    struct Exercise
+    {
+        std::string id;
+        std::string track;
+        std::string name;
+        std::string dir;
+        int revision = 1;
+        std::string title;
+        std::string summary;
+        ExerciseKind kind = ExerciseKind::CompleteProgram;
+        std::string chapter;
+        Difficulty difficulty = Difficulty::Beginner;
+        int estimated_minutes = 0;
+        std::vector<std::string> concepts;
+        std::vector<std::string> tags;
+        std::vector<std::string> objectives;
+        std::string entry_file;
+        std::string product;
+        std::vector<std::string> prerequisites;
+        std::vector<std::string> required_tools;
+        std::string min_dcc;
+        std::vector<std::string> platforms;
+        std::vector<std::string> backends;
+        StarterState starter_state = StarterState::FailsChecks;
+        std::optional<int> build_timeout_seconds;
+        std::vector<Check> checks;
+        std::string readme;
+        std::array<std::string, 3> hints;
+        std::string explanation;
+        std::map<std::string, std::string> starter;
+        std::map<std::string, std::string> solution;
+        std::map<std::string, std::string> check_files;
+
+        [[nodiscard]] bool supports_platform(std::string_view platform) const { return std::ranges::find(platforms, platform) != platforms.end(); }
+        [[nodiscard]] bool supports_backend(std::string_view backend) const { return std::ranges::find(backends, backend) != backends.end(); }
+    };
+
+    struct Track
+    {
+        std::string id;
+        std::string title;
+        std::string summary;
+        std::vector<std::string> exercise_names;
+        std::vector<std::string> exercise_ids;
+    };
+
+    struct Filter
+    {
+        std::string track;
+        std::optional<Difficulty> difficulty;
+        std::optional<ExerciseKind> kind;
+        std::string query;
+    };
+
+    namespace detail
+    {
+        struct Reader
+        {
+            toml::Value const& table;
+            std::string file;
+            std::vector<ContentError>& errors;
+            std::set<std::string, std::less<>> used;
+
+            Reader(toml::Value const& t, std::string_view f, std::vector<ContentError>& e) : table(t), file(f), errors(e) {}
+
+            void report(toml::Position pos, std::string message) { errors.push_back({file, pos.line, pos.column, std::move(message)}); }
+
+            [[nodiscard]] toml::Value const* get(std::string_view key)
+            {
+                used.emplace(key);
+                return table.find(key);
+            }
+
+            void missing(std::string_view key) { report(table.pos, std::format("missing required key '{}'", key)); }
+
+            void wrong_type(std::string_view key, toml::Value const& v, std::string_view wanted)
+            {
+                report(v.pos, std::format("key '{}' must be {} (found {})", key, wanted, v.type_name()));
+            }
+
+            [[nodiscard]] toml::Position pos_of(std::string_view key) const
+            {
+                if (auto const* e = table.find_entry(key))
+                    return e->value.pos;
+                return table.pos;
+            }
+
+            [[nodiscard]] std::optional<std::string> string(std::string_view key, bool required = true, bool allow_empty = false)
+            {
+                auto const* v = get(key);
+                if (v == nullptr)
+                {
+                    if (required)
+                        missing(key);
+                    return std::nullopt;
+                }
+                if (!v->is_string())
+                {
+                    wrong_type(key, *v, "a string");
+                    return std::nullopt;
+                }
+                if (!allow_empty && text::trim(v->text).empty())
+                {
+                    report(v->pos, std::format("key '{}' must not be empty", key));
+                    return std::nullopt;
+                }
+                return v->text;
+            }
+
+            [[nodiscard]] std::optional<std::int64_t> integer(std::string_view key, std::int64_t lo, std::int64_t hi, bool required = true)
+            {
+                auto const* v = get(key);
+                if (v == nullptr)
+                {
+                    if (required)
+                        missing(key);
+                    return std::nullopt;
+                }
+                if (!v->is_integer())
+                {
+                    wrong_type(key, *v, "an integer");
+                    return std::nullopt;
+                }
+                if (v->integer < lo || v->integer > hi)
+                {
+                    report(v->pos, std::format("key '{}' must be between {} and {}", key, lo, hi));
+                    return std::nullopt;
+                }
+                return v->integer;
+            }
+
+            [[nodiscard]] std::optional<std::vector<std::string>> strings(std::string_view key, bool required = true, bool allow_empty = true,
+                                                                          std::vector<toml::Position>* positions = nullptr)
+            {
+                auto const* v = get(key);
+                if (v == nullptr)
+                {
+                    if (required)
+                        missing(key);
+                    return std::nullopt;
+                }
+                if (!v->is_array())
+                {
+                    wrong_type(key, *v, "an array of strings");
+                    return std::nullopt;
+                }
+                std::vector<std::string> out;
+                bool ok = true;
+                for (auto const& item : v->items)
+                {
+                    if (!item.is_string())
+                    {
+                        report(item.pos, std::format("every element of '{}' must be a string (found {})", key, item.type_name()));
+                        ok = false;
+                        continue;
+                    }
+                    if (text::trim(item.text).empty())
+                    {
+                        report(item.pos, std::format("elements of '{}' must not be empty", key));
+                        ok = false;
+                        continue;
+                    }
+                    out.push_back(item.text);
+                    if (positions != nullptr)
+                        positions->push_back(item.pos);
+                }
+                if (ok && !allow_empty && out.empty())
+                {
+                    report(v->pos, std::format("key '{}' must have at least one element", key));
+                    return std::nullopt;
+                }
+                if (!ok)
+                    return std::nullopt;
+                return out;
+            }
+
+            void reject_unknown()
+            {
+                for (auto const& entry : table.entries)
+                    if (!used.contains(entry.key))
+                        report(entry.pos, std::format("unknown key '{}'", entry.key));
+            }
+        };
+
+        [[nodiscard]] inline bool read_schema(Reader& r)
+        {
+            auto const* v = r.get("schema");
+            if (v == nullptr)
+            {
+                r.missing("schema");
+                return false;
+            }
+            if (!v->is_integer())
+            {
+                r.wrong_type("schema", *v, "an integer");
+                return false;
+            }
+            if (v->integer != supported_schema)
+            {
+                r.report(v->pos, std::format("unsupported schema {} (this learndc supports {})", v->integer, supported_schema));
+                return false;
+            }
+            return true;
+        }
+
+        inline void check_ascii(std::string_view file, std::string_view content, std::vector<ContentError>& errors)
+        {
+            int line = 1;
+            std::size_t line_start = 0;
+            for (std::size_t i = 0; i < content.size(); ++i)
+            {
+                if (content[i] == '\n')
+                {
+                    ++line;
+                    line_start = i + 1;
+                }
+                else if (static_cast<unsigned char>(content[i]) >= 0x80)
+                {
+                    errors.push_back({std::string(file), line, static_cast<int>(i - line_start) + 1, "non-ASCII character (content text must be ASCII only)"});
+                    return;
+                }
+            }
+        }
+
+        [[nodiscard]] inline std::optional<toml::Value> parse_toml_file(ContentSource const& source, std::string const& path, std::vector<ContentError>& errors,
+                                                                        bool required = true)
+        {
+            auto const* content = source.get(path);
+            if (content == nullptr)
+            {
+                if (required)
+                    errors.push_back({path, 1, 1, "file is missing"});
+                return std::nullopt;
+            }
+            check_ascii(path, *content, errors);
+            auto parsed = toml::parse(*content);
+            if (!parsed)
+            {
+                errors.push_back({path, parsed.error().pos.line, parsed.error().pos.column, parsed.error().message});
+                return std::nullopt;
+            }
+            return std::move(*parsed);
+        }
+
+        constexpr std::array<std::string_view, 3> known_tools = {"dcc", "dpm", "dccd"};
+        constexpr std::array<std::string_view, 2> known_platforms = {"linux", "windows"};
+        constexpr std::array<std::string_view, 2> known_backends = {"llvm", "custom"};
+
+        [[nodiscard]] inline bool key_in(std::string_view key, std::span<std::string_view const> keys)
+        {
+            return std::ranges::find(keys, key) != keys.end();
+        }
+
+        [[nodiscard]] inline std::span<std::string_view const> allowed_check_keys(CheckKind kind)
+        {
+            static constexpr std::array<std::string_view, 3> build = {"kind", "name", "hint"};
+            static constexpr std::array<std::string_view, 11> run = {"kind",   "name",         "hint",           "args",         "stdin",       "expect_stdout",
+                                                                    "stdout_match", "line_endings", "expect_stderr_contains", "expect_exit", "max_seconds"};
+            static constexpr std::array<std::string_view, 10> harness = {"kind",         "name",          "hint",   "harness",
+                                                                        "expect_exit",  "expect_stdout", "stdout_match", "line_endings",
+                                                                        "expect_stderr_contains", "max_seconds"};
+            static constexpr std::array<std::string_view, 5> diagnostic = {"kind", "name", "hint", "expect_build", "diagnostic_contains"};
+            switch (kind)
+            {
+            case CheckKind::Build:
+                return build;
+            case CheckKind::Run:
+                return run;
+            case CheckKind::Harness:
+                return harness;
+            case CheckKind::Diagnostic:
+                return diagnostic;
+            }
+            return {};
+        }
+
+        [[nodiscard]] inline bool known_check_key(std::string_view key)
+        {
+            for (auto kind : {CheckKind::Build, CheckKind::Run, CheckKind::Harness, CheckKind::Diagnostic})
+                if (key_in(key, allowed_check_keys(kind)))
+                    return true;
+            return false;
+        }
+
+        template <typename E, std::size_t N>
+        [[nodiscard]] std::optional<E> read_enum(Reader& r, std::string_view key, std::array<Name<E>, N> const& table, bool required)
+        {
+            auto text_value = r.string(key, required);
+            if (!text_value)
+                return std::nullopt;
+            auto parsed = parse_name(table, *text_value);
+            if (!parsed)
+            {
+                r.report(r.pos_of(key), std::format("invalid {} '{}' (expected one of: {})", key, *text_value, expected_list(table)));
+                return std::nullopt;
+            }
+            return parsed;
+        }
+
+        [[nodiscard]] inline std::optional<Check> parse_check(toml::Value const& table, std::string_view file, std::vector<ContentError>& errors)
+        {
+            Reader r(table, file, errors);
+            auto const before = errors.size();
+            auto kind = read_enum(r, "kind", check_kind_names, true);
+            Check check;
+            if (kind)
+            {
+                check.kind = *kind;
+                for (auto const& entry : table.entries)
+                {
+                    if (key_in(entry.key, allowed_check_keys(*kind)))
+                        continue;
+                    r.used.insert(entry.key);
+                    if (known_check_key(entry.key))
+                        r.report(entry.pos, std::format("key '{}' is not valid for a {} check", entry.key, to_string(*kind)));
+                    else
+                        r.report(entry.pos, std::format("unknown key '{}'", entry.key));
+                }
+            }
+            if (auto name = r.string("name"))
+                check.name = *name;
+            if (auto hint = r.string("hint", false))
+                check.hint = *hint;
+            if (!kind)
+            {
+                r.reject_unknown();
+                return std::nullopt;
+            }
+            if (*kind == CheckKind::Run || *kind == CheckKind::Harness)
+            {
+                if (auto m = read_enum(r, "stdout_match", match_names, false))
+                    check.stdout_match = *m;
+                if (auto l = read_enum(r, "line_endings", ending_names, false))
+                    check.line_endings = *l;
+                if (auto s = r.string("expect_stdout", false, true))
+                    check.expect_stdout = *s;
+                if (auto s = r.string("expect_stderr_contains", false, true))
+                    check.expect_stderr_contains = *s;
+                if (auto e = r.integer("expect_exit", 0, 255, false))
+                    check.expect_exit = static_cast<int>(*e);
+                if (auto s = r.integer("max_seconds", 1, 60, false))
+                    check.max_seconds = static_cast<int>(*s);
+            }
+            if (*kind == CheckKind::Run)
+            {
+                if (auto args = r.strings("args", false, true))
+                    check.args = std::move(*args);
+                if (auto s = r.string("stdin", false, true))
+                    check.stdin_text = *s;
+            }
+            if (*kind == CheckKind::Harness)
+            {
+                if (auto h = r.string("harness"))
+                {
+                    check.harness = *h;
+                    auto const pos = r.pos_of("harness");
+                    if (auto problem = path_problem(*h))
+                        r.report(pos, std::format("harness path '{}': {}", *h, *problem));
+                    else if (!(h->starts_with("checks/") && h->ends_with(".dc") && h->size() > 10 && h->find('/', 7) == std::string::npos))
+                        r.report(pos, std::format("harness '{}' must be of the form checks/<stem>.dc", *h));
+                    else if (!is_harness_stem(check.harness_stem()))
+                        r.report(pos, std::format("harness stem '{}' must match [a-z][a-z0-9_]*", check.harness_stem()));
+                }
+            }
+            if (*kind == CheckKind::Diagnostic)
+            {
+                if (auto b = r.string("expect_build"))
+                {
+                    if (*b == "success")
+                        check.expect_build_success = true;
+                    else if (*b == "failure")
+                        check.expect_build_success = false;
+                    else
+                        r.report(r.pos_of("expect_build"), std::format("invalid expect_build '{}' (expected one of: success, failure)", *b));
+                }
+                if (auto s = r.string("diagnostic_contains", false, true))
+                    check.diagnostic_contains = *s;
+            }
+            r.reject_unknown();
+            if (errors.size() != before)
+                return std::nullopt;
+            return check;
+        }
+
+        [[nodiscard]] inline std::optional<std::array<std::string, 3>> parse_hints(std::string_view content, std::string_view file,
+                                                                                   std::vector<ContentError>& errors)
+        {
+            auto const before = errors.size();
+            auto lines = text::split_lines(content);
+            struct Section
+            {
+                std::size_t heading_line;
+                std::string body;
+            };
+            std::vector<Section> sections;
+            bool fenced = false;
+            for (std::size_t i = 0; i < lines.size(); ++i)
+            {
+                auto const& line = lines[i];
+                auto const trimmed = text::trim(line);
+                auto const report_line = static_cast<int>(i) + 1;
+                if (trimmed.starts_with("```") || trimmed.starts_with("~~~"))
+                    fenced = !fenced;
+                if (!fenced && line.starts_with("## "))
+                {
+                    auto const expected = std::format("## Hint {}", sections.size() + 1);
+                    if (sections.size() >= 3 || trimmed != expected)
+                    {
+                        errors.push_back(
+                            {std::string(file), report_line, 1,
+                             std::format("unexpected heading '{}' (hints.md must hold exactly '## Hint 1', '## Hint 2' and '## Hint 3' in that order)",
+                                         trimmed)});
+                        continue;
+                    }
+                    sections.push_back({i, {}});
+                    continue;
+                }
+                if (sections.empty())
+                {
+                    if (!trimmed.empty())
+                        errors.push_back({std::string(file), report_line, 1, "text before the '## Hint 1' heading"});
+                    continue;
+                }
+                sections.back().body += line;
+                sections.back().body += '\n';
+            }
+            if (sections.size() != 3 && errors.size() == before)
+                errors.push_back({std::string(file), 1, 1, std::format("expected exactly three hint sections, found {}", sections.size())});
+            std::array<std::string, 3> hints;
+            for (std::size_t i = 0; i < sections.size() && i < 3; ++i)
+            {
+                hints[i] = std::string(text::trim(sections[i].body));
+                if (hints[i].empty())
+                    errors.push_back({std::string(file), static_cast<int>(sections[i].heading_line) + 1, 1, std::format("hint {} is empty", i + 1)});
+            }
+            if (errors.size() != before)
+                return std::nullopt;
+            return hints;
+        }
+
+        struct PendingExercise
+        {
+            Exercise exercise;
+            std::string file;
+            std::vector<toml::Position> prerequisite_positions;
+            toml::Position prerequisites_key;
+        };
+
+        [[nodiscard]] inline std::optional<PendingExercise> parse_exercise(ContentSource const& source, std::string_view track, std::string_view name,
+                                                                           std::vector<ContentError>& errors)
+        {
+            auto const before = errors.size();
+            std::string const dir = std::format("tracks/{}/{}", track, name);
+            std::string const file = dir + "/exercise.toml";
+            auto doc = parse_toml_file(source, file, errors);
+            if (!doc)
+                return std::nullopt;
+            PendingExercise pending;
+            pending.file = file;
+            Exercise& ex = pending.exercise;
+            ex.track = std::string(track);
+            ex.name = std::string(name);
+            ex.dir = dir;
+            Reader r(*doc, file, errors);
+            if (!read_schema(r))
+                return std::nullopt;
+
+            if (auto id = r.string("id"))
+            {
+                ex.id = *id;
+                auto const expected = std::format("{}/{}", track, name);
+                if (!is_exercise_id(*id))
+                    r.report(r.pos_of("id"), std::format("id '{}' must look like <track>/<name> using lowercase letters, digits and hyphens", *id));
+                else if (*id != expected)
+                    r.report(r.pos_of("id"), std::format("id '{}' must equal '{}' (the track and directory name)", *id, expected));
+            }
+            if (auto rev = r.integer("revision", 1, 1000000))
+                ex.revision = static_cast<int>(*rev);
+            if (auto s = r.string("title"))
+                ex.title = *s;
+            if (auto s = r.string("summary"))
+                ex.summary = *s;
+            if (auto k = read_enum(r, "kind", kind_names, true))
+                ex.kind = *k;
+            if (auto s = r.string("chapter"))
+            {
+                ex.chapter = *s;
+                if (!is_slug(*s))
+                    r.report(r.pos_of("chapter"), std::format("chapter '{}' must use lowercase letters, digits and hyphens", *s));
+            }
+            if (auto d = read_enum(r, "difficulty", difficulty_names, true))
+                ex.difficulty = *d;
+            if (auto m = r.integer("estimated_minutes", 1, 1000))
+                ex.estimated_minutes = static_cast<int>(*m);
+            if (auto v = r.strings("concepts", true, false))
+                ex.concepts = std::move(*v);
+            if (auto v = r.strings("tags", false, true))
+                ex.tags = std::move(*v);
+            if (auto v = r.strings("objectives", true, false))
+                ex.objectives = std::move(*v);
+            if (auto s = r.string("entry_file"))
+            {
+                ex.entry_file = *s;
+                if (auto problem = path_problem(*s))
+                    r.report(r.pos_of("entry_file"), std::format("entry_file '{}': {}", *s, *problem));
+            }
+            if (auto s = r.string("product"))
+            {
+                ex.product = *s;
+                if (!is_identifier(*s))
+                    r.report(r.pos_of("product"), std::format("product '{}' must be an identifier ([a-z_][a-z0-9_]*)", *s));
+            }
+            pending.prerequisites_key = r.pos_of("prerequisites");
+            if (auto v = r.strings("prerequisites", true, true, &pending.prerequisite_positions))
+            {
+                ex.prerequisites = std::move(*v);
+                for (std::size_t i = 0; i < ex.prerequisites.size(); ++i)
+                    if (!is_exercise_id(ex.prerequisites[i]))
+                        r.report(pending.prerequisite_positions[i], std::format("prerequisite '{}' is not a valid exercise id", ex.prerequisites[i]));
+            }
+            if (auto v = r.strings("requires", true, false))
+            {
+                ex.required_tools = std::move(*v);
+                for (auto const& tool : ex.required_tools)
+                    if (std::ranges::find(known_tools, std::string_view(tool)) == known_tools.end())
+                        r.report(r.pos_of("requires"), std::format("unknown tool '{}' in requires", tool));
+            }
+            if (auto s = r.string("min_dcc"))
+            {
+                ex.min_dcc = *s;
+                if (!is_version(*s))
+                    r.report(r.pos_of("min_dcc"), std::format("min_dcc '{}' must look like 1.2.3", *s));
+            }
+            if (auto v = r.strings("platforms", true, false))
+            {
+                ex.platforms = std::move(*v);
+                for (auto const& p : ex.platforms)
+                    if (std::ranges::find(known_platforms, std::string_view(p)) == known_platforms.end())
+                        r.report(r.pos_of("platforms"), std::format("unknown platform '{}' (expected linux or windows)", p));
+            }
+            if (auto v = r.strings("backends", true, false))
+            {
+                ex.backends = std::move(*v);
+                for (auto const& b : ex.backends)
+                    if (std::ranges::find(known_backends, std::string_view(b)) == known_backends.end())
+                        r.report(r.pos_of("backends"), std::format("unknown backend '{}' (expected llvm or custom)", b));
+            }
+            if (auto s = read_enum(r, "starter_state", state_names, true))
+                ex.starter_state = *s;
+            if (auto t = r.integer("build_timeout_seconds", 10, 600, false))
+                ex.build_timeout_seconds = static_cast<int>(*t);
+
+            auto const* checks = r.get("checks");
+            if (checks == nullptr)
+                r.missing("checks");
+            else if (!checks->is_table_array())
+                r.wrong_type("checks", *checks, "an array of tables ([[checks]])");
+            else
+            {
+                std::set<std::string> names;
+                for (auto const& table : checks->items)
+                {
+                    auto check = parse_check(table, file, errors);
+                    if (!check)
+                        continue;
+                    if (!names.insert(check->name).second)
+                    {
+                        errors.push_back({file, table.pos.line, table.pos.column, std::format("check name '{}' is used more than once", check->name)});
+                        continue;
+                    }
+                    ex.checks.push_back(std::move(*check));
+                }
+                if (checks->items.empty())
+                    r.report(checks->pos, "at least one check is required");
+            }
+            r.reject_unknown();
+
+            if (!std::ranges::any_of(ex.checks, [](Check const& c) { return c.kind == CheckKind::Build; }))
+            {
+                Check build;
+                build.kind = CheckKind::Build;
+                build.name = "Compiles";
+                if (std::ranges::any_of(ex.checks, [&](Check const& c) { return c.name == build.name; }))
+                    build.name = "Compiles (build)";
+                ex.checks.insert(ex.checks.begin(), std::move(build));
+            }
+
+            for (auto const& leaf : {"README.md", "hints.md", "explanation.md"})
+            {
+                auto const path = std::format("{}/{}", dir, leaf);
+                auto const* content = source.get(path);
+                if (content == nullptr)
+                {
+                    errors.push_back({path, 1, 1, "file is missing"});
+                    continue;
+                }
+                check_ascii(path, *content, errors);
+                if (text::trim(*content).empty())
+                    errors.push_back({path, 1, 1, "file is empty"});
+            }
+            if (auto const* c = source.get(dir + "/README.md"))
+                ex.readme = *c;
+            if (auto const* c = source.get(dir + "/explanation.md"))
+                ex.explanation = *c;
+            if (auto const* c = source.get(dir + "/hints.md"))
+                if (auto hints = parse_hints(*c, dir + "/hints.md", errors))
+                    ex.hints = std::move(*hints);
+
+            std::set<std::string> starter_lower;
+            std::set<std::string> solution_lower;
+            for (auto const& [path, content] : source.files)
+            {
+                if (!path.starts_with(dir + "/"))
+                    continue;
+                auto const rest = path.substr(dir.size() + 1);
+                auto const slash = rest.find('/');
+                auto const top = slash == std::string::npos ? rest : rest.substr(0, slash);
+                if (slash == std::string::npos)
+                {
+                    if (top != "exercise.toml" && top != "README.md" && top != "hints.md" && top != "explanation.md")
+                        errors.push_back({path, 1, 1, std::format("unexpected file '{}' in the exercise directory", top)});
+                    continue;
+                }
+                auto const inner = rest.substr(slash + 1);
+                if (top == "starter" || top == "solution")
+                {
+                    auto& lowered = top == "starter" ? starter_lower : solution_lower;
+                    if (!lowered.insert(text::lower(inner)).second)
+                        errors.push_back({path, 1, 1, "path differs only by letter case from another file"});
+                    (top == "starter" ? ex.starter : ex.solution)[inner] = content;
+                }
+                else if (top == "checks")
+                {
+                    if (inner.find('/') != std::string::npos || !inner.ends_with(".dc") || !is_harness_stem(inner.substr(0, inner.size() - 3)))
+                        errors.push_back({path, 1, 1, "harness files must be checks/<stem>.dc with a stem matching [a-z][a-z0-9_]*"});
+                    ex.check_files["checks/" + inner] = content;
+                }
+                else
+                    errors.push_back({path, 1, 1, std::format("unexpected directory '{}' in the exercise directory", top)});
+            }
+
+            if (ex.starter.empty())
+                errors.push_back({dir + "/starter", 1, 1, "starter directory is missing or empty"});
+            else
+            {
+                if (!ex.starter.contains("project.dcon"))
+                    errors.push_back({dir + "/starter/project.dcon", 1, 1, "starter must contain project.dcon"});
+                else if (!ex.product.empty() && ex.starter.at("project.dcon").find(std::format("\"{}\"", ex.product)) == std::string::npos)
+                    errors.push_back({dir + "/starter/project.dcon", 1, 1, std::format("project.dcon does not mention the product \"{}\"", ex.product)});
+                if (!ex.entry_file.empty() && !ex.starter.contains(ex.entry_file))
+                {
+                    auto const pos = r.pos_of("entry_file");
+                    errors.push_back({file, pos.line, pos.column, std::format("entry_file '{}' does not exist in starter/", ex.entry_file)});
+                }
+            }
+            if (ex.solution.empty())
+                errors.push_back({dir + "/solution", 1, 1, "solution directory is missing or empty"});
+
+            for (auto const& check : ex.checks)
+            {
+                if (check.kind != CheckKind::Harness || check.harness.empty())
+                    continue;
+                auto const* content = ex.check_files.contains(check.harness) ? &ex.check_files.at(check.harness) : nullptr;
+                if (content == nullptr)
+                {
+                    errors.push_back({file, 1, 1, std::format("harness file '{}' of check '{}' does not exist", check.harness, check.name)});
+                    continue;
+                }
+                auto const declaration = std::format("module {};", check.harness_stem());
+                bool declared = false;
+                for (auto const& line : text::split_lines(*content))
+                    if (text::trim(line) == declaration)
+                        declared = true;
+                if (!declared)
+                    errors.push_back({dir + "/" + check.harness, 1, 1, std::format("harness must declare '{}'", declaration)});
+            }
+
+            if (errors.size() != before)
+                return std::nullopt;
+            return pending;
+        }
+    } // namespace detail
+
+    class Catalog
+    {
+    public:
+        [[nodiscard]] static std::expected<Catalog, std::vector<ContentError>> load(ContentSource const& source)
+        {
+            std::vector<ContentError> errors;
+            Catalog catalog;
+            for (auto const& [path, content] : source.files)
+                if (auto problem = path_problem(path))
+                    errors.push_back({path, 1, 1, *problem});
+            if (!errors.empty())
+                return std::unexpected(std::move(errors));
+
+            auto root = detail::parse_toml_file(source, "catalog.toml", errors);
+            if (!root)
+                return std::unexpected(std::move(errors));
+            detail::Reader r(*root, "catalog.toml", errors);
+            std::vector<std::string> track_names;
+            std::vector<toml::Position> track_positions;
+            if (detail::read_schema(r))
+            {
+                if (auto t = r.string("title"))
+                    catalog.m_title = *t;
+                if (auto names = r.strings("tracks", true, false, &track_positions))
+                    track_names = std::move(*names);
+                r.reject_unknown();
+            }
+            else
+                return std::unexpected(std::move(errors));
+            std::set<std::string> seen_tracks;
+            for (std::size_t i = 0; i < track_names.size(); ++i)
+            {
+                if (!is_slug(track_names[i]))
+                {
+                    errors.push_back({"catalog.toml", track_positions[i].line, track_positions[i].column,
+                                      std::format("track name '{}' must use lowercase letters, digits and hyphens", track_names[i])});
+                    continue;
+                }
+                if (!seen_tracks.insert(track_names[i]).second)
+                    errors.push_back({"catalog.toml", track_positions[i].line, track_positions[i].column,
+                                      std::format("track '{}' is listed more than once", track_names[i])});
+            }
+            std::set<std::string> directories;
+            for (auto const& [path, content] : source.files)
+            {
+                if (!path.starts_with("tracks/"))
+                    continue;
+                auto const rest = path.substr(7);
+                auto const slash = rest.find('/');
+                directories.insert(slash == std::string::npos ? rest : rest.substr(0, slash));
+            }
+            for (auto const& dir : directories)
+                if (!seen_tracks.contains(dir))
+                    errors.push_back({"catalog.toml", 1, 1, std::format("track directory 'tracks/{}' is not listed in catalog.toml", dir)});
+
+            std::vector<detail::PendingExercise> pending;
+            for (std::size_t i = 0; i < track_names.size(); ++i)
+            {
+                auto const& track_name = track_names[i];
+                if (!is_slug(track_name))
+                    continue;
+                auto const track_file = std::format("tracks/{}/track.toml", track_name);
+                if (!source.contains(track_file))
+                {
+                    errors.push_back(
+                        {"catalog.toml", track_positions[i].line, track_positions[i].column, std::format("track '{}' has no {}", track_name, track_file)});
+                    continue;
+                }
+                load_track(source, track_name, catalog, pending, errors);
+            }
+
+            std::map<std::string, std::size_t> index;
+            for (std::size_t i = 0; i < pending.size(); ++i)
+                index[pending[i].exercise.id] = i;
+            for (auto const& p : pending)
+                for (std::size_t k = 0; k < p.exercise.prerequisites.size(); ++k)
+                {
+                    auto const& prereq = p.exercise.prerequisites[k];
+                    auto const pos = p.prerequisite_positions[k];
+                    if (prereq == p.exercise.id)
+                        errors.push_back({p.file, pos.line, pos.column, std::format("exercise '{}' lists itself as a prerequisite", prereq)});
+                    else if (!index.contains(prereq))
+                        errors.push_back({p.file, pos.line, pos.column, std::format("prerequisite '{}' does not exist", prereq)});
+                }
+            detect_cycles(pending, index, errors);
+
+            if (!errors.empty())
+                return std::unexpected(std::move(errors));
+            for (auto& p : pending)
+                catalog.m_exercises.push_back(std::move(p.exercise));
+            for (std::size_t i = 0; i < catalog.m_exercises.size(); ++i)
+                catalog.m_index[catalog.m_exercises[i].id] = i;
+            return catalog;
+        }
+
+        [[nodiscard]] std::string const& title() const { return m_title; }
+        [[nodiscard]] std::vector<Track> const& tracks() const { return m_tracks; }
+        [[nodiscard]] std::vector<Exercise> const& exercises() const { return m_exercises; }
+
+        [[nodiscard]] Exercise const* find(std::string_view id) const
+        {
+            auto it = m_index.find(std::string(id));
+            return it == m_index.end() ? nullptr : &m_exercises[it->second];
+        }
+
+        [[nodiscard]] Track const* find_track(std::string_view id) const
+        {
+            for (auto const& t : m_tracks)
+                if (t.id == id)
+                    return &t;
+            return nullptr;
+        }
+
+        [[nodiscard]] std::vector<Exercise const*> in_track(std::string_view track) const
+        {
+            std::vector<Exercise const*> out;
+            for (auto const& e : m_exercises)
+                if (e.track == track)
+                    out.push_back(&e);
+            return out;
+        }
+
+        [[nodiscard]] bool prerequisites_met(Exercise const& exercise, std::function<bool(std::string_view)> const& completed) const
+        {
+            return std::ranges::all_of(exercise.prerequisites, [&](std::string const& id) { return completed(id); });
+        }
+
+        [[nodiscard]] std::vector<Exercise const*> search(std::string_view query) const
+        {
+            std::vector<std::string> tokens;
+            for (auto const& piece : text::split(text::lower(query), ' '))
+                if (!piece.empty())
+                    tokens.push_back(piece);
+            std::vector<std::pair<int, Exercise const*>> scored;
+            for (auto const& e : m_exercises)
+            {
+                int total = 0;
+                bool all = true;
+                for (auto const& token : tokens)
+                {
+                    int score = score_token(e, token);
+                    if (score == 0)
+                    {
+                        all = false;
+                        break;
+                    }
+                    total += score;
+                }
+                if (all)
+                    scored.emplace_back(total, &e);
+            }
+            std::ranges::stable_sort(scored, [](auto const& a, auto const& b) { return a.first > b.first; });
+            std::vector<Exercise const*> out;
+            for (auto const& [score, e] : scored)
+                out.push_back(e);
+            return out;
+        }
+
+        [[nodiscard]] std::vector<Exercise const*> filter(Filter const& filter, std::function<bool(Exercise const&)> const& extra = {}) const
+        {
+            std::vector<Exercise const*> out;
+            auto candidates = filter.query.empty() ? all_pointers() : search(filter.query);
+            for (auto const* e : candidates)
+            {
+                if (!filter.track.empty() && e->track != filter.track)
+                    continue;
+                if (filter.difficulty && e->difficulty != *filter.difficulty)
+                    continue;
+                if (filter.kind && e->kind != *filter.kind)
+                    continue;
+                if (extra && !extra(*e))
+                    continue;
+                out.push_back(e);
+            }
+            return out;
+        }
+
+        [[nodiscard]] std::vector<Exercise const*> topological_order() const
+        {
+            std::vector<std::size_t> remaining(m_exercises.size(), 0);
+            for (std::size_t i = 0; i < m_exercises.size(); ++i)
+                remaining[i] = m_exercises[i].prerequisites.size();
+            std::vector<bool> done(m_exercises.size(), false);
+            std::vector<Exercise const*> order;
+            while (order.size() < m_exercises.size())
+            {
+                bool progressed = false;
+                for (std::size_t i = 0; i < m_exercises.size(); ++i)
+                {
+                    if (done[i] || remaining[i] != 0)
+                        continue;
+                    done[i] = true;
+                    order.push_back(&m_exercises[i]);
+                    progressed = true;
+                    for (std::size_t j = 0; j < m_exercises.size(); ++j)
+                        if (!done[j] && std::ranges::find(m_exercises[j].prerequisites, m_exercises[i].id) != m_exercises[j].prerequisites.end())
+                            --remaining[j];
+                    break;
+                }
+                if (!progressed)
+                    break;
+            }
+            return order;
+        }
+
+        [[nodiscard]] Exercise const* next_recommended(std::function<bool(std::string_view)> const& completed, std::string_view after = {}) const
+        {
+            auto const order = topological_order();
+            if (order.empty())
+                return nullptr;
+            std::size_t start = 0;
+            if (!after.empty())
+                for (std::size_t i = 0; i < order.size(); ++i)
+                    if (order[i]->id == after)
+                    {
+                        start = i + 1;
+                        break;
+                    }
+            for (std::size_t step = 0; step < order.size(); ++step)
+            {
+                auto const* e = order[(start + step) % order.size()];
+                if (!completed(e->id) && prerequisites_met(*e, completed))
+                    return e;
+            }
+            return nullptr;
+        }
+
+    private:
+        std::string m_title;
+        std::vector<Track> m_tracks;
+        std::vector<Exercise> m_exercises;
+        std::map<std::string, std::size_t> m_index;
+
+        [[nodiscard]] std::vector<Exercise const*> all_pointers() const
+        {
+            std::vector<Exercise const*> out;
+            for (auto const& e : m_exercises)
+                out.push_back(&e);
+            return out;
+        }
+
+        [[nodiscard]] static int score_token(Exercise const& e, std::string const& token)
+        {
+            int score = 0;
+            auto const has = [&](std::string_view field) { return text::lower(field).find(token) != std::string::npos; };
+            if (has(e.title))
+                score += 5;
+            if (has(e.id))
+                score += 4;
+            for (auto const& concept_name : e.concepts)
+            {
+                auto const lowered = text::lower(concept_name);
+                if (lowered == token)
+                    score += 4;
+                else if (lowered.find(token) != std::string::npos)
+                    score += 3;
+            }
+            for (auto const& tag : e.tags)
+                if (text::lower(tag).find(token) != std::string::npos)
+                    score += 2;
+            if (has(e.summary))
+                score += 1;
+            if (has(e.chapter))
+                score += 1;
+            if (has(to_string(e.kind)))
+                score += 1;
+            return score;
+        }
+
+        static void load_track(ContentSource const& source, std::string const& track_name, Catalog& catalog, std::vector<detail::PendingExercise>& pending,
+                               std::vector<ContentError>& errors)
+        {
+            auto const file = std::format("tracks/{}/track.toml", track_name);
+            auto doc = detail::parse_toml_file(source, file, errors);
+            if (!doc)
+                return;
+            detail::Reader r(*doc, file, errors);
+            if (!detail::read_schema(r))
+                return;
+            Track track;
+            if (auto id = r.string("id"))
+            {
+                track.id = *id;
+                if (*id != track_name)
+                    r.report(r.pos_of("id"), std::format("id '{}' must equal the directory name '{}'", *id, track_name));
+            }
+            if (auto s = r.string("title"))
+                track.title = *s;
+            if (auto s = r.string("summary"))
+                track.summary = *s;
+            std::vector<toml::Position> positions;
+            std::vector<std::string> names;
+            if (auto v = r.strings("exercises", true, true, &positions))
+                names = std::move(*v);
+            r.reject_unknown();
+            std::set<std::string> listed;
+            std::set<std::string> directories;
+            auto const prefix = std::format("tracks/{}/", track_name);
+            for (auto const& [path, content] : source.files)
+            {
+                if (!path.starts_with(prefix))
+                    continue;
+                auto const rest = path.substr(prefix.size());
+                auto const slash = rest.find('/');
+                if (slash != std::string::npos)
+                    directories.insert(rest.substr(0, slash));
+                else if (rest != "track.toml")
+                    errors.push_back({path, 1, 1, "unexpected file in a track directory"});
+            }
+            for (std::size_t i = 0; i < names.size(); ++i)
+            {
+                auto const& name = names[i];
+                if (!is_slug(name))
+                {
+                    errors.push_back(
+                        {file, positions[i].line, positions[i].column, std::format("exercise name '{}' must use lowercase letters, digits and hyphens", name)});
+                    continue;
+                }
+                if (!listed.insert(name).second)
+                {
+                    errors.push_back({file, positions[i].line, positions[i].column, std::format("exercise '{}' is listed more than once", name)});
+                    continue;
+                }
+                if (!directories.contains(name) || !source.contains(std::format("{}{}/exercise.toml", prefix, name)))
+                {
+                    errors.push_back(
+                        {file, positions[i].line, positions[i].column, std::format("exercise '{}' has no {}{}/exercise.toml", name, prefix, name)});
+                    continue;
+                }
+                track.exercise_names.push_back(name);
+                track.exercise_ids.push_back(std::format("{}/{}", track_name, name));
+                if (auto ex = detail::parse_exercise(source, track_name, name, errors))
+                    pending.push_back(std::move(*ex));
+            }
+            for (auto const& dir : directories)
+                if (!listed.contains(dir))
+                    errors.push_back({file, 1, 1, std::format("exercise directory '{}{}' is not listed in track.toml", prefix, dir)});
+            catalog.m_tracks.push_back(std::move(track));
+        }
+
+        static void detect_cycles(std::vector<detail::PendingExercise> const& pending, std::map<std::string, std::size_t> const& index,
+                                  std::vector<ContentError>& errors)
+        {
+            enum class Color
+            {
+                White,
+                Grey,
+                Black,
+            };
+            std::vector<Color> color(pending.size(), Color::White);
+            std::vector<std::size_t> stack;
+            std::set<std::size_t> reported;
+            std::function<void(std::size_t)> visit = [&](std::size_t node) {
+                color[node] = Color::Grey;
+                stack.push_back(node);
+                for (auto const& prereq : pending[node].exercise.prerequisites)
+                {
+                    auto it = index.find(prereq);
+                    if (it == index.end() || it->second == node)
+                        continue;
+                    if (color[it->second] == Color::White)
+                        visit(it->second);
+                    else if (color[it->second] == Color::Grey)
+                    {
+                        auto begin = std::ranges::find(stack, it->second);
+                        std::string chain;
+                        for (auto s = begin; s != stack.end(); ++s)
+                            chain += pending[*s].exercise.id + " -> ";
+                        chain += pending[it->second].exercise.id;
+                        if (reported.insert(*begin).second)
+                        {
+                            auto const& first = pending[*begin];
+                            errors.push_back(
+                                {first.file, first.prerequisites_key.line, first.prerequisites_key.column, std::format("prerequisite cycle: {}", chain)});
+                        }
+                    }
+                }
+                stack.pop_back();
+                color[node] = Color::Black;
+            };
+            for (std::size_t i = 0; i < pending.size(); ++i)
+                if (color[i] == Color::White)
+                    visit(i);
+        }
+    };
+
+    [[nodiscard]] inline std::expected<ContentSource, text::Error> load_directory(std::filesystem::path const& root)
+    {
+        std::error_code ec;
+        if (!std::filesystem::is_directory(root, ec))
+            return std::unexpected(text::Error{std::format("content directory '{}' does not exist", root.string())});
+        ContentSource source;
+        source.label = root.string();
+        constexpr std::array<std::string_view, 5> allowed = {".toml", ".md", ".dc", ".dcon", ".txt"};
+        for (auto it = std::filesystem::recursive_directory_iterator(root, ec); it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
+        {
+            if (ec)
+                return std::unexpected(text::Error{std::format("cannot read '{}': {}", root.string(), ec.message())});
+            auto const& entry = *it;
+            auto const relative = entry.path().lexically_relative(root);
+            auto const u8 = relative.generic_u8string();
+            std::string rel(reinterpret_cast<char const*>(u8.data()), u8.size());
+            if (entry.is_symlink(ec))
+                return std::unexpected(text::Error{std::format("{}: symbolic links are not allowed in learndc content", rel)});
+            auto const parts = text::split(rel, '/');
+            bool hidden = false;
+            for (std::size_t i = 0; i < parts.size(); ++i)
+            {
+                bool const last = i + 1 == parts.size();
+                if (parts[i].starts_with('.') && !(last && parts[i] == ".gitignore"))
+                    hidden = true;
+            }
+            if (hidden)
+            {
+                if (entry.is_directory(ec))
+                    it.disable_recursion_pending();
+                continue;
+            }
+            if (!entry.is_regular_file(ec))
+                continue;
+            auto const extension = entry.path().extension().string();
+            if (entry.path().filename() != ".gitignore" && std::ranges::find(allowed, std::string_view(extension)) == allowed.end())
+                return std::unexpected(text::Error{std::format("{}: unsupported content file type (allowed: .toml, .md, .dc, .dcon, .txt)", rel)});
+            std::ifstream in(entry.path(), std::ios::binary);
+            if (!in)
+                return std::unexpected(text::Error{std::format("{}: cannot read file", rel)});
+            std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            source.files[rel] = std::move(data);
+        }
+        if (ec)
+            return std::unexpected(text::Error{std::format("cannot read '{}': {}", root.string(), ec.message())});
+        return source;
+    }
+
+    [[nodiscard]] inline std::string format_errors(std::vector<ContentError> const& errors)
+    {
+        std::string out;
+        for (auto const& e : errors)
+        {
+            out += e.format();
+            out += '\n';
+        }
+        return out;
+    }
+} // namespace learndc::catalog
