@@ -14,6 +14,8 @@ import learndc.runner;
 import learndc.watch;
 import learndc.editor;
 import learndc.doctor;
+import learndc.app;
+import learndc.cli;
 import dcc.host.process;
 
 #define main harness_main
@@ -4398,6 +4400,458 @@ TEST_CASE("doctor with the real toolchain finds versions and can build")
     auto const* build = report.find("build");
     REQUIRE(build != nullptr);
     CHECK(build->status == doctor::Status::Ok);
+}
+
+SECTION("learndc.cli and learndc.app");
+
+namespace
+{
+    struct CliRun
+    {
+        int code = -1;
+        std::string out;
+        std::string err;
+    };
+
+    void write_source(catalog::ContentSource const& source, std::filesystem::path const& dir)
+    {
+        for (auto const& [path, data] : source.files)
+            write_file(dir / platform::path_from_utf8(path), data);
+    }
+
+    struct CliFixture
+    {
+        TempDir temp;
+        std::filesystem::path home;
+        std::filesystem::path content;
+
+        CliFixture()
+        {
+            home = temp.path / "home";
+            content = temp.path / "content";
+            write_source(base_source(), content);
+        }
+
+        CliRun run(std::vector<std::string> args, std::optional<std::filesystem::path> cwd = std::nullopt, bool tty = false) const
+        {
+            std::ostringstream out;
+            std::ostringstream err;
+            std::istringstream in;
+            learndc::cli::Io io;
+            io.out = &out;
+            io.err = &err;
+            io.in = &in;
+            io.env = platform::Env{{"PATH", platform::path_to_utf8(temp.path / "nowhere")}, {"LANG", "C.UTF-8"}};
+            io.cwd = cwd.value_or(temp.path);
+            io.stdin_tty = tty;
+            io.stdout_tty = tty;
+            io.stderr_tty = false;
+            io.self_exe = std::nullopt;
+            args.insert(args.begin(), {"--home", platform::path_to_utf8(home), "--content-dir", platform::path_to_utf8(content)});
+            CliRun r;
+            r.code = learndc::cli::run(args, io);
+            r.out = out.str();
+            r.err = err.str();
+            return r;
+        }
+    };
+
+    std::expected<learndc::cli::Parsed, std::string> parse_args(std::vector<std::string> args)
+    {
+        return learndc::cli::parse(args);
+    }
+} // namespace
+
+TEST_CASE("cli parsing of commands options and positionals")
+{
+    auto p = parse_args({"check", "basics/one", "--json", "--backend", "llvm"});
+    REQUIRE(p.has_value());
+    CHECK_EQ(p->command, "check");
+    CHECK(p->flag("json"));
+    CHECK_EQ(p->value("backend").value_or(""), "llvm");
+    CHECK_EQ(p->positional(0).value_or(""), "basics/one");
+    CHECK(!p->positional(1).has_value());
+
+    p = parse_args({"--home", "/x y", "list", "--track=basics", "--no-color"});
+    REQUIRE(p.has_value());
+    CHECK_EQ(p->value("home").value_or(""), "/x y");
+    CHECK_EQ(p->value("track").value_or(""), "basics");
+    CHECK(p->flag("no-color"));
+
+    p = parse_args({"run", "basics/one", "--", "--flag", "-x", "arg"});
+    REQUIRE(p.has_value());
+    CHECK_EQ(p->positionals.size(), 1u);
+    CHECK((p->rest == std::vector<std::string>{"--flag", "-x", "arg"}));
+
+    p = parse_args({"search", "two", "words", "here"});
+    REQUIRE(p.has_value());
+    CHECK_EQ(p->positionals.size(), 3u);
+
+    p = parse_args({"--version"});
+    REQUIRE(p.has_value());
+    CHECK(p->version);
+    CHECK(p->command.empty());
+
+    p = parse_args({"check", "--help"});
+    REQUIRE(p.has_value());
+    CHECK(p->help);
+    p = parse_args({"show", "-h"});
+    REQUIRE(p.has_value());
+    CHECK(p->help);
+}
+
+TEST_CASE("cli parsing rejects bad input with a message")
+{
+    auto p = parse_args({"frobnicate"});
+    CHECK(!p.has_value());
+    CHECK(p.error().find("unknown command") != std::string::npos);
+    p = parse_args({"chec"});
+    REQUIRE(!p.has_value());
+    CHECK(p.error().find("did you mean 'check'") != std::string::npos);
+    p = parse_args({"list", "--bogus"});
+    REQUIRE(!p.has_value());
+    CHECK(p.error().find("--bogus") != std::string::npos);
+    CHECK(!parse_args({"list", "--track"}).has_value());
+    CHECK(!parse_args({"list", "--json=1"}).has_value());
+    CHECK(!parse_args({"show"}).has_value());
+    CHECK(!parse_args({"show", "a", "b"}).has_value());
+    CHECK(!parse_args({"list", "--", "x"}).has_value());
+    CHECK(!parse_args({"-x"}).has_value());
+    CHECK(parse_args({"show"}).error().find("usage: learndc show") != std::string::npos);
+}
+
+TEST_CASE("every command has help and a usable spec")
+{
+    for (auto const& c : learndc::cli::commands())
+    {
+        auto const h = learndc::cli::command_help(c);
+        CHECK(h.find(c.name) != std::string::npos);
+        CHECK(h.find("Global options") != std::string::npos);
+        CHECK(c.min_positionals <= c.max_positionals);
+    }
+    auto const help = learndc::cli::help_text();
+    for (auto const* word : {"list", "search", "show", "start", "next", "edit", "run", "check", "watch", "hint", "solution", "reset", "progress", "review",
+                             "bookmark", "config", "doctor", "export", "import", "dev", "Exit codes"})
+        CHECK(help.find(word) != std::string::npos);
+}
+
+TEST_CASE("cli exit codes for usage content and lookup errors")
+{
+    CliFixture f;
+    CHECK_EQ(f.run({"--help"}).code, 0);
+    CHECK_EQ(f.run({"check", "--help"}).code, 0);
+    CHECK(f.run({"help", "reset"}).out.find("--no-backup") != std::string::npos);
+    CHECK_EQ(f.run({"help", "nothing"}).code, 2);
+    CHECK_EQ(f.run({"nonsense"}).code, 2);
+    CHECK_EQ(f.run({"show"}).code, 2);
+    CHECK_EQ(f.run({"list", "--status", "bogus"}).code, 2);
+    CHECK_EQ(f.run({"list", "--track", "missing"}).code, 2);
+    CHECK_EQ(f.run({"show", "basics/missing"}).code, 5);
+    CHECK_EQ(f.run({"start", "nope/nope"}).code, 5);
+    CHECK_EQ(f.run({"check"}).code, 5);
+    CHECK_EQ(f.run({"edit"}).code, 5);
+    CHECK_EQ(f.run({"hint"}).code, 5);
+    CHECK_EQ(f.run({"solution", "--diff"}).code, 5);
+    auto const no_args = f.run({});
+    CHECK_EQ(no_args.code, 0);
+    CHECK(no_args.out.find("Usage:") != std::string::npos);
+    auto const version = f.run({"--version"});
+    CHECK_EQ(version.code, 0);
+    CHECK(version.out.find("3 exercises") != std::string::npos);
+
+    learndc::cli::Io io;
+    std::ostringstream out;
+    std::ostringstream err;
+    io.out = &out;
+    io.err = &err;
+    io.stdin_tty = true;
+    io.stdout_tty = true;
+    bool launched = false;
+    io.tui = [&](learndc::app::Context&) {
+        launched = true;
+        return 7;
+    };
+    io.env = platform::Env{};
+    std::vector<std::string> const args = {"--home", platform::path_to_utf8(f.home), "--content-dir", platform::path_to_utf8(f.content)};
+    CHECK_EQ(learndc::cli::run(args, io), 7);
+    CHECK(launched);
+
+    std::filesystem::remove(f.content / "catalog.toml");
+    CHECK_EQ(f.run({"list"}).code, 3);
+    CHECK_EQ(f.run({"--version"}).code, 3);
+    CHECK_EQ(f.run({"config", "list"}).code, 0);
+    write_file(f.home / "config.json", "{broken");
+    CHECK_EQ(f.run({"config", "list"}).code, 3);
+}
+
+TEST_CASE("cli list search and show output and json")
+{
+    CliFixture f;
+    auto const list = f.run({"list"});
+    CHECK_EQ(list.code, 0);
+    CHECK(list.out.find("basics/one") != std::string::npos);
+    CHECK(list.out.find("\x1b[") == std::string::npos);
+    auto const as_json = f.run({"list", "--json"});
+    auto parsed = json::parse(as_json.out);
+    REQUIRE(parsed.has_value());
+    auto const* arr = parsed->find("exercises");
+    REQUIRE(arr != nullptr);
+    CHECK_EQ(arr->size(), 3u);
+    CHECK_EQ(f.run({"list", "--track", "more", "--json"}).code, 0);
+    auto const none = f.run({"list", "--status", "completed"});
+    CHECK(none.out.find("No exercises match") != std::string::npos);
+    auto const search = f.run({"search", "Title", "two", "--json"});
+    auto sj = json::parse(search.out);
+    REQUIRE(sj.has_value());
+    CHECK_EQ(sj->find("query")->as_string().value_or(""), "Title two");
+    auto const show = f.run({"show", "one", "--json"});
+    auto shj = json::parse(show.out);
+    REQUIRE(shj.has_value());
+    CHECK_EQ(shj->find("id")->as_string().value_or(""), "basics/one");
+    CHECK(shj->find("readme") != nullptr);
+    CHECK(shj->find("workspace")->is_null());
+}
+
+TEST_CASE("cli start reset hint solution bookmark config flows and exit codes")
+{
+    CliFixture f;
+    auto const started = f.run({"start", "basics/one"});
+    CHECK_EQ(started.code, 0);
+    CHECK(started.out.find("Created the workspace") != std::string::npos);
+    auto const root = f.home / "workspaces" / "basics" / "one";
+    CHECK(std::filesystem::is_regular_file(root / "src" / "main.dc"));
+    CHECK(f.run({"start", "basics/one"}).out.find("Resumed") != std::string::npos);
+
+    write_file(f.temp.path / "occupied" / "file.txt", "x");
+    CHECK_EQ(f.run({"start", "basics/two", "--dir", platform::path_to_utf8(f.temp.path / "occupied")}).code, 6);
+
+    write_file(root / "src" / "main.dc", "module main;\n// edited\n");
+    auto const refused = f.run({"reset", "basics/one"});
+    CHECK_EQ(refused.code, 6);
+    CHECK(refused.err.find("--yes") != std::string::npos);
+    CHECK(std::filesystem::exists(root / "src" / "main.dc"));
+    CHECK(platform::read_file(root / "src" / "main.dc").value_or("").find("edited") != std::string::npos);
+    CHECK_EQ(f.run({"reset", "basics/one", "--yes"}).code, 0);
+    CHECK(platform::read_file(root / "src" / "main.dc").value_or("").find("edited") == std::string::npos);
+    bool backed_up = false;
+    for (auto const& e : std::filesystem::recursive_directory_iterator(f.home / "backups"))
+        if (e.is_regular_file() && platform::read_file(e.path()).value_or("").find("edited") != std::string::npos)
+            backed_up = true;
+    CHECK(backed_up);
+
+    auto const h1 = f.run({"hint", "basics/one"});
+    CHECK_EQ(h1.code, 0);
+    CHECK(h1.out.find("Hint 1 of 3") != std::string::npos);
+    CHECK(f.run({"hint", "basics/one"}).out.find("Hint 2 of 3") != std::string::npos);
+    CHECK_EQ(f.run({"hint", "basics/one", "--level", "7"}).code, 2);
+    auto prog = json::parse(f.run({"progress", "--json"}).out);
+    REQUIRE(prog.has_value());
+    CHECK_EQ(prog->find("in_progress")->as_int().value_or(0), 1);
+    CHECK_EQ(prog->find("active_exercise")->as_string().value_or(""), "basics/one");
+
+    CHECK_EQ(f.run({"solution", "basics/one"}).code, 2);
+    CHECK_EQ(f.run({"solution", "basics/one", "--show", "--diff"}).code, 2);
+    auto const diff = f.run({"solution", "basics/one", "--diff"});
+    CHECK_EQ(diff.code, 0);
+    CHECK(diff.out.find("solved") != std::string::npos);
+    CHECK_EQ(f.run({"bookmark", "basics/two"}).code, 0);
+    CHECK_EQ(f.run({"bookmark", "basics/two", "--remove"}).code, 0);
+    CHECK_EQ(f.run({"bookmark", "basics/zzz"}).code, 5);
+
+    CHECK_EQ(f.run({"config", "set", "ui.theme", "light"}).code, 0);
+    CHECK_EQ(f.run({"config", "get", "ui.theme"}).out, "light\n");
+    CHECK_EQ(f.run({"config", "set", "ui.theme", "blue"}).code, 2);
+    CHECK_EQ(f.run({"config", "get", "nothing"}).code, 2);
+    CHECK_EQ(f.run({"config", "unset", "ui.theme"}).code, 0);
+    CHECK_EQ(f.run({"config", "get", "ui.theme"}).out, "dark\n");
+    CHECK_EQ(f.run({"config", "wat"}).code, 2);
+}
+
+TEST_CASE("cli check and run report a missing toolchain with exit code 4")
+{
+    CliFixture f;
+    REQUIRE(f.run({"start", "basics/one"}).code == 0);
+    auto const check = f.run({"check", "basics/one"});
+    CHECK_EQ(check.code, 4);
+    auto const json_check = f.run({"check", "basics/one", "--json"});
+    CHECK_EQ(json_check.code, 4);
+    auto j = json::parse(json_check.out);
+    REQUIRE(j.has_value());
+    CHECK_EQ(j->find("outcome")->as_string().value_or(""), "error");
+    CHECK_EQ(f.run({"check", "basics/one", "--backend", "x"}).code, 2);
+    CHECK_EQ(f.run({"run", "basics/one"}).code, 4);
+    CHECK_EQ(f.run({"doctor"}).code, 4);
+    CHECK_EQ(f.run({"dev", "validate"}).code, 1);
+    CHECK_EQ(f.run({"dev", "validate", "--id", "x/y"}).code, 5);
+    CHECK_EQ(f.run({"dev", "validate", "--backend", "q"}).code, 2);
+    CHECK_EQ(f.run({"dev", "other"}).code, 2);
+}
+
+TEST_CASE("cli export and import round trip with preview and apply")
+{
+    CliFixture f;
+    REQUIRE(f.run({"start", "basics/one"}).code == 0);
+    REQUIRE(f.run({"bookmark", "basics/one"}).code == 0);
+    auto const file = f.temp.path / "exports" / "p.json";
+    CHECK_EQ(f.run({"export"}).code, 2);
+    CHECK_EQ(f.run({"export", "--output", platform::path_to_utf8(file)}).code, 0);
+    CHECK_EQ(f.run({"export", "--output", platform::path_to_utf8(file)}).code, 6);
+    CHECK_EQ(f.run({"export", "--output", platform::path_to_utf8(file), "--yes"}).code, 0);
+    CliFixture g;
+    g.content = f.content;
+    CHECK_EQ(g.run({"import"}).code, 2);
+    auto const preview = g.run({"import", "--input", platform::path_to_utf8(file)});
+    CHECK_EQ(preview.code, 0);
+    CHECK(preview.out.find("Preview only") != std::string::npos);
+    CHECK(g.run({"list", "--status", "in-progress"}).out.find("No exercises match") != std::string::npos);
+    auto const applied = g.run({"import", "--input", platform::path_to_utf8(file), "--apply"});
+    CHECK_EQ(applied.code, 0);
+    CHECK(g.run({"list", "--status", "in-progress"}).out.find("basics/one") != std::string::npos);
+    write_file(f.temp.path / "bad.json", "{oops");
+    CHECK_EQ(g.run({"import", "--input", platform::path_to_utf8(f.temp.path / "bad.json")}).code, 3);
+    CHECK_EQ(g.run({"import", "--input", platform::path_to_utf8(f.temp.path / "none.json")}).code, 1);
+}
+
+TEST_CASE("app resolves the exercise from the argument then the enclosing workspace then the active exercise")
+{
+    CliFixture f;
+    learndc::app::OpenOptions oo;
+    oo.home = f.home;
+    oo.content_dir = f.content;
+    oo.env = platform::Env{{"PATH", ""}};
+    auto ctx = learndc::app::open(oo);
+    REQUIRE(ctx.has_value());
+    CHECK(ctx->has_content());
+    auto const* one = ctx->catalog.find("basics/one");
+    auto const* two = ctx->catalog.find("basics/two");
+    REQUIRE(one != nullptr);
+    REQUIRE(two != nullptr);
+    progress::Progress empty;
+    auto none = learndc::app::resolve_target(*ctx, empty, std::nullopt, f.temp.path, false);
+    REQUIRE(!none.has_value());
+    CHECK_EQ(none.error().code, learndc::app::exit_not_found);
+
+    auto started = learndc::app::start_exercise(*ctx, *one, std::nullopt);
+    REQUIRE(started.has_value());
+    CHECK(started->result.created);
+    auto p = learndc::app::load_progress(*ctx);
+    REQUIRE(p.has_value());
+    CHECK_EQ(p->active_exercise, "basics/one");
+
+    auto active = learndc::app::resolve_target(*ctx, *p, std::nullopt, f.temp.path, true);
+    REQUIRE(active.has_value());
+    CHECK_EQ(active->exercise->id, "basics/one");
+    CHECK(active->how == learndc::app::Resolved::Active);
+    CHECK(active->workspace.has_value());
+
+    auto named = learndc::app::resolve_target(*ctx, *p, std::string("two"), f.temp.path, false);
+    REQUIRE(named.has_value());
+    CHECK_EQ(named->exercise->id, "basics/two");
+    CHECK(named->how == learndc::app::Resolved::Argument);
+    CHECK(!named->workspace.has_value());
+    auto needed = learndc::app::resolve_target(*ctx, *p, std::string("basics/two"), f.temp.path, true);
+    REQUIRE(!needed.has_value());
+    CHECK_EQ(needed.error().code, learndc::app::exit_not_found);
+
+    REQUIRE(learndc::app::start_exercise(*ctx, *two, std::nullopt).has_value());
+    p = learndc::app::load_progress(*ctx);
+    REQUIRE(p.has_value());
+    auto from_cwd = learndc::app::resolve_target(*ctx, *p, std::nullopt, started->root / "src", true);
+    REQUIRE(from_cwd.has_value());
+    CHECK_EQ(from_cwd->exercise->id, "basics/one");
+    CHECK(from_cwd->how == learndc::app::Resolved::WorkingDirectory);
+    auto cwd_two = learndc::app::resolve_target(*ctx, *p, std::nullopt, ctx->dirs.workspaces_dir / "basics" / "two" / "src", true);
+    REQUIRE(cwd_two.has_value());
+    CHECK_EQ(cwd_two->exercise->id, "basics/two");
+    CHECK_EQ(p->active_exercise, "basics/two");
+
+    auto unknown = learndc::app::resolve_target(*ctx, *p, std::string("basics/tw0"), f.temp.path, false);
+    REQUIRE(!unknown.has_value());
+    CHECK_EQ(unknown.error().code, learndc::app::exit_not_found);
+    CHECK(unknown.error().message.find("unknown exercise") != std::string::npos);
+}
+
+TEST_CASE("app records check reports completion and recommends the next exercise")
+{
+    CliFixture f;
+    learndc::app::OpenOptions oo;
+    oo.home = f.home;
+    oo.content_dir = f.content;
+    oo.env = platform::Env{{"PATH", ""}};
+    auto ctx = learndc::app::open(oo);
+    REQUIRE(ctx.has_value());
+    auto const* one = ctx->catalog.find("basics/one");
+    REQUIRE(one != nullptr);
+
+    runner::CheckReport failed;
+    failed.outcome = runner::Outcome::Failed;
+    failed.passed = 1;
+    failed.total = 2;
+    auto rec = learndc::app::record_report(*ctx, *one, failed);
+    REQUIRE(rec.has_value());
+    CHECK(rec->recorded);
+    CHECK(!rec->completed_now);
+    CHECK_EQ(learndc::app::exit_code_for(failed), 1);
+
+    runner::CheckReport errored;
+    errored.outcome = runner::Outcome::Error;
+    rec = learndc::app::record_report(*ctx, *one, errored);
+    REQUIRE(rec.has_value());
+    CHECK(!rec->recorded);
+
+    runner::CheckReport passed;
+    passed.outcome = runner::Outcome::Passed;
+    passed.passed = 2;
+    passed.total = 2;
+    rec = learndc::app::record_report(*ctx, *one, passed);
+    REQUIRE(rec.has_value());
+    CHECK(rec->completed_now);
+    CHECK_EQ(rec->next_id, "basics/two");
+    rec = learndc::app::record_report(*ctx, *one, passed);
+    REQUIRE(rec.has_value());
+    CHECK(!rec->completed_now);
+
+    auto p = learndc::app::load_progress(*ctx);
+    REQUIRE(p.has_value());
+    auto const& e = p->exercises.at("basics/one");
+    CHECK_EQ(e.attempts, 3);
+    CHECK_EQ(e.passes, 2);
+    CHECK(progress::is_completed(*p, "basics/one"));
+    auto sum = learndc::app::summarize(*ctx, *p);
+    CHECK_EQ(sum.total, 3);
+    CHECK_EQ(sum.completed, 1);
+
+    runner::CheckReport cancelled;
+    cancelled.outcome = runner::Outcome::Cancelled;
+    CHECK_EQ(learndc::app::exit_code_for(cancelled), 130);
+    runner::CheckReport tool_missing;
+    tool_missing.outcome = runner::Outcome::Error;
+    runner::CheckResult r;
+    r.stage = runner::Stage::Toolchain;
+    tool_missing.results.push_back(r);
+    CHECK_EQ(learndc::app::exit_code_for(tool_missing), 4);
+
+    auto hint = learndc::app::reveal_hint(*ctx, *one, std::nullopt);
+    REQUIRE(hint.has_value());
+    CHECK_EQ(hint->level, 1);
+    hint = learndc::app::reveal_hint(*ctx, *one, 3);
+    REQUIRE(hint.has_value());
+    hint = learndc::app::reveal_hint(*ctx, *one, std::nullopt);
+    REQUIRE(hint.has_value());
+    CHECK(hint->all_shown);
+    CHECK(!learndc::app::reveal_hint(*ctx, *one, 0).has_value());
+
+    auto review = learndc::app::review_list(*ctx, *learndc::app::load_progress(*ctx));
+    CHECK(review.empty() || review.front().exercise != nullptr);
+}
+
+TEST_CASE("cli never colors without a terminal and honors NO_COLOR")
+{
+    CliFixture f;
+    REQUIRE(f.run({"start", "basics/one"}).code == 0);
+    CHECK(f.run({"list"}).out.find("\x1b[") == std::string::npos);
+    CHECK(f.run({"list"}, std::nullopt, true).out.find("\x1b[") != std::string::npos);
+    CHECK(f.run({"list", "--no-color"}, std::nullopt, true).out.find("\x1b[") == std::string::npos);
 }
 
 int main(int argc, char** argv)
