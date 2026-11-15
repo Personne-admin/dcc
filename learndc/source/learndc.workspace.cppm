@@ -315,6 +315,13 @@ export namespace learndc::workspace
                 it.disable_recursion_pending();
                 continue;
             }
+            if (status.type() == std::filesystem::file_type::directory)
+            {
+                std::error_code nested;
+                if (std::filesystem::is_regular_file(entry.path() / std::string(meta_dir) / std::string(meta_file), nested))
+                    it.disable_recursion_pending();
+                continue;
+            }
             if (status.type() != std::filesystem::file_type::regular)
                 continue;
             if (detail::ignored_name(platform::path_to_utf8(entry.path().filename())))
@@ -412,6 +419,10 @@ export namespace learndc::workspace
             if (ec)
                 return detail::fail(ErrorKind::Io, std::format("cannot create '{}': {}", platform::path_to_utf8(root), ec.message()));
         }
+        if (auto outer = find_enclosing(root.parent_path()))
+            return detail::fail(ErrorKind::Refused, std::format("'{}' is inside the workspace '{}' of '{}'; choose a directory outside it",
+                                                                platform::path_to_utf8(root), platform::path_to_utf8(outer->root),
+                                                                text::sanitize(outer->meta.exercise)));
         Meta meta;
         meta.exercise = ex.id;
         meta.revision = ex.revision;

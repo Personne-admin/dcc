@@ -2855,6 +2855,24 @@ TEST_CASE("workspace find_enclosing walks up from nested directories")
     CHECK(workspace::load(t.path / "elsewhere").error().kind == workspace::ErrorKind::NotFound);
 }
 
+TEST_CASE("workspace refuses a root nested inside another workspace and files skips nested workspaces")
+{
+    TempDir t;
+    auto ex = make_exercise();
+    auto const root = t.path / "ws";
+    REQUIRE(workspace::start(ex, root));
+    auto nested = workspace::start(ex, root / "sub");
+    REQUIRE(!nested);
+    CHECK(nested.error().kind == workspace::ErrorKind::Refused);
+    CHECK(!std::filesystem::exists(root / "sub" / ".learndc"));
+    write_file(root / "inner" / ".learndc" / "workspace.json", "{}");
+    write_file(root / "inner" / "mine.txt", "x");
+    write_file(root / "own.txt", "y");
+    auto const listed = workspace::files(workspace::load(root).value());
+    CHECK(std::ranges::find(listed, "own.txt") != listed.end());
+    CHECK(std::ranges::find(listed, "inner/mine.txt") == listed.end());
+}
+
 TEST_CASE("workspace files applies the ignore rules")
 {
     TempDir t;
