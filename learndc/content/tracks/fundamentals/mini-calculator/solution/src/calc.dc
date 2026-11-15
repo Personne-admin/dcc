@@ -1,0 +1,34 @@
+module calc;
+
+public enum Op { Add, Sub, Mul, Div }
+
+public struct Step {
+    Op op;
+    i32 operand;
+}
+
+public []const char symbol(Op op) {
+    return match op {
+        Op::Add => "+",
+        Op::Sub => "-",
+        Op::Mul => "*",
+        Op::Div => "/",
+    };
+}
+
+public i32 apply(Op op, i32 acc, i32 operand) {
+    return match op {
+        Op::Add => acc + operand,
+        Op::Sub => acc - operand,
+        Op::Mul => acc * operand,
+        Op::Div => if operand == 0 { acc } else { acc / operand },
+    };
+}
+
+public i32 evaluate([]const Step steps) {
+    i32 acc = 0;
+    for step in steps {
+        acc = apply(step.op, acc, step.operand);
+    }
+    return acc;
+}

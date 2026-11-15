@@ -1,0 +1,36 @@
+module op_checks;
+
+import calc;
+import std::mem;
+using calc::*;
+
+bool expect_int([]const char call, i32 got, i32 want) {
+    if got == want {
+        return true;
+    }
+    println("{}: expected {}, got {}", call, want, got);
+    return false;
+}
+
+bool expect_text([]const char call, []const char got, []const char want) {
+    if std::mem::equal(got, want) {
+        return true;
+    }
+    println("{}: expected \"{}\", got \"{}\"", call, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect_text("symbol(Add)", symbol(Op::Add), "+") { failures += 1; }
+    if !expect_text("symbol(Sub)", symbol(Op::Sub), "-") { failures += 1; }
+    if !expect_text("symbol(Mul)", symbol(Op::Mul), "*") { failures += 1; }
+    if !expect_text("symbol(Div)", symbol(Op::Div), "/") { failures += 1; }
+    if !expect_int("apply(Add, 7, 5)", apply(Op::Add, 7, 5), 12) { failures += 1; }
+    if !expect_int("apply(Sub, 7, 10)", apply(Op::Sub, 7, 10), -3) { failures += 1; }
+    if !expect_int("apply(Mul, 7, -2)", apply(Op::Mul, 7, -2), -14) { failures += 1; }
+    if !expect_int("apply(Div, 17, 5)", apply(Op::Div, 17, 5), 3) { failures += 1; }
+    if !expect_int("apply(Div, 17, 0)", apply(Op::Div, 17, 0), 17) { failures += 1; }
+    if !expect_int("apply(Div, 0, 0)", apply(Op::Div, 0, 0), 0) { failures += 1; }
+    return if failures == 0 { 0 } else { 1 };
+}

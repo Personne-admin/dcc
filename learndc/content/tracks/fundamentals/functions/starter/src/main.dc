@@ -1,0 +1,13 @@
+module main;
+
+import numbers;
+using numbers::*;
+
+public Status(Error) main() {
+    println("square(7) = {}", square(7))?;
+    println("sum of squares of 3 and 4 = {}", sum_of_squares(3, 4))?;
+    println("20 C = {} F", to_fahrenheit(20))?;
+    println("10 is even: {}", is_even(10))?;
+    println("7 is even: {}", is_even(7))?;
+    return Status::Ok;
+}

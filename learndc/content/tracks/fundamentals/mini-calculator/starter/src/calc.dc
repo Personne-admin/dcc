@@ -1,0 +1,20 @@
+module calc;
+
+public enum Op { Add, Sub, Mul, Div }
+
+public struct Step {
+    Op op;
+    i32 operand;
+}
+
+public []const char symbol(Op op) {
+    return "?";
+}
+
+public i32 apply(Op op, i32 acc, i32 operand) {
+    return 0;
+}
+
+public i32 evaluate([]const Step steps) {
+    return 0;
+}

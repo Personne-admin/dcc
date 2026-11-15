@@ -1,0 +1,13 @@
+module classify;
+
+public []const char describe(i32 n) {
+    return "";
+}
+
+public []const char grade(i32 score) {
+    return "";
+}
+
+public i32 clamp(i32 value, i32 low, i32 high) {
+    return 0;
+}

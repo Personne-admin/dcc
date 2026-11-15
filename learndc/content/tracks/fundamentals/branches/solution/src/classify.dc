@@ -1,0 +1,31 @@
+module classify;
+
+public []const char describe(i32 n) {
+    if n < 0 {
+        return "negative";
+    } else if n == 0 {
+        return "zero";
+    }
+    return "positive";
+}
+
+public []const char grade(i32 score) {
+    if score >= 90 {
+        return "A";
+    } else if score >= 80 {
+        return "B";
+    } else if score >= 70 {
+        return "C";
+    }
+    return "F";
+}
+
+public i32 clamp(i32 value, i32 low, i32 high) {
+    if value < low {
+        return low;
+    }
+    if value > high {
+        return high;
+    }
+    return value;
+}

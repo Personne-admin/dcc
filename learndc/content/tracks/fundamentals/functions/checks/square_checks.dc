@@ -1,0 +1,23 @@
+module square_checks;
+
+import numbers;
+using numbers::*;
+
+bool expect([]const char call, i32 got, i32 want) {
+    if got == want {
+        return true;
+    }
+    println("{}: expected {}, got {}", call, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect("square(0)", square(0), 0) { failures += 1; }
+    if !expect("square(5)", square(5), 25) { failures += 1; }
+    if !expect("square(-3)", square(-3), 9) { failures += 1; }
+    if !expect("sum_of_squares(3, 4)", sum_of_squares(3, 4), 25) { failures += 1; }
+    if !expect("sum_of_squares(-1, 2)", sum_of_squares(-1, 2), 5) { failures += 1; }
+    if !expect("sum_of_squares(0, 0)", sum_of_squares(0, 0), 0) { failures += 1; }
+    return if failures == 0 { 0 } else { 1 };
+}

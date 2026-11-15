@@ -1,0 +1,18 @@
+module main;
+
+import classify;
+using classify::*;
+
+public Status(Error) main() {
+    println("-5 is {}", describe(-5))?;
+    println("0 is {}", describe(0))?;
+    println("8 is {}", describe(8))?;
+    println("score 95 earns {}", grade(95))?;
+    println("score 83 earns {}", grade(83))?;
+    println("score 71 earns {}", grade(71))?;
+    println("score 40 earns {}", grade(40))?;
+    println("clamp(15, 0, 10) = {}", clamp(15, 0, 10))?;
+    println("clamp(-4, 0, 10) = {}", clamp(-4, 0, 10))?;
+    println("clamp(6, 0, 10) = {}", clamp(6, 0, 10))?;
+    return Status::Ok;
+}

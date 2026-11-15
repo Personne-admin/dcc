@@ -1,0 +1,13 @@
+module main;
+
+i32 total_price(i32 unit_price, i32 quantity) {
+    return unit_price * quantity;
+}
+
+public Status(Error) main() {
+    []const char item = "notebook";
+    i32 total = total_price(250, 3);
+    println("Item: {}", item)?;
+    println("Total: {} cents", total)?;
+    return Status::Ok;
+}

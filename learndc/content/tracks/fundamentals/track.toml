@@ -2,4 +2,4 @@ schema = 1
 id = "fundamentals"
 title = "Fundamentals"
 summary = "Programs, values, functions, branches, loops and reading compiler errors."
-exercises = ["hello-world"]
+exercises = ["hello-world", "variables", "functions", "branches", "loops", "match", "diagnostics", "mini-calculator"]

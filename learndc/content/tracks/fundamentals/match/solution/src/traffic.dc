@@ -1,0 +1,27 @@
+module traffic;
+
+public enum Light { Red, Yellow, Green }
+
+public []const char name(Light light) {
+    return match light {
+        Light::Red => "Red",
+        Light::Yellow => "Yellow",
+        Light::Green => "Green",
+    };
+}
+
+public []const char action(Light light) {
+    return match light {
+        Light::Red => "Stop",
+        Light::Yellow => "Slow down",
+        Light::Green => "Go",
+    };
+}
+
+public i32 seconds(Light light) {
+    return match light {
+        Light::Red => 30,
+        Light::Yellow => 5,
+        Light::Green => 25,
+    };
+}

@@ -1,0 +1,31 @@
+module text_checks;
+
+import classify;
+import std::mem;
+using classify::*;
+
+bool expect([]const char call, []const char got, []const char want) {
+    if std::mem::equal(got, want) {
+        return true;
+    }
+    println("{}: expected \"{}\", got \"{}\"", call, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect("describe(-1)", describe(-1), "negative") { failures += 1; }
+    if !expect("describe(-100)", describe(-100), "negative") { failures += 1; }
+    if !expect("describe(0)", describe(0), "zero") { failures += 1; }
+    if !expect("describe(1)", describe(1), "positive") { failures += 1; }
+    if !expect("describe(42)", describe(42), "positive") { failures += 1; }
+    if !expect("grade(100)", grade(100), "A") { failures += 1; }
+    if !expect("grade(90)", grade(90), "A") { failures += 1; }
+    if !expect("grade(89)", grade(89), "B") { failures += 1; }
+    if !expect("grade(80)", grade(80), "B") { failures += 1; }
+    if !expect("grade(79)", grade(79), "C") { failures += 1; }
+    if !expect("grade(70)", grade(70), "C") { failures += 1; }
+    if !expect("grade(69)", grade(69), "F") { failures += 1; }
+    if !expect("grade(0)", grade(0), "F") { failures += 1; }
+    return if failures == 0 { 0 } else { 1 };
+}

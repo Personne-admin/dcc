@@ -1,0 +1,26 @@
+module main;
+
+import calc;
+using calc::*;
+
+public Status(Error) main() {
+    []const Step steps = {
+        { Op::Add, 5 },
+        { Op::Mul, 3 },
+        { Op::Sub, 4 },
+        { Op::Div, 0 },
+        { Op::Div, 2 },
+        { Op::Add, 20 },
+    };
+
+    i32 acc = 0;
+    for step in steps {
+        acc = apply(step.op, acc, step.operand);
+        println("{} {} -> {}", symbol(step.op), step.operand, acc)?;
+    }
+    println("result: {}", evaluate(steps))?;
+
+    []const Step other = { { Op::Add, 10 }, { Op::Div, 3 } };
+    println("second result: {}", evaluate(other))?;
+    return Status::Ok;
+}

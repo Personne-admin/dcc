@@ -1,0 +1,14 @@
+module main;
+
+public Status(Error) main() {
+    []const char shape = "Rectangle";
+    i32 width = 12;
+    i32 height = 5;
+    i32 area = 0;
+
+    area = width * height;
+
+    println("{}: {} x {}", shape, width, height)?;
+    println("Area: {}", area)?;
+    return Status::Ok;
+}

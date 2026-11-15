@@ -1,0 +1,12 @@
+module main;
+
+import traffic;
+using traffic::*;
+
+public Status(Error) main() {
+    []const Light lights = { Light::Red, Light::Yellow, Light::Green };
+    for light in lights {
+        println("{}: {} for {} seconds", name(light), action(light), seconds(light))?;
+    }
+    return Status::Ok;
+}

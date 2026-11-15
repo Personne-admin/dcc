@@ -1,0 +1,58 @@
+schema = 1
+id = "fundamentals/functions"
+revision = 1
+title = "Writing functions"
+summary = "Implement four small integer functions and reuse one inside another."
+kind = "implement-function"
+chapter = "functions"
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["functions", "parameters", "return values", "public", "modules"]
+tags = ["functions", "arithmetic"]
+objectives = [
+    "Declare a function with typed parameters and a return type",
+    "Return a computed value with return",
+    "Call one function from another to reuse it",
+]
+entry_file = "src/main.dc"
+product = "functions"
+prerequisites = ["fundamentals/variables"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Program prints the computed values"
+expect_stdout = """
+square(7) = 49
+sum of squares of 3 and 4 = 25
+20 C = 68 F
+10 is even: true
+7 is even: false
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Every function in src/numbers.dc still returns a placeholder value."
+
+[[checks]]
+kind = "harness"
+name = "square and sum_of_squares"
+harness = "checks/square_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "square(n) is n times n. Negative numbers square to positive numbers."
+
+[[checks]]
+kind = "harness"
+name = "to_fahrenheit and is_even"
+harness = "checks/convert_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Multiply by 9, divide by 5, then add 32. An even number leaves remainder 0 when divided by 2."

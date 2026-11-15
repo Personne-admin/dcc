@@ -1,0 +1,33 @@
+module eval_checks;
+
+import calc;
+using calc::*;
+
+bool expect(i32 got, i32 want, []const char what) {
+    if got == want {
+        return true;
+    }
+    println("{}: expected {}, got {}", what, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    []const Step none = {};
+    if !expect(evaluate(none), 0, "evaluate(no steps)") { failures += 1; }
+
+    []const Step one = { { Op::Sub, 8 } };
+    if !expect(evaluate(one), -8, "evaluate(Sub 8)") { failures += 1; }
+
+    []const Step chain = { { Op::Add, 5 }, { Op::Mul, 3 }, { Op::Sub, 4 } };
+    if !expect(evaluate(chain), 11, "evaluate(Add 5, Mul 3, Sub 4)") { failures += 1; }
+
+    []const Step guarded = { { Op::Add, 9 }, { Op::Div, 0 }, { Op::Div, 2 } };
+    if !expect(evaluate(guarded), 4, "evaluate(Add 9, Div 0, Div 2)") { failures += 1; }
+
+    []const Step order = { { Op::Add, 2 }, { Op::Mul, 5 }, { Op::Add, 1 }, { Op::Mul, 2 } };
+    if !expect(evaluate(order), 22, "evaluate(Add 2, Mul 5, Add 1, Mul 2)") { failures += 1; }
+
+    return if failures == 0 { 0 } else { 1 };
+}

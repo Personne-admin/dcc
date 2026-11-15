@@ -1,0 +1,17 @@
+module numbers;
+
+public i32 square(i32 n) {
+    return n * n;
+}
+
+public i32 sum_of_squares(i32 a, i32 b) {
+    return square(a) + square(b);
+}
+
+public i32 to_fahrenheit(i32 celsius) {
+    return celsius * 9 / 5 + 32;
+}
+
+public bool is_even(i32 n) {
+    return n % 2 == 0;
+}

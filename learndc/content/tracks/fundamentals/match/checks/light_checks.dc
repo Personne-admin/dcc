@@ -1,0 +1,34 @@
+module light_checks;
+
+import traffic;
+import std::mem;
+using traffic::*;
+
+public i32 main() {
+    i32 failures = 0;
+    if !std::mem::equal(action(Light::Red), "Stop") {
+        println("action(Red): expected \"Stop\", got \"{}\"", action(Light::Red));
+        failures += 1;
+    }
+    if !std::mem::equal(action(Light::Yellow), "Slow down") {
+        println("action(Yellow): expected \"Slow down\", got \"{}\"", action(Light::Yellow));
+        failures += 1;
+    }
+    if !std::mem::equal(action(Light::Green), "Go") {
+        println("action(Green): expected \"Go\", got \"{}\"", action(Light::Green));
+        failures += 1;
+    }
+    if seconds(Light::Red) != 30 {
+        println("seconds(Red): expected 30, got {}", seconds(Light::Red));
+        failures += 1;
+    }
+    if seconds(Light::Yellow) != 5 {
+        println("seconds(Yellow): expected 5, got {}", seconds(Light::Yellow));
+        failures += 1;
+    }
+    if seconds(Light::Green) != 25 {
+        println("seconds(Green): expected 25, got {}", seconds(Light::Green));
+        failures += 1;
+    }
+    return if failures == 0 { 0 } else { 1 };
+}

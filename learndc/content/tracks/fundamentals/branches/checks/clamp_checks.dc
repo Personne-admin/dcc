@@ -1,0 +1,24 @@
+module clamp_checks;
+
+import classify;
+using classify::*;
+
+bool expect([]const char call, i32 got, i32 want) {
+    if got == want {
+        return true;
+    }
+    println("{}: expected {}, got {}", call, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect("clamp(5, 0, 10)", clamp(5, 0, 10), 5) { failures += 1; }
+    if !expect("clamp(0, 0, 10)", clamp(0, 0, 10), 0) { failures += 1; }
+    if !expect("clamp(10, 0, 10)", clamp(10, 0, 10), 10) { failures += 1; }
+    if !expect("clamp(-1, 0, 10)", clamp(-1, 0, 10), 0) { failures += 1; }
+    if !expect("clamp(11, 0, 10)", clamp(11, 0, 10), 10) { failures += 1; }
+    if !expect("clamp(-7, -5, -2)", clamp(-7, -5, -2), -5) { failures += 1; }
+    if !expect("clamp(-3, -5, -2)", clamp(-3, -5, -2), -3) { failures += 1; }
+    return if failures == 0 { 0 } else { 1 };
+}

@@ -1,0 +1,34 @@
+module convert_checks;
+
+import numbers;
+using numbers::*;
+
+bool expect(i32 got, i32 want, []const char call) {
+    if got == want {
+        return true;
+    }
+    println("{}: expected {}, got {}", call, want, got);
+    return false;
+}
+
+bool expect_bool(bool got, bool want, []const char call) {
+    if got == want {
+        return true;
+    }
+    println("{}: expected {}, got {}", call, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect(to_fahrenheit(0), 32, "to_fahrenheit(0)") { failures += 1; }
+    if !expect(to_fahrenheit(100), 212, "to_fahrenheit(100)") { failures += 1; }
+    if !expect(to_fahrenheit(-40), -40, "to_fahrenheit(-40)") { failures += 1; }
+    if !expect(to_fahrenheit(20), 68, "to_fahrenheit(20)") { failures += 1; }
+    if !expect_bool(is_even(0), true, "is_even(0)") { failures += 1; }
+    if !expect_bool(is_even(10), true, "is_even(10)") { failures += 1; }
+    if !expect_bool(is_even(7), false, "is_even(7)") { failures += 1; }
+    if !expect_bool(is_even(-3), false, "is_even(-3)") { failures += 1; }
+    if !expect_bool(is_even(-4), true, "is_even(-4)") { failures += 1; }
+    return if failures == 0 { 0 } else { 1 };
+}

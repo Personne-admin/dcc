@@ -1,0 +1,25 @@
+module sum_checks;
+
+import sums;
+using sums::*;
+
+bool expect(i32 n, i32 want) {
+    i32 got = sum_to(n);
+    if got == want {
+        return true;
+    }
+    println("sum_to({}): expected {}, got {}", n, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect(-3, 0) { failures += 1; }
+    if !expect(0, 0) { failures += 1; }
+    if !expect(1, 1) { failures += 1; }
+    if !expect(2, 3) { failures += 1; }
+    if !expect(5, 15) { failures += 1; }
+    if !expect(10, 55) { failures += 1; }
+    if !expect(100, 5050) { failures += 1; }
+    return if failures == 0 { 0 } else { 1 };
+}
