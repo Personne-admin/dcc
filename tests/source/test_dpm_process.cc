@@ -95,13 +95,14 @@ TEST_CASE("native process cancellation and stderr capture bound")
     std::atomic<bool> cancel{false};
     auto command = child({"--sleep"});
     command.cancel = &cancel;
-    std::jthread trigger{[&] {
+    std::thread trigger{[&] {
         std::this_thread::sleep_for(50ms);
         cancel.store(true);
     }};
     auto started = std::chrono::steady_clock::now();
     auto result = dpm::process::run(command);
     auto elapsed = std::chrono::steady_clock::now() - started;
+    trigger.join();
     CHECK(result.started);
     CHECK(result.aborted);
     CHECK(!result.timed_out);

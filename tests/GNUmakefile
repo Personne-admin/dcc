@@ -181,6 +181,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/test_windows_dpm_build.py
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/test_windows_toolchain.py
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/test_msi_discovery.py
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/test_libcxx_internal_symbols.py $(BUILD_DIR)
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_bitfield_clang_layout.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tools/codegen/random_differential.py --dcc $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/i8086/test_harness.py

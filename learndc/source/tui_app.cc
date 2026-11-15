@@ -66,6 +66,11 @@ namespace learndc::tui
                     m_model.push_toast(text::sanitize(w), true);
             }
 
+            Shell(Shell const&) = delete;
+            Shell& operator=(Shell const&) = delete;
+
+            ~Shell() { shutdown(); }
+
             int run()
             {
                 auto screen = ftxui::App::Fullscreen();
@@ -73,7 +78,8 @@ namespace learndc::tui
                 screen.TrackMouse(false);
                 screen.ForceHandleCtrlC(false);
                 auto root = ftxui::CatchEvent(ftxui::Renderer([this] { return view(); }), [this](ftxui::Event e) { return on_event(e); });
-                m_ticker = std::jthread([this](std::stop_token stop) { tick_loop(stop); });
+                m_ticker_stop.store(false);
+                m_ticker = std::thread([this] { tick_loop(); });
                 screen.Loop(root);
                 shutdown();
                 m_screen = nullptr;
@@ -90,11 +96,12 @@ namespace learndc::tui
             std::atomic<bool> m_need_tick{false};
             std::atomic<bool> m_check_cancel{false};
             std::atomic<bool> m_shutdown{false};
-            std::jthread m_ticker;
-            std::jthread m_check;
-            std::jthread m_doctor;
-            std::jthread m_editor;
-            std::jthread m_watch;
+            std::atomic<bool> m_ticker_stop{false};
+            std::thread m_ticker;
+            std::thread m_check;
+            std::thread m_doctor;
+            std::thread m_editor;
+            std::thread m_watch;
             std::shared_ptr<std::atomic<bool>> m_watch_stop;
 
             [[nodiscard]] static model::Size initial_size()
@@ -160,9 +167,9 @@ namespace learndc::tui
                 return false;
             }
 
-            void tick_loop(std::stop_token stop)
+            void tick_loop()
             {
-                while (!stop.stop_requested())
+                while (!m_ticker_stop.load())
                 {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     if (m_need_tick.load() && m_screen)
@@ -186,7 +193,7 @@ namespace learndc::tui
                 m_check_cancel.store(false);
                 auto options = app::runner_options(m_ctx, runner::Backend::Dpm, &m_check_cancel,
                                                    [this](std::string_view stage) { post(model::CheckStage{std::string(stage)}); });
-                m_check = std::jthread([this, ex, root = e.root, options = std::move(options)] {
+                m_check = std::thread([this, ex, root = e.root, options = std::move(options)] {
                     auto report = runner::run_checks(*ex, root, options);
                     post(model::CheckDone{std::move(report)});
                 });
@@ -251,7 +258,7 @@ namespace learndc::tui
                 {
                     if (m_editor.joinable())
                         m_editor.join();
-                    m_editor = std::jthread([finish, choice, ph, lo] { finish(editor::launch(choice, ph, lo)); });
+                    m_editor = std::thread([finish, choice, ph, lo] { finish(editor::launch(choice, ph, lo)); });
                     return;
                 }
                 finish(editor::launch(choice, ph, lo));
@@ -271,7 +278,7 @@ namespace learndc::tui
                 stop_watch();
                 m_watch_stop = std::make_shared<std::atomic<bool>>(false);
                 auto const debounce = std::chrono::milliseconds(m_ctx.settings.checks_watch_debounce_ms);
-                m_watch = std::jthread([this, root = e.root, stop = m_watch_stop, debounce] {
+                m_watch = std::thread([this, root = e.root, stop = m_watch_stop, debounce] {
                     watch::Options options;
                     options.debounce = debounce;
                     options.cancel = stop.get();
@@ -304,7 +311,7 @@ namespace learndc::tui
                 options.stdin_tty = true;
                 options.stdout_tty = true;
                 options.terminal = platform::TerminalSize{m_model.size.width, m_model.size.height};
-                m_doctor = std::jthread([this, options = std::move(options)] { post(model::DoctorDone{doctor::run_doctor(options)}); });
+                m_doctor = std::thread([this, options = std::move(options)] { post(model::DoctorDone{doctor::run_doctor(options)}); });
             }
 
             void run_effect(model::Quit const&)
@@ -317,7 +324,7 @@ namespace learndc::tui
             {
                 m_shutdown.store(true);
                 m_check_cancel.store(true);
-                m_ticker.request_stop();
+                m_ticker_stop.store(true);
                 if (m_ticker.joinable())
                     m_ticker.join();
                 stop_watch();
