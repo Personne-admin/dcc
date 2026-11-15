@@ -50,10 +50,43 @@ product-level link settings. Changing a dependency's link requirements changes
 the build command and invalidates its build stamp.
 
 These declarations name libraries; they do not install SDL, build C sources,
-copy DLLs, or run dependency tasks. Install native libraries separately and
-configure additional search directories in the consuming project's settings,
-for example `settings = { extra_flags = { "-L/path/to/libs" } }`. Runtime shared
-library discovery must also be configured for the operating system.
+copy DLLs, or run dependency tasks. Install native libraries separately.
+
+## Search paths and shared libraries
+
+A product configures where its libraries are found and how it is linked:
+
+```dcon
+dpm::v1::Project {
+    name = "game",
+    version = "0.1.0",
+    products = {
+        {
+            name = "game",
+            link = { "SDL3" },
+            library_paths = { "vendor/sdl3/lib" },
+            runtime_paths = { "$ORIGIN/lib" },
+            link_mode = dpm::v1::LinkMode::Default,
+        },
+    },
+}
+```
+
+- `library_paths`: directories searched at build time (`dcc -L`), relative to
+  the package root or absolute. Libraries installed in the system library
+  directories, such as a distribution's SDL3, need none.
+- `runtime_paths`: directories the program searches when it starts
+  (`dcc -rpath`, DT_RUNPATH). `$ORIGIN` is the directory of the executable.
+  Windows executables load DLLs from their own directory and `PATH` instead.
+- `link_mode`: `Default` links statically unless a library resolves to a
+  shared object (`libSDL3.so`), `Static` uses only `lib<name>.a` archives, and
+  `Dynamic` prefers shared objects. Dynamic linking is available for x86_64
+  Linux executables.
+
+Changing these fields, or replacing a linked library file, relinks the
+product. See [linking](linking.md) for the search order, the difference
+between build-time and run-time library discovery, Windows import libraries
+and the current limitations.
 
 See [tasks and assets](dpm-tasks.md) for explicitly invoked native build tasks.
 Dependency settings, tasks and assets are not inherited by consumers.
