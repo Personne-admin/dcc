@@ -1309,7 +1309,7 @@ namespace
         if (!opts.library_paths.empty() || !opts.libraries.empty() || !opts.runtime_paths.empty() || !opts.dynamic_linker.empty() ||
             opts.link_mode == dcc::backend::LinkMode::Dynamic)
         {
-            std::println(std::cerr, "dcc: error: library options (-L, -l, -dynamic, -dynamic-linker, -rpath) are not supported for i8086 final images");
+            std::println(std::cerr, "dcc: error: library search and library options (-L, -l, -dynamic, -dynamic-linker, -rpath) are not supported for i8086 final images");
             return false;
         }
         for (auto const& input : opts.input_files)
