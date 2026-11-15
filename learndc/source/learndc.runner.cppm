@@ -249,6 +249,8 @@ export namespace learndc::runner
         bool ok = false;
         bool timed_out = false;
         bool cancelled = false;
+        bool truncated = false;
+        int signal = 0;
         int exit_code = -1;
         std::string output;
         std::string error;
@@ -793,6 +795,8 @@ export namespace learndc::runner
         outcome.started = result.started;
         outcome.exit_code = result.exit_code;
         outcome.timed_out = result.timed_out;
+        outcome.truncated = result.truncated;
+        outcome.signal = result.signal;
         outcome.cancelled = detail::is_cancelled(spec.cancel) && result.aborted;
         outcome.output = result.out;
         if (!result.err.empty())
@@ -995,6 +999,22 @@ export namespace learndc::runner
                 r.summary = std::format("{} did not finish building in time", what);
                 return r;
             }
+            if (build.signal != 0)
+            {
+                r.verdict = Verdict::Error;
+                r.stage = Stage::Toolchain;
+                r.hint.clear();
+                r.summary = std::format("the build tool was stopped by {} (it crashed)", signal_name(build.signal));
+                return r;
+            }
+            if (build.truncated)
+            {
+                r.verdict = Verdict::Error;
+                r.stage = Stage::OutputLimit;
+                r.hint.clear();
+                r.summary = "the build printed more output than learndc keeps";
+                return r;
+            }
             if (is_link_failure(r.diagnostics))
             {
                 r.stage = Stage::Link;
@@ -1060,6 +1080,8 @@ export namespace learndc::runner
                         return finish(build_failure(check, build, s.rewrites, "your program"));
                     r.diagnostics = clean_diagnostics(build.output.empty() ? build.error : build.output, s.rewrites);
                     r.locations = parse_locations(r.diagnostics);
+                    if (build.timed_out || build.signal != 0 || build.truncated || (build.exit_code == 0 && !build.ok))
+                        return finish(build_failure(check, build, s.rewrites, "your program"));
                     bool const succeeded = build.ok;
                     r.hint = check.hint;
                     if (succeeded != check.expect_build_success)

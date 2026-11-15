@@ -3645,6 +3645,53 @@ TEST_CASE("a stale dpm binary is not run when the build produced none")
     CHECK_EQ(outcome.exit_code, 0);
 }
 
+namespace
+{
+    catalog::Check diagnostic_check(bool expect_success, std::string contains)
+    {
+        catalog::Check c;
+        c.kind = catalog::CheckKind::Diagnostic;
+        c.name = "Rejected";
+        c.expect_build_success = expect_success;
+        c.diagnostic_contains = std::move(contains);
+        return c;
+    }
+
+    runner::CheckResult run_diagnostic(char const* mode, std::chrono::seconds timeout = 20s)
+    {
+        TempDir t;
+        auto o = make_options(t.path);
+        o.tools.dpm.path = std::filesystem::path(g_self);
+        o.settings.checks_build_timeout_seconds = static_cast<int>(timeout.count());
+        auto ex = inline_exercise("basics/diag", "module main;\n");
+        ex.checks.clear();
+        ex.checks.push_back(diagnostic_check(false, ""));
+        auto const root = t.path / "ws";
+        write_tree(root, ex.starter);
+        EnvGuard guard(mode);
+        auto report = runner::run_checks(ex, root, o);
+        return report.results.at(0);
+    }
+}
+
+TEST_CASE("diagnostic checks do not pass when the build tool crashes or produces no result")
+{
+    auto crashed = run_diagnostic("abort");
+    CHECK(crashed.verdict == runner::Verdict::Error);
+    CHECK(crashed.summary.find("SIGABRT") != std::string::npos);
+    auto empty = run_diagnostic("ok");
+    CHECK(empty.verdict == runner::Verdict::Error);
+    auto rejected = run_diagnostic("reject");
+    CHECK(rejected.verdict == runner::Verdict::Pass);
+}
+
+TEST_CASE("diagnostic checks do not pass when the build times out")
+{
+    auto r = run_diagnostic("sleep", 1s);
+    CHECK(r.verdict == runner::Verdict::Fail);
+    CHECK(r.stage == runner::Stage::Timeout);
+}
+
 TEST_CASE("missing toolchain is reported with the setting names")
 {
     TempDir t;
