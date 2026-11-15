@@ -17,7 +17,7 @@ STD_MK := $(TOPLEVEL)/mk/std.mk
 COMPDB_MK := $(TOPLEVEL)/mk/compdb.mk
 SCAN_SCRIPT := $(TOPLEVEL)/mk/scan_modules.py
 
-COMPDB_SUBDIRS := compiler driver dccd dcdoc dpm libdcext
+COMPDB_SUBDIRS := compiler driver dccd dcdoc dpm libdcext learndc
 
 PREFIX ?= /usr/local
 DESTDIR ?=
@@ -48,7 +48,7 @@ else
   MSG = @true
 endif
 
-.PHONY: all compiler driver dccd dcdoc dpm libdcext libdcext-test test test-bin install uninstall compdb clean distclean help tools-windows msi
+.PHONY: all compiler driver dccd dcdoc dpm learndc libdcext libdcext-test test test-bin install uninstall compdb clean distclean help tools-windows msi
 
 all: driver libdcext dccd dcdoc dpm
 
@@ -67,6 +67,9 @@ dcdoc: compiler
 dpm: compiler
 	@$(MAKE) -C dpm
 
+learndc: $(if $(filter 1,$(LEARNDC_STANDALONE)),,compiler)
+	@$(MAKE) -C learndc
+
 libdcext: driver
 	@$(MAKE) -C libdcext
 ifneq ($(ENABLE_LLVM),0)
@@ -80,7 +83,7 @@ libdcext-test: driver
 
 DCCD_TEST_NAMES := test_format test_protocol test_workspace_index test_transport test_lsp test_compilation_database
 
-test-bin: driver dpm libdcext-test $(if $(filter $(DCCD_TEST_NAMES),$(NAMES)),dccd)
+test-bin: driver dpm libdcext-test $(if $(filter $(DCCD_TEST_NAMES),$(NAMES)),dccd) $(if $(filter test_learndc,$(NAMES)),learndc)
 	@if [ -z "$(strip $(NAMES))" ]; then \
 		echo 'usage: make test-bin NAMES="test_name ..."' >&2; \
 		exit 2; \
@@ -121,7 +124,7 @@ msi: tools-windows
 	$(Q)wixl -v -a x64 -o $(MSI_OUT) $(TOPLEVEL)/build-windows/dcc.wxs
 	$(call MSG,MSI,$(MSI_OUT))
 
-test: compiler driver libdcext dccd dcdoc dpm
+test: compiler driver libdcext dccd dcdoc dpm learndc
 	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=custom
 	@$(MAKE) -C tests
 
@@ -140,7 +143,7 @@ test-win: compiler driver dccd
 	@$(MAKE) libdcext TARGET=x86_64-windows BACKEND=custom
 	@$(MAKE) -C tests test-win
 
-install: driver dccd dcdoc dpm libdcext
+install: driver dccd dcdoc dpm learndc libdcext
 	$(call MSG,INSTALL,$(DESTDIR)$(BINDIR)/dcc)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(BINDIR)
 	$(Q)$(INSTALL) -m 755 $(BUILD_DIR)/bin/dcc $(DESTDIR)$(BINDIR)/dcc
@@ -156,6 +159,11 @@ install: driver dccd dcdoc dpm libdcext
 	$(call MSG,INSTALL,$(DESTDIR)$(BINDIR)/dpm)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(BINDIR)
 	$(Q)$(INSTALL) -m 755 $(BUILD_DIR)/bin/dpm $(DESTDIR)$(BINDIR)/dpm
+
+	$(call MSG,INSTALL,$(DESTDIR)$(BINDIR)/learndc)
+	$(Q)$(INSTALL) -m 755 $(BUILD_DIR)/bin/learndc $(DESTDIR)$(BINDIR)/learndc
+	$(Q)$(INSTALL) -d $(DESTDIR)$(DOCDIR)/learndc
+	$(Q)$(INSTALL) -m 644 $(TOPLEVEL)/learndc/third_party/ftxui/LICENSE $(DESTDIR)$(DOCDIR)/learndc/FTXUI-LICENSE
 
 	$(call MSG,INSTALL,$(DESTDIR)$(LIBDIR)/libdcext-*.a)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(LIBDIR)
@@ -173,6 +181,8 @@ uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/dccd
 	rm -f $(DESTDIR)$(BINDIR)/dcdoc
 	rm -f $(DESTDIR)$(BINDIR)/dpm
+	rm -f $(DESTDIR)$(BINDIR)/learndc
+	rm -rf $(DESTDIR)$(DOCDIR)/learndc
 	rm -f $(DESTDIR)$(LIBDIR)/libdcext.a
 	rm -f $(DESTDIR)$(LIBDIR)/libdcext-*.a
 	find $(DESTDIR)$(INCLUDEDIR)/std -name '*.dc' -delete 2>/dev/null || true
@@ -187,7 +197,7 @@ compdb:
 	@$(MAKE) compdb-merge
 
 clean:
-	@for dir in compiler driver dccd dpm libdcext tests; do \
+	@for dir in compiler driver dccd dpm learndc libdcext tests; do \
 		$(MAKE) -C $$dir clean 2>/dev/null || true; \
 	done
 
@@ -204,6 +214,7 @@ help:
 	@echo "  compiler       Build only the core library"
 	@echo "  driver         Build the dcc binary"
 	@echo "  libdcext       Build the extended library"
+	@echo "  learndc        Build the learndc exercise tool (LEARNDC_STANDALONE=1 skips the compiler)"
 	@echo "  test           Build and run the test suite"
 	@echo "  benchmark      Collect correctness-gated compiler benchmarks (BENCH_ARGS=...)"
 	@echo "  differential   Run cross-backend differential corpus (DIFF_ARGS=...)"

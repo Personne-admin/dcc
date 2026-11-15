@@ -1,0 +1,12 @@
+FTXUI 7.0.3 (amalgamated release asset), used by the learndc terminal UI.
+
+Upstream:  https://github.com/ArthurSonzogni/FTXUI
+Release:   https://github.com/ArthurSonzogni/FTXUI/releases/tag/v7.0.3
+Asset:     https://github.com/ArthurSonzogni/FTXUI/releases/download/v7.0.3/ftxui-amalgamated.zip
+SHA-256:   63d13bb65747bdbf0edf04d83ce490708022371cf378f15fad8489249ea4fd9a
+License:   MIT, see LICENSE in this directory (also shipped with learndc).
+
+The zip is committed unchanged. learndc/tools/extract_ftxui.py verifies the
+checksum and extracts ftxui.hpp and ftxui.cpp into the build directory; the
+sources are not edited. To update, replace the zip, the checksum here and in
+learndc/GNUmakefile, and rebuild.
