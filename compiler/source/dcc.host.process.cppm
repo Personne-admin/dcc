@@ -41,6 +41,7 @@ export namespace dcc::host::process
         std::chrono::milliseconds grace{2000};
         std::atomic<bool> const* cancel{};
         std::size_t max_error_capture = 64u << 10;
+        bool stop_on_error_overflow{};
     };
 
     struct Result
@@ -444,7 +445,14 @@ export namespace dcc::host::process
                         result.out.append(chunk);
                 }
                 else if (static_cast<int>(i) == err_index)
+                {
                     detail::append_error(result, cmd, chunk);
+                    if (cmd.stop_on_error_overflow && result.err_truncated)
+                    {
+                        result.truncated = true;
+                        kill_child();
+                    }
+                }
             }
             if (!child_exited && !killed)
             {

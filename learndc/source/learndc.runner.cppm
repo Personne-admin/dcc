@@ -648,6 +648,7 @@ export namespace learndc::runner
         command.timeout = spec.timeout;
         command.max_capture = spec.max_output;
         command.max_error_capture = spec.max_output;
+        command.stop_on_error_overflow = true;
         command.cancel = spec.cancel;
         command.inherit_env = true;
         command.env = spec.env;

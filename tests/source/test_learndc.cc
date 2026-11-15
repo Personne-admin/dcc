@@ -3635,6 +3635,13 @@ TEST_CASE("a program that exits and leaves a child holding its pipes is judged o
     CHECK(elapsed < 4s);
 }
 
+TEST_CASE("flooding the error stream stops the program at the output limit")
+{
+    auto r = judge_fake(run_check(std::nullopt), {"--flood-err"}, 4096, 5s);
+    CHECK(r.verdict == runner::Verdict::Fail);
+    CHECK(r.stage == runner::Stage::OutputLimit);
+}
+
 TEST_CASE("a sleeping program times out")
 {
     auto const begin = std::chrono::steady_clock::now();
@@ -6229,6 +6236,15 @@ int main(int argc, char** argv)
             std::cout << "ok\n";
             std::cout.flush();
             return 0;
+        }
+        if (mode == "--flood-err")
+        {
+            std::string const chunk(8192, 'x');
+            for (;;)
+            {
+                std::cerr.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+                std::cerr.flush();
+            }
         }
         if (mode == "--sleep")
         {
