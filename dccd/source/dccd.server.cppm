@@ -227,6 +227,8 @@ export namespace dccd
         std::optional<dcc::config::ResolvedPrefix> m_resolved_prefix;
 
         std::string m_active_entry_uri;
+        std::map<std::string, std::string, std::less<>> m_dependency_owner;
+        std::set<std::string, std::less<>> m_reported_standalone_roots;
         dccd::workspace_index::WorkspaceIndex m_workspace_index;
         bool m_did_change_watched_files_supported{false};
         bool m_watch_registration_sent{false};
@@ -956,6 +958,7 @@ export namespace dccd
                     if (uri)
                     {
                         auto loc = make_location_at_start(std::move(*uri));
+                        note_navigation(loc.uri);
                         return protocol::build_response(rpc.id.value(), loc.to_json());
                     }
                 }
@@ -969,6 +972,7 @@ export namespace dccd
             auto loc = source_range_to_lsp_location(symbol->definition_range);
             if (!loc)
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+            note_navigation(loc->uri);
 
             if (symbol->via_using)
             {
@@ -2553,7 +2557,149 @@ export namespace dccd
             return null_response();
         }
 
-        void recompile_document(std::string const& uri, bool publish = false, std::string_view trigger = "query")
+        struct OwnerContext
+        {
+            std::filesystem::path entry;
+            dccd::CompileCommand const* command{};
+            std::string reason;
+        };
+
+        [[nodiscard]] std::vector<dccd::CompilationDatabase const*> known_databases()
+        {
+            for (auto const& root : m_workspace_roots)
+                std::ignore = discover_compilation_database(normalize_path(root / "compile_commands.json"));
+            std::vector<dccd::CompilationDatabase const*> databases;
+            for (auto const& wcd : m_workspace_databases)
+                if (!wcd.database.empty())
+                    databases.push_back(&wcd.database);
+            for (auto const& [candidate, database] : m_discovered_databases)
+                if (database && std::ranges::find(databases, database.get()) == databases.end())
+                    databases.push_back(database.get());
+            return databases;
+        }
+
+        [[nodiscard]] std::optional<OwnerContext> owner_context_for(std::filesystem::path const& file, std::string const& uri)
+        {
+            auto const norm = normalize_path(file);
+            std::vector<OwnerContext> candidates;
+            for (auto const* database : known_databases())
+                for (auto const& command : database->commands())
+                {
+                    auto entry = normalize_path(command.file);
+                    if (entry == norm || std::ranges::any_of(candidates, [&](OwnerContext const& c) { return c.entry == entry; }))
+                        continue;
+                    std::ostringstream quiet;
+                    auto analysis = project_analysis_command(command, quiet);
+                    if (!analysis)
+                        continue;
+                    if (std::ranges::any_of(analysis->import_roots, [&](std::filesystem::path const& root) { return path_within(norm, normalize_path(root)); }))
+                        candidates.push_back({entry, &command, {}});
+                }
+            if (candidates.empty())
+                return std::nullopt;
+            std::ranges::sort(candidates, [](OwnerContext const& a, OwnerContext const& b) { return a.entry.string() < b.entry.string(); });
+            auto pick = [&](OwnerContext context, std::string reason) {
+                context.reason = std::move(reason);
+                m_dependency_owner.try_emplace(norm.string(), context.entry.string());
+                return context;
+            };
+            if (auto it = m_dependency_owner.find(norm.string()); it != m_dependency_owner.end())
+            {
+                for (auto const& candidate : candidates)
+                    if (candidate.entry.string() == it->second)
+                        return pick(candidate, "the project it was reached from");
+                m_dependency_owner.erase(it);
+            }
+            for (auto const& candidate : candidates)
+                for (auto const& [entry_uri, graph] : m_diagnostic_graphs)
+                    if (graph.contains(uri))
+                        if (auto entry_path = dcc::sm::SourceManager::parse_file_uri(entry_uri); entry_path && normalize_path(*entry_path) == candidate.entry)
+                            return pick(candidate, "a project whose analysis imports it");
+            return pick(candidates.front(), candidates.size() == 1 ? "the only project whose import roots contain it" : "the first of several projects whose import roots contain it");
+        }
+
+        void note_navigation(std::string const& target_uri)
+        {
+            auto target = dcc::sm::SourceManager::parse_file_uri(target_uri);
+            auto entry = dcc::sm::SourceManager::parse_file_uri(m_active_entry_uri);
+            if (!target || !entry)
+                return;
+            auto key = normalize_path(*target).string();
+            auto owner = normalize_path(*entry).string();
+            if (key != owner)
+                m_dependency_owner.insert_or_assign(std::move(key), std::move(owner));
+        }
+
+        void remember_dependency_owners(std::string const& entry_uri)
+        {
+            auto entry_path = dcc::sm::SourceManager::parse_file_uri(entry_uri);
+            if (!entry_path)
+                return;
+            auto entry = normalize_path(*entry_path).string();
+            auto const& sm = m_session->source_manager();
+            for (auto const& [fid, revision] : m_graph_revisions)
+                if (auto const* sf = sm.get(fid); sf && sf->kind() != dcc::sm::FileKind::InMemory)
+                    m_dependency_owner.try_emplace(normalize_path(sf->path()).string(), entry);
+        }
+
+        [[nodiscard]] std::string uri_for_disk_path(std::filesystem::path const& path)
+        {
+            if (auto fid = m_session->source_manager().find_by_path(path))
+                if (auto const* sf = m_session->source_manager().get(*fid); sf && !sf->uri().empty())
+                    return sf->uri();
+            return dcc::sm::SourceManager::to_file_uri(path);
+        }
+
+        void recompile_in_owner_context(std::string const& uri, std::filesystem::path const& path, OwnerContext const& owner, bool publish,
+                                        std::string_view trigger)
+        {
+            auto owner_uri = uri_for_disk_path(owner.entry);
+            std::println(m_log, "[dccd] context: \"{}\" has no compile command; analyzing it in the context of \"{}\" ({})", path.string(),
+                         owner.entry.string(), owner.reason);
+            auto in_graph = [&] {
+                auto fid = m_session->source_manager().find_by_uri(uri);
+                return fid && dcc::query::file_in_module_graph(*m_session, *fid);
+            };
+            if (m_active_entry_uri == owner_uri && graph_snapshot_fresh() && in_graph())
+                std::println(m_log, "[dccd] context: reusing the current analysis of \"{}\"", owner.entry.string());
+            else
+                recompile_document(owner_uri, false, trigger);
+            if (!in_graph())
+            {
+                std::println(m_log, "[dccd] context: \"{}\" is not imported by \"{}\"; analyzing it as an entry with that project's options", path.string(),
+                             owner.entry.string());
+                recompile_document(uri, false, trigger, owner.command);
+            }
+            if (publish)
+                publish_all_diagnostics(true);
+        }
+
+        [[nodiscard]] static std::optional<std::filesystem::path> package_source_root(std::filesystem::path const& file)
+        {
+            std::error_code ec;
+            for (auto directory = file.parent_path(); !directory.empty(); directory = directory.parent_path())
+            {
+                auto manifest = directory / "project.dcon";
+                if (std::filesystem::is_regular_file(manifest, ec) && !ec)
+                {
+                    std::ifstream in{manifest, std::ios::binary};
+                    std::string text{std::istreambuf_iterator<char>{in}, {}};
+                    auto relative = manifest_source_dir(text);
+                    if (!relative)
+                        return std::nullopt;
+                    auto root = (directory / *relative).lexically_normal();
+                    if (path_within(file, root) && std::filesystem::is_directory(root, ec))
+                        return root;
+                    return std::nullopt;
+                }
+                if (directory == directory.root_path())
+                    break;
+            }
+            return std::nullopt;
+        }
+
+        void recompile_document(std::string const& uri, bool publish = false, std::string_view trigger = "query",
+                                dccd::CompileCommand const* context_command = nullptr)
         {
             ++m_analysis_id;
             std::println(m_log, "[dccd] analysis started: id={} uri={} version={} revision={} trigger={}", m_analysis_id, uri,
@@ -2605,6 +2751,15 @@ export namespace dccd
             else
                 std::println(m_log, "[dccd] recompile_document: SM find_by_uri returned nullopt for \"{}\"", uri);
 
+            bool const on_disk = dcc::sm::SourceManager::parse_file_uri(uri).has_value();
+            dccd::CompileCommand const* command = context_command ? context_command : find_compile_command(*path, on_disk);
+            if (!command && on_disk && !context_command)
+                if (auto owner = owner_context_for(*path, uri))
+                {
+                    recompile_in_owner_context(uri, *path, *owner, publish, trigger);
+                    return;
+                }
+
             m_session->clear_diagnostics();
 
             dcc::session::CompileOptions opts;
@@ -2613,7 +2768,8 @@ export namespace dccd
             std::vector<std::filesystem::path> roots;
             bool want_libdcext = false;
 
-            if (auto const* command = find_compile_command(*path, dcc::sm::SourceManager::parse_file_uri(uri).has_value()))
+            std::optional<std::filesystem::path> package_root;
+            if (command)
             {
                 std::println(m_log, "[dccd] compile command found for: {}", path->string());
                 if (auto analysis = project_analysis_command(*command, m_log))
@@ -2636,6 +2792,27 @@ export namespace dccd
             else
             {
                 std::println(m_log, "[dccd] no compile command for \"{}\"; using fallback analysis configuration", path->string());
+                if (on_disk)
+                    package_root = package_source_root(*path);
+                if (package_root)
+                {
+                    std::println(m_log, "[dccd] fallback: \"{}\" belongs to the package source root \"{}\"", path->string(), package_root->string());
+                    roots.push_back(*package_root);
+                    want_libdcext = true;
+                    opts.libdcext = true;
+                    opts.inject_libdcext_prelude = true;
+                    if (m_reported_standalone_roots.insert(package_root->string()).second)
+                    {
+                        auto params = protocol::JsonValue::empty_object();
+                        params.set("type", protocol::JsonValue::integer(3));
+                        params.set("message", protocol::JsonValue::string_val(std::format(
+                                                  "dccd: no open project uses the package containing {}; its own modules resolve from {}, but imports of "
+                                                  "its dependencies need the project that depends on it (open that project, or run dpm build there to "
+                                                  "refresh compile_commands.json)",
+                                                  path->filename().string(), package_root->string())));
+                        send_message(protocol::build_notification("window/showMessage", params));
+                    }
+                }
             }
 
             auto manual_roots = compute_import_roots();
@@ -2699,6 +2876,8 @@ export namespace dccd
                     if (label.range.valid())
                         m_graph_revisions[label.range.begin.fileId] = m_session->source_manager().content_revision(label.range.begin.fileId);
             ++m_graph_generation;
+            if (command && !context_command)
+                remember_dependency_owners(uri);
 
             checkpoint_cancelled();
 

@@ -124,6 +124,7 @@ test-lsp-diagnostics: $(BUILD_DIR)/bin/dccd
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_diagnostics.py $(BUILD_DIR)/bin/dccd
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_dcon.py $(BUILD_DIR)/bin/dccd $(TOPLEVEL)/dpm/schema
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_edit_fuzzer.py $(BUILD_DIR)/bin/dccd
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_dpm_dependencies.py $(BUILD_DIR)/bin/dpm $(BUILD_DIR)/bin/dccd $(BUILD_DIR)/bin/dcc
 
 test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_fallible_main.py $(BUILD_DIR)/bin/dcc

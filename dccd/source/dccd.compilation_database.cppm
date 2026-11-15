@@ -51,6 +51,8 @@ export namespace dccd
 
         [[nodiscard]] std::size_t size() const noexcept { return m_commands.size(); }
 
+        [[nodiscard]] std::span<CompileCommand const> commands() const noexcept { return m_commands; }
+
     private:
         std::filesystem::path m_path;
         std::vector<CompileCommand> m_commands;
@@ -58,6 +60,10 @@ export namespace dccd
     };
 
     [[nodiscard]] std::optional<AnalysisCommand> project_analysis_command(CompileCommand const& command, std::ostream& log);
+
+    [[nodiscard]] bool path_within(std::filesystem::path const& file, std::filesystem::path const& root);
+
+    [[nodiscard]] std::optional<std::filesystem::path> manifest_source_dir(std::string_view manifest_text);
 
 } // namespace dccd
 
@@ -320,6 +326,53 @@ namespace dccd
             std::println(log, "[dccd] {}; ignoring for analysis", error);
 
         return analysis;
+    }
+
+    bool path_within(std::filesystem::path const& file, std::filesystem::path const& root)
+    {
+        if (root.empty() || file.empty())
+            return false;
+        auto rel = file.lexically_normal().lexically_relative(root.lexically_normal());
+        return !rel.empty() && rel.is_relative() && *rel.begin() != ".." && *rel.begin() != ".";
+    }
+
+    std::optional<std::filesystem::path> manifest_source_dir(std::string_view manifest_text)
+    {
+        std::string stripped;
+        stripped.reserve(manifest_text.size());
+        bool in_string = false;
+        for (std::size_t i = 0; i < manifest_text.size(); ++i)
+        {
+            char c = manifest_text[i];
+            if (in_string)
+            {
+                stripped += c;
+                if (c == '\\' && i + 1 < manifest_text.size())
+                    stripped += manifest_text[++i];
+                else if (c == '"')
+                    in_string = false;
+                continue;
+            }
+            if (c == '"')
+                in_string = true;
+            else if (manifest_text.substr(i, 2) == "//")
+            {
+                while (i < manifest_text.size() && manifest_text[i] != '\n')
+                    ++i;
+                stripped += '\n';
+                continue;
+            }
+            stripped += c;
+        }
+        std::string source = "src";
+        static std::regex const field{R"re(\bsource\s*=\s*"([^"\\]*)")re"};
+        if (std::smatch match; std::regex_search(stripped, match, field))
+            source = match[1].str();
+        std::filesystem::path relative{source};
+        if (source.empty() || relative.is_absolute() || relative.has_root_name() || source.find('\\') != std::string::npos ||
+            std::ranges::any_of(relative, [](std::filesystem::path const& part) { return part == ".."; }))
+            return std::nullopt;
+        return relative.lexically_normal();
     }
 
 } // namespace dccd

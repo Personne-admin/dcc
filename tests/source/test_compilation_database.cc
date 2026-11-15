@@ -447,3 +447,27 @@ TEST_CASE("prelude opt-out is projected independently of library linking")
     REQUIRE(out.has_value());
     CHECK(out->find("libdcext=1") != std::string::npos);
 }
+
+TEST_CASE("package files are matched to import roots by path components")
+{
+    using std::filesystem::path;
+    CHECK(dccd::path_within(path{"/home/u/.cache/dpm/src/abc/src/sdl3/renderer.dc"}, path{"/home/u/.cache/dpm/src/abc/src"}));
+    CHECK(dccd::path_within(path{"/home/u/dpm cache \u5de5\u5177/src/abc/src/sdl3/types.dc"}, path{"/home/u/dpm cache \u5de5\u5177/src/abc/src/"}));
+    CHECK(dccd::path_within(path{"C:/Users/A B/AppData/Local/dpm/src/abc/src/sdl3/video.dc"}, path{"C:/Users/A B/AppData/Local/dpm/src/abc/src"}));
+    CHECK(!dccd::path_within(path{"/home/u/.cache/dpm/src/abcdef/src/x.dc"}, path{"/home/u/.cache/dpm/src/abc"}));
+    CHECK(!dccd::path_within(path{"/home/u/.cache/dpm/src/abc/src/../../other/src/x.dc"}, path{"/home/u/.cache/dpm/src/abc/src"}));
+    CHECK(!dccd::path_within(path{"/home/u/.cache/dpm/src/abc/src"}, path{"/home/u/.cache/dpm/src/abc/src"}));
+    CHECK(!dccd::path_within(path{"D:/dpm/src/abc/src/x.dc"}, path{"C:/dpm/src/abc/src"}));
+    CHECK(!dccd::path_within(path{"/home/u/x.dc"}, path{}));
+}
+
+TEST_CASE("package manifests name their import root")
+{
+    CHECK(dccd::manifest_source_dir("dpm::v1::Project { name = \"sdl3\", version = \"0.1.0\" }") == std::filesystem::path{"src"});
+    CHECK(dccd::manifest_source_dir("dpm::v1::Project {\n    name = \"sdl3\",\n    source = \"lib/dc\",\n}\n") == std::filesystem::path{"lib/dc"});
+    CHECK(dccd::manifest_source_dir("dpm::v1::Project {\n    // source = \"commented\",\n    name = \"a\",\n}\n") == std::filesystem::path{"src"});
+    CHECK(dccd::manifest_source_dir("dpm::v1::Project { description = \"source = \\\"fake\\\"\", name = \"a\" }") == std::filesystem::path{"src"});
+    CHECK(!dccd::manifest_source_dir("dpm::v1::Project { source = \"../escape\" }").has_value());
+    CHECK(!dccd::manifest_source_dir("dpm::v1::Project { source = \"/abs\" }").has_value());
+    CHECK(!dccd::manifest_source_dir("dpm::v1::Project { source = \"\" }").has_value());
+}
