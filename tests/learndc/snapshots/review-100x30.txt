@@ -1,0 +1,30 @@
+ Test · Review                                                        1 of 6 completed ██░░░░░░░░░░
+╭─ Menu ───────────────╮╭─────────────────────────────────────────────────────── 1 due · 0 missed ─╮
+│   1 Home             ││ Flashcards                                                               │
+│   2 Learn            ││ 1 unlocked · 1 locked until their lesson is complete                     │
+│   3 Lesson           ││                                                                          │
+│   4 Progress         ││ Card 1 of 1 · Basics drill                                               │
+│   5 Bookmarks        ││                                                                          │
+│   6 Doctor           ││   Front                                                                  │
+│   7 Settings         ││                                                                          │
+│ › 8 Review           ││   Recall the answer, then turn the card over.                            │
+│                      ││                                                                          │
+│   ? Help             ││ Questions to try again                                                   │
+│                      ││   None. Every question you answered is solved.                           │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+
+ Space turn over  a h g e rate  Tab cards or questions  Enter open  ? help  q quit

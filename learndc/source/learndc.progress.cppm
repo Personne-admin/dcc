@@ -73,6 +73,35 @@ export namespace learndc::progress
         friend bool operator==(ExerciseProgress const&, ExerciseProgress const&) = default;
     };
 
+    struct QuestionProgress
+    {
+        int attempts = 0;
+        int correct = 0;
+        std::string last;
+        std::string last_at;
+        std::string first_correct_at;
+
+        [[nodiscard]] bool missed() const { return last == "wrong"; }
+
+        friend bool operator==(QuestionProgress const&, QuestionProgress const&) = default;
+    };
+
+    struct CardProgress
+    {
+        int box = 0;
+        int due_day = 0;
+        int reviews = 0;
+        int lapses = 0;
+        std::string last_at;
+
+        friend bool operator==(CardProgress const&, CardProgress const&) = default;
+    };
+
+    [[nodiscard]] inline std::string item_key(std::string_view lesson, std::string_view item)
+    {
+        return std::format("{}#{}", lesson, item);
+    }
+
     struct Progress
     {
         int schema = current_schema;
@@ -81,9 +110,32 @@ export namespace learndc::progress
         std::vector<std::string> bookmarks;
         std::map<std::string, std::string> workspaces;
         std::vector<std::string> recent;
+        std::map<std::string, QuestionProgress> questions;
+        std::map<std::string, CardProgress> cards;
 
         friend bool operator==(Progress const&, Progress const&) = default;
     };
+
+    inline QuestionProgress& record_answer(Progress& p, std::string_view lesson, std::string_view question, bool correct, std::string_view now)
+    {
+        auto& q = p.questions[item_key(lesson, question)];
+        ++q.attempts;
+        if (correct)
+        {
+            ++q.correct;
+            if (q.first_correct_at.empty())
+                q.first_correct_at = std::string(now);
+        }
+        q.last = correct ? "right" : "wrong";
+        q.last_at = std::string(now);
+        return q;
+    }
+
+    [[nodiscard]] inline QuestionProgress question_of(Progress const& p, std::string_view lesson, std::string_view question)
+    {
+        auto it = p.questions.find(item_key(lesson, question));
+        return it == p.questions.end() ? QuestionProgress{} : it->second;
+    }
 
     inline constexpr std::size_t max_recent = 10;
 
@@ -149,6 +201,7 @@ export namespace learndc::progress
         bool passed = false;
         bool ran = true;
         int revision = 1;
+        bool questions_done = true;
     };
 
     inline void record_stages(Progress& p, std::string_view id, std::vector<StageOutcome> const& outcomes, std::string_view fingerprint, std::string_view now)
@@ -160,7 +213,7 @@ export namespace learndc::progress
             auto& st = e.stages[o.id];
             st.last = !o.ran ? "not-run" : o.passed ? "pass" : "fail";
             st.last_checked_at = std::string(now);
-            if (o.passed && (!st.achieved() || st.achieved_revision < o.revision))
+            if (o.passed && o.questions_done && (!st.achieved() || st.achieved_revision < o.revision))
             {
                 if (!st.achieved())
                     st.achieved_at = std::string(now);
@@ -186,6 +239,17 @@ export namespace learndc::progress
             st.last.clear();
             st.last_checked_at.clear();
         }
+    }
+
+    inline bool mark_completed(Progress& p, std::string_view id, int revision, std::string_view now)
+    {
+        auto& e = mark_started(p, id, now);
+        bool const was = e.status == Status::Completed;
+        if (!was || e.completed_at.empty())
+            e.completed_at = std::string(now);
+        e.completed_revision = std::max(e.completed_revision, revision);
+        e.status = Status::Completed;
+        return !was;
     }
 
     inline void record_lecture(Progress& p, std::string_view id, bool understood, int revision, std::string_view now)
@@ -286,6 +350,36 @@ export namespace learndc::progress
         for (auto const& r : p.recent)
             recent.push(json::Json(r));
         root.set("recent", std::move(recent));
+        if (!p.questions.empty())
+        {
+            auto questions = json::Json::make_object();
+            for (auto const& [key, q] : p.questions)
+            {
+                auto o = json::Json::make_object();
+                o.set("attempts", json::Json(q.attempts));
+                o.set("correct", json::Json(q.correct));
+                o.set("last", text_or_null(q.last));
+                o.set("last_at", text_or_null(q.last_at));
+                o.set("first_correct_at", text_or_null(q.first_correct_at));
+                questions.set(key, std::move(o));
+            }
+            root.set("questions", std::move(questions));
+        }
+        if (!p.cards.empty())
+        {
+            auto cards = json::Json::make_object();
+            for (auto const& [key, c] : p.cards)
+            {
+                auto o = json::Json::make_object();
+                o.set("box", json::Json(c.box));
+                o.set("due_day", json::Json(c.due_day));
+                o.set("reviews", json::Json(c.reviews));
+                o.set("lapses", json::Json(c.lapses));
+                o.set("last_at", text_or_null(c.last_at));
+                cards.set(key, std::move(o));
+            }
+            root.set("cards", std::move(cards));
+        }
         return root;
     }
 
@@ -460,6 +554,65 @@ export namespace learndc::progress
         for (auto& r : *recent)
             if (std::ranges::find(p.recent, r) == p.recent.end() && p.recent.size() < max_recent)
                 p.recent.push_back(std::move(r));
+        if (auto const* qs = root.find("questions"))
+        {
+            auto const* object = qs->as_object();
+            if (object == nullptr)
+                return detail::bad("'questions' must be an object");
+            for (auto const& [key, value] : *object)
+            {
+                if (!value.is_object())
+                    return detail::bad(std::format("question '{}' must be an object", key));
+                QuestionProgress q;
+                auto attempts = detail::opt_int(value, "attempts", 0, 1000000000);
+                auto correct = detail::opt_int(value, "correct", 0, 1000000000);
+                auto last = detail::opt_string(value, "last");
+                auto last_at = detail::opt_string(value, "last_at");
+                auto first = detail::opt_string(value, "first_correct_at");
+                for (auto const* r : {&attempts, &correct})
+                    if (!*r)
+                        return detail::bad(std::format("question '{}': {}", key, r->error().message));
+                for (auto const* r : {&last, &last_at, &first})
+                    if (!*r)
+                        return detail::bad(std::format("question '{}': {}", key, r->error().message));
+                if (!last->empty() && *last != "right" && *last != "wrong")
+                    return detail::bad(std::format("question '{}': 'last' must be right or wrong", key));
+                q.attempts = *attempts;
+                q.correct = *correct;
+                q.last = std::move(*last);
+                q.last_at = std::move(*last_at);
+                q.first_correct_at = std::move(*first);
+                p.questions.emplace(key, std::move(q));
+            }
+        }
+        if (auto const* cs = root.find("cards"))
+        {
+            auto const* object = cs->as_object();
+            if (object == nullptr)
+                return detail::bad("'cards' must be an object");
+            for (auto const& [key, value] : *object)
+            {
+                if (!value.is_object())
+                    return detail::bad(std::format("card '{}' must be an object", key));
+                CardProgress c;
+                auto box = detail::opt_int(value, "box", 0, 5);
+                auto due = detail::opt_int(value, "due_day", 0, 10000000);
+                auto reviews = detail::opt_int(value, "reviews", 0, 1000000000);
+                auto lapses = detail::opt_int(value, "lapses", 0, 1000000000);
+                auto last_at = detail::opt_string(value, "last_at");
+                for (auto const* r : {&box, &due, &reviews, &lapses})
+                    if (!*r)
+                        return detail::bad(std::format("card '{}': {}", key, r->error().message));
+                if (!last_at)
+                    return detail::bad(std::format("card '{}': {}", key, last_at.error().message));
+                c.box = *box;
+                c.due_day = *due;
+                c.reviews = *reviews;
+                c.lapses = *lapses;
+                c.last_at = std::move(*last_at);
+                p.cards.emplace(key, std::move(c));
+            }
+        }
         if (auto const* w = root.find("workspaces"))
         {
             auto const* object = w->as_object();
@@ -750,6 +903,17 @@ export namespace learndc::progress
             return m;
         }
 
+        [[nodiscard]] inline QuestionProgress merge_question(QuestionProgress const& a, QuestionProgress const& b)
+        {
+            QuestionProgress m;
+            m.attempts = std::max(a.attempts, b.attempts);
+            m.correct = std::max(a.correct, b.correct);
+            m.last = b.last_at > a.last_at ? b.last : a.last;
+            m.last_at = latest(a.last_at, b.last_at);
+            m.first_correct_at = earliest(a.first_correct_at, b.first_correct_at);
+            return m;
+        }
+
         [[nodiscard]] inline ExerciseProgress merge_exercise(ExerciseProgress const& cur, ExerciseProgress const& in)
         {
             ExerciseProgress m = cur;
@@ -825,6 +989,20 @@ export namespace learndc::progress
                 plan.conflicts.push_back(Conflict{id, "completed_revision", std::to_string(cur.completed_revision), std::to_string(in.completed_revision),
                                                   std::to_string(m.completed_revision)});
         }
+        for (auto const& [key, q] : incoming.questions)
+        {
+            auto it = merged.questions.find(key);
+            if (it == merged.questions.end())
+                merged.questions.emplace(key, q);
+            else
+                it->second = detail::merge_question(it->second, q);
+        }
+        for (auto const& [key, c] : incoming.cards)
+        {
+            auto it = merged.cards.find(key);
+            if (it == merged.cards.end() || c.last_at > it->second.last_at)
+                merged.cards[key] = c;
+        }
         for (auto const& b : incoming.bookmarks)
             if (!is_bookmarked(merged, b))
                 merged.bookmarks.push_back(b);
@@ -877,6 +1055,30 @@ export namespace learndc::progress
                 existing->second = detail::merge_exercise(existing->second, old);
             changed = true;
         }
+        auto rekey = [&](auto& items, auto merge) {
+            std::vector<std::string> moved;
+            for (auto const& [key, value] : items)
+            {
+                auto const hash = key.find('#');
+                if (hash != std::string::npos && target(key.substr(0, hash)) != nullptr)
+                    moved.push_back(key);
+            }
+            for (auto const& key : moved)
+            {
+                auto const hash = key.find('#');
+                auto value = items.at(key);
+                items.erase(key);
+                auto const next = *target(key.substr(0, hash)) + key.substr(hash);
+                auto it = items.find(next);
+                if (it == items.end())
+                    items.emplace(next, std::move(value));
+                else
+                    it->second = merge(it->second, value);
+                changed = true;
+            }
+        };
+        rekey(p.questions, [](QuestionProgress const& a, QuestionProgress const& b) { return detail::merge_question(a, b); });
+        rekey(p.cards, [](CardProgress const& a, CardProgress const& b) { return b.last_at > a.last_at ? b : a; });
         std::vector<std::string> bookmarks;
         for (auto const& b : p.bookmarks)
         {

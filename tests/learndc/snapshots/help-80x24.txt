@@ -6,10 +6,10 @@
 │   4 Progress   ││   Up Down       scroll, or choose a file when the files    ┃
 │   5 Bookmarks  ││                 pane is focused                            ┃
 │   6 Doctor     ││   e / Enter     start the exercise, then edit the chosen   ┃
-│   7 Settings   ││                 file in your editor                        ┃
-│                ││   o             open the workspace folder (graphical       │
-│   ? Help       ││                 editors)                                   │
-│                ││   c             run the checks                             │
+│   7 Settings   ││                 file in your editor                        │
+│   8 Review     ││   o             open the workspace folder (graphical       │
+│                ││                 editors)                                   │
+│   ? Help       ││   c             run the checks                             │
 │                ││   x             cancel the running check                   │
 │                ││   r             build and run your program                 │
 │                ││   w             watch: run the checks whenever a file      │

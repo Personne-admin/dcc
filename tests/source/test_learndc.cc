@@ -16,6 +16,7 @@ import learndc.watch;
 import learndc.editor;
 import learndc.doctor;
 import learndc.app;
+import learndc.activity;
 import learndc.cli;
 import learndc.tui.model;
 import learndc.tui;
@@ -8280,10 +8281,10 @@ TEST_CASE("tui lectures page through sections and complete with the quiz")
     REQUIRE(m.exercise.sections.size() == 2u);
     CHECK_EQ(m.exercise.sections[0].title, "First");
     CHECK(m.exercise.sections[0].body.find("public i32 main()") != std::string::npos);
-    CHECK_EQ(m.lecture_pages(), 3u);
-    CHECK(!m.on_quiz_page());
+    CHECK_EQ(m.lecture_pages(), 5u);
+    CHECK(!m.current_question());
     auto const first = learndc::tui::render_snapshot(m, 100, 30);
-    CHECK(first.find("page 1 of 3") != std::string::npos);
+    CHECK(first.find("page 1 of 5") != std::string::npos);
     CHECK(first.find("Contents") != std::string::npos);
     snap(m, "lecture", {{100, 30}, {60, 20}});
     m.handle(tm::Resize{100, 30});
@@ -8291,32 +8292,20 @@ TEST_CASE("tui lectures page through sections and complete with the quiz")
     CHECK_EQ(m.exercise.lecture.page, 0u);
     press(m, "Right");
     press(m, "Enter");
-    REQUIRE(m.on_quiz_page());
-    press(m, "Right");
-    CHECK_EQ(m.exercise.lecture.page, 2u);
-    CHECK_EQ(m.quiz_rows().size(), 5u);
+    REQUIRE(m.current_question() == std::optional<std::size_t>(0));
     press(m, "Enter");
-    CHECK_EQ(m.exercise.lecture.answers[0], 1);
-    CHECK_EQ(m.exercise.lecture.cursor, 3u);
-    press(m, "Enter");
-    CHECK_EQ(m.exercise.lecture.answers[1], 1);
-    REQUIRE(m.quiz_rows().size() == 6u);
-    CHECK_EQ(m.exercise.lecture.cursor, 5u);
-    press(m, "Enter");
-    CHECK(m.exercise.lecture.submitted);
-    CHECK(!m.exercise.lecture.right[0]);
-    CHECK(m.exercise.lecture.right[1]);
-    CHECK(!m.dialog.open());
+    REQUIRE(m.exercise.lecture.items[0].feedback.has_value());
+    CHECK(!m.exercise.lecture.items[0].feedback->correct);
+    CHECK(m.exercise.lecture.items[0].feedback->explanation.empty());
     CHECK(m.status_of("basics/intro") == progress::Status::InProgress);
-    auto const wrong = learndc::tui::render_snapshot(m, 100, 30);
-    CHECK(wrong.find("not quite: Two is right.") != std::string::npos);
-    for (int i = 0; i < 5; ++i)
-        press(m, "Up");
+    press(m, "Enter");
+    CHECK(m.exercise.lecture.items[0].feedback->revealed);
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Two is right.") != std::string::npos);
     press(m, "Down");
     press(m, "Enter");
-    CHECK_EQ(m.exercise.lecture.answers[0], 2);
-    press(m, "Enter");
-    CHECK_EQ(m.exercise.lecture.cursor, 5u);
+    CHECK(m.exercise.lecture.items[0].feedback->correct);
+    press(m, "Right");
+    REQUIRE(m.current_question() == std::optional<std::size_t>(1));
     press(m, "Enter");
     REQUIRE(m.dialog.open());
     CHECK(m.dialog.kind == tm::DialogKind::Complete);
@@ -8325,9 +8314,12 @@ TEST_CASE("tui lectures page through sections and complete with the quiz")
     CHECK(m.status_of("basics/intro") == progress::Status::Completed);
     snap(m, "dialog-lecture", {{100, 30}});
     m.handle(tm::Key{"Esc"});
+    press(m, "Right");
+    CHECK(m.on_summary_page());
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("2 of 2 solved") != std::string::npos);
     CHECK(std::ranges::any_of(m.key_hints(), [](tm::KeyHint const& k) { return k.key == "Left Right"; }));
     press(m, "?");
-    CHECK(std::ranges::any_of(m.help(), [](tm::HelpSection const& s) { return s.title == "Keys in a lecture"; }));
+    CHECK(std::ranges::any_of(m.help(), [](tm::HelpSection const& s) { return s.title == "Keys in a lecture or drill"; }));
 }
 
 TEST_CASE("tui boss fights show objectives stage hints stage clears and the victory")
@@ -8404,4 +8396,576 @@ TEST_CASE("tui learn lists chapters bosses lectures and progress shows the journ
     CHECK(prog.find("Journey") != std::string::npos);
     CHECK(prog.find("boss ahead") != std::string::npos);
     CHECK(prog.find("Achievements") != std::string::npos);
+}
+
+SECTION("learndc.activity");
+
+namespace
+{
+    namespace act = learndc::activity;
+
+    catalog::Question make_question(catalog::QuestionType type)
+    {
+        catalog::Question q;
+        q.id = "q";
+        q.type = type;
+        q.prompt = "p";
+        q.explanation = "Because.";
+        return q;
+    }
+
+    constexpr std::string_view drill_toml = R"(schema = 1
+id = "basics/drill"
+revision = 1
+kind = "drill"
+title = "Basics drill"
+summary = "Practice."
+difficulty = "beginner"
+estimated_minutes = 5
+concepts = ["defer"]
+objectives = ["Practise"]
+prerequisites = []
+
+[[questions]]
+id = "out"
+type = "predict"
+prompt = "What does it print?"
+code = "module main;\n"
+expect = "a\nb\n"
+explanation = "In order."
+
+[[questions]]
+id = "pick"
+type = "multi"
+prompt = "Which hold?"
+choices = ["x", "y", "z"]
+answers = [1, 3]
+why = ["", "y is wrong", ""]
+explanation = "x and z."
+
+[[questions]]
+id = "line"
+type = "bug"
+prompt = "Which line?"
+code = "a\nb\nc\n"
+lines = [2]
+explanation = "b."
+
+[[questions]]
+id = "seq"
+type = "order"
+prompt = "Order them."
+code = "one\ntwo\nthree\nfour\n"
+explanation = "Counting."
+
+[[questions]]
+id = "word"
+type = "short"
+prompt = "Keyword?"
+accept = ["defer"]
+explanation = "defer."
+
+[[cards]]
+id = "c1"
+front = "Front"
+back = "Back"
+)";
+
+    catalog::ContentSource activity_source()
+    {
+        auto s = academy_source();
+        s.files["tracks/basics/track.toml"] = "schema = 1\nid = \"basics\"\ntitle = \"Basics\"\nsummary = \"Start here\"\ngoal = \"Learn the basics.\"\nexercises = [\"intro\", \"drill\", \"one\", \"two\"]\n";
+        s.add("tracks/basics/drill/lecture.toml", std::string(drill_toml));
+        s.add("tracks/basics/drill/README.md", "# Basics drill\n\nPractice.\n");
+        edit(s, boss_file, "[[stages]]\nid = \"first\"", "[[stages]]\nid = \"ledger\"\ntitle = \"Read the ledger\"\nsummary = \"Find the bug.\"\nquestions = [\"old\"]\nhints = [\"look\"]\n\n[[stages]]\nid = \"first\"");
+        s.files[boss_file] += "\n[[questions]]\nid = \"old\"\ntype = \"bug\"\nprompt = \"Which line?\"\ncode = \"a\\nb\\n\"\nlines = [1]\nexplanation = \"a.\"\n";
+        edit(s, lecture_file, "[[questions]]\nprompt = \"Pick two\"", "[[cards]]\nid = \"k1\"\nfront = \"F\"\nback = \"B\"\n\n[[questions]]\nprompt = \"Pick two\"");
+        return s;
+    }
+} // namespace
+
+TEST_CASE("activity grading gives deterministic feedback for every question type")
+{
+    auto choice = make_question(catalog::QuestionType::Choice);
+    choice.choices = {"a", "b", "c"};
+    choice.answer = 2;
+    choice.why = {"a is wrong", "", "c is wrong"};
+    act::Answer a;
+    a.choice = 1;
+    auto f = act::grade(choice, a, 1);
+    CHECK(!f.correct);
+    CHECK(!f.revealed);
+    CHECK(f.explanation.empty());
+    REQUIRE(f.notes.size() == 1u);
+    CHECK_EQ(f.notes[0], "a is wrong");
+    f = act::grade(choice, a, 2);
+    CHECK(f.revealed);
+    CHECK_EQ(f.explanation, "Because.");
+    a.choice = 2;
+    CHECK(act::grade(choice, a).correct);
+
+    auto multi = make_question(catalog::QuestionType::Multi);
+    multi.choices = {"x", "y", "z"};
+    multi.answers = {1, 3};
+    multi.why = {"", "y is wrong", ""};
+    act::Answer m;
+    m.choices = {3, 1};
+    CHECK(act::grade(multi, m).correct);
+    m.choices = {1, 2};
+    f = act::grade(multi, m);
+    CHECK(!f.correct);
+    CHECK(std::ranges::any_of(f.notes, [](std::string const& n) { return n.find("y is wrong") != std::string::npos; }));
+    CHECK(std::ranges::any_of(f.notes, [](std::string const& n) { return n.find("1 of the 2") != std::string::npos; }));
+
+    auto predict = make_question(catalog::QuestionType::Predict);
+    predict.expect = "start\nend\n";
+    act::Answer p;
+    p.text = "start  \r\nend\n\n";
+    CHECK(act::grade(predict, p).correct);
+    p.text = "start\nEnd";
+    f = act::grade(predict, p);
+    CHECK(!f.correct);
+    CHECK(std::ranges::any_of(f.notes, [](std::string const& n) { return n == "Line 2 is the first one that differs."; }));
+    p.text = "start";
+    f = act::grade(predict, p);
+    CHECK(std::ranges::any_of(f.notes, [](std::string const& n) { return n.find("prints 2 lines; you wrote 1") != std::string::npos; }));
+
+    auto recall = make_question(catalog::QuestionType::Short);
+    recall.accept = {"defer", "a defer"};
+    act::Answer r;
+    for (auto const* text : {"defer", "  DEFER ", "`defer`", "defer.", "a   defer"})
+    {
+        r.text = text;
+        CHECK(act::grade(recall, r).correct);
+    }
+    r.text = "deferred";
+    CHECK(!act::grade(recall, r).correct);
+
+    auto bug = make_question(catalog::QuestionType::Bug);
+    bug.code = "a\nb\nc\n";
+    bug.lines = {2};
+    act::Answer b;
+    b.line = 2;
+    CHECK(act::grade(bug, b).correct);
+    b.line = 3;
+    f = act::grade(bug, b);
+    CHECK(!f.correct);
+    CHECK(f.notes.front().find("Line 3") != std::string::npos);
+
+    auto order = make_question(catalog::QuestionType::Order);
+    order.code = "one\ntwo\nthree\nfour\n";
+    auto const shown = act::shuffled_order(order);
+    REQUIRE(shown.size() == 4u);
+    CHECK(shown == act::shuffled_order(order));
+    CHECK(shown != (std::vector<int>{0, 1, 2, 3}));
+    act::Answer o;
+    o.order = {0, 1, 2, 3};
+    CHECK(act::grade(order, o).correct);
+    o.order = {1, 0, 2, 3};
+    f = act::grade(order, o);
+    CHECK(!f.correct);
+    CHECK_EQ(f.notes.front(), "2 of 4 lines are in the right place.");
+    CHECK(!act::reveal_answer(order).empty());
+    CHECK(act::answered(order, o));
+    o.order.pop_back();
+    CHECK(!act::answered(order, o));
+}
+
+TEST_CASE("activity answers parse from command line text")
+{
+    auto choice = make_question(catalog::QuestionType::Choice);
+    choice.choices = {"a", "b"};
+    CHECK(act::parse_answer(choice, "2")->choice == std::optional<int>(2));
+    CHECK(!act::parse_answer(choice, "3"));
+    CHECK(!act::parse_answer(choice, "x"));
+    auto multi = make_question(catalog::QuestionType::Multi);
+    multi.choices = {"a", "b", "c"};
+    CHECK(act::parse_answer(multi, "1,3")->choices == (std::vector<int>{1, 3}));
+    CHECK(act::parse_answer(multi, "1 3")->choices == (std::vector<int>{1, 3}));
+    CHECK(!act::parse_answer(multi, "4"));
+    auto predict = make_question(catalog::QuestionType::Predict);
+    CHECK_EQ(act::parse_answer(predict, "a\\nb")->text, "a\nb");
+    auto order = make_question(catalog::QuestionType::Order);
+    order.code = "one\ntwo\nthree\n";
+    auto const shown = act::shuffled_order(order);
+    std::vector<std::string> numbers;
+    for (int original = 0; original < 3; ++original)
+        for (std::size_t i = 0; i < shown.size(); ++i)
+            if (shown[i] == original)
+                numbers.push_back(std::to_string(i + 1));
+    auto parsed = act::parse_answer(order, text::join(numbers, " "));
+    REQUIRE(parsed);
+    CHECK(act::grade(order, *parsed).correct);
+    CHECK(!act::parse_answer(order, "1 1 2"));
+    CHECK(!act::parse_answer(order, "1 2"));
+}
+
+TEST_CASE("activity flashcards move through boxes on a deterministic schedule")
+{
+    CHECK_EQ(act::day_number("1970-01-01T00:00:00Z"), 0);
+    CHECK_EQ(act::day_number("2026-11-15T10:00:00Z") - act::day_number("2026-11-14T23:59:59Z"), 1);
+    CHECK_EQ(act::day_number("2024-03-01") - act::day_number("2024-02-28"), 2);
+    int const today = act::day_number("2026-11-15");
+    progress::CardProgress c;
+    CHECK(act::card_due(c, today));
+    c = act::schedule(c, act::Rating::Good, today, "t1");
+    CHECK_EQ(c.box, 1);
+    CHECK_EQ(c.due_day, today + 1);
+    CHECK(!act::card_due(c, today));
+    CHECK(act::card_due(c, today + 1));
+    c = act::schedule(c, act::Rating::Easy, today + 1, "t2");
+    CHECK_EQ(c.box, 3);
+    CHECK_EQ(c.due_day, today + 1 + 4);
+    c = act::schedule(c, act::Rating::Hard, today + 5, "t3");
+    CHECK_EQ(c.box, 3);
+    CHECK_EQ(c.due_day, today + 5 + 2);
+    c = act::schedule(c, act::Rating::Again, today + 7, "t4");
+    CHECK_EQ(c.box, 1);
+    CHECK_EQ(c.lapses, 1);
+    CHECK_EQ(c.due_day, today + 7);
+    CHECK_EQ(c.reviews, 4);
+    for (int i = 0; i < 10; ++i)
+        c = act::schedule(c, act::Rating::Easy, today, "t");
+    CHECK_EQ(c.box, 5);
+}
+
+TEST_CASE("activity catalog parses questions cards and drills and rejects broken ones")
+{
+    auto loaded = catalog::Catalog::load(activity_source());
+    if (!loaded)
+        dump_errors(loaded.error());
+    REQUIRE(loaded);
+    auto const* drill = loaded->find("basics/drill");
+    REQUIRE(drill != nullptr);
+    CHECK(drill->drill);
+    REQUIRE(drill->questions.size() == 5u);
+    CHECK(drill->questions[0].type == catalog::QuestionType::Predict);
+    CHECK_EQ(drill->questions[1].answers, (std::vector<int>{1, 3}));
+    CHECK_EQ(drill->questions[1].why[1], "y is wrong");
+    CHECK_EQ(drill->questions[2].lines, (std::vector<int>{2}));
+    CHECK_EQ(drill->questions[3].code_lines().size(), 4u);
+    REQUIRE(drill->cards.size() == 1u);
+    CHECK(drill->required_tools.size() == 2u);
+    auto const* intro = loaded->find("basics/intro");
+    CHECK_EQ(intro->questions[0].id, "q1");
+    CHECK_EQ(intro->questions[1].id, "q2");
+    auto const* boss = loaded->find("more/boss");
+    REQUIRE(boss->find_question("old") != nullptr);
+    CHECK_EQ(boss->stages[0].questions, (std::vector<std::string>{"old"}));
+
+    std::string const drill_file = "tracks/basics/drill/lecture.toml";
+    auto expect_error = [](catalog::ContentSource s, std::string_view needle) {
+        auto errors = errors_of(s);
+        if (!has_error(errors, needle))
+        {
+            std::println(std::cerr, "    expected an error containing '{}'", needle);
+            dump_errors(errors);
+        }
+        CHECK(has_error(errors, needle));
+    };
+    {
+        auto s = activity_source();
+        edit(s, drill_file, "type = \"short\"", "type = \"essay\"");
+        expect_error(s, "invalid question type 'essay'");
+    }
+    {
+        auto s = activity_source();
+        edit(s, drill_file, "accept = [\"defer\"]", "accept = [\"defer\"]\nlines = [1]");
+        expect_error(s, "key 'lines' is not valid for a short question");
+    }
+    {
+        auto s = activity_source();
+        edit(s, drill_file, "why = [\"\", \"y is wrong\", \"\"]", "why = [\"\", \"y\"]");
+        expect_error(s, "'why' needs one explanation per choice");
+    }
+    {
+        auto s = activity_source();
+        edit(s, drill_file, "lines = [2]", "lines = [9]");
+        expect_error(s, "every element of 'lines' must be a number from 1 to 3");
+    }
+    {
+        auto s = activity_source();
+        edit(s, drill_file, "answers = [1, 3]", "answers = [1, 1]");
+        expect_error(s, "'answers' lists 1 twice");
+    }
+    {
+        auto s = activity_source();
+        edit(s, drill_file, "code = \"one\\ntwo\\nthree\\nfour\\n\"\n", "");
+        expect_error(s, "a order question needs code or an example");
+    }
+    {
+        auto s = activity_source();
+        edit(s, drill_file, "code = \"one\\ntwo\\nthree\\nfour\\n\"", "code = \"one\\none\\n\"");
+        expect_error(s, "cannot repeat the line 'one'");
+    }
+    {
+        auto s = activity_source();
+        edit(s, drill_file, "id = \"word\"", "id = \"pick\"");
+        expect_error(s, "question id 'pick' is used more than once");
+    }
+    {
+        auto s = activity_source();
+        edit(s, drill_file, "id = \"c1\"", "id = \"C 1\"");
+        expect_error(s, "card id 'C 1' must use lowercase letters");
+    }
+    {
+        auto s = activity_source();
+        edit(s, drill_file, "type = \"predict\"", "type = \"predict\"\nexample = \"nope\"");
+        expect_error(s, "example 'nope' is not declared in [[examples]]");
+    }
+    {
+        auto s = activity_source();
+        edit(s, boss_file, "questions = [\"old\"]", "questions = [\"missing\"]");
+        expect_error(s, "stage 'ledger' names the unknown question 'missing'");
+    }
+    {
+        auto s = activity_source();
+        edit(s, boss_file, "questions = [\"old\"]\n", "");
+        expect_error(s, "question 'old' must belong to a stage");
+    }
+    {
+        auto s = activity_source();
+        edit(s, drill_file, "kind = \"drill\"", "kind = \"quiz\"");
+        expect_error(s, "invalid kind 'quiz' for a lecture.toml");
+    }
+}
+
+TEST_CASE("activity progress keeps question and card records through json merge and renames")
+{
+    progress::Progress p;
+    progress::record_answer(p, "old/one", "q1", false, "t1");
+    progress::record_answer(p, "old/one", "q1", true, "t2");
+    progress::record_answer(p, "old/one", "q2", false, "t3");
+    p.cards["old/one#c1"] = act::schedule({}, act::Rating::Good, 100, "t4");
+    auto const& q1 = p.questions.at("old/one#q1");
+    CHECK_EQ(q1.attempts, 2);
+    CHECK_EQ(q1.correct, 1);
+    CHECK_EQ(q1.last, "right");
+    CHECK_EQ(q1.first_correct_at, "t2");
+    CHECK(progress::question_of(p, "old/one", "q2").missed());
+    auto back = progress::from_json(progress::to_json(p));
+    REQUIRE(back);
+    CHECK(*back == p);
+    CHECK(!progress::from_json(*json::parse(R"({"schema":2,"questions":{"a#b":{"last":"maybe"}}})")));
+    CHECK(!progress::from_json(*json::parse(R"({"schema":2,"cards":{"a#b":{"box":9}}})")));
+
+    progress::Progress other;
+    progress::record_answer(other, "old/one", "q2", true, "t9");
+    auto merged = progress::plan_import(p, other).merged;
+    CHECK_EQ(merged.questions.at("old/one#q2").last, "right");
+    CHECK_EQ(merged.questions.at("old/one#q2").attempts, 1);
+
+    CHECK(progress::migrate_renamed(p, {{"old/one", "basics/one"}}));
+    CHECK(p.questions.contains("basics/one#q1"));
+    CHECK(!p.questions.contains("old/one#q1"));
+    CHECK(p.cards.contains("basics/one#c1"));
+}
+
+TEST_CASE("activity answers complete drills and boss question stages and feed the review")
+{
+    TempDir t;
+    write_source(activity_source(), t.path / "content");
+    learndc::app::OpenOptions oo;
+    oo.home = t.path / "home";
+    oo.content_dir = t.path / "content";
+    oo.env = platform::Env{{"PATH", ""}};
+    auto ctx = learndc::app::open(oo);
+    REQUIRE(ctx.has_value());
+    REQUIRE(ctx->has_content());
+    auto const& drill = *ctx->catalog.find("basics/drill");
+    act::Answer wrong;
+    wrong.text = "nope";
+    auto r = learndc::app::answer_question(*ctx, drill, "word", wrong);
+    REQUIRE(r);
+    CHECK(!r->feedback.correct);
+    CHECK_EQ(r->attempt, 1);
+    CHECK(!learndc::app::answer_question(*ctx, drill, "missing", wrong));
+    act::Answer empty;
+    CHECK(!learndc::app::answer_question(*ctx, drill, "word", empty));
+    auto p = learndc::app::load_progress(*ctx);
+    REQUIRE(p);
+    auto queue = learndc::app::review_queue(*ctx, *p, 1000);
+    REQUIRE(queue.missed.size() == 1u);
+    CHECK_EQ(queue.missed[0].key, "basics/drill#word");
+    CHECK(queue.due.empty());
+    CHECK_EQ(queue.cards_locked, 2);
+
+    auto answer = [&](std::string_view qid, act::Answer const& a) -> learndc::app::CheckRecord {
+        auto out = learndc::app::answer_question(*ctx, drill, qid, a);
+        CHECK(out.has_value());
+        if (!out)
+            return {};
+        CHECK(out->feedback.correct);
+        return out->record;
+    };
+    act::Answer a;
+    a.text = "a\nb";
+    answer("out", a);
+    a = {};
+    a.choices = {1, 3};
+    answer("pick", a);
+    a = {};
+    a.line = 2;
+    answer("line", a);
+    a = {};
+    a.order = {0, 1, 2, 3};
+    answer("seq", a);
+    a = {};
+    a.text = "defer";
+    auto rec = answer("word", a);
+    CHECK(rec.completed_now);
+    p = learndc::app::load_progress(*ctx);
+    REQUIRE(p);
+    CHECK(progress::is_completed(*p, "basics/drill"));
+    queue = learndc::app::review_queue(*ctx, *p, 1000);
+    CHECK(queue.missed.empty());
+    REQUIRE(queue.due.size() == 1u);
+    CHECK_EQ(queue.due[0].key, "basics/drill#c1");
+    CHECK_EQ(queue.cards_unlocked, 1);
+    auto rated = learndc::app::rate_card(*ctx, drill, "c1", act::Rating::Good);
+    REQUIRE(rated);
+    CHECK_EQ(rated->box, 1);
+    CHECK(!learndc::app::rate_card(*ctx, drill, "zz", act::Rating::Good));
+    p = learndc::app::load_progress(*ctx);
+    REQUIRE(p);
+    CHECK(learndc::app::review_queue(*ctx, *p, learndc::app::today_day()).due.empty());
+    CHECK_EQ(learndc::app::review_queue(*ctx, *p, learndc::app::today_day() + 1).due.size(), 1u);
+
+    auto const& boss = *ctx->catalog.find("more/boss");
+    auto views = learndc::app::stage_views(boss, *p, "fp");
+    REQUIRE(views.size() == 4u);
+    CHECK(views[0].question_only);
+    CHECK_EQ(views[0].questions_left, 1);
+    CHECK(views[0].state == learndc::app::StageState::Current);
+    REQUIRE(ctx->store.update([](progress::Progress& pr) { progress::record_check(pr, "more/three", 2, 2, 1, "t0"); }));
+    auto checked = learndc::app::record_report(*ctx, boss, staged_report(true, true, false, "fp"));
+    REQUIRE(checked);
+    CHECK(!checked->completed_now);
+    act::Answer line;
+    line.line = 1;
+    auto ledger = learndc::app::answer_question(*ctx, boss, "old", line);
+    REQUIRE(ledger);
+    CHECK(ledger->feedback.correct);
+    REQUIRE(ledger->stages_achieved.size() == 1u);
+    CHECK_EQ(ledger->stages_achieved[0], "Read the ledger");
+    CHECK(ledger->record.completed_now);
+    CHECK(ledger->record.boss_defeated);
+    p = learndc::app::load_progress(*ctx);
+    REQUIRE(p);
+    views = learndc::app::stage_views(boss, *p, "fp");
+    CHECK(views[0].state == learndc::app::StageState::Verified);
+}
+
+TEST_CASE("tui drills review cards and boss questions with the keyboard")
+{
+    TempDir t;
+    write_source(activity_source(), t.path / "content");
+    learndc::app::OpenOptions oo;
+    oo.home = t.path / "home";
+    oo.content_dir = t.path / "content";
+    oo.env = platform::Env{{"PATH", ""}, {"LANG", "C.UTF-8"}};
+    auto opened = learndc::app::open(oo);
+    REQUIRE(opened.has_value());
+    learndc::app::Context ctx(std::move(*opened));
+    ctx.settings.onboarding_done = true;
+    ctx.settings.ui_open_continue = false;
+    tm::Model m(ctx, {100, 30});
+    m.open_exercise("basics/drill");
+    REQUIRE(m.lecture_open());
+    CHECK_EQ(m.lecture_pages(), 7u);
+    press(m, "Right");
+    REQUIRE(m.current_question() == std::optional<std::size_t>(0));
+    CHECK(m.activity_typing());
+    CHECK(m.text_input_active());
+    for (auto const* key : {"a", "Enter", "q", "Enter", "Enter"})
+        press(m, key);
+    REQUIRE(m.exercise.lecture.items[0].feedback.has_value());
+    CHECK(!m.exercise.lecture.items[0].feedback->correct);
+    CHECK(!m.quit_requested);
+    press(m, "Backspace");
+    press(m, "Backspace");
+    press(m, "b");
+    press(m, "Enter");
+    press(m, "Enter");
+    CHECK(m.exercise.lecture.items[0].feedback->correct);
+    CHECK(!m.activity_typing());
+    snap(m, "activity-predict", {{100, 30}});
+    press(m, "Right");
+    press(m, " ");
+    press(m, "Down");
+    press(m, "Down");
+    press(m, " ");
+    press(m, "Enter");
+    CHECK(m.exercise.lecture.items[1].feedback->correct);
+    snap(m, "activity-multi", {{100, 30}, {60, 20}});
+    press(m, "Right");
+    press(m, "Down");
+    press(m, "Enter");
+    CHECK(m.exercise.lecture.items[2].feedback->correct);
+    press(m, "Right");
+    auto const& shown = m.exercise.lecture.items[3].order;
+    REQUIRE(shown.size() == 4u);
+    for (int target = 0; target < 4; ++target)
+    {
+        int at = 0;
+        for (int i = 0; i < 4; ++i)
+            if (m.exercise.lecture.items[3].order[static_cast<std::size_t>(i)] == target)
+                at = i;
+        while (m.exercise.lecture.items[3].cursor < at)
+            press(m, "Down");
+        while (m.exercise.lecture.items[3].cursor > at)
+            press(m, "Up");
+        press(m, " ");
+        while (m.exercise.lecture.items[3].cursor > target)
+            press(m, "Up");
+        press(m, " ");
+    }
+    snap(m, "activity-order", {{100, 30}});
+    press(m, "Enter");
+    CHECK(m.exercise.lecture.items[3].feedback->correct);
+    press(m, "Right");
+    for (auto const* key : {"d", "e", "f", "e", "r", "Enter"})
+        press(m, key);
+    REQUIRE(m.dialog.open());
+    CHECK_EQ(m.dialog.title, "Lecture complete");
+    m.handle(tm::Key{"Esc"});
+
+    press(m, "8");
+    CHECK(m.screen == tm::Screen::Review);
+    REQUIRE(m.review_state.due.size() == 1u);
+    snap(m, "review", {{100, 30}, {60, 20}});
+    press(m, "g");
+    CHECK_EQ(m.review_state.rated, 0);
+    press(m, " ");
+    CHECK(m.review_state.flipped);
+    snap(m, "review-flipped", {{100, 30}});
+    press(m, "a");
+    CHECK_EQ(m.review_state.rated, 1);
+    REQUIRE(m.review_state.due.size() == 2u);
+    press(m, " ");
+    press(m, "g");
+    CHECK_EQ(m.review_state.rated, 2);
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Session done: 2 cards reviewed.") != std::string::npos);
+    auto p = learndc::app::load_progress(ctx);
+    REQUIRE(p);
+    CHECK_EQ(p->cards.at("basics/drill#c1").reviews, 2);
+    CHECK_EQ(p->cards.at("basics/drill#c1").lapses, 1);
+
+    m.toasts.clear();
+    m.open_exercise("more/boss");
+    press(m, "a");
+    REQUIRE(m.exercise.activity.has_value());
+    CHECK_EQ(m.exercise.ex->questions[*m.exercise.activity].id, "old");
+    snap(m, "activity-boss", {{100, 30}});
+    press(m, "Down");
+    press(m, "Enter");
+    CHECK(!m.exercise.lecture.items[*m.exercise.activity].feedback->correct);
+    press(m, "Up");
+    press(m, "Enter");
+    CHECK(m.exercise.lecture.items[*m.exercise.activity].feedback->correct);
+    REQUIRE(!m.toasts.empty());
+    CHECK_EQ(m.toasts.back().text, "Stage cleared: Read the ledger");
+    press(m, "Esc");
+    CHECK(!m.exercise.activity.has_value());
+    CHECK(m.stage_views()[0].state == learndc::app::StageState::Verified);
 }

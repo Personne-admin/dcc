@@ -7,9 +7,9 @@
 │   5 Bookmarks  ││ [ok]    dpm                                                ┃
 │ › 6 Doctor     ││         found next to learndc, version 0.6.0               ┃
 │   7 Settings   ││ [info]  dccd                                               ┃
-│                ││         not found (optional)                               ┃
-│   ? Help       ││ [warn]  editor                                             ┃
-│                ││         no editor was found, so learndc shows file paths   ┃
+│   8 Review     ││         not found (optional)                               ┃
+│                ││ [warn]  editor                                             ┃
+│   ? Help       ││         no editor was found, so learndc shows file paths   ┃
 │                ││         instead                                            ┃
 │                ││         Fix: Install nvim, vim or nano, or set one in      ┃
 │                ││              Settings.                                     ┃

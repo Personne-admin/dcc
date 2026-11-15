@@ -7,9 +7,9 @@
 │   5 Bookmarks        ││ Recommended next                                                         │
 │   6 Doctor           ││   ○ Grouping data in structs                   intermediate not started  │
 │   7 Settings         ││     types/structs · complete program · about 20 min                      │
-│                      ││                                                                          │
-│   ? Help             ││ Chapters                                                                 │
-│                      ││    1 Fundamentals    ████░░░░░░░░░░░░░░  1 of 4                          │
+│   8 Review           ││                                                                          │
+│                      ││ Chapters                                                                 │
+│   ? Help             ││    1 Fundamentals    ████░░░░░░░░░░░░░░  1 of 4                          │
 │                      ││    2 Types and data  ░░░░░░░░░░░░░░░░░░  0 of 2                          │
 │                      ││                                                                          │
 │                      ││ Recent                                                                   │

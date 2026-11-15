@@ -7,9 +7,9 @@
 │ 5 ││ A keeper guards the shelf.                       ┃│ 1 │ module main;                        │
 │ 6 ││ boss fight · in progress                         ┃│                                         │
 │ 7 ││                                                  ┃│                                         │
-│   ││ Defeat the keeper.                               ┃│                                         │
-│ ? ││                                                  ┃│                                         │
-│   ││ Objectives  1 of 2 required stages passing       ┃│                                         │
+│ 8 ││ Defeat the keeper.                               ┃│                                         │
+│   ││                                                  ┃│                                         │
+│ ? ││ Objectives  1 of 2 required stages passing       ┃│                                         │
 │   ││ ✓ 1. First stage  passing                        ┃│                                         │
 │   ││ › 2. Second stage  current objective             ┃│                                         │
 │   ││      Do the second part.                         ┃│                                         │

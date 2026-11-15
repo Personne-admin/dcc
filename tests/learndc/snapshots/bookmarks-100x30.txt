@@ -7,9 +7,9 @@
 │ › 5 Bookmarks        ││                                                                          │
 │   6 Doctor           ││                                                                          │
 │   7 Settings         ││                                                                          │
+│   8 Review           ││                                                                          │
 │                      ││                                                                          │
 │   ? Help             ││                                                                          │
-│                      ││                                                                          │
 │                      ││                                                                          │
 │                      ││                                                                          │
 │                      ││                                                                          │

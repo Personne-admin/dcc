@@ -1735,7 +1735,10 @@ export namespace learndc::runner
             for (auto const& st : report.stages)
             {
                 ++number;
-                std::string_view const state = st.passed ? "passing" : st.ran ? "failing" : "not run";
+                std::string_view const state = st.checks_total == 0 ? "answered with questions ('learndc show' lists them)"
+                                               : st.passed                ? "passing"
+                                               : st.ran                   ? "failing"
+                                                                          : "not run";
                 std::string_view const code = st.passed ? "1;32" : st.ran ? "1;31" : "2";
                 if (!st.passed && !st.optional)
                     ++required_left;

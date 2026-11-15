@@ -1,15 +1,15 @@
  Test · How things work                                               0 of 5 completed ░░░░░░░░░░░░
-╭───╮╭─ How things work ─────────────────────────────────────────────────── lecture · page 1 of 3 ─╮
+╭───╮╭─ How things work ─────────────────────────────────────────────────── lecture · page 1 of 5 ─╮
 │ 1 ││ Contents                  │ First                                                           │
-│ 2 ││ › First                   │                                                                 │
-│ 3 ││   Second                  │ Text.                                                           │
-│ 4 ││   Check your understand…  │                                                                 │
-│ 5 ││                           │   module main;                                                  │
-│ 6 ││                           │                                                                 │
+│ 2 ││ ›   First                 │                                                                 │
+│ 3 ││     Second                │ Text.                                                           │
+│ 4 ││     Quiz                  │                                                                 │
+│ 5 ││     Quiz                  │   module main;                                                  │
+│ 6 ││     Summary               │                                                                 │
 │ 7 ││                           │   public i32 main() {                                           │
-│   ││                           │       return 0;                                                 │
-│ ? ││                           │   }                                                             │
-│   ││                           │                                                                 │
+│ 8 ││                           │       return 0;                                                 │
+│   ││                           │   }                                                             │
+│ ? ││                           │                                                                 │
 │   ││                           │                                                                 │
 │   ││                           │                                                                 │
 │   ││                           │                                                                 │
@@ -27,4 +27,4 @@
 │   ││                           │                                                                 │
 ╰───╯╰─────────────────────────────────────────────────────────────────────────────────────────────╯
 
- Left Right page  Up Down move  Enter choose  n next  b bookmark  ? help  q quit
+ Left Right page  Up Down move  Space toggle  Enter check  n next  ? help  q quit

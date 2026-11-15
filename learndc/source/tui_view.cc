@@ -14,6 +14,7 @@ import learndc.diff;
 import learndc.settings;
 import learndc.app;
 import learndc.markdown;
+import learndc.activity;
 import learndc.tui.model;
 
 namespace learndc::tui
@@ -1256,6 +1257,154 @@ namespace learndc::tui
             return 4;
         }
 
+        [[nodiscard]] std::vector<Line> activity_lines(Ui const& ui, std::size_t qi, int width, int& focus)
+        {
+            auto const& m = ui.m;
+            auto const& ex = *m.exercise.ex;
+            auto const& q = ex.questions[qi];
+            auto const& ui_state = m.exercise.lecture.items[qi];
+            auto const qp = progress::question_of(m.prog, ex.id, q.id);
+            std::vector<Line> lines;
+            Line head;
+            head.push_back({activity::type_word(q.type), plain(Role::Accent, true)});
+            head.push_back({std::format("{}question {} of {}", ui.sep(), qi + 1, ex.questions.size()), plain(Role::Muted)});
+            if (qp.last == "right")
+                head.push_back({std::format("{}{} solved", ui.sep(), ui.gl.done), plain(Role::Ok)});
+            else if (qp.missed() && !ui_state.feedback)
+                head.push_back({std::format("{}missed last time", ui.sep()), plain(Role::Warn)});
+            lines.push_back(std::move(head));
+            lines.push_back({});
+            markdown_lines(ui, lines, q.prompt, width, false);
+            lines.push_back({});
+            auto const code = q.code_lines();
+            int const digits = code.size() >= 10 ? 2 : 1;
+            bool const code_cursor = q.type == catalog::QuestionType::Bug || q.type == catalog::QuestionType::Order;
+            if (q.type == catalog::QuestionType::Order)
+            {
+                for (std::size_t i = 0; i < ui_state.order.size(); ++i)
+                {
+                    bool const selected = to_int(i) == ui_state.cursor;
+                    bool const held = selected && ui_state.holding;
+                    Line l;
+                    l.push_back({selected ? std::format(" {} ", held ? "=" : std::string(ui.gl.sel)) : std::string("   "), plain(Role::Accent, true)});
+                    l.push_back({std::format("{} ", pad_left(std::to_string(i + 1), digits)), plain(Role::Muted)});
+                    l.push_back({clean_line(code[to_size(ui_state.order[i])]), Style{held ? Role::Accent : Role::Code, held, held, false}});
+                    if (selected)
+                        focus = to_int(lines.size());
+                    lines.push_back(std::move(l));
+                }
+                lines.push_back({});
+            }
+            else if (!code.empty())
+            {
+                for (std::size_t i = 0; i < code.size(); ++i)
+                {
+                    bool const selected = code_cursor && to_int(i) == ui_state.cursor;
+                    Line l;
+                    l.push_back({selected ? std::format(" {} ", ui.gl.sel) : std::string("   "), plain(Role::Accent, true)});
+                    l.push_back({std::format("{} {} ", pad_left(std::to_string(i + 1), digits), ui.gl.v), plain(Role::Muted)});
+                    l.push_back({fit(ui, clean_line(code[i]), std::max(4, width - 6 - digits)), plain(selected ? Role::Accent : Role::Code, selected)});
+                    if (selected)
+                        focus = to_int(lines.size());
+                    lines.push_back(std::move(l));
+                }
+                lines.push_back({});
+            }
+            if (q.type == catalog::QuestionType::Error)
+            {
+                Line l;
+                l.push_back({"error: ", plain(Role::Fail, true)});
+                l.push_back({clean_line(q.diagnostic), plain(Role::Text)});
+                lines.push_back(std::move(l));
+                lines.push_back({});
+            }
+            if (q.has_choices())
+            {
+                for (std::size_t c = 0; c < q.choices.size(); ++c)
+                {
+                    bool const selected = to_int(c) == ui_state.cursor;
+                    bool const picked = q.type == catalog::QuestionType::Multi && c < ui_state.picked.size() && ui_state.picked[c];
+                    std::string const marker = q.type == catalog::QuestionType::Multi ? (picked ? (ui.ascii ? "[x] " : "\xE2\x98\x91 ") : (ui.ascii ? "[ ] " : "\xE2\x98\x90 "))
+                                                                                      : std::format("{} ", selected ? ui.gl.radio_on : ui.gl.radio_off);
+                    auto const pieces = text::wrap(clean_line(markdown_inline(q.choices[c])), to_size(std::max(4, width - 4 - width_of(marker))));
+                    if (selected)
+                        focus = to_int(lines.size());
+                    for (std::size_t pi = 0; pi < pieces.size(); ++pi)
+                    {
+                        Line l;
+                        l.push_back({pi == 0 && selected ? std::format(" {} ", ui.gl.sel) : std::string("   "), plain(Role::Accent, true)});
+                        l.push_back({pi == 0 ? marker : std::string(to_size(width_of(marker)), ' '), plain(selected || picked ? Role::Accent : Role::Text, picked)});
+                        l.push_back({pieces[pi], plain(selected ? Role::Accent : Role::Text, selected)});
+                        lines.push_back(std::move(l));
+                    }
+                }
+                lines.push_back({});
+            }
+            if (model::text_activity(q))
+            {
+                bool const typing = m.exercise.lecture.typing && m.current_question() == qi;
+                lines.push_back(text_line(q.type == catalog::QuestionType::Predict ? "Your prediction:" : "Your answer:", plain(Role::Muted)));
+                auto rows = text::split_lines(ui_state.input);
+                if (ui_state.input.empty() || ui_state.input.ends_with('\n'))
+                    rows.push_back({});
+                for (std::size_t r = 0; r < rows.size(); ++r)
+                {
+                    bool const last = r + 1 == rows.size();
+                    Line l;
+                    l.push_back({"   ", plain(Role::Text)});
+                    l.push_back({clean_line(rows[r]), plain(Role::Accent, true)});
+                    if (last && typing)
+                        l.push_back({"_", plain(Role::Accent, true)});
+                    if (last)
+                        focus = to_int(lines.size());
+                    lines.push_back(std::move(l));
+                }
+                if (!typing)
+                    lines.push_back(text_line("   (not typing: Enter to type)", plain(Role::Muted)));
+                lines.push_back({});
+            }
+            if (ui_state.feedback)
+            {
+                auto const& f = *ui_state.feedback;
+                Line v;
+                v.push_back({std::format("{} {}", f.correct ? ui.gl.pass : ui.gl.fail, f.verdict), plain(f.correct ? Role::Ok : Role::Fail, true)});
+                if (!f.correct && ui_state.tries > 0)
+                    v.push_back({std::format("{}attempt {}", ui.sep(), ui_state.tries), plain(Role::Muted)});
+                lines.push_back(std::move(v));
+                for (auto const& note : f.notes)
+                    add_wrapped(lines, clean_line(markdown_inline(note)), width, plain(Role::Text), "  ");
+                if (!f.explanation.empty())
+                    add_wrapped(lines, clean_line(markdown_inline(f.explanation)), width, plain(f.correct ? Role::Ok : Role::Text), "  ");
+                if (!f.correct && f.revealed)
+                    for (auto const& piece : text::split_lines(activity::reveal_answer(q)))
+                        add_wrapped(lines, clean_line(piece), width, plain(Role::Warn), "  ");
+                if (!f.correct && !f.revealed)
+                    lines.push_back(text_line("  Change your answer and check again.", plain(Role::Muted)));
+                if (focus >= 0)
+                    focus = to_int(lines.size()) - 1;
+            }
+            return lines;
+        }
+
+        void draw_activity_area(Ui& ui, Rect area, std::size_t qi, Rect scroll_box)
+        {
+            int focus = -1;
+            auto const lines = activity_lines(ui, qi, std::max(8, area.w - 1), focus);
+            int const total = to_int(lines.size());
+            int start = 0;
+            if (focus >= 0)
+                start = first_visible(focus, total, area.h);
+            start = std::clamp(start + ui.m.exercise.lecture.scroll, 0, std::max(0, total - area.h));
+            for (int i = 0; i < area.h; ++i)
+            {
+                auto const idx = start + i;
+                if (idx >= total)
+                    break;
+                draw_line(ui, area, area.y + i, lines[to_size(idx)]);
+            }
+            draw_scrollbar(ui, scroll_box, start, total, area.h);
+        }
+
         void draw_lecture(Ui& ui, Rect main)
         {
             auto const& m = ui.m;
@@ -1265,7 +1414,9 @@ namespace learndc::tui
             auto const pages = m.lecture_pages();
             auto const page = std::min(lec.page, pages - 1);
             bool const done = m.status_of(ex.id) == progress::Status::Completed;
-            auto const inner = draw_box(ui, main, clean_line(ex.title), true, std::format("lecture{}page {} of {}{}", ui.sep(), page + 1, pages, done ? std::format("{}completed", ui.sep()) : std::string()));
+            auto const inner = draw_box(ui, main, clean_line(ex.title), true,
+                                        std::format("{}{}page {} of {}{}", ex.drill ? "drill" : "lecture", ui.sep(), page + 1, pages,
+                                                    done ? std::format("{}completed", ui.sep()) : std::string()));
             if (inner.empty())
                 return;
             Rect text_area = inner;
@@ -1277,24 +1428,50 @@ namespace learndc::tui
                 entries.push_back(text_line("Contents", plain(Role::Muted, true)));
                 for (std::size_t i = 0; i < pages; ++i)
                 {
-                    std::string const title = i < es.sections.size() ? clean_line(es.sections[i].title)
-                                              : ex.questions.empty()  ? std::string("Finish")
-                                                                      : std::string("Check your understanding");
+                    std::string title;
+                    Role role = Role::Muted;
+                    std::string mark = " ";
+                    if (i < es.sections.size())
+                        title = clean_line(es.sections[i].title);
+                    else if (i < es.sections.size() + ex.questions.size())
+                    {
+                        auto const& q = ex.questions[i - es.sections.size()];
+                        title = activity::type_word(q.type);
+                        auto const qp = progress::question_of(m.prog, ex.id, q.id);
+                        if (qp.last == "right")
+                        {
+                            mark = std::string(ui.gl.done);
+                            role = Role::Ok;
+                        }
+                        else if (qp.missed())
+                        {
+                            mark = std::string(ui.gl.fail);
+                            role = Role::Warn;
+                        }
+                    }
+                    else
+                        title = ex.questions.empty() ? "Finish" : "Summary";
                     bool const current = i == page;
                     Line l;
                     l.push_back({current ? std::format("{} ", ui.gl.sel) : std::string("  "), plain(Role::Accent, true)});
-                    l.push_back({fit(ui, title, toc_w - 4), plain(current ? Role::Accent : Role::Muted, current)});
+                    l.push_back({pad_right(mark, ui.gl.status_width) + " ", plain(role, true)});
+                    l.push_back({fit(ui, title, toc_w - 5 - ui.gl.status_width), plain(current ? Role::Accent : Role::Muted, current)});
                     entries.push_back(std::move(l));
                 }
-                for (int i = 0; i < toc.h && i < to_int(entries.size()); ++i)
-                    draw_line(ui, toc, toc.y + i, entries[to_size(i)]);
+                int const start = first_visible(to_int(page) + 1, to_int(entries.size()), toc.h);
+                for (int i = 0; i < toc.h && start + i < to_int(entries.size()); ++i)
+                    draw_line(ui, toc, toc.y + i, entries[to_size(start + i)]);
                 for (int y = inner.y; y < inner.bottom(); ++y)
                     ui.g.put(inner.x + toc_w, y, ui.gl.v, plain(Role::Border), inner);
                 text_area = Rect{inner.x + toc_w + 2, inner.y, inner.w - toc_w - 2, inner.h};
             }
+            if (auto const qi = m.current_question())
+            {
+                draw_activity_area(ui, text_area, *qi, main);
+                return;
+            }
             int const width = std::max(8, text_area.w - 1);
             std::vector<Line> lines;
-            int focus = -1;
             if (page < es.sections.size())
             {
                 auto const& sec = es.sections[page];
@@ -1304,95 +1481,162 @@ namespace learndc::tui
             }
             else
             {
-                auto const rows = m.quiz_rows();
-                auto const cursor = rows.empty() ? 0 : std::min(lec.cursor, rows.size() - 1);
-                lines.push_back(text_line(ex.questions.empty() ? "Finish" : "Check your understanding", plain(Role::Accent, true)));
+                lines.push_back(text_line(ex.questions.empty() ? "Finish" : "Summary", plain(Role::Accent, true)));
                 lines.push_back({});
                 if (!ex.objectives.empty())
                 {
-                    lines.push_back(text_line("After this lecture you can:", plain(Role::Muted)));
+                    lines.push_back(text_line(ex.drill ? "This drill practises:" : "After this lecture you can:", plain(Role::Muted)));
                     std::string list;
                     for (auto const& o : ex.objectives)
                         list += "- " + o + "\n";
                     markdown_lines(ui, lines, list, width, false);
                     lines.push_back({});
                 }
-                std::size_t row_index = 0;
-                for (std::size_t q = 0; q < ex.questions.size(); ++q)
+                int solved = 0;
+                for (std::size_t i = 0; i < ex.questions.size(); ++i)
                 {
-                    auto const& question = ex.questions[q];
-                    auto const prompt = markdown_block(ui, question.prompt, std::max(4, width - 4));
-                    for (std::size_t pi = 0; pi < prompt.size(); ++pi)
-                    {
-                        Line l;
-                        l.push_back({pi == 0 ? std::format("{}. ", q + 1) : std::string("   "), plain(Role::Accent, true)});
-                        append(l, prompt[pi]);
-                        lines.push_back(std::move(l));
-                    }
-                    int const answer = q < lec.answers.size() ? lec.answers[q] : 0;
-                    for (std::size_t c = 0; c < question.choices.size(); ++c)
-                    {
-                        bool const selected = row_index == cursor;
-                        bool const chosen = answer == to_int(c) + 1;
-                        Role role = chosen ? Role::Accent : Role::Text;
-                        if (lec.submitted && chosen && q < lec.right.size())
-                            role = lec.right[q] ? Role::Ok : Role::Fail;
-                        auto const marker = std::format("{} ", chosen ? ui.gl.radio_on : ui.gl.radio_off);
-                        auto const pieces = text::wrap(clean_line(markdown_inline(question.choices[c])), to_size(std::max(4, width - 3 - width_of(marker))));
-                        if (selected)
-                            focus = to_int(lines.size());
-                        for (std::size_t pi = 0; pi < pieces.size(); ++pi)
-                        {
-                            Line l;
-                            l.push_back({pi == 0 && selected ? std::format(" {} ", ui.gl.sel) : std::string("   "), plain(Role::Accent, true)});
-                            l.push_back({pi == 0 ? marker : std::string(to_size(width_of(marker)), ' '), plain(role, chosen)});
-                            l.push_back({pieces[pi], plain(role, chosen)});
-                            lines.push_back(std::move(l));
-                        }
-                        ++row_index;
-                    }
-                    if (lec.submitted && q < lec.right.size())
-                    {
-                        if (lec.right[q])
-                            lines.push_back(text_line(std::format("   {} right", ui.gl.pass), plain(Role::Ok, true)));
-                        else
-                            add_wrapped(lines, std::format("{} not quite: {}", ui.gl.fail, clean_line(markdown_inline(question.explanation))), width,
-                                        plain(Role::Fail), "   ");
-                    }
-                    lines.push_back({});
-                }
-                if (row_index < rows.size())
-                {
-                    bool const selected = row_index == cursor;
+                    auto const& q = ex.questions[i];
+                    auto const qp = progress::question_of(m.prog, ex.id, q.id);
+                    bool const right = qp.last == "right";
+                    if (right)
+                        ++solved;
                     Line l;
-                    l.push_back({selected ? std::format(" {} ", ui.gl.sel) : std::string("   "), plain(Role::Accent, true)});
-                    l.push_back({ex.questions.empty() ? "[ Mark as read ]" : "[ Submit answers ]", plain(Role::Key, true)});
-                    if (selected)
-                        focus = to_int(lines.size());
+                    l.push_back({std::format("  {} ", right ? ui.gl.pass : qp.missed() ? ui.gl.fail : ui.gl.todo),
+                                 plain(right ? Role::Ok : qp.missed() ? Role::Fail : Role::Muted, true)});
+                    l.push_back({std::format("{}. {}", i + 1, activity::type_word(q.type)), plain(Role::Text)});
+                    if (qp.attempts > 0)
+                        l.push_back({std::format("{}{} {}", ui.sep(), qp.attempts, qp.attempts == 1 ? "try" : "tries"), plain(Role::Muted)});
                     lines.push_back(std::move(l));
                 }
+                if (!ex.questions.empty())
+                {
+                    lines.push_back({});
+                    lines.push_back(text_line(std::format("{} of {} solved", solved, ex.questions.size()), plain(solved == to_int(ex.questions.size()) ? Role::Ok : Role::Text, true)));
+                    if (solved < to_int(ex.questions.size()))
+                        add_wrapped(lines, "Questions you miss come back on the Review screen, so you can practise them again later.", width, plain(Role::Muted));
+                }
                 else
-                    lines.push_back(text_line("   Answer every question to submit.", plain(Role::Muted)));
+                {
+                    Line l;
+                    l.push_back({std::format(" {} ", ui.gl.sel), plain(Role::Accent, true)});
+                    l.push_back({"[ Mark as read ]", plain(Role::Key, true)});
+                    lines.push_back(std::move(l));
+                }
+                if (!ex.cards.empty())
+                {
+                    lines.push_back({});
+                    add_wrapped(lines, std::format("{} flashcard{} join your Review once this lesson is complete.", ex.cards.size(), ex.cards.size() == 1 ? "" : "s"),
+                                width, plain(Role::Muted));
+                }
                 if (done)
                 {
                     lines.push_back({});
-                    lines.push_back(text_line(std::format("{} Completed. n opens the next lesson.", ui.gl.done), plain(Role::Ok, true)));
+                    lines.push_back(text_line(std::format("{} Completed", ui.gl.done), plain(Role::Ok, true)));
                 }
             }
             int const total = to_int(lines.size());
-            int start = 0;
-            if (focus >= 0)
-                start = first_visible(focus, total, text_area.h);
-            else
-                start = std::clamp(lec.scroll, 0, std::max(0, total - text_area.h));
+            int const start = std::clamp(lec.scroll, 0, std::max(0, total - text_area.h));
             for (int i = 0; i < text_area.h; ++i)
             {
                 auto const idx = start + i;
                 if (idx >= total)
                     break;
-                draw_line(ui, text_area, text_area.y + i, lines[to_size(idx)], idx == focus);
+                draw_line(ui, text_area, text_area.y + i, lines[to_size(idx)]);
             }
             draw_scrollbar(ui, main, start, total, text_area.h);
+        }
+
+        void draw_review(Ui& ui, Rect main)
+        {
+            auto const& m = ui.m;
+            auto const& rs = m.review_state;
+            auto const queue = m.review_queue();
+            auto const inner = draw_box(ui, main, "", false, std::format("{} due{}{} missed", rs.index < rs.due.size() ? rs.due.size() - rs.index : 0, ui.sep(), queue.missed.size()));
+            if (inner.empty())
+                return;
+            int const width = std::max(8, inner.w - 1);
+            std::vector<Line> lines;
+            lines.push_back(text_line("Flashcards", plain(Role::Accent, true)));
+            add_wrapped(lines, std::format("{} unlocked{}{} locked until their lesson is complete", queue.cards_unlocked, ui.sep(), queue.cards_locked), width,
+                        plain(Role::Muted));
+            lines.push_back({});
+            if (rs.index < rs.due.size())
+            {
+                auto const& key = rs.due[rs.index];
+                auto const hash = key.find('#');
+                auto const* ex = m.ctx->catalog.find(key.substr(0, hash));
+                catalog::Card const* card = nullptr;
+                if (ex)
+                    for (auto const& c : ex->cards)
+                        if (c.id == key.substr(hash + 1))
+                            card = &c;
+                if (card)
+                {
+                    lines.push_back(text_line(std::format("Card {} of {}{}{}", rs.index + 1, rs.due.size(), ui.sep(), clean_line(ex->title)), plain(Role::Muted)));
+                    lines.push_back({});
+                    std::vector<Line> front;
+                    markdown_lines(ui, front, card->front, width - 4, false);
+                    for (auto& l : front)
+                    {
+                        Line x;
+                        x.push_back({"  ", plain(Role::Text)});
+                        append(x, l);
+                        lines.push_back(std::move(x));
+                    }
+                    lines.push_back({});
+                    if (rs.flipped)
+                    {
+                        lines.push_back(text_line(std::format("  {}", std::string(to_size(std::max(4, std::min(width - 4, 40))), '-')), plain(Role::Border)));
+                        std::vector<Line> back;
+                        markdown_lines(ui, back, card->back, width - 4, false);
+                        for (auto& l : back)
+                        {
+                            Line x;
+                            x.push_back({"  ", plain(Role::Text)});
+                            append(x, l);
+                            lines.push_back(std::move(x));
+                        }
+                        lines.push_back({});
+                        lines.push_back(text_line("  How well did you remember it: again, hard, good or easy?", plain(Role::Accent, true)));
+                    }
+                    else
+                        lines.push_back(text_line("  Recall the answer, then turn the card over.", plain(Role::Muted)));
+                }
+            }
+            else if (rs.rated > 0)
+                lines.push_back(text_line(std::format("{} Session done: {} card{} reviewed.", ui.gl.done, rs.rated, rs.rated == 1 ? "" : "s"), plain(Role::Ok, true)));
+            else if (queue.cards_unlocked == 0)
+                lines.push_back(text_line("No cards yet. Lessons add theirs once you complete them.", plain(Role::Muted)));
+            else if (queue.next_due_day)
+                lines.push_back(text_line(std::format("Nothing is due. The next card comes back in {} day(s).", std::max(1, *queue.next_due_day - app::today_day())), plain(Role::Muted)));
+            lines.push_back({});
+            lines.push_back(text_line("Questions to try again", plain(Role::Accent, true)));
+            int focus = -1;
+            if (queue.missed.empty())
+                lines.push_back(text_line("  None. Every question you answered is solved.", plain(Role::Muted)));
+            for (std::size_t i = 0; i < queue.missed.size(); ++i)
+            {
+                auto const& mref = queue.missed[i];
+                bool const selected = rs.on_missed && i == std::min(rs.missed_sel, queue.missed.size() - 1);
+                Line l;
+                l.push_back({selected ? std::format("{} ", ui.gl.sel) : std::string("  "), plain(Role::Accent, true)});
+                l.push_back({activity::type_word(mref.question->type), plain(Role::Text, selected)});
+                l.push_back({std::format("{}{}", ui.sep(), clean_line(mref.lesson->title)), plain(Role::Muted)});
+                l.push_back({std::format("{}{} {}", ui.sep(), mref.attempts, mref.attempts == 1 ? "try" : "tries"), plain(Role::Muted)});
+                if (selected)
+                    focus = to_int(lines.size());
+                lines.push_back(std::move(l));
+            }
+            int const total = to_int(lines.size());
+            int const start = focus >= 0 ? first_visible(focus, total, inner.h) : 0;
+            for (int i = 0; i < inner.h; ++i)
+            {
+                auto const idx = start + i;
+                if (idx >= total)
+                    break;
+                draw_line(ui, inner, inner.y + i, lines[to_size(idx)], idx == focus);
+            }
+            draw_scrollbar(ui, main, start, total, inner.h);
         }
 
         void draw_exercise(Ui& ui, Rect main)
@@ -1404,6 +1648,13 @@ namespace learndc::tui
             if (es.ex->is_lecture())
             {
                 draw_lecture(ui, main);
+                return;
+            }
+            if (es.activity)
+            {
+                auto const inner = draw_box(ui, main, std::format("{}: questions", clean_line(es.ex->title)), true, "Esc back to the exercise");
+                if (!inner.empty())
+                    draw_activity_area(ui, inner, *es.activity, main);
                 return;
             }
             int const banner = draw_watch_banner(ui, main);
@@ -2349,11 +2600,11 @@ namespace learndc::tui
         void draw_tab_bar(Ui& ui, Rect row)
         {
             auto const& m = ui.m;
-            static constexpr std::array<std::pair<model::Screen, std::string_view>, 7> tabs = {
+            static constexpr std::array<std::pair<model::Screen, std::string_view>, 8> tabs = {
                 std::pair{model::Screen::Home, "Home"},           std::pair{model::Screen::Learn, "Learn"},
                 std::pair{model::Screen::Exercise, "Lesson"},     std::pair{model::Screen::Progress, "Progress"},
                 std::pair{model::Screen::Bookmarks, "Bookmarks"}, std::pair{model::Screen::Doctor, "Doctor"},
-                std::pair{model::Screen::Settings, "Settings"}};
+                std::pair{model::Screen::Settings, "Settings"},   std::pair{model::Screen::Review, "Review"}};
             auto build = [&](bool full) {
                 Line l;
                 l.push_back({" ", plain(Role::Text)});
@@ -2398,11 +2649,11 @@ namespace learndc::tui
             auto const inner = draw_box(ui, area, narrow ? "" : "Menu", false);
             if (inner.empty())
                 return;
-            static constexpr std::array<std::pair<model::Screen, std::string_view>, 7> entries = {
+            static constexpr std::array<std::pair<model::Screen, std::string_view>, 8> entries = {
                 std::pair{model::Screen::Home, "Home"},           std::pair{model::Screen::Learn, "Learn"},
                 std::pair{model::Screen::Exercise, "Lesson"},     std::pair{model::Screen::Progress, "Progress"},
                 std::pair{model::Screen::Bookmarks, "Bookmarks"}, std::pair{model::Screen::Doctor, "Doctor"},
-                std::pair{model::Screen::Settings, "Settings"}};
+                std::pair{model::Screen::Settings, "Settings"},   std::pair{model::Screen::Review, "Review"}};
             int y = inner.y;
             int n = 0;
             for (auto const& [screen, name] : entries)
@@ -2560,6 +2811,9 @@ namespace learndc::tui
                     break;
                 case model::Screen::Help:
                     draw_help(ui, main);
+                    break;
+                case model::Screen::Review:
+                    draw_review(ui, main);
                     break;
                 case model::Screen::Onboarding:
                     break;

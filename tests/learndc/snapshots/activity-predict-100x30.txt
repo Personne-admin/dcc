@@ -1,0 +1,30 @@
+ Test · Basics drill                                                  0 of 6 completed ░░░░░░░░░░░░
+╭───╮╭─ Basics drill ──────────────────────────────────────────────────────── drill · page 2 of 7 ─╮
+│ 1 ││ Contents                  │ Predict the output · question 1 of 5 · ✓ solved                 │
+│ 2 ││     Basics drill          │                                                                 │
+│ 3 ││ › ✓ Predict the output    │ What does it print?                                             │
+│ 4 ││     Pick every right an…  │                                                                 │
+│ 5 ││     Find the bug          │    1 │ module main;                                             │
+│ 6 ││     Put the code in ord…  │                                                                 │
+│ 7 ││     Recall                │ Your prediction:                                                │
+│ 8 ││     Summary               │    a                                                            │
+│   ││                           │    b                                                            │
+│ ? ││                           │                                                                 │
+│   ││                           │    (not typing: Enter to type)                                  │
+│   ││                           │                                                                 │
+│   ││                           │ ✓ Right                                                         │
+│   ││                           │   In order.                                                     │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+╰───╯╰─────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ Left Right page  Up Down move  Space toggle  Enter check  n next  ? help  q quit

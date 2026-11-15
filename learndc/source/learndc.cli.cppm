@@ -15,6 +15,7 @@ import learndc.watch;
 import learndc.editor;
 import learndc.doctor;
 import learndc.app;
+import learndc.activity;
 
 export namespace learndc::cli
 {
@@ -141,9 +142,11 @@ export namespace learndc::cli
                 {flag_option("show", "print the solution files"), flag_option("diff", "diff your files against the solution")}, 0, 1);
             add("reset", "reset <id> [--yes] [--no-backup]", "Restore the starter files of an exercise",
                 {flag_option("yes", "do not ask for confirmation"), flag_option("no-backup", "skip the backup of your files")}, 1, 1);
-            add("answer", "answer <id> [CHOICE...] [--json]",
-                "Answer the questions of a lecture (one choice number each; none marks a lecture without questions as read)",
-                {flag_option("json", "print JSON")}, 1, unlimited);
+            add("answer", "answer <id> [CHOICE...] | answer <id> --question Q ANSWER... [--json]",
+                "Answer lesson questions: one choice per question, or one question of any kind with --question",
+                {flag_option("json", "print JSON"), value_option("question", "Q", "the id of the question to answer")}, 1, unlimited);
+            add("cards", "cards [--json]", "List the flashcards due for review and the questions you missed", {flag_option("json", "print JSON")}, 0, 0);
+            add("card", "card <lesson>#<card> [again|hard|good|easy]", "Show a flashcard, or rate how well you remembered it", {}, 1, 2);
             add("progress", "progress [--json]", "Show your progress", {flag_option("json", "print JSON")}, 0, 0);
             add("review", "review [--json]", "List exercises worth revisiting", {flag_option("json", "print JSON")}, 0, 0);
             add("bookmark", "bookmark <id> [--remove]", "Bookmark an exercise", {flag_option("remove", "remove the bookmark")}, 1, 1);
@@ -618,6 +621,49 @@ export namespace learndc::cli
             return "[ ]";
         }
 
+        [[nodiscard]] inline std::string question_text(catalog::Question const& q)
+        {
+            std::string out = std::format("[{}] {}\n", activity::type_word(q.type), text::trim(markdown::render_plain(q.prompt, 76, false)));
+            auto const lines = q.code_lines();
+            if (q.type == catalog::QuestionType::Order)
+            {
+                auto const shown = activity::shuffled_order(q);
+                for (std::size_t i = 0; i < shown.size(); ++i)
+                    out += std::format("   {:>2} | {}\n", i + 1, lines[static_cast<std::size_t>(shown[i])]);
+            }
+            else if (!lines.empty())
+                for (std::size_t i = 0; i < lines.size(); ++i)
+                    out += std::format("   {:>2} | {}\n", i + 1, lines[i]);
+            if (q.type == catalog::QuestionType::Error)
+                out += std::format("   compiler: {}\n", q.diagnostic);
+            int c = 0;
+            for (auto const& choice : q.choices)
+                out += std::format("   {}) {}\n", ++c, choice);
+            return out;
+        }
+
+        [[nodiscard]] inline std::string answer_form(catalog::Question const& q)
+        {
+            switch (q.type)
+            {
+                case catalog::QuestionType::Choice:
+                case catalog::QuestionType::Error:
+                    return "a choice number";
+                case catalog::QuestionType::Multi:
+                    return "every choice number that holds, such as 1,3";
+                case catalog::QuestionType::Predict:
+                    return "the exact output, lines separated by \\n";
+                case catalog::QuestionType::Trace:
+                case catalog::QuestionType::Short:
+                    return "a short answer";
+                case catalog::QuestionType::Bug:
+                    return "the number of the buggy line";
+                case catalog::QuestionType::Order:
+                    return "the shown line numbers in the right order, such as 3 1 2";
+            }
+            return "an answer";
+        }
+
         inline int show_lecture(Session& s, catalog::Exercise const& ex, progress::Progress const& p)
         {
             if (s.json())
@@ -647,17 +693,160 @@ export namespace learndc::cli
                 std::print(o, "\nMark it as read with: learndc answer {}\n", ex.id);
                 return app::exit_ok;
             }
-            std::print(o, "\n{}\n", paint(s, "1", "Check your understanding"));
+            std::print(o, "\n{}\n", paint(s, "1", ex.drill ? "Practice" : "Check your understanding"));
             int n = 0;
+            bool all_choice = true;
             for (auto const& q : ex.questions)
             {
-                std::print(o, "\n{}. {}\n", ++n, markdown::render_plain(q.prompt, 76, false));
-                int c = 0;
-                for (auto const& choice : q.choices)
-                    std::print(o, "   {}) {}\n", ++c, choice);
+                auto const qp = progress::question_of(p, ex.id, q.id);
+                std::print(o, "\n{}. {}{}", ++n, qp.last == "right" ? "(done) " : "", question_text(q));
+                if (q.type != catalog::QuestionType::Choice)
+                    all_choice = false;
             }
-            std::vector<std::string> sample(ex.questions.size(), "N");
-            std::print(o, "\nAnswer with: learndc answer {} {}\n", ex.id, text::join(sample, " "));
+            if (all_choice)
+            {
+                std::vector<std::string> sample(ex.questions.size(), "N");
+                std::print(o, "\nAnswer with: learndc answer {} {}\n", ex.id, text::join(sample, " "));
+            }
+            else
+            {
+                std::print(o, "\nAnswer one question at a time:\n");
+                for (auto const& q : ex.questions)
+                    std::print(o, "  learndc answer {} --question {} <{}>\n", ex.id, q.id, answer_form(q));
+            }
+            if (!ex.cards.empty())
+                std::print(o, "\nThis lesson adds {} flashcard{} to your review once it is complete ('learndc cards').\n", ex.cards.size(),
+                           ex.cards.size() == 1 ? "" : "s");
+            return app::exit_ok;
+        }
+
+        inline int answer_one(Session& s, catalog::Exercise const& ex, std::string const& qid)
+        {
+            auto const* q = ex.find_question(qid);
+            if (q == nullptr)
+                return report_failure(s, app::Failure{app::exit_not_found, std::format("'{}' has no question '{}'", ex.id, text::sanitize(qid))});
+            std::vector<std::string> words(s.args.positionals.begin() + 1, s.args.positionals.end());
+            auto parsed = activity::parse_answer(*q, text::join(words, " "));
+            if (!parsed)
+                return usage_error(s, std::format("question '{}' needs {}: {}", q->id, answer_form(*q), parsed.error()));
+            auto out = app::answer_question(s.ctx, ex, q->id, *parsed);
+            if (!out)
+                return report_failure(s, out.error());
+            flush_warnings(s);
+            auto const& f = out->feedback;
+            if (s.json())
+            {
+                auto j = json::Json::make_object();
+                j.set("lesson", json::Json(ex.id));
+                j.set("question", json::Json(q->id));
+                j.set("correct", json::Json(f.correct));
+                j.set("attempt", json::Json(out->attempt));
+                j.set("notes", strings_json(f.notes));
+                j.set("explanation", json::Json(f.explanation));
+                j.set("completed_now", json::Json(out->record.completed_now));
+                j.set("stages_achieved", strings_json(out->stages_achieved));
+                emit_json(s, j);
+                return f.correct ? app::exit_ok : app::exit_failed;
+            }
+            auto& o = s.out();
+            std::print(o, "{} {}\n", paint(s, f.correct ? "1;32" : "1;31", f.verdict), activity::type_word(q->type));
+            for (auto const& note : f.notes)
+                std::print(o, "  {}\n", text::trim(markdown::render_plain(note, 76, false)));
+            if (!f.explanation.empty())
+                std::print(o, "  {}\n", text::trim(markdown::render_plain(f.explanation, 76, false)));
+            if (!f.correct && f.revealed)
+                std::print(o, "  {}\n", activity::reveal_answer(*q));
+            if (!f.correct && !f.revealed)
+                std::print(o, "  Try again; the explanation appears after the next attempt.\n");
+            for (auto const& title : out->stages_achieved)
+                std::print(o, "{} {}\n", paint(s, "1;32", "Stage cleared:"), title);
+            if (out->record.boss_defeated)
+                std::print(o, "{}\n", paint(s, "1;31", std::format("BOSS DEFEATED: {}", ex.title)));
+            else if (out->record.completed_now)
+                std::print(o, "{}\n", paint(s, "1;32", ex.is_lecture() ? "Lesson completed." : "Exercise completed."));
+            if (out->record.chapter_completed)
+                std::print(o, "{}\n", paint(s, "1;32", std::format("Chapter {} complete: {}", out->record.chapter_number, out->record.chapter_title)));
+            return f.correct ? app::exit_ok : app::exit_failed;
+        }
+
+        inline int cmd_cards(Session& s)
+        {
+            if (auto f = prepare(s))
+                return report_failure(s, *f);
+            int const today = app::today_day();
+            auto const queue = app::review_queue(s.ctx, *s.loaded, today);
+            if (s.json())
+            {
+                auto j = json::Json::make_object();
+                auto due = json::Json::make_array();
+                for (auto const& c : queue.due)
+                {
+                    auto cj = json::Json::make_object();
+                    cj.set("key", json::Json(c.key));
+                    cj.set("front", json::Json(c.card->front));
+                    cj.set("box", json::Json(c.state.box));
+                    cj.set("new", json::Json(c.state.reviews == 0));
+                    due.push(std::move(cj));
+                }
+                j.set("due", std::move(due));
+                j.set("unlocked", json::Json(queue.cards_unlocked));
+                j.set("locked", json::Json(queue.cards_locked));
+                auto missed = json::Json::make_array();
+                for (auto const& m : queue.missed)
+                    missed.push(json::Json(m.key));
+                j.set("missed", std::move(missed));
+                emit_json(s, j);
+                return app::exit_ok;
+            }
+            auto& o = s.out();
+            std::print(o, "{} card{} due, {} unlocked, {} still locked behind lessons you have not completed\n", queue.due.size(),
+                       queue.due.size() == 1 ? "" : "s", queue.cards_unlocked, queue.cards_locked);
+            for (auto const& c : queue.due)
+                std::print(o, "  {}  {}{}\n", c.key, text::trim(markdown::render_plain(c.card->front, 70, false)), c.state.reviews == 0 ? "  (new)" : "");
+            if (!queue.due.empty())
+                std::print(o, "Review one with: learndc card {}\n", queue.due.front().key);
+            else if (queue.next_due_day)
+                std::print(o, "The next card is due in {} day(s).\n", *queue.next_due_day - today);
+            if (!queue.missed.empty())
+            {
+                std::print(o, "\nQuestions to try again\n");
+                for (auto const& m : queue.missed)
+                    std::print(o, "  {}  {}\n", m.key, activity::type_word(m.question->type));
+            }
+            return app::exit_ok;
+        }
+
+        inline int cmd_card(Session& s)
+        {
+            if (auto f = prepare(s))
+                return report_failure(s, *f);
+            auto const& key = s.args.positionals[0];
+            auto const hash = key.find('#');
+            if (hash == std::string::npos)
+                return usage_error(s, "name the card as <lesson>#<card>, as 'learndc cards' prints it");
+            auto found = app::find_exercise(s.ctx, key.substr(0, hash));
+            if (!found)
+                return report_failure(s, found.error());
+            auto const& ex = **found;
+            auto const card_id = key.substr(hash + 1);
+            auto it = std::ranges::find(ex.cards, card_id, &catalog::Card::id);
+            if (it == ex.cards.end())
+                return report_failure(s, app::Failure{app::exit_not_found, std::format("'{}' has no card '{}'", ex.id, text::sanitize(card_id))});
+            if (s.args.positionals.size() == 1)
+            {
+                std::print(s.out(), "{}\n\n{}\nRate it: learndc card {} again|hard|good|easy\n", text::trim(markdown::render_plain(it->front, 76, false)),
+                           markdown::render_plain(it->back, 76, false), key);
+                return app::exit_ok;
+            }
+            auto rating = activity::parse_rating(s.args.positionals[1]);
+            if (!rating)
+                return usage_error(s, "rate a card with again, hard, good or easy");
+            auto r = app::rate_card(s.ctx, ex, card_id, *rating);
+            if (!r)
+                return report_failure(s, r.error());
+            int const days = r->due_day - app::today_day();
+            std::print(s.out(), "Saved. {} is in box {} of 5 and comes back {}.\n", key, r->box,
+                       days <= 0 ? std::string("today") : std::format("in {} day{}", days, days == 1 ? "" : "s"));
             return app::exit_ok;
         }
 
@@ -669,6 +858,8 @@ export namespace learndc::cli
             if (!found)
                 return report_failure(s, found.error());
             auto const& ex = **found;
+            if (auto qid = s.args.value("question"))
+                return answer_one(s, ex, *qid);
             std::vector<int> answers;
             for (std::size_t i = 1; i < s.args.positionals.size(); ++i)
             {
@@ -942,7 +1133,9 @@ export namespace learndc::cli
         inline int finish_check(Session& s, catalog::Exercise const& ex, runner::CheckReport const& report, bool as_json)
         {
             auto rec = app::record_report(s.ctx, ex, report);
-            int const code = rec && rec->all_passed ? app::exit_ok : app::exit_code_for(report);
+            int code = rec && rec->all_passed ? app::exit_ok : app::exit_code_for(report);
+            if (code == app::exit_ok && ex.staged() && !(rec && rec->all_passed))
+                code = app::exit_failed;
             if (!rec)
             {
                 std::print(s.err(), "learndc: warning: could not save your progress: {}\n", rec.error().message);
@@ -1505,46 +1698,129 @@ export namespace learndc::cli
             }
         }
 
-        [[nodiscard]] inline ValidationRow validate_lecture(Session& s, catalog::Exercise const& ex, runner::Backend backend,
-                                                            std::filesystem::path const& scratch)
+        [[nodiscard]] inline runner::CheckReport run_probe(Session& s, catalog::Exercise const& ex, std::string const& name, std::string const& source,
+                                                          std::optional<std::string> const& expect_stdout, bool expect_build_failure,
+                                                          std::string const& diagnostic, runner::Backend backend, std::filesystem::path const& scratch)
         {
-            ValidationRow row;
-            row.id = ex.id;
-            row.backend = std::string(runner::to_string(backend));
-            row.starter = "lecture";
-            auto const begin = std::chrono::steady_clock::now();
-            int passed = 0;
-            for (auto const& example : ex.examples)
+            catalog::Exercise probe;
+            probe.id = ex.id;
+            probe.track = ex.track;
+            probe.name = ex.name + "-" + name;
+            probe.title = ex.title;
+            probe.kind = catalog::ExerciseKind::CompleteProgram;
+            probe.entry_file = "src/main.dc";
+            probe.product = "example";
+            probe.required_tools = {"dcc", "dpm"};
+            probe.starter["project.dcon"] =
+                "dpm::v1::Project {\n    name = \"example\",\n    version = \"0.1.0\",\n    products = {\n        { name = \"example\", entry = \"src/main.dc\" },\n    },\n}\n";
+            probe.starter["src/main.dc"] = source;
+            if (expect_build_failure)
             {
-                catalog::Exercise probe;
-                probe.id = ex.id;
-                probe.track = ex.track;
-                probe.name = ex.name + "-" + example.name;
-                probe.title = ex.title;
-                probe.kind = catalog::ExerciseKind::CompleteProgram;
-                probe.entry_file = "src/main.dc";
-                probe.product = "example";
-                probe.required_tools = {"dcc", "dpm"};
-                probe.starter["project.dcon"] = "dpm::v1::Project {\n    name = \"example\",\n    version = \"0.1.0\",\n    products = {\n        { name = "
-                                                "\"example\", entry = \"src/main.dc\" },\n    },\n}\n";
-                probe.starter["src/main.dc"] = example.source;
+                catalog::Check diag;
+                diag.kind = catalog::CheckKind::Diagnostic;
+                diag.name = std::format("{} is rejected by the compiler as described", name);
+                diag.expect_build_success = false;
+                diag.diagnostic_contains = diagnostic;
+                probe.checks = {diag};
+            }
+            else
+            {
                 catalog::Check build;
                 build.kind = catalog::CheckKind::Build;
                 build.name = "Compiles";
                 catalog::Check run;
                 run.kind = catalog::CheckKind::Run;
-                run.name = std::format("example {} prints the documented output", example.name);
-                run.expect_stdout = example.expect_stdout;
+                run.name = std::format("{} prints the documented output", name);
+                run.expect_stdout = expect_stdout;
                 probe.checks = {build, run};
-                auto root = scratch / std::format("{}-{}-example-{}", ex.track, ex.name, example.name);
-                auto started = workspace::start(probe, root);
-                if (!started)
+            }
+            auto root = scratch / std::format("{}-{}-probe-{}", ex.track, ex.name, name);
+            if (auto started = workspace::start(probe, root); !started)
+            {
+                runner::CheckReport failed;
+                failed.outcome = runner::Outcome::Error;
+                return failed;
+            }
+            return runner::run_checks(probe, root, app::runner_options(s.ctx, backend, s.io.cancel));
+        }
+
+        inline void validate_questions(Session& s, catalog::Exercise const& ex, runner::Backend backend, std::filesystem::path const& scratch, ValidationRow& row,
+                                       int& passed, int& total)
+        {
+            for (auto const& q : ex.questions)
+            {
+                auto const tag = std::format("q-{}", q.id);
+                auto expect_pass = [&](std::string const& label, std::string const& source, std::optional<std::string> const& expect) {
+                    ++total;
+                    auto report = run_probe(s, ex, tag, source, expect, false, {}, backend, scratch);
+                    if (report.outcome == runner::Outcome::Passed)
+                        ++passed;
+                    else
+                    {
+                        row.ok = false;
+                        row.detail += std::format("question {}: {}\n{}", q.id, label, runner::render_text(report, s.style));
+                    }
+                };
+                switch (q.type)
                 {
-                    row.ok = false;
-                    row.detail += std::format("example {}: cannot create a workspace: {}\n", example.name, started.error().message);
-                    continue;
+                    case catalog::QuestionType::Predict:
+                        expect_pass("the program does not print the expected answer", q.code, q.expect);
+                        break;
+                    case catalog::QuestionType::Trace:
+                        if (!q.expect.empty())
+                            expect_pass("the program does not print the documented trace", q.code, q.expect);
+                        break;
+                    case catalog::QuestionType::Error: {
+                        ++total;
+                        auto report = run_probe(s, ex, tag, q.code, std::nullopt, true, q.diagnostic, backend, scratch);
+                        if (report.outcome == runner::Outcome::Passed)
+                            ++passed;
+                        else
+                        {
+                            row.ok = false;
+                            row.detail += std::format("question {}: the code must fail to compile with '{}'\n{}", q.id, q.diagnostic,
+                                                      runner::render_text(report, s.style));
+                        }
+                        break;
+                    }
+                    case catalog::QuestionType::Bug:
+                        if (!q.fixed.empty())
+                        {
+                            expect_pass("the fixed program does not behave as documented", q.fixed,
+                                        q.expect.empty() ? std::nullopt : std::optional<std::string>(q.expect));
+                            if (!q.expect.empty())
+                            {
+                                ++total;
+                                auto report = run_probe(s, ex, tag + "-buggy", q.code, q.expect, false, {}, backend, scratch);
+                                if (report.outcome == runner::Outcome::Failed)
+                                    ++passed;
+                                else
+                                {
+                                    row.ok = false;
+                                    row.detail += std::format("question {}: the buggy program already prints the expected output, so there is no bug to find\n", q.id);
+                                }
+                            }
+                        }
+                        break;
+                    default:
+                        break;
                 }
-                auto report = runner::run_checks(probe, root, app::runner_options(s.ctx, backend, s.io.cancel));
+            }
+        }
+
+        [[nodiscard]] inline ValidationRow validate_lecture(Session& s, catalog::Exercise const& ex, runner::Backend backend, std::filesystem::path const& scratch)
+        {
+            ValidationRow row;
+            row.id = ex.id;
+            row.backend = std::string(runner::to_string(backend));
+            row.starter = ex.drill ? "drill" : "lecture";
+            auto const begin = std::chrono::steady_clock::now();
+            int passed = 0;
+            int total = 0;
+            for (auto const& example : ex.examples)
+            {
+                ++total;
+                auto report = run_probe(s, ex, example.name, example.source, example.expect_stdout, false, {}, backend, scratch);
                 if (report.outcome == runner::Outcome::Passed)
                     ++passed;
                 else
@@ -1553,7 +1829,8 @@ export namespace learndc::cli
                     row.detail += std::format("example {} does not behave as the lecture says:\n{}", example.name, runner::render_text(report, s.style));
                 }
             }
-            row.solution = ex.examples.empty() ? "no examples" : std::format("examples {}/{}", passed, ex.examples.size());
+            validate_questions(s, ex, backend, scratch, row, passed, total);
+            row.solution = total == 0 ? "nothing to run" : std::format("programs {}/{}", passed, total);
             row.millis = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count();
             return row;
         }
@@ -1642,7 +1919,9 @@ export namespace learndc::cli
             }
             write_overlay(solution_root, ex.solution);
             auto solution_report = runner::run_checks(ex, solution_root, opt);
-            if (solution_report.outcome == runner::Outcome::Passed && !solution_report.complete)
+            bool const checked_stages_pass = std::ranges::all_of(
+                solution_report.stages, [](runner::StageResult const& st) { return st.optional || st.checks_total == 0 || st.passed; });
+            if (solution_report.outcome == runner::Outcome::Passed && !checked_stages_pass)
             {
                 row.ok = false;
                 row.detail += "the reference solution passes every check but is not complete\n";
@@ -1656,6 +1935,14 @@ export namespace learndc::cli
                 if (!row.detail.empty())
                     row.detail += "\n";
                 row.detail += "the reference solution does not pass:\n" + runner::render_text(solution_report, s.style);
+            }
+            if (!ex.questions.empty())
+            {
+                int passed = 0;
+                int total = 0;
+                validate_questions(s, ex, backend, scratch, row, passed, total);
+                if (total > 0)
+                    row.solution += std::format(", programs {}/{}", passed, total);
             }
             row.millis = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count();
             return row;
@@ -1841,7 +2128,7 @@ export namespace learndc::cli
             {"watch", detail::cmd_watch},       {"hint", detail::cmd_hint},     {"solution", detail::cmd_solution}, {"reset", detail::cmd_reset},
             {"progress", detail::cmd_progress}, {"review", detail::cmd_review}, {"bookmark", detail::cmd_bookmark}, {"config", detail::cmd_config},
             {"doctor", detail::cmd_doctor},     {"export", detail::cmd_export}, {"import", detail::cmd_import},     {"dev", detail::cmd_dev},
-            {"answer", detail::cmd_answer},
+            {"answer", detail::cmd_answer}, {"cards", detail::cmd_cards}, {"card", detail::cmd_card},
         };
         auto it = handlers.find(parsed->command);
         if (it == handlers.end())

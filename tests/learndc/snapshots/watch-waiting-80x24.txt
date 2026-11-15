@@ -7,9 +7,9 @@
 │ 5 ││ beginner · 10 min                                                       ┃
 │ 6 ││ fix behavior · in progress                                              ┃
 │ 7 ││                                                                         │
-│   ││ Fix the arithmetic so the program prints the right total.               │
-│ ? ││                                                                         │
-│   ││ Goals                                                                   │
+│ 8 ││ Fix the arithmetic so the program prints the right total.               │
+│   ││                                                                         │
+│ ? ││ Goals                                                                   │
 │   ││ • Make every check pass                                                 │
 │   ││ • Read the diagnostics before changing code                             │
 │   │╰─────────────────────────────────────────────────────────────────────────╯

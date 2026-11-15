@@ -14,6 +14,7 @@ import learndc.watch;
 import learndc.diff;
 import learndc.markdown;
 import learndc.app;
+import learndc.activity;
 
 export namespace learndc::tui::model
 {
@@ -28,6 +29,7 @@ export namespace learndc::tui::model
         Doctor,
         Settings,
         Help,
+        Review,
     };
 
     [[nodiscard]] inline std::string_view to_string(Screen s)
@@ -52,6 +54,8 @@ export namespace learndc::tui::model
                 return "Settings";
             case Screen::Help:
                 return "Help";
+            case Screen::Review:
+                return "Review";
         }
         return "Home";
     }
@@ -394,20 +398,38 @@ export namespace learndc::tui::model
         return out;
     }
 
-    struct QuizRow
+    struct ActivityUi
     {
-        int question = -1;
-        int choice = -1;
+        int cursor = 0;
+        std::vector<bool> picked;
+        std::string input;
+        std::vector<int> order;
+        bool holding = false;
+        std::optional<activity::Feedback> feedback;
+        int tries = 0;
     };
+
+    [[nodiscard]] inline bool text_activity(catalog::Question const& q)
+    {
+        return q.type == catalog::QuestionType::Predict || q.type == catalog::QuestionType::Trace || q.type == catalog::QuestionType::Short;
+    }
 
     struct LectureState
     {
         std::size_t page = 0;
         int scroll = 0;
-        std::vector<int> answers;
-        std::size_t cursor = 0;
-        bool submitted = false;
-        std::vector<bool> right;
+        std::vector<ActivityUi> items;
+        bool typing = false;
+    };
+
+    struct ReviewState
+    {
+        std::vector<std::string> due;
+        std::size_t index = 0;
+        bool flipped = false;
+        int rated = 0;
+        bool on_missed = false;
+        std::size_t missed_sel = 0;
     };
 
     struct ExerciseState
@@ -440,6 +462,7 @@ export namespace learndc::tui::model
         std::string fingerprint;
         LectureState lecture;
         std::vector<LectureSection> sections;
+        std::optional<std::size_t> activity;
     };
 
     enum class HomeKind
@@ -573,12 +596,14 @@ export namespace learndc::tui::model
             case Screen::Exercise:
                 if (lecture)
                 {
-                    here.title = "Keys in a lecture";
+                    here.title = "Keys in a lecture or drill";
                     here.lines = {"Left Right    previous or next page ([ and ] work too)",
-                                  "Up Down       scroll the page; on the last page choose an answer",
-                                  "Enter         pick the chosen answer, then submit when every question has one",
+                                  "Up Down       scroll, or move through choices, code lines or the lines to order",
+                                  "Enter         check your answer (in predict-the-output: a new line; an empty line checks)",
+                                  "Space         toggle a choice in pick-every-answer, pick up or drop a line when ordering",
+                                  "type          answers to recall, trace and predict questions; Esc stops typing, Enter types again",
                                   "n             go to the next lesson",
-                                  "b             bookmark this lecture"};
+                                  "b             bookmark this lesson"};
                     break;
                 }
                 here.lines = {"Tab           move between instructions, files and results",
@@ -594,7 +619,8 @@ export namespace learndc::tui::model
                               "l             show or hide the raw compiler and program output",
                               "n             go to the next exercise",
                               "b             bookmark this exercise",
-                              "R             reset the exercise to its starter files (backup first)"};
+                              "R             reset the exercise to its starter files (backup first)",
+                              "a             answer the questions of a stage (multi-stage lessons with questions)"};
                 break;
             case Screen::Progress:
                 here.lines = {"Up Down       choose an exercise to review", "Enter         open it"};
@@ -614,10 +640,16 @@ export namespace learndc::tui::model
             case Screen::Help:
                 here.lines = {"Up Down       scroll"};
                 break;
+            case Screen::Review:
+                here.lines = {"Space Enter   turn the card over",
+                              "a h g e       rate it: again, hard, good or easy",
+                              "Tab           move between the cards and the questions to try again",
+                              "Up Down       choose a question; Enter opens it"};
+                break;
         }
         out.push_back(std::move(here));
         out.push_back({"Everywhere",
-                       {"1 .. 7        Home, Learn, Lesson, Progress, Bookmarks, Doctor, Settings", "?             this help",
+                       {"1 .. 8        Home, Learn, Lesson, Progress, Bookmarks, Doctor, Settings, Review", "?             this help",
                         "Esc           go back or close a dialog", "q             quit (asks first while a check runs)",
                         "Ctrl+C       cancel a running check; with none running, quit"}});
         if (context == Screen::Exercise && !lecture)
@@ -680,7 +712,10 @@ export namespace learndc::tui::model
 
         [[nodiscard]] LayoutMode layout() const { return layout_for(size); }
 
-        [[nodiscard]] bool text_input_active() const { return (screen == Screen::Learn && searching) || dialog.kind == DialogKind::Reset; }
+        [[nodiscard]] bool text_input_active() const
+        {
+            return (screen == Screen::Learn && searching) || dialog.kind == DialogKind::Reset || activity_typing();
+        }
 
         [[nodiscard]] bool check_running() const { return exercise.phase != CheckPhase::Idle; }
 
@@ -900,23 +935,54 @@ export namespace learndc::tui::model
             return app::stage_views(*exercise.ex, prog, exercise.fingerprint);
         }
 
-        [[nodiscard]] std::size_t lecture_pages() const { return exercise.sections.size() + 1; }
-
-        [[nodiscard]] bool on_quiz_page() const { return lecture_open() && exercise.lecture.page + 1 == lecture_pages(); }
-
-        [[nodiscard]] std::vector<QuizRow> quiz_rows() const
+        [[nodiscard]] std::size_t lecture_pages() const
         {
-            std::vector<QuizRow> rows;
             if (!exercise.ex)
-                return rows;
-            auto const& qs = exercise.ex->questions;
-            for (std::size_t q = 0; q < qs.size(); ++q)
-                for (std::size_t c = 0; c < qs[q].choices.size(); ++c)
-                    rows.push_back({static_cast<int>(q), static_cast<int>(c)});
-            if (qs.empty() || std::ranges::all_of(exercise.lecture.answers, [](int a) { return a > 0; }))
-                rows.push_back({});
-            return rows;
+                return 1;
+            return exercise.sections.size() + exercise.ex->questions.size() + 1;
         }
+
+        [[nodiscard]] std::optional<std::size_t> current_question() const
+        {
+            if (!exercise.ex)
+                return std::nullopt;
+            if (!exercise.ex->is_lecture())
+                return exercise.activity;
+            auto const page = exercise.lecture.page;
+            if (page >= exercise.sections.size() && page < exercise.sections.size() + exercise.ex->questions.size())
+                return page - exercise.sections.size();
+            return std::nullopt;
+        }
+
+        [[nodiscard]] bool on_summary_page() const { return lecture_open() && exercise.lecture.page + 1 == lecture_pages(); }
+
+        [[nodiscard]] bool activity_typing() const
+        {
+            auto const q = current_question();
+            return screen == Screen::Exercise && !dialog.open() && q && text_activity(exercise.ex->questions[*q]) && exercise.lecture.typing;
+        }
+
+        [[nodiscard]] std::vector<std::size_t> stage_activity_questions() const
+        {
+            std::vector<std::size_t> out;
+            if (!exercise.ex || exercise.ex->is_lecture())
+                return out;
+            auto const views = stage_views();
+            auto const* focus = app::focus_stage(views);
+            for (std::size_t i = 0; i < exercise.ex->questions.size(); ++i)
+            {
+                auto const& qid = exercise.ex->questions[i].id;
+                if (focus && std::ranges::find(focus->stage->questions, qid) != focus->stage->questions.end())
+                    out.insert(out.begin(), i);
+                else
+                    out.push_back(i);
+            }
+            return out;
+        }
+
+        ReviewState review_state;
+
+        [[nodiscard]] app::ReviewQueue review_queue() const { return app::review_queue(*ctx, prog, app::today_day()); }
 
         [[nodiscard]] std::string selected_file() const
         {
@@ -946,15 +1012,22 @@ export namespace learndc::tui::model
                     k = {{"Enter", "open"}, {"/", "search"}, {"f d t y", "filter"}, {"b", "bookmark"}};
                     break;
                 case Screen::Exercise:
-                    if (lecture_open())
-                        k = {{"Left Right", "page"}, {"Up Down", "move"}, {"Enter", "choose"}, {"n", "next"}, {"b", "bookmark"}};
+                    if (activity_typing())
+                        return {{"type", "your answer"}, {"Enter", exercise.ex->questions[*current_question()].type == catalog::QuestionType::Predict ? "line, empty line checks" : "check"},
+                                {"Esc", "stop typing"}};
+                    if (lecture_open() || exercise.activity)
+                        k = {{"Left Right", lecture_open() ? "page" : "question"}, {"Up Down", "move"}, {"Space", "toggle"}, {"Enter", "check"}, {"n", "next"}};
                     else if (exercise.solution)
                         k = {{"Up Down", "scroll"}, {"Esc", "close solution"}};
                     else if (!exercise.ws)
                         k = {{"Enter", "start"}, {"h", "hint"}, {"s", "solution"}, {"Tab", "pane"}};
                     else
+                    {
                         k = {{"e", "edit"}, check_running() ? KeyHint{"x", "cancel"} : KeyHint{"c", "check"}, {"r", "run"}, {"h", "hint"}, {"s", "solution"},
                              {"w", "watch"}, {"Tab", "pane"}};
+                        if (exercise.ex && !exercise.ex->questions.empty())
+                            k.insert(k.begin() + 2, {"a", "answer"});
+                    }
                     break;
                 case Screen::Progress:
                     k = {{"Enter", "open"}, {"Up Down", "move"}};
@@ -971,6 +1044,9 @@ export namespace learndc::tui::model
                 case Screen::Help:
                     k = {{"Up Down", "scroll"}, {"Esc", "back"}};
                     return k;
+                case Screen::Review:
+                    k = {{"Space", "turn over"}, {"a h g e", "rate"}, {"Tab", "cards or questions"}, {"Enter", "open"}};
+                    break;
             }
             k.push_back({"?", "help"});
             k.push_back({"q", "quit"});
@@ -1052,11 +1128,11 @@ export namespace learndc::tui::model
                 }
                 exercise = ExerciseState{};
                 exercise.ex = ex;
+                exercise.lecture.items.resize(ex->questions.size());
+                for (std::size_t i = 0; i < ex->questions.size(); ++i)
+                    reset_activity(i);
                 if (ex->is_lecture())
-                {
                     exercise.sections = lecture_sections(*ex);
-                    exercise.lecture.answers.assign(ex->questions.size(), 0);
-                }
                 else
                     load_workspace();
                 if (auto it = prog.exercises.find(ex->id); it != prog.exercises.end())
@@ -1485,6 +1561,11 @@ export namespace learndc::tui::model
                 solution_key(k);
                 return;
             }
+            if (activity_typing())
+            {
+                exercise_key(k);
+                return;
+            }
             if (k == "q")
             {
                 request_quit();
@@ -1498,7 +1579,7 @@ export namespace learndc::tui::model
                         enter(Screen::Help);
                     return;
                 }
-                if (k.size() == 1 && k[0] >= '1' && k[0] <= '7')
+                if (k.size() == 1 && k[0] >= '1' && k[0] <= '8')
                 {
                     sidebar_jump(k[0] - '0');
                     return;
@@ -1532,6 +1613,9 @@ export namespace learndc::tui::model
                     break;
                 case Screen::Help:
                     help_key(k);
+                    break;
+                case Screen::Review:
+                    review_key(k);
                     break;
             }
         }
@@ -1600,6 +1684,9 @@ export namespace learndc::tui::model
                     break;
                 case 7:
                     jump(Screen::Settings);
+                    break;
+                case 8:
+                    open_review();
                     break;
                 default:
                     break;
@@ -2203,23 +2290,183 @@ export namespace learndc::tui::model
             return std::nullopt;
         }
 
+        void reset_activity(std::size_t qi)
+        {
+            auto& ui = exercise.lecture.items[qi];
+            auto const& q = exercise.ex->questions[qi];
+            ui = ActivityUi{};
+            ui.picked.assign(q.choices.size(), false);
+            if (q.type == catalog::QuestionType::Order)
+                ui.order = activity::shuffled_order(q);
+        }
+
+        void enter_page()
+        {
+            auto& lec = exercise.lecture;
+            lec.scroll = 0;
+            auto const q = current_question();
+            lec.typing = q && text_activity(exercise.ex->questions[*q]);
+        }
+
+        void check_activity(std::size_t qi)
+        {
+            auto& es = exercise;
+            auto const& q = es.ex->questions[qi];
+            auto& ui = es.lecture.items[qi];
+            activity::Answer a;
+            switch (q.type)
+            {
+                case catalog::QuestionType::Choice:
+                case catalog::QuestionType::Error:
+                    a.choice = ui.cursor + 1;
+                    break;
+                case catalog::QuestionType::Multi:
+                    for (std::size_t i = 0; i < ui.picked.size(); ++i)
+                        if (ui.picked[i])
+                            a.choices.push_back(static_cast<int>(i) + 1);
+                    break;
+                case catalog::QuestionType::Bug:
+                    a.line = ui.cursor + 1;
+                    break;
+                case catalog::QuestionType::Order:
+                    a.order = ui.order;
+                    break;
+                default:
+                    a.text = ui.input;
+                    break;
+            }
+            if (!activity::answered(q, a))
+            {
+                push_toast(q.type == catalog::QuestionType::Multi ? "Toggle at least one choice with Space first" : "Type an answer first");
+                return;
+            }
+            auto out = app::answer_question(*ctx, *es.ex, q.id, a);
+            if (!out)
+            {
+                push_toast(text::sanitize(out.error().message), true);
+                return;
+            }
+            ++ui.tries;
+            ui.feedback = out->feedback;
+            ui.holding = false;
+            if (out->feedback.correct)
+                es.lecture.typing = false;
+            refresh_progress();
+            if (out->record.completed_now)
+            {
+                runner::CheckReport none;
+                present_completion(out->record, none);
+            }
+            else if (!out->stages_achieved.empty())
+            {
+                push_toast(std::format("Stage cleared: {}", text::sanitize(text::join(out->stages_achieved, ", "))), false, 10000);
+                toasts.back().important = true;
+            }
+        }
+
+        void activity_key(std::size_t qi, std::string const& k)
+        {
+            auto& es = exercise;
+            auto const& q = es.ex->questions[qi];
+            auto& ui = es.lecture.items[qi];
+            if (text_activity(q))
+            {
+                if (!es.lecture.typing)
+                {
+                    if (k == "Enter" || k == "i")
+                        es.lecture.typing = true;
+                    else if (detail::is_down(k))
+                        ++es.lecture.scroll;
+                    else if (detail::is_up(k))
+                        es.lecture.scroll = std::max(0, es.lecture.scroll - 1);
+                    return;
+                }
+                if (k == "Esc")
+                {
+                    es.lecture.typing = false;
+                    return;
+                }
+                if (k == "Backspace")
+                {
+                    if (!ui.input.empty())
+                    {
+                        auto cut = ui.input.size() - 1;
+                        while (cut > 0 && (static_cast<unsigned char>(ui.input[cut]) & 0xC0) == 0x80)
+                            --cut;
+                        ui.input.erase(cut);
+                    }
+                    return;
+                }
+                if (k == "Enter")
+                {
+                    if (q.type == catalog::QuestionType::Predict)
+                    {
+                        bool const last_empty = ui.input.empty() || ui.input.ends_with('\n');
+                        if (last_empty && !text::trim(ui.input).empty())
+                        {
+                            check_activity(qi);
+                            return;
+                        }
+                        if (!ui.input.empty())
+                            ui.input += '\n';
+                        return;
+                    }
+                    check_activity(qi);
+                    return;
+                }
+                if (k == "Down")
+                    ++es.lecture.scroll;
+                else if (k == "Up")
+                    es.lecture.scroll = std::max(0, es.lecture.scroll - 1);
+                else if (detail::printable_key(k) && ui.input.size() < 2000)
+                    ui.input += k;
+                return;
+            }
+            int count = 0;
+            if (q.has_choices())
+                count = static_cast<int>(q.choices.size());
+            else if (q.type == catalog::QuestionType::Bug || q.type == catalog::QuestionType::Order)
+                count = static_cast<int>(q.code_lines().size());
+            if (count == 0)
+                return;
+            if (detail::is_down(k) || detail::is_up(k))
+            {
+                int const delta = detail::is_down(k) ? 1 : -1;
+                int const next = std::clamp(ui.cursor + delta, 0, count - 1);
+                if (q.type == catalog::QuestionType::Order && ui.holding && next != ui.cursor)
+                    std::swap(ui.order[static_cast<std::size_t>(ui.cursor)], ui.order[static_cast<std::size_t>(next)]);
+                ui.cursor = next;
+                return;
+            }
+            if (k == " ")
+            {
+                if (q.type == catalog::QuestionType::Multi)
+                    ui.picked[static_cast<std::size_t>(ui.cursor)] = !ui.picked[static_cast<std::size_t>(ui.cursor)];
+                else if (q.type == catalog::QuestionType::Order)
+                    ui.holding = !ui.holding;
+                return;
+            }
+            if (k == "Enter")
+                check_activity(qi);
+        }
+
         void lecture_key(std::string const& k)
         {
             auto& es = exercise;
             auto& lec = es.lecture;
             auto const pages = lecture_pages();
-            if (k == "Esc")
+            auto const q = current_question();
+            if (k == "Esc" && !(q && lec.typing))
             {
                 go_back();
                 return;
             }
-            if (k == "Right" || k == "]")
+            if (k == "Right" || k == "]" || (k == "Enter" && !q && !on_summary_page()))
             {
                 if (lec.page + 1 < pages)
                 {
                     ++lec.page;
-                    lec.scroll = 0;
-                    lec.cursor = 0;
+                    enter_page();
                 }
                 return;
             }
@@ -2228,8 +2475,23 @@ export namespace learndc::tui::model
                 if (lec.page > 0)
                 {
                     --lec.page;
-                    lec.scroll = 0;
+                    enter_page();
                 }
+                return;
+            }
+            if (q)
+            {
+                if (!lec.typing && k == "n")
+                {
+                    lecture_next();
+                    return;
+                }
+                if (!lec.typing && k == "b")
+                {
+                    toggle_bookmark(es.ex);
+                    return;
+                }
+                activity_key(*q, k);
                 return;
             }
             if (k == "b")
@@ -2239,84 +2501,149 @@ export namespace learndc::tui::model
             }
             if (k == "n")
             {
-                auto const* next = ctx->catalog.next_recommended(app::completed_predicate(prog), es.ex->id);
-                if (!next || next->id == es.ex->id)
-                    push_toast("Nothing left to recommend right now");
-                else
-                    open_exercise(next->id);
+                lecture_next();
                 return;
             }
-            if (!on_quiz_page())
+            if (on_summary_page() && k == "Enter" && es.ex->questions.empty())
             {
-                if (k == "Enter")
+                auto out = app::answer_lecture(*ctx, *es.ex, {});
+                if (!out)
                 {
-                    ++lec.page;
-                    lec.scroll = 0;
-                    lec.cursor = 0;
+                    push_toast(text::sanitize(out.error().message), true);
                     return;
                 }
-                if (detail::is_down(k))
-                    ++lec.scroll;
-                else if (detail::is_up(k))
-                    lec.scroll = std::max(0, lec.scroll - 1);
-                else if (k == "PageDown" || k == " ")
-                    lec.scroll += std::max(1, size.height - 8);
-                else if (k == "PageUp")
-                    lec.scroll = std::max(0, lec.scroll - std::max(1, size.height - 8));
-                else if (k == "Home")
-                    lec.scroll = 0;
+                refresh_progress();
+                if (out->record.completed_now)
+                {
+                    runner::CheckReport none;
+                    present_completion(out->record, none);
+                }
                 return;
             }
-            auto const rows = quiz_rows();
-            if (rows.empty())
-                return;
-            lec.cursor = std::min(lec.cursor, rows.size() - 1);
             if (detail::is_down(k))
-            {
-                lec.cursor = std::min(lec.cursor + 1, rows.size() - 1);
-                return;
-            }
-            if (detail::is_up(k))
-            {
-                lec.cursor = lec.cursor == 0 ? 0 : lec.cursor - 1;
-                return;
-            }
-            if (k != "Enter")
-                return;
-            auto const row = rows[lec.cursor];
-            if (row.question >= 0)
-            {
-                lec.answers[static_cast<std::size_t>(row.question)] = row.choice + 1;
-                lec.submitted = false;
-                auto const after = quiz_rows();
-                std::size_t next = lec.cursor;
-                for (std::size_t i = 0; i < after.size(); ++i)
-                    if (after[i].question > row.question || after[i].question < 0)
-                    {
-                        next = i;
-                        break;
-                    }
-                lec.cursor = next;
-                return;
-            }
-            auto out = app::answer_lecture(*ctx, *es.ex, lec.answers);
-            if (!out)
-            {
-                push_toast(text::sanitize(out.error().message), true);
-                return;
-            }
-            lec.submitted = true;
-            lec.right = out->right;
-            refresh_progress();
-            if (out->record.completed_now)
-            {
-                runner::CheckReport none;
-                present_completion(out->record, none);
-            }
-            else if (out->correct < out->total)
-                push_toast(std::format("{} of {} right. The explanations below say what to look at again.", out->correct, out->total), false, 8000);
+                ++lec.scroll;
+            else if (detail::is_up(k))
+                lec.scroll = std::max(0, lec.scroll - 1);
+            else if (k == "PageDown" || k == " ")
+                lec.scroll += std::max(1, size.height - 8);
+            else if (k == "PageUp")
+                lec.scroll = std::max(0, lec.scroll - std::max(1, size.height - 8));
+            else if (k == "Home")
+                lec.scroll = 0;
+        }
+
+        void lecture_next()
+        {
+            auto const* next = ctx->catalog.next_recommended(app::completed_predicate(prog), exercise.ex->id);
+            if (!next || next->id == exercise.ex->id)
+                push_toast("Nothing left to recommend right now");
             else
-                push_toast("All answers are right");
+                open_exercise(next->id);
+        }
+
+        void open_review()
+        {
+            review_state = ReviewState{};
+            for (auto const& c : review_queue().due)
+                review_state.due.push_back(c.key);
+            jump(Screen::Review);
+        }
+
+        void open_question(std::string const& key)
+        {
+            auto const hash = key.find('#');
+            if (hash == std::string::npos)
+                return;
+            auto const* ex = ctx->catalog.find(key.substr(0, hash));
+            if (!ex)
+                return;
+            auto const qid = key.substr(hash + 1);
+            open_exercise(ex->id);
+            if (!exercise.ex || exercise.ex->id != ex->id)
+                return;
+            for (std::size_t i = 0; i < ex->questions.size(); ++i)
+                if (ex->questions[i].id == qid)
+                {
+                    if (ex->is_lecture())
+                    {
+                        exercise.lecture.page = exercise.sections.size() + i;
+                        enter_page();
+                    }
+                    else
+                    {
+                        exercise.activity = i;
+                        exercise.lecture.typing = text_activity(ex->questions[i]);
+                    }
+                }
+        }
+
+        void review_key(std::string const& k)
+        {
+            auto& rs = review_state;
+            auto const queue = review_queue();
+            if (k == "Esc")
+            {
+                go_back();
+                return;
+            }
+            if (k == "Tab" || k == "ShiftTab")
+            {
+                rs.on_missed = !rs.on_missed;
+                return;
+            }
+            if (rs.on_missed)
+            {
+                if (queue.missed.empty())
+                    return;
+                rs.missed_sel = std::min(rs.missed_sel, queue.missed.size() - 1);
+                if (detail::is_down(k))
+                    rs.missed_sel = std::min(rs.missed_sel + 1, queue.missed.size() - 1);
+                else if (detail::is_up(k))
+                    rs.missed_sel = rs.missed_sel == 0 ? 0 : rs.missed_sel - 1;
+                else if (k == "Enter")
+                    open_question(queue.missed[rs.missed_sel].key);
+                return;
+            }
+            if (rs.index >= rs.due.size())
+                return;
+            if (k == " " || k == "Enter")
+            {
+                rs.flipped = !rs.flipped;
+                return;
+            }
+            std::optional<activity::Rating> rating;
+            if (k == "a")
+                rating = activity::Rating::Again;
+            else if (k == "h")
+                rating = activity::Rating::Hard;
+            else if (k == "g")
+                rating = activity::Rating::Good;
+            else if (k == "e")
+                rating = activity::Rating::Easy;
+            if (!rating)
+                return;
+            if (!rs.flipped)
+            {
+                push_toast("Turn the card over with Space first, then rate it");
+                return;
+            }
+            auto const& key = rs.due[rs.index];
+            auto const hash = key.find('#');
+            auto const* ex = ctx->catalog.find(key.substr(0, hash));
+            if (!ex)
+                return;
+            auto r = app::rate_card(*ctx, *ex, key.substr(hash + 1), *rating);
+            if (!r)
+            {
+                push_toast(text::sanitize(r.error().message), true);
+                return;
+            }
+            refresh_progress();
+            ++rs.rated;
+            if (*rating == activity::Rating::Again)
+                rs.due.push_back(key);
+            ++rs.index;
+            rs.flipped = false;
         }
 
         void exercise_key(std::string const& k)
@@ -2330,6 +2657,43 @@ export namespace learndc::tui::model
             if (es.ex->is_lecture())
             {
                 lecture_key(k);
+                return;
+            }
+            if (es.activity)
+            {
+                if (k == "Esc")
+                {
+                    es.activity.reset();
+                    es.lecture.typing = false;
+                    return;
+                }
+                auto const order = stage_activity_questions();
+                auto pos = std::ranges::find(order, *es.activity);
+                if ((k == "Right" || k == "]") && pos != order.end() && pos + 1 != order.end())
+                {
+                    es.activity = *(pos + 1);
+                    es.lecture.typing = text_activity(es.ex->questions[*es.activity]);
+                    return;
+                }
+                if ((k == "Left" || k == "[") && pos != order.end() && pos != order.begin())
+                {
+                    es.activity = *(pos - 1);
+                    es.lecture.typing = text_activity(es.ex->questions[*es.activity]);
+                    return;
+                }
+                activity_key(*es.activity, k);
+                return;
+            }
+            if (k == "a")
+            {
+                auto const order = stage_activity_questions();
+                if (order.empty())
+                    push_toast("This lesson has no questions to answer");
+                else
+                {
+                    es.activity = order.front();
+                    es.lecture.typing = text_activity(es.ex->questions[order.front()]);
+                }
                 return;
             }
             if (k == "Esc")

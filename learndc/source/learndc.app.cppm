@@ -12,6 +12,7 @@ import learndc.progress;
 import learndc.workspace;
 import learndc.toolchain;
 import learndc.runner;
+import learndc.activity;
 
 export namespace learndc::app
 {
@@ -541,6 +542,11 @@ export namespace learndc::app
             }
     }
 
+    [[nodiscard]] inline bool questions_solved(progress::Progress const& p, catalog::Exercise const& ex, catalog::Stage const& st)
+    {
+        return std::ranges::all_of(st.questions, [&](std::string const& qid) { return progress::question_of(p, ex.id, qid).last == "right"; });
+    }
+
     [[nodiscard]] inline Result<CheckRecord> record_report(Context& ctx, catalog::Exercise const& ex, runner::CheckReport const& report)
     {
         CheckRecord rec;
@@ -548,12 +554,28 @@ export namespace learndc::app
             return rec;
         progress::Progress before;
         auto const now = platform::now_utc_iso8601();
-        bool const complete = ex.staged() ? report.complete : report.outcome == runner::Outcome::Passed;
-        std::vector<progress::StageOutcome> outcomes;
-        for (auto const& st : report.stages)
-            outcomes.push_back({st.id, st.passed, st.ran, st.revision});
+        bool complete = !ex.staged() && report.outcome == runner::Outcome::Passed;
         auto updated = update_progress(ctx, [&](progress::Progress& pr) {
             before = pr;
+            std::vector<progress::StageOutcome> outcomes;
+            bool build_ok = false;
+            for (auto const& r : report.results)
+                if (r.kind == catalog::CheckKind::Build)
+                    build_ok = r.verdict == runner::Verdict::Pass;
+            bool required_ok = true;
+            for (auto const& stage : ex.stages)
+            {
+                auto const* st = report.find_stage(stage.id);
+                bool const solved = questions_solved(pr, ex, stage);
+                bool const has_checks = !ex.checks_of(stage.id).empty();
+                bool const ran = has_checks ? st != nullptr && st->ran : solved;
+                bool const passed = has_checks ? st != nullptr && st->passed : solved;
+                outcomes.push_back({stage.id, passed, ran, stage.revision, solved});
+                if (!stage.optional && !(passed && solved))
+                    required_ok = false;
+            }
+            if (ex.staged())
+                complete = (report.outcome == runner::Outcome::Passed || report.outcome == runner::Outcome::Failed) && build_ok && required_ok;
             auto const it = pr.exercises.find(ex.id);
             std::set<std::string> had;
             if (it != pr.exercises.end())
@@ -681,6 +703,89 @@ export namespace learndc::app
         CheckRecord record;
     };
 
+    struct QuestionOutcome
+    {
+        activity::Feedback feedback;
+        int attempt = 0;
+        CheckRecord record;
+        std::vector<std::string> stages_achieved;
+    };
+
+    [[nodiscard]] inline Result<QuestionOutcome> answer_question(Context& ctx, catalog::Exercise const& ex, std::string_view question_id,
+                                                                 activity::Answer const& answer)
+    {
+        auto const* q = ex.find_question(question_id);
+        if (q == nullptr)
+        {
+            std::vector<std::string> ids;
+            for (auto const& each : ex.questions)
+                ids.push_back(each.id);
+            return failure(exit_not_found, ids.empty() ? std::format("'{}' has no questions", ex.id)
+                                                       : std::format("'{}' has no question '{}' (questions: {})", ex.id, text::sanitize(question_id),
+                                                                     text::join(ids, ", ")));
+        }
+        if (!activity::answered(*q, answer))
+            return failure(exit_usage, "the answer is empty");
+        auto p = load_progress(ctx);
+        if (!p)
+            return std::unexpected(p.error());
+        QuestionOutcome out;
+        out.attempt = progress::question_of(*p, ex.id, q->id).attempts + 1;
+        out.feedback = activity::grade(*q, answer, out.attempt);
+        auto const now = platform::now_utc_iso8601();
+        progress::Progress before;
+        auto updated = update_progress(ctx, [&](progress::Progress& pr) {
+            before = pr;
+            progress::record_answer(pr, ex.id, q->id, out.feedback.correct, now);
+            progress::set_active(pr, ex.id);
+            if (ex.is_lecture())
+            {
+                bool const all = std::ranges::all_of(ex.questions, [&](catalog::Question const& each) {
+                    return progress::question_of(pr, ex.id, each.id).last == "right";
+                });
+                if (all)
+                    progress::record_lecture(pr, ex.id, true, ex.revision, now);
+                else
+                    progress::mark_started(pr, ex.id, now);
+                return;
+            }
+            progress::mark_started(pr, ex.id, now);
+            bool all_required = !ex.stages.empty();
+            for (auto const& st : ex.stages)
+            {
+                bool const question_only = ex.checks_of(st.id).empty();
+                bool const solved = questions_solved(pr, ex, st);
+                auto& sp = pr.exercises[ex.id].stages[st.id];
+                bool const checks_ok = question_only || sp.last == "pass";
+                if (solved && checks_ok && (!sp.achieved() || sp.achieved_revision < st.revision))
+                {
+                    if (!sp.achieved())
+                    {
+                        sp.achieved_at = now;
+                        out.stages_achieved.push_back(st.title);
+                    }
+                    sp.achieved_revision = st.revision;
+                }
+                if (question_only && solved)
+                {
+                    sp.last = "pass";
+                    sp.last_checked_at = now;
+                }
+                if (!st.optional && !(solved && checks_ok))
+                    all_required = false;
+            }
+            if (all_required)
+                progress::mark_completed(pr, ex.id, ex.revision, now);
+        });
+        if (!updated)
+            return std::unexpected(updated.error());
+        out.record.recorded = true;
+        out.record.all_passed = progress::is_completed(*updated, ex.id);
+        out.record.stages_achieved = out.stages_achieved;
+        fill_completion(ctx, ex, before, *updated, out.record);
+        return out;
+    }
+
     [[nodiscard]] inline Result<LectureOutcome> answer_lecture(Context& ctx, catalog::Exercise const& ex, std::vector<int> const& answers)
     {
         if (!ex.is_lecture())
@@ -689,32 +794,136 @@ export namespace learndc::app
             return failure(exit_usage, ex.questions.empty() ? std::format("'{}' has no questions; answer it with no choices to mark it as read", ex.id)
                                                             : std::format("'{}' has {} question{}; give one choice for each", ex.id, ex.questions.size(),
                                                                           ex.questions.size() == 1 ? "" : "s"));
+        for (auto const& q : ex.questions)
+            if (q.type != catalog::QuestionType::Choice)
+                return failure(exit_usage, std::format("question '{}' is not multiple choice; answer it with --question {}", q.id, q.id));
+        for (std::size_t i = 0; i < answers.size(); ++i)
+            if (answers[i] < 1 || answers[i] > static_cast<int>(ex.questions[i].choices.size()))
+                return failure(exit_usage, std::format("question {} has choices 1 to {}", i + 1, ex.questions[i].choices.size()));
         LectureOutcome out;
         out.total = static_cast<int>(ex.questions.size());
+        if (ex.questions.empty())
+        {
+            auto const now = platform::now_utc_iso8601();
+            progress::Progress before;
+            auto updated = update_progress(ctx, [&](progress::Progress& pr) {
+                before = pr;
+                progress::record_lecture(pr, ex.id, true, ex.revision, now);
+                progress::set_active(pr, ex.id);
+            });
+            if (!updated)
+                return std::unexpected(updated.error());
+            out.record.recorded = true;
+            out.record.all_passed = true;
+            fill_completion(ctx, ex, before, *updated, out.record);
+            return out;
+        }
         for (std::size_t i = 0; i < answers.size(); ++i)
         {
-            auto const& q = ex.questions[i];
-            if (answers[i] < 1 || answers[i] > static_cast<int>(q.choices.size()))
-                return failure(exit_usage, std::format("question {} has choices 1 to {}", i + 1, q.choices.size()));
-            bool const ok = answers[i] == q.answer;
-            out.right.push_back(ok);
-            if (ok)
+            activity::Answer a;
+            a.choice = answers[i];
+            auto r = answer_question(ctx, ex, ex.questions[i].id, a);
+            if (!r)
+                return std::unexpected(r.error());
+            out.right.push_back(r->feedback.correct);
+            if (r->feedback.correct)
                 ++out.correct;
+            if (r->record.completed_now)
+                out.record = r->record;
+            else if (!out.record.completed_now)
+                out.record = r->record;
         }
-        bool const understood = out.correct == out.total;
+        return out;
+    }
+
+    struct CardRef
+    {
+        catalog::Exercise const* lesson = nullptr;
+        catalog::Card const* card = nullptr;
+        progress::CardProgress state;
+        std::string key;
+    };
+
+    struct MissedRef
+    {
+        catalog::Exercise const* lesson = nullptr;
+        catalog::Question const* question = nullptr;
+        std::string key;
+        int attempts = 0;
+    };
+
+    struct ReviewQueue
+    {
+        std::vector<CardRef> due;
+        int cards_unlocked = 0;
+        int cards_locked = 0;
+        std::optional<int> next_due_day;
+        std::vector<MissedRef> missed;
+    };
+
+    [[nodiscard]] inline int today_day()
+    {
+        return activity::day_number(platform::now_utc_iso8601());
+    }
+
+    [[nodiscard]] inline ReviewQueue review_queue(Context const& ctx, progress::Progress const& p, int today)
+    {
+        ReviewQueue out;
+        for (auto const& ex : ctx.catalog.exercises())
+        {
+            bool const unlocked = progress::is_completed(p, ex.id);
+            for (auto const& card : ex.cards)
+            {
+                if (!unlocked)
+                {
+                    ++out.cards_locked;
+                    continue;
+                }
+                ++out.cards_unlocked;
+                CardRef ref;
+                ref.lesson = &ex;
+                ref.card = &card;
+                ref.key = progress::item_key(ex.id, card.id);
+                if (auto it = p.cards.find(ref.key); it != p.cards.end())
+                    ref.state = it->second;
+                if (activity::card_due(ref.state, today))
+                    out.due.push_back(std::move(ref));
+                else if (!out.next_due_day || ref.state.due_day < *out.next_due_day)
+                    out.next_due_day = ref.state.due_day;
+            }
+            for (auto const& q : ex.questions)
+            {
+                auto const qp = progress::question_of(p, ex.id, q.id);
+                if (qp.missed())
+                    out.missed.push_back({&ex, &q, progress::item_key(ex.id, q.id), qp.attempts});
+            }
+        }
+        std::ranges::stable_sort(out.due, [](CardRef const& a, CardRef const& b) {
+            bool const a_new = a.state.reviews == 0;
+            bool const b_new = b.state.reviews == 0;
+            if (a_new != b_new)
+                return !a_new;
+            return a.state.due_day < b.state.due_day;
+        });
+        return out;
+    }
+
+    [[nodiscard]] inline Result<progress::CardProgress> rate_card(Context& ctx, catalog::Exercise const& ex, std::string_view card_id, activity::Rating rating)
+    {
+        auto it = std::ranges::find(ex.cards, card_id, &catalog::Card::id);
+        if (it == ex.cards.end())
+            return failure(exit_not_found, std::format("'{}' has no card '{}'", ex.id, text::sanitize(card_id)));
         auto const now = platform::now_utc_iso8601();
-        progress::Progress before;
+        int const today = activity::day_number(now);
+        progress::CardProgress result;
         auto updated = update_progress(ctx, [&](progress::Progress& pr) {
-            before = pr;
-            progress::record_lecture(pr, ex.id, understood, ex.revision, now);
-            progress::set_active(pr, ex.id);
+            auto& c = pr.cards[progress::item_key(ex.id, it->id)];
+            c = activity::schedule(c, rating, today, now);
+            result = c;
         });
         if (!updated)
             return std::unexpected(updated.error());
-        out.record.recorded = true;
-        out.record.all_passed = understood;
-        fill_completion(ctx, ex, before, *updated, out.record);
-        return out;
+        return result;
     }
 
     enum class StageState
@@ -756,6 +965,8 @@ export namespace learndc::app
         bool failing_now = false;
         int hint_level = 0;
         std::string achieved_at;
+        int questions_left = 0;
+        bool question_only = false;
     };
 
     [[nodiscard]] inline std::vector<StageView> stage_views(catalog::Exercise const& ex, progress::Progress const& p, std::string_view current_fingerprint)
@@ -779,9 +990,18 @@ export namespace learndc::app
             v.achieved_at = sp.achieved_at;
             v.hint_level = sp.hint_level;
             v.failing_now = fresh && sp.last == "fail";
-            if (v.achieved && sp.achieved_revision < st.revision)
+            for (auto const& qid : st.questions)
+                if (progress::question_of(p, ex.id, qid).last != "right")
+                    ++v.questions_left;
+            v.question_only = std::ranges::none_of(ex.checks, [&](catalog::Check const& c) { return c.stage == st.id; });
+            if (v.question_only)
+            {
+                v.achieved = v.achieved || v.questions_left == 0;
+                v.state = v.questions_left == 0 ? StageState::Verified : StageState::Todo;
+            }
+            else if (v.achieved && sp.achieved_revision < st.revision)
                 v.state = StageState::Outdated;
-            else if (fresh && sp.last == "pass")
+            else if (fresh && sp.last == "pass" && v.questions_left == 0)
                 v.state = StageState::Verified;
             else if (v.achieved && v.failing_now)
                 v.state = StageState::Regressed;

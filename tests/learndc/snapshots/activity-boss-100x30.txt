@@ -1,0 +1,30 @@
+ Test · The Keeper                                                    1 of 6 completed ██░░░░░░░░░░
+╭───╮╭─ The Keeper: questions ────────────────────────────────────────── Esc back to the exercise ─╮
+│ 1 ││ Find the bug · question 1 of 1                                                              │
+│ 2 ││                                                                                             │
+│ 3 ││ Which line?                                                                                 │
+│ 4 ││                                                                                             │
+│ 5 ││  › 1 │ a                                                                                    │
+│ 6 ││    2 │ b                                                                                    │
+│ 7 ││                                                                                             │
+│ 8 ││                                                                                             │
+│   ││                                                                                             │
+│ ? ││                                                                                             │
+│   ││                                                                                             │
+│   ││                                                                                             │
+│   ││                                                                                             │
+│   ││                                                                                             │
+│   ││                                                                                             │
+│   ││                                                                                             │
+│   ││                                                                                             │
+│   ││                                                                                             │
+│   ││                                                                                             │
+│   ││                                                                                             │
+│   ││                                                                                             │
+│   ││                                                                                             │
+│   ││                                                                                             │
+│   ││                                                                                             │
+│   ││                                                                                             │
+╰───╯╰─────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ Left Right question  Up Down move  Space toggle  Enter check  n next  ? help  q quit

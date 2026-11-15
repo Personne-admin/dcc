@@ -7,9 +7,9 @@
 │   5 Bookmarks        ││                 editor                                                   ┃
 │   6 Doctor           ││   o             open the workspace folder (graphical editors)            ┃
 │   7 Settings         ││   c             run the checks                                           ┃
-│                      ││   x             cancel the running check                                 ┃
-│   ? Help             ││   r             build and run your program                               ┃
-│                      ││   w             watch: run the checks whenever a file changes            ┃
+│   8 Review           ││   x             cancel the running check                                 ┃
+│                      ││   r             build and run your program                               ┃
+│   ? Help             ││   w             watch: run the checks whenever a file changes            ┃
 │                      ││   h             reveal the next hint (in a multi-stage lesson: for the   ┃
 │                      ││                 current stage first)                                     ┃
 │                      ││   s             show the reference solution (asks first)                 ┃
@@ -17,14 +17,14 @@
 │                      ││   n             go to the next exercise                                  │
 │                      ││   b             bookmark this exercise                                   │
 │                      ││   R             reset the exercise to its starter files (backup first)   │
+│                      ││   a             answer the questions of a stage (multi-stage lessons     │
+│                      ││                 with questions)                                          │
 │                      ││                                                                          │
 │                      ││ Everywhere                                                               │
-│                      ││   1 .. 7        Home, Learn, Lesson, Progress, Bookmarks, Doctor,        │
-│                      ││                 Settings                                                 │
+│                      ││   1 .. 8        Home, Learn, Lesson, Progress, Bookmarks, Doctor,        │
+│                      ││                 Settings, Review                                         │
 │                      ││   ?             this help                                                │
 │                      ││   Esc           go back or close a dialog                                │
-│                      ││   q             quit (asks first while a check runs)                     │
-│                      ││   Ctrl+C        cancel a running check; with none running, quit          │
 ╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
 
  Up Down scroll  Esc back

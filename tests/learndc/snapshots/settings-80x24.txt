@@ -7,9 +7,9 @@
 │   5 Bookmarks  ││   tools.dcc                     (search automatically)     │
 │   6 Doctor     ││   tools.dpm                     (search automatically)     │
 │ › 7 Settings   ││   ui.theme                      dark                       │
-│                ││   ui.ascii                      off                        │
-│   ? Help       ││   ui.reduced_motion             false                      │
-│                ││   ui.open_continue              false                      │
+│   8 Review     ││   ui.ascii                      off                        │
+│                ││   ui.reduced_motion             false                      │
+│   ? Help       ││   ui.open_continue              false                      │
 │                ││   checks.timeout_seconds        10                         │
 │                ││   checks.build_timeout_seconds  120                        │
 │                ││   checks.max_output_kib         256                        │

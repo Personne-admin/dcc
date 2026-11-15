@@ -292,12 +292,82 @@ export namespace learndc::catalog
         }
     };
 
+    enum class QuestionType
+    {
+        Choice,
+        Multi,
+        Predict,
+        Trace,
+        Bug,
+        Error,
+        Order,
+        Short,
+    };
+
+    namespace detail
+    {
+        constexpr std::array<std::pair<QuestionType, std::string_view>, 8> question_type_names = {{
+            {QuestionType::Choice, "choice"},
+            {QuestionType::Multi, "multi"},
+            {QuestionType::Predict, "predict"},
+            {QuestionType::Trace, "trace"},
+            {QuestionType::Bug, "bug"},
+            {QuestionType::Error, "error"},
+            {QuestionType::Order, "order"},
+            {QuestionType::Short, "short"},
+        }};
+    } // namespace detail
+
+    [[nodiscard]] constexpr std::string_view to_string(QuestionType t)
+    {
+        for (auto const& [value, name] : detail::question_type_names)
+            if (value == t)
+                return name;
+        return "choice";
+    }
+
+    [[nodiscard]] constexpr std::optional<QuestionType> parse_question_type(std::string_view s)
+    {
+        for (auto const& [value, name] : detail::question_type_names)
+            if (name == s)
+                return value;
+        return std::nullopt;
+    }
+
     struct Question
     {
+        std::string id;
+        QuestionType type = QuestionType::Choice;
         std::string prompt;
         std::vector<std::string> choices;
         int answer = 1;
+        std::vector<int> answers;
+        std::vector<std::string> accept;
+        std::vector<std::string> why;
+        std::string code;
+        std::string example;
+        std::string expect;
+        std::string diagnostic;
+        std::string fixed;
+        std::vector<int> lines;
         std::string explanation;
+
+        [[nodiscard]] bool has_choices() const { return type == QuestionType::Choice || type == QuestionType::Multi || type == QuestionType::Error; }
+
+        [[nodiscard]] std::vector<std::string> code_lines() const
+        {
+            auto out = text::split_lines(code);
+            while (!out.empty() && text::trim(out.back()).empty())
+                out.pop_back();
+            return out;
+        }
+    };
+
+    struct Card
+    {
+        std::string id;
+        std::string front;
+        std::string back;
     };
 
     struct Stage
@@ -308,6 +378,7 @@ export namespace learndc::catalog
         bool optional = false;
         int revision = 1;
         std::vector<std::string> hints;
+        std::vector<std::string> questions;
     };
 
     struct Boss
@@ -359,7 +430,17 @@ export namespace learndc::catalog
         std::optional<Boss> boss;
         std::vector<Stage> stages;
         std::vector<Question> questions;
+        std::vector<Card> cards;
         std::vector<Example> examples;
+        bool drill = false;
+
+        [[nodiscard]] Question const* find_question(std::string_view question_id) const
+        {
+            for (auto const& q : questions)
+                if (q.id == question_id)
+                    return &q;
+            return nullptr;
+        }
         std::vector<std::string> former_ids;
         int chapter_number = 0;
 
@@ -631,14 +712,14 @@ export namespace learndc::catalog
             static constexpr std::array<std::string_view, 6> diagnostic = {"kind", "name", "hint", "expect_build", "diagnostic_contains", "stage"};
             switch (kind)
             {
-            case CheckKind::Build:
-                return build;
-            case CheckKind::Run:
-                return run;
-            case CheckKind::Harness:
-                return harness;
-            case CheckKind::Diagnostic:
-                return diagnostic;
+                case CheckKind::Build:
+                    return build;
+                case CheckKind::Run:
+                    return run;
+                case CheckKind::Harness:
+                    return harness;
+                case CheckKind::Diagnostic:
+                    return diagnostic;
             }
             return {};
         }
@@ -810,6 +891,237 @@ export namespace learndc::catalog
             return hints;
         }
 
+        [[nodiscard]] inline std::span<std::string_view const> question_keys(QuestionType t)
+        {
+            static constexpr std::array<std::string_view, 7> choice = {"id", "type", "prompt", "choices", "answer", "why", "explanation"};
+            static constexpr std::array<std::string_view, 7> multi = {"id", "type", "prompt", "choices", "answers", "why", "explanation"};
+            static constexpr std::array<std::string_view, 7> predict = {"id", "type", "prompt", "code", "example", "expect", "explanation"};
+            static constexpr std::array<std::string_view, 8> trace = {"id", "type", "prompt", "code", "example", "accept", "expect", "explanation"};
+            static constexpr std::array<std::string_view, 9> bug = {"id", "type", "prompt", "code", "example", "lines", "fixed", "expect", "explanation"};
+            static constexpr std::array<std::string_view, 10> error = {"id",      "type",       "prompt", "code", "example",
+                                                                       "choices", "answer",     "why",    "diagnostic", "explanation"};
+            static constexpr std::array<std::string_view, 6> order = {"id", "type", "prompt", "code", "example", "explanation"};
+            static constexpr std::array<std::string_view, 5> short_answer = {"id", "type", "prompt", "accept", "explanation"};
+            switch (t)
+            {
+                case QuestionType::Choice:
+                    return choice;
+                case QuestionType::Multi:
+                    return multi;
+                case QuestionType::Predict:
+                    return predict;
+                case QuestionType::Trace:
+                    return trace;
+                case QuestionType::Bug:
+                    return bug;
+                case QuestionType::Error:
+                    return error;
+                case QuestionType::Order:
+                    return order;
+                case QuestionType::Short:
+                    return short_answer;
+            }
+            return {};
+        }
+
+        [[nodiscard]] inline std::vector<Question> parse_questions(toml::Value const& value, std::string_view file, std::vector<ContentError>& errors,
+                                                                  std::vector<Example> const& examples)
+        {
+            std::vector<Question> out;
+            if (!value.is_table_array())
+            {
+                errors.push_back({std::string(file), value.pos.line, value.pos.column, "key 'questions' must be an array of tables ([[questions]])"});
+                return out;
+            }
+            std::set<std::string> ids;
+            int number = 0;
+            for (auto const& table : value.items)
+            {
+                ++number;
+                Reader qr(table, file, errors);
+                auto const question_errors = errors.size();
+                Question q;
+                q.id = std::format("q{}", number);
+                if (auto t = qr.string("type", false))
+                {
+                    auto parsed = parse_question_type(*t);
+                    if (!parsed)
+                    {
+                        qr.report(qr.pos_of("type"),
+                                  std::format("invalid question type '{}' (expected one of: choice, multi, predict, trace, bug, error, order, short)", *t));
+                        continue;
+                    }
+                    q.type = *parsed;
+                }
+                for (auto const& entry : table.entries)
+                    if (!key_in(entry.key, question_keys(q.type)))
+                    {
+                        qr.used.insert(entry.key);
+                        qr.report(entry.pos, std::format("key '{}' is not valid for a {} question", entry.key, to_string(q.type)));
+                    }
+                if (auto v = qr.string("id", false))
+                {
+                    if (!is_slug(*v))
+                        qr.report(qr.pos_of("id"), std::format("question id '{}' must use lowercase letters, digits and hyphens", *v));
+                    q.id = *v;
+                }
+                if (!ids.insert(q.id).second)
+                    qr.report(table.pos, std::format("question id '{}' is used more than once", q.id));
+                if (auto v = qr.string("prompt"))
+                    q.prompt = *v;
+                if (auto v = qr.string("explanation"))
+                    q.explanation = *v;
+                bool const wants_code = q.type == QuestionType::Predict || q.type == QuestionType::Trace || q.type == QuestionType::Bug ||
+                                        q.type == QuestionType::Error || q.type == QuestionType::Order;
+                if (wants_code)
+                {
+                    if (auto v = qr.string("code", false))
+                        q.code = *v;
+                    if (auto v = qr.string("example", false))
+                    {
+                        q.example = *v;
+                        auto it = std::ranges::find(examples, *v, &Example::name);
+                        if (it == examples.end())
+                            qr.report(qr.pos_of("example"), std::format("example '{}' is not declared in [[examples]]", *v));
+                        else if (q.code.empty())
+                            q.code = it->source;
+                        else if (it->source.find(q.code) == std::string::npos)
+                            qr.report(qr.pos_of("code"), std::format("the code of an order question must appear verbatim in example '{}'", *v));
+                    }
+                    if (q.code.empty() && errors.size() == question_errors)
+                        qr.report(table.pos, std::format("a {} question needs code or an example", to_string(q.type)));
+                }
+                if (q.has_choices())
+                {
+                    if (auto v = qr.strings("choices", true, false))
+                    {
+                        q.choices = std::move(*v);
+                        if (q.choices.size() < 2 || q.choices.size() > 6)
+                            qr.report(qr.pos_of("choices"), "a question needs two to six choices");
+                    }
+                    if (auto const* why = qr.get("why"))
+                    {
+                        if (!why->is_array() || !std::ranges::all_of(why->items, [](toml::Value const& item) { return item.is_string(); }))
+                            qr.report(why->pos, "key 'why' must be an array of strings (one per choice, empty for the right one)");
+                        else
+                        {
+                            for (auto const& item : why->items)
+                                q.why.push_back(std::string(text::trim(item.text)));
+                            if (q.why.size() != q.choices.size())
+                                qr.report(why->pos, "'why' needs one explanation per choice");
+                        }
+                    }
+                }
+                if (q.type == QuestionType::Choice || q.type == QuestionType::Error)
+                    if (auto v = qr.integer("answer", 1, 6))
+                    {
+                        q.answer = static_cast<int>(*v);
+                        if (!q.choices.empty() && q.answer > static_cast<int>(q.choices.size()))
+                            qr.report(qr.pos_of("answer"), std::format("answer {} is not one of the {} choices", q.answer, q.choices.size()));
+                    }
+                auto read_ints = [&](std::string_view key, int high) {
+                    std::vector<int> ints;
+                    auto const* v = qr.get(key);
+                    if (v == nullptr)
+                    {
+                        qr.missing(key);
+                        return ints;
+                    }
+                    if (!v->is_array() || v->items.empty())
+                    {
+                        qr.report(v->pos, std::format("key '{}' must be a non-empty array of numbers", key));
+                        return ints;
+                    }
+                    for (auto const& item : v->items)
+                    {
+                        if (!item.is_integer() || item.integer < 1 || item.integer > high)
+                        {
+                            qr.report(item.pos, std::format("every element of '{}' must be a number from 1 to {}", key, high));
+                            continue;
+                        }
+                        if (std::ranges::find(ints, static_cast<int>(item.integer)) != ints.end())
+                            qr.report(item.pos, std::format("'{}' lists {} twice", key, item.integer));
+                        ints.push_back(static_cast<int>(item.integer));
+                    }
+                    std::ranges::sort(ints);
+                    return ints;
+                };
+                if (q.type == QuestionType::Multi)
+                    q.answers = read_ints("answers", std::max<int>(1, static_cast<int>(q.choices.size())));
+                if (q.type == QuestionType::Bug)
+                    q.lines = read_ints("lines", std::max<int>(1, static_cast<int>(q.code_lines().size())));
+                if (q.type == QuestionType::Trace || q.type == QuestionType::Short)
+                    if (auto v = qr.strings("accept", true, false))
+                        q.accept = std::move(*v);
+                if (q.type == QuestionType::Predict)
+                {
+                    if (auto v = qr.string("expect", true, true))
+                        q.expect = *v;
+                }
+                else if (q.type == QuestionType::Trace || q.type == QuestionType::Bug)
+                {
+                    if (auto v = qr.string("expect", false, true))
+                        q.expect = *v;
+                }
+                if (q.type == QuestionType::Bug)
+                    if (auto v = qr.string("fixed", false))
+                        q.fixed = *v;
+                if (q.type == QuestionType::Error)
+                    if (auto v = qr.string("diagnostic"))
+                        q.diagnostic = *v;
+                if (q.type == QuestionType::Order)
+                {
+                    auto const lines = q.code_lines();
+                    if (!q.code.empty() && (lines.size() < 2 || lines.size() > 14))
+                        qr.report(qr.pos_of("code"), "an order question needs two to fourteen lines of code");
+                    std::set<std::string> distinct;
+                    for (auto const& l : lines)
+                        if (!distinct.insert(std::string(text::trim(l))).second)
+                        {
+                            qr.report(qr.pos_of("code"), std::format("an order question cannot repeat the line '{}'", text::trim(l)));
+                            break;
+                        }
+                }
+                qr.reject_unknown();
+                if (errors.size() == question_errors)
+                    out.push_back(std::move(q));
+            }
+            return out;
+        }
+
+        [[nodiscard]] inline std::vector<Card> parse_cards(toml::Value const& value, std::string_view file, std::vector<ContentError>& errors)
+        {
+            std::vector<Card> out;
+            if (!value.is_table_array())
+            {
+                errors.push_back({std::string(file), value.pos.line, value.pos.column, "key 'cards' must be an array of tables ([[cards]])"});
+                return out;
+            }
+            std::set<std::string> ids;
+            for (auto const& table : value.items)
+            {
+                Reader cr(table, file, errors);
+                auto const before = errors.size();
+                Card c;
+                if (auto v = cr.string("id"))
+                {
+                    c.id = *v;
+                    if (!is_slug(*v))
+                        cr.report(cr.pos_of("id"), std::format("card id '{}' must use lowercase letters, digits and hyphens", *v));
+                    else if (!ids.insert(*v).second)
+                        cr.report(cr.pos_of("id"), std::format("card id '{}' is used more than once", *v));
+                }
+                if (auto v = cr.string("front"))
+                    c.front = *v;
+                if (auto v = cr.string("back"))
+                    c.back = *v;
+                cr.reject_unknown();
+                if (errors.size() == before)
+                    out.push_back(std::move(c));
+            }
+            return out;
+        }
+
         struct PendingExercise
         {
             Exercise exercise;
@@ -927,6 +1239,8 @@ export namespace learndc::catalog
                 ex.build_timeout_seconds = static_cast<int>(*t);
             if (auto o = r.boolean("optional"))
                 ex.optional = *o;
+            if (auto const* questions = r.get("questions"))
+                ex.questions = parse_questions(*questions, file, errors, {});
             if (auto const* boss = r.get("boss"))
             {
                 if (!boss->is_table())
@@ -973,6 +1287,8 @@ export namespace learndc::catalog
                             if (st.hints.size() > 3)
                                 sr.report(sr.pos_of("hints"), "a stage has at most three hints");
                         }
+                        if (auto v = sr.strings("questions", false, true))
+                            st.questions = std::move(*v);
                         sr.reject_unknown();
                         if (errors.size() != stage_errors)
                             continue;
@@ -1024,13 +1340,24 @@ export namespace learndc::catalog
                 else if (ex.find_stage(check.stage) == nullptr)
                     errors.push_back({file, 1, 1, std::format("check '{}' names the unknown stage '{}'", check.name, check.stage)});
             }
+            std::set<std::string> staged_questions;
             for (auto const& st : ex.stages)
             {
-                if (ex.checks_of(st.id).empty())
-                    errors.push_back({file, 1, 1, std::format("stage '{}' has no checks", st.id)});
+                for (auto const& qid : st.questions)
+                {
+                    if (ex.find_question(qid) == nullptr)
+                        errors.push_back({file, 1, 1, std::format("stage '{}' names the unknown question '{}'", st.id, qid)});
+                    else if (!staged_questions.insert(qid).second)
+                        errors.push_back({file, 1, 1, std::format("question '{}' belongs to more than one stage", qid)});
+                }
+                if (ex.checks_of(st.id).empty() && st.questions.empty())
+                    errors.push_back({file, 1, 1, std::format("stage '{}' has no checks and no questions", st.id)});
                 if (ex.boss && st.hints.empty())
                     errors.push_back({file, 1, 1, std::format("boss stage '{}' needs at least one hint (hints = [...])", st.id)});
             }
+            for (auto const& q : ex.questions)
+                if (!staged_questions.contains(q.id))
+                    errors.push_back({file, 1, 1, std::format("question '{}' must belong to a stage (questions = [...])", q.id)});
             if (!ex.stages.empty() && std::ranges::all_of(ex.stages, [](Stage const& st) { return st.optional; }))
                 errors.push_back({file, 1, 1, "at least one stage must be required (optional = false)"});
             if (ex.boss && ex.stages.size() < 2)
@@ -1235,37 +1562,6 @@ export namespace learndc::catalog
             }
             if (auto o = r.boolean("optional"))
                 ex.optional = *o;
-            if (auto const* questions = r.get("questions"))
-            {
-                if (!questions->is_table_array())
-                    r.wrong_type("questions", *questions, "an array of tables ([[questions]])");
-                else
-                    for (auto const& table : questions->items)
-                    {
-                        Reader qr(table, file, errors);
-                        auto const question_errors = errors.size();
-                        Question q;
-                        if (auto v = qr.string("prompt"))
-                            q.prompt = *v;
-                        if (auto v = qr.strings("choices", true, false))
-                        {
-                            q.choices = std::move(*v);
-                            if (q.choices.size() < 2 || q.choices.size() > 6)
-                                qr.report(qr.pos_of("choices"), "a question needs two to six choices");
-                        }
-                        if (auto v = qr.integer("answer", 1, 6))
-                        {
-                            q.answer = static_cast<int>(*v);
-                            if (!q.choices.empty() && q.answer > static_cast<int>(q.choices.size()))
-                                qr.report(qr.pos_of("answer"), std::format("answer {} is not one of the {} choices", q.answer, q.choices.size()));
-                        }
-                        if (auto v = qr.string("explanation"))
-                            q.explanation = *v;
-                        qr.reject_unknown();
-                        if (errors.size() == question_errors)
-                            ex.questions.push_back(std::move(q));
-                    }
-            }
             if (auto const* examples = r.get("examples"))
             {
                 if (!examples->is_table_array())
@@ -1294,8 +1590,22 @@ export namespace learndc::catalog
                             ex.examples.push_back(std::move(e));
                     }
             }
+            if (auto const* questions = r.get("questions"))
+                ex.questions = parse_questions(*questions, file, errors, ex.examples);
+            if (auto const* cards = r.get("cards"))
+                ex.cards = parse_cards(*cards, file, errors);
+            if (auto k = r.string("kind", false))
+            {
+                if (*k == "drill")
+                    ex.drill = true;
+                else if (*k != "lecture")
+                    r.report(r.pos_of("kind"), std::format("invalid kind '{}' for a lecture.toml (expected lecture or drill)", *k));
+            }
+            if (ex.drill && ex.questions.empty())
+                errors.push_back({file, 1, 1, "a drill needs at least one [[questions]] entry"});
             r.reject_unknown();
-            if (!ex.examples.empty())
+            bool const runs_code = !ex.examples.empty() || std::ranges::any_of(ex.questions, [](Question const& q) { return !q.code.empty(); });
+            if (runs_code)
                 ex.required_tools = {"dcc", "dpm"};
 
             for (auto const& [path, content] : source.files)
