@@ -1,0 +1,5 @@
+schema = 1
+id = "projects"
+title = "DPM projects"
+summary = "Split programs into modules, read project diagnostics and build a small multi-module tool."
+exercises = ["local-modules", "broken-project", "tally"]

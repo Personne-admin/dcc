@@ -1,0 +1,37 @@
+module linecount;
+
+import words;
+
+bool expect(usize got, usize want, []const char what) {
+    if got == want {
+        return true;
+    }
+    println("{}: expected {}, got {}", what, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect(words::count_lines(""), 0, "count_lines, empty text") {
+        failures++;
+    }
+    if !expect(words::count_lines("a"), 1, "count_lines, one line without a newline") {
+        failures++;
+    }
+    if !expect(words::count_lines("a\n"), 1, "count_lines, one line with a final newline") {
+        failures++;
+    }
+    if !expect(words::count_lines("a\nb"), 2, "count_lines, two lines without a final newline") {
+        failures++;
+    }
+    if !expect(words::count_lines("a\nb\n"), 2, "count_lines, two lines with a final newline") {
+        failures++;
+    }
+    if !expect(words::count_lines("\n"), 1, "count_lines, a lone newline is one empty line") {
+        failures++;
+    }
+    if !expect(words::count_lines("a\n\nb"), 3, "count_lines, an empty line in the middle counts") {
+        failures++;
+    }
+    return if failures == 0 { 0 } else { 1 };
+}

@@ -1,0 +1,17 @@
+module words;
+
+bool is_space(char c) {
+    return c == ' ' || c == '\n' || c == '\t';
+}
+
+public usize count_words([]const char text) {
+    return 0;
+}
+
+public usize longest_word([]const char text) {
+    return 0;
+}
+
+public usize count_lines([]const char text) {
+    return 0;
+}

@@ -1,0 +1,41 @@
+schema = 1
+id = "projects/local-modules"
+revision = 1
+title = "Split a program into modules"
+summary = "Make a helper module usable from main and add a second helper function."
+kind = "multi-module"
+chapter = "modules"
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["module", "import", "public", "qualified names"]
+tags = ["modules", "visibility"]
+objectives = [
+    "Explain why a declaration in another module must be public",
+    "Read the unknown path diagnostic produced by a private function",
+    "Add a public function to a helper module and call it with module::name",
+]
+entry_file = "src/main.dc"
+product = "converter"
+prerequisites = ["fundamentals/functions"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the table and the freezing check"
+expect_stdout = """
+0 C = 32 F
+37 C = 98 F
+100 C = 212 F
+-5 C freezing: true
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Expect three conversion lines followed by the line '-5 C freezing: true'."

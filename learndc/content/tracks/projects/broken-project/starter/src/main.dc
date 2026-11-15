@@ -1,0 +1,9 @@
+module main;
+
+import stats;
+
+public Status(Error) main() {
+    println("largest: {}", stats::largest(4, 9, 5))?;
+    println("average: {}", stats::average(4, 9, 5))?;
+    return Status::Ok;
+}

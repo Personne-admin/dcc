@@ -1,0 +1,34 @@
+module wordcount;
+
+import words;
+
+bool expect(usize got, usize want, []const char what) {
+    if got == want {
+        return true;
+    }
+    println("{}: expected {}, got {}", what, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect(words::count_words(""), 0, "count_words, empty text") {
+        failures++;
+    }
+    if !expect(words::count_words("one"), 1, "count_words, a single word") {
+        failures++;
+    }
+    if !expect(words::count_words("a b c"), 3, "count_words, three words") {
+        failures++;
+    }
+    if !expect(words::count_words("  many   spaces  here "), 3, "count_words, repeated and surrounding spaces") {
+        failures++;
+    }
+    if !expect(words::count_words("x\ty\nz"), 3, "count_words, tabs and newlines separate words") {
+        failures++;
+    }
+    if !expect(words::count_words("   "), 0, "count_words, only spaces") {
+        failures++;
+    }
+    return if failures == 0 { 0 } else { 1 };
+}

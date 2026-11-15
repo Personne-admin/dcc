@@ -1,0 +1,34 @@
+module longest;
+
+import words;
+
+bool expect(usize got, usize want, []const char what) {
+    if got == want {
+        return true;
+    }
+    println("{}: expected {}, got {}", what, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect(words::longest_word(""), 0, "longest_word, empty text") {
+        failures++;
+    }
+    if !expect(words::longest_word("one"), 3, "longest_word, a single word") {
+        failures++;
+    }
+    if !expect(words::longest_word("a bb cccc dd"), 4, "longest_word, the longest word is not first or last") {
+        failures++;
+    }
+    if !expect(words::longest_word("abcd ef g"), 4, "longest_word, the longest word is first") {
+        failures++;
+    }
+    if !expect(words::longest_word("ab\ncdefg\thi"), 5, "longest_word, tabs and newlines end a word") {
+        failures++;
+    }
+    if !expect(words::longest_word("xy   "), 2, "longest_word, trailing spaces do not count") {
+        failures++;
+    }
+    return if failures == 0 { 0 } else { 1 };
+}

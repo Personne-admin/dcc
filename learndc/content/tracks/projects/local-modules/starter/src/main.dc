@@ -1,0 +1,10 @@
+module main;
+
+import temperature;
+
+public Status(Error) main() {
+    println("0 C = {} F", temperature::to_fahrenheit(0))?;
+    println("37 C = {} F", temperature::to_fahrenheit(37))?;
+    println("100 C = {} F", temperature::to_fahrenheit(100))?;
+    return Status::Ok;
+}

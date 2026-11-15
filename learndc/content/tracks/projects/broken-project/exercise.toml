@@ -1,0 +1,39 @@
+schema = 1
+id = "projects/broken-project"
+revision = 1
+title = "Fix a broken project"
+summary = "Follow three different diagnostics to repair a project that does not build."
+kind = "repair-compilation"
+chapter = "modules"
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["project.dcon", "module declaration", "entry file", "public"]
+tags = ["diagnostics", "modules", "dpm"]
+objectives = [
+    "Read a dpm manifest diagnostic that names a file, line and column",
+    "Match a module declaration to the file that holds it",
+    "Fix one error at a time and rebuild to reveal the next one",
+]
+entry_file = "src/main.dc"
+product = "number_stats"
+prerequisites = ["projects/local-modules"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the largest value and the average"
+expect_stdout = """
+largest: 9
+average: 6
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Expected two lines: 'largest: 9' and 'average: 6'."

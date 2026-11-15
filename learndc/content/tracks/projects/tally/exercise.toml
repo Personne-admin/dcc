@@ -1,0 +1,62 @@
+schema = 1
+id = "projects/tally"
+revision = 1
+title = "Tally a text"
+summary = "Count the lines, words and longest word of a text in a helper module."
+kind = "challenge"
+chapter = "modules"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["modules", "loops", "slices", "state machines"]
+tags = ["text", "loops", "modules"]
+objectives = [
+    "Implement three public functions over a []const char in a helper module",
+    "Track whether a loop is inside a word with a bool",
+    "Call the helper module from main and print a summary",
+]
+entry_file = "src/main.dc"
+product = "tally"
+prerequisites = ["projects/broken-project"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the summary of the built-in text"
+expect_stdout = """
+lines: 4
+words: 10
+longest word: 5
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The built-in text has 4 lines (one is empty), 10 words, and its longest word has 5 letters."
+
+[[checks]]
+kind = "harness"
+name = "count_words handles spacing"
+harness = "checks/wordcount.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "longest_word finds the longest"
+harness = "checks/longest.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "count_lines handles final newlines"
+harness = "checks/linecount.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "A final newline does not start a new line; an empty line in the middle does count."

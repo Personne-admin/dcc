@@ -1,0 +1,52 @@
+module words;
+
+bool is_space(char c) {
+    return c == ' ' || c == '\n' || c == '\t';
+}
+
+public usize count_words([]const char text) {
+    usize count = 0;
+    bool in_word = false;
+    for c in text {
+        if is_space(c) {
+            in_word = false;
+        } else {
+            if !in_word {
+                count++;
+            }
+            in_word = true;
+        }
+    }
+    return count;
+}
+
+public usize longest_word([]const char text) {
+    usize best = 0;
+    usize current = 0;
+    for c in text {
+        if is_space(c) {
+            current = 0;
+        } else {
+            current++;
+            if current > best {
+                best = current;
+            }
+        }
+    }
+    return best;
+}
+
+public usize count_lines([]const char text) {
+    usize count = 0;
+    char last = '\n';
+    for c in text {
+        if c == '\n' {
+            count++;
+        }
+        last = c;
+    }
+    if last != '\n' {
+        count++;
+    }
+    return count;
+}
