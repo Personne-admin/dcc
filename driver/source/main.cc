@@ -63,6 +63,14 @@ namespace
             std::println(std::cerr, "dcc: error: {}", error);
             std::exit(1);
         }
+        if (opts.libdcext && target->arch == dcc::target::Arch::X86)
+        {
+            std::println(std::cerr,
+                         "dcc: error: -flibdcext {} is not available for 32-bit target '{}': the libdcext startup, system-call and memory routines are "
+                         "x86_64-only; build without -flibdcext and define _start",
+                         dcc::target::os_name(target->os), target->triple);
+            std::exit(1);
+        }
         return *target;
     }
 
