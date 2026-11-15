@@ -759,20 +759,63 @@ def journey_academy(tmp: Path, real_content: Path):
     solution = real_content / "tracks" / "memory" / "boss-inventory-keeper" / "solution" / "src"
     shutil.copy(solution / "inventory.dc", ws / "src" / "inventory.dc")
     rc, out, err = expect(["check", boss], 1, env=env)
-    check("Stage cleared: Stock the shelf" in out and "1 required stage still to go." in out, f"partial victory reported\n{out}")
+    check("Stage cleared: Stock the shelf" in out and "2 required stages still to go." in out, f"partial victory reported\n{out}")
     prog = expect_json(["progress", "--json"], env=env)
     stages = {e["id"]: e for e in prog["exercises"]}[boss]["stages"]
     check(stages["take-it"]["achieved"] and not stages["night-shift"]["achieved"], f"stage records after the first pass: {stages}")
     rc, out, err = expect(["show", boss], 0, env=env)
-    check("[x] 4. Refuse what you cannot pack" in out and "[>] 5. The night shift" in out, f"a new process shows the same objectives\n{out}")
+    check("[x] 5. Refuse what you cannot pack" in out and "[>] 1. Read the old ledger" in out and "[ ] 6. The night shift" in out, f"a new process shows the same objectives\n{out}")
     (ws / "src" / "inventory.dc").write_text((ws / "src" / "inventory.dc").read_text() + "\n")
     rc, out, err = expect(["show", boss], 0, env=env)
-    check("[~] 1. Stock the shelf" in out, f"an edit makes old passes unverified\n{out}")
+    check("[~] 2. Stock the shelf" in out, f"an edit makes old passes unverified\n{out}")
     shutil.copy(solution / "main.dc", ws / "src" / "main.dc")
-    rc, out, err = expect(["check", boss], 0, env=env)
+    rc, out, err = expect(["check", boss], 1, env=env)
+    check("BOSS DEFEATED" not in out and "1 required stage still to go." in out, f"the unanswered ledger keeps the boss alive\n{out}")
+    rc, out, err = expect(["answer", boss, "--question", "old-take", "8"], 1, env=env)
+    rc, out, err = expect(["answer", boss, "--question", "old-take", "7"], 0, env=env)
     check("BOSS DEFEATED: The Inventory Keeper" in out, f"boss defeated\n{out}")
     rc, out, err = expect(["progress"], 0, env=env)
     check("Boss defeated: The Inventory Keeper" in out, f"achievement listed\n{out}")
+
+    drill = "memory/ownership-drills"
+    rc, out, err = expect(["show", drill], 0, env=env)
+    check("[Find the bug]" in out and "--question too-early" in out, f"drill lists its activities\n{out}")
+    rc, out, err = expect(["answer", drill, "--question", "too-early", "4"], 1, env=env)
+    check("Not yet" in out and "Line 4 does what it says" in out, f"targeted feedback for a wrong line\n{out}")
+    rc, out, err = expect(["cards", "--json"], 0, env=env)
+    data = json.loads(out)
+    check("memory/ownership-drills#too-early" in data["missed"], f"missed question queued for review: {data}")
+    answers = [("defer-everywhere", "start\\ninner\\nB\\nC1\\nC2\\nend\\nD\\nA"), ("count-the-closes", "3"), ("too-early", "5"),
+               ("gone-bonus", "2"), ("array-facts", "1,3"), ("the-keyword", "defer")]
+    for qid, answer in answers:
+        expect(["answer", drill, "--question", qid, *answer.split(" ")], 0, env=env, label=f"answer {qid}")
+    show = expect(["show", drill], 0, env=env)[1]
+    order_lines = [line for line in show.splitlines() if line.strip().startswith(tuple(str(n) for n in range(1, 6))) and "|" in line]
+    wanted = ['println("pack bag")?;', 'defer println("unpack bag");', 'println("start hike")?;', 'defer println("end hike");', 'println("walking")?;']
+    shown = {}
+    in_order = False
+    for line in show.splitlines():
+        if "[Put the code in order]" in line:
+            in_order = True
+            continue
+        if in_order and "|" in line:
+            number, code = line.split("|", 1)
+            shown[code.strip()] = number.strip()
+        elif in_order and shown:
+            break
+    sequence = [shown.get(w, "?") for w in wanted]
+    rc, out, err = expect(["answer", drill, "--question", "pack-and-unpack", *sequence], 0, env=env)
+    check("Lesson completed." in out, f"the drill completes\n{out}")
+    data = json.loads(expect(["cards", "--json"], 0, env=env)[1])
+    keys = [c["key"] for c in data["due"]]
+    check("memory/ownership-drills#early-exit" in keys and not data["missed"], f"the drill card is due and nothing is missed: {data}")
+    rc, out, err = expect(["card", "memory/ownership-drills#early-exit"], 0, env=env)
+    check("It runs on every exit" in out, "card shows its back")
+    rc, out, err = expect(["card", "memory/ownership-drills#early-exit", "good"], 0, env=env)
+    check("box 1 of 5" in out and "in 1 day" in out, f"card scheduled\n{out}")
+    data = json.loads(expect(["cards", "--json"], 0, env=env)[1])
+    check("memory/ownership-drills#early-exit" not in [c["key"] for c in data["due"]], "a rated card leaves today's queue")
+    expect(["card", "memory/ownership-drills#early-exit", "maybe"], 2, env=env)
 
 
 def main():

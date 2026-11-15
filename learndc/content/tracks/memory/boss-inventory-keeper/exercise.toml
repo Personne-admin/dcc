@@ -1,6 +1,6 @@
 schema = 1
 id = "memory/boss-inventory-keeper"
-revision = 1
+revision = 2
 title = "The Inventory Keeper"
 summary = "Run the market storeroom: an owning Array of items, searches, refusals with typed errors and a night shift that cleans up after itself."
 kind = "challenge"
@@ -15,7 +15,7 @@ objectives = [
 ]
 entry_file = "src/main.dc"
 product = "inventory_keeper"
-prerequisites = ["memory/map-lookup"]
+prerequisites = ["memory/ownership-drills"]
 requires = ["dcc", "dpm"]
 min_dcc = "0.6.0"
 platforms = ["linux", "windows"]
@@ -30,6 +30,13 @@ deliveries, a stack of orders and one rule: *nothing leaves the storeroom
 unless it is on the shelf, and nobody goes home before the shelf is put
 away*. Build the storeroom one shelf at a time.
 """
+
+[[stages]]
+id = "old-ledger"
+title = "Read the old ledger"
+summary = "Find the bug in the retired storekeeper's take before you write your own."
+questions = ["old-take"]
+hints = ["Follow what happens to the stored count when an order asks for more than the shelf holds."]
 
 [[stages]]
 id = "stock-up"
@@ -145,3 +152,24 @@ stage = "ledger"
 harness = "checks/ledger.dc"
 expect_exit = 0
 max_seconds = 10
+
+[[questions]]
+id = "old-take"
+type = "bug"
+prompt = "The old storekeeper's `take` is in the ledger. Whenever an order is refused with `NotEnough`, the shelf is wrong afterwards. Which line causes it?"
+code = """
+public Status(StockError) take(Array(Item)* shelf, []const char name, u32 count) {
+    Optional(usize) found = position(shelf, name);
+    if found.is_none() {
+        return StockError::Unknown;
+    }
+    Item* item = &shelf.items()[found.unwrap_some()];
+    item.count -= count;
+    if item.count < count {
+        return StockError::NotEnough;
+    }
+    return Status::Ok;
+}
+"""
+lines = [7]
+explanation = "Line 7 subtracts before line 8 checks, so a refused order has already changed the stored count, and a `u32` that goes below zero wraps around to a huge number. Decide first, then change: that is the rule your own `take` follows."

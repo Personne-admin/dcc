@@ -65,3 +65,18 @@ choices = [
 ]
 answer = 2
 explanation = "A slice borrows the storage as it was. Growing the array can move the storage to a new block, leaving the old view pointing at memory that was given back."
+
+[[cards]]
+id = "array-owner"
+front = "Who releases an `Array(T)`, and how?"
+back = "The variable that created it, with `defer x.deinit();` on the line right after the declaration."
+
+[[cards]]
+id = "push-moves"
+front = "Why must you not keep a slice from `items()` across a `push`?"
+back = "A push may move the elements to a bigger block and give the old one back, so the old slice points at freed memory."
+
+[[cards]]
+id = "lend-array"
+front = "How does a function add elements to the caller's array?"
+back = "It takes `Array(T)* out`; the caller passes `&array`. The caller still owns the array."

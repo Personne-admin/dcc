@@ -1,0 +1,218 @@
+schema = 1
+id = "memory/ownership-drills"
+revision = 1
+kind = "drill"
+title = "Ownership drills"
+summary = "Predict, trace, debug and order code that cleans up after itself, then recall the rules of ownership."
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["defer", "scope", "Array", "ownership", "debugging", "tracing"]
+tags = ["drill", "memory"]
+objectives = [
+    "Predict the exact order of deferred statements across blocks and loops",
+    "Trace how often a cleanup runs on every way out of a function",
+    "Spot a defer that runs too early and explain a scope error",
+]
+prerequisites = ["memory/map-lookup"]
+
+[[examples]]
+name = "hike"
+expect_stdout = """
+pack bag
+start hike
+walking
+end hike
+unpack bag
+"""
+
+[[questions]]
+id = "defer-everywhere"
+type = "predict"
+prompt = "What does this program print? Type every line."
+code = """
+module main;
+
+public Status(Error) main() {
+    println("start")?;
+    defer println("A");
+    {
+        defer println("B");
+        println("inner")?;
+    }
+    for i in 1..=2 {
+        defer println("C{}", i);
+    }
+    defer println("D");
+    println("end")?;
+    return Status::Ok;
+}
+"""
+expect = """
+start
+inner
+B
+C1
+C2
+end
+D
+A
+"""
+explanation = "B runs when the inner block ends. Each loop iteration is its own block, so C1 and C2 print during the loop. A and D wait for the end of main and run in reverse order: D was registered last, so it runs first."
+
+[[questions]]
+id = "count-the-closes"
+type = "trace"
+prompt = "How many times does `close_door` run? Follow every call of `visit`, including the early returns."
+code = """
+module main;
+
+i32 closes = 0;
+
+void close_door() {
+    closes += 1;
+}
+
+void visit(i32 guests) {
+    defer close_door();
+    if guests == 0 {
+        return;
+    }
+    for i in 0..guests {
+        if i == 2 {
+            return;
+        }
+    }
+}
+
+public Status(Error) main() {
+    visit(0);
+    visit(1);
+    visit(5);
+    println("{}", closes)?;
+    return Status::Ok;
+}
+"""
+accept = ["3", "three"]
+expect = "3\n"
+explanation = "Every call registers the defer on its first line, and every way out of `visit` runs it: the early return for 0 guests, the normal end for 1 guest and the return inside the loop for 5 guests. Three calls, three closes."
+
+[[questions]]
+id = "too-early"
+type = "bug"
+prompt = "The door is supposed to close after the guests are inside, but the program prints `door closed` too early. Which line is the bug?"
+code = """
+module main;
+
+Status(Error) serve(i32 guests) {
+    println("door opened")?;
+    if guests > 0 {
+        defer println("door closed");
+    }
+    println("{} guests inside", guests)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    serve(2)?;
+    return Status::Ok;
+}
+"""
+lines = [5, 6]
+fixed = """
+module main;
+
+Status(Error) serve(i32 guests) {
+    println("door opened")?;
+    defer println("door closed");
+    println("{} guests inside", guests)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    serve(2)?;
+    return Status::Ok;
+}
+"""
+expect = """
+door opened
+2 guests inside
+door closed
+"""
+explanation = "A deferred statement belongs to the block it is written in. Inside the `if` block it runs at that block's closing brace, before the guests are counted. Written right after `door opened`, it runs when `serve` ends."
+
+[[questions]]
+id = "gone-bonus"
+type = "error"
+prompt = "The compiler rejects this program. What is the real cause?"
+code = """
+module main;
+
+public Status(Error) main() {
+    {
+        i32 bonus = 5;
+        println("bonus {}", bonus)?;
+    }
+    println("again {}", bonus)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "unknown name `bonus`"
+choices = [
+    "`bonus` was never declared anywhere",
+    "`bonus` only exists inside the block that declares it",
+    "`println` cannot print an `i32`",
+    "A block cannot declare variables",
+]
+answer = 2
+why = [
+    "It is declared, two lines earlier. The compiler means it cannot see that declaration from where it is used.",
+    "",
+    "The first `println` prints `bonus` without trouble.",
+    "The inner block declares `bonus` and the first `println` uses it.",
+]
+explanation = "The inner braces form a block and `bonus` lives only inside it. After the closing brace the name no longer refers to anything, so the compiler reports an unknown name. Declare it before the block to keep it."
+
+[[questions]]
+id = "pack-and-unpack"
+type = "order"
+prompt = "Put the lines of `main` in order so that the program prints `pack bag`, `start hike`, `walking`, `end hike`, `unpack bag`. Each `defer` goes directly after the line it undoes."
+example = "hike"
+code = """
+    println("pack bag")?;
+    defer println("unpack bag");
+    println("start hike")?;
+    defer println("end hike");
+    println("walking")?;
+"""
+explanation = "Setup and its cleanup sit side by side, and the cleanups run in reverse order at the end of `main`: the hike ends before the bag is unpacked."
+
+[[questions]]
+id = "array-facts"
+type = "multi"
+prompt = "Which statements about an owning `Array(i32)` hold?"
+choices = [
+    "`push` may move the elements to a new block of memory",
+    "Copying the variable copies every element into a new block",
+    "The variable that created the array is the one that calls `deinit`",
+    "A slice from `items()` stays valid after any number of pushes",
+]
+answers = [1, 3]
+why = [
+    "",
+    "A copy duplicates only the small handle; both copies point at the same block.",
+    "",
+    "A push can move the storage, so the old slice may point at memory that was given back.",
+]
+explanation = "The array owns a heap block that can move when it grows, and exactly one owner gives it back. Handles are cheap to copy, which is why copies are dangerous."
+
+[[questions]]
+id = "the-keyword"
+type = "short"
+prompt = "Which keyword schedules a statement to run when the current scope ends?"
+accept = ["defer"]
+explanation = "`defer` registers one statement for the end of the enclosing block, however that block is left."
+
+[[cards]]
+id = "early-exit"
+front = "Why put cleanup in a `defer` instead of before each `return`?"
+back = "It runs on every exit, including early returns and errors passed on by `?`, so a new exit cannot forget it."

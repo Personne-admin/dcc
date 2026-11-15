@@ -1,0 +1,10 @@
+module main;
+
+public Status(Error) main() {
+    println("pack bag")?;
+    defer println("unpack bag");
+    println("start hike")?;
+    defer println("end hike");
+    println("walking")?;
+    return Status::Ok;
+}

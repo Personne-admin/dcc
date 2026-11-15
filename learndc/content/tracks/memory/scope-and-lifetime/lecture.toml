@@ -75,3 +75,18 @@ choices = [
 ]
 answer = 2
 explanation = "The cleanup is written once, next to what it cleans up, and runs on every way out of the scope."
+
+[[cards]]
+id = "defer-when"
+front = "When does a deferred statement run?"
+back = "When the block it is written in ends: at the closing brace, at a `return`, or when `?` passes an error upward."
+
+[[cards]]
+id = "defer-order"
+front = "In which order do several deferred statements of one block run?"
+back = "In reverse: the last one registered runs first, like plates taken off a stack."
+
+[[cards]]
+id = "defer-loop"
+front = "A `defer` inside a loop body runs how often?"
+back = "Once per iteration, because the loop body is a block that ends every time around."
