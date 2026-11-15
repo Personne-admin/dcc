@@ -21,6 +21,7 @@ import learndc.tui;
 import dcc.host.process;
 
 #include <stdlib.h>
+#include <unistd.h>
 #define main harness_main
 #include "harness.hh"
 #undef main
@@ -3624,6 +3625,16 @@ TEST_CASE("flooding output stops the program at the output limit")
     CHECK(r.summary.find("more than") != std::string::npos);
 }
 
+TEST_CASE("a program that exits and leaves a child holding its pipes is judged on its own result")
+{
+    auto const begin = std::chrono::steady_clock::now();
+    auto r = judge_fake(run_check("ok\n"), {"--leave-child"}, 65536, 5s);
+    auto const elapsed = std::chrono::steady_clock::now() - begin;
+    CHECK(r.verdict == runner::Verdict::Pass);
+    CHECK(!r.timed_out);
+    CHECK(elapsed < 4s);
+}
+
 TEST_CASE("a sleeping program times out")
 {
     auto const begin = std::chrono::steady_clock::now();
@@ -6206,6 +6217,17 @@ int main(int argc, char** argv)
                 std::cout.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
                 std::cout.flush();
             }
+            return 0;
+        }
+        if (mode == "--leave-child")
+        {
+            if (::fork() == 0)
+            {
+                std::this_thread::sleep_for(std::chrono::seconds(8));
+                return 0;
+            }
+            std::cout << "ok\n";
+            std::cout.flush();
             return 0;
         }
         if (mode == "--sleep")

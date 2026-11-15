@@ -390,6 +390,7 @@ export namespace dcc::host::process
         fds[nfds++] = {err_pipe[0], POLLIN, 0};
         std::array<char, 65536> buffer{};
         std::size_t open_fds = nfds;
+        bool child_exited = false;
         while (open_fds > 0)
         {
             auto now = std::chrono::steady_clock::now();
@@ -444,6 +445,15 @@ export namespace dcc::host::process
                 }
                 else if (static_cast<int>(i) == err_index)
                     detail::append_error(result, cmd, chunk);
+            }
+            if (!child_exited && !killed)
+            {
+                siginfo_t info{};
+                if (::waitid(P_PID, static_cast<id_t>(pid), &info, WEXITED | WNOHANG | WNOWAIT) == 0 && info.si_pid == pid)
+                {
+                    child_exited = true;
+                    ::kill(-pid, SIGKILL);
+                }
             }
             if (killed)
                 break;
