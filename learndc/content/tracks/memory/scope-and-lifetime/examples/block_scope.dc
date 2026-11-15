@@ -5,8 +5,8 @@ public Status(Error) main() {
     {
         i32 bonus = 5;
         total += bonus;
-        println("inside the block: bonus {}, total {}", bonus, total)?;
+        println("inside: bonus {}, total {}", bonus, total)?;
     }
-    println("after the block: total {}", total)?;
+    println("after: total {}", total)?;
     return Status::Ok;
 }

@@ -19,13 +19,13 @@ using it after the closing brace is a compile error (`unknown name`). Picture
 scopes as nested boxes:
 
 ```text
-main  +--------------------------------------+
-      | total                                 |
-      |   block +------------------------+    |
-      |         | bonus                  |    |
-      |         +------------------------+    |
-      |   (bonus is gone here)                |
-      +--------------------------------------+
+main  +----------------------------------+
+      | total                            |
+      |   block +--------------------+   |
+      |         | bonus              |   |
+      |         +--------------------+   |
+      |   (bonus is gone here)           |
+      +----------------------------------+
 ```
 
 The end of a scope is not only a matter of names. It is the moment the

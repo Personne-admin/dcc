@@ -17,8 +17,8 @@ prerequisites = ["errors/custom-errors"]
 [[examples]]
 name = "block_scope"
 expect_stdout = """
-inside the block: bonus 5, total 15
-after the block: total 15
+inside: bonus 5, total 15
+after: total 15
 """
 
 [[examples]]
