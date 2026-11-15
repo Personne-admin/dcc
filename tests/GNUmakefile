@@ -177,6 +177,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_codegen_determinism.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_mem2reg.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/dpm/e2e.py $(BUILD_DIR)/bin/dpm $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/learndc/e2e.py $(BUILD_DIR)/bin/learndc $(BUILD_DIR)/bin/dcc $(BUILD_DIR)/bin/dpm
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/test_windows_dpm_build.py
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/test_windows_toolchain.py
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/test_msi_discovery.py
