@@ -1283,8 +1283,9 @@ export namespace learndc::cli
                 return row;
             }
             auto starter_report = runner::run_checks(ex, starter_root, opt);
-            bool const build_stage = starter_report.first_failure_stage == runner::to_string(runner::Stage::Build) ||
-                                     starter_report.first_failure_stage == runner::to_string(runner::Stage::Link);
+            bool const build_stage = std::ranges::any_of(starter_report.results, [](runner::CheckResult const& result) {
+                return result.kind == catalog::CheckKind::Build && result.verdict == runner::Verdict::Fail;
+            });
             if (starter_report.outcome == runner::Outcome::Cancelled)
             {
                 row.ok = false;
