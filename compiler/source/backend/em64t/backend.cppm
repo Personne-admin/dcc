@@ -157,6 +157,14 @@ namespace dcc::backend
             [[nodiscard]] BackendArtifact emit(ir::IrModule const& module, BackendOptions const& opts) override
             {
                 BackendArtifact artifact;
+                if (opts.target.arch != dcc::target::Arch::X86_64)
+                {
+                    artifact.diagnostics.push_back(BackendDiagnostic{
+                        {},
+                        std::format("custom backend: target '{}' has no native code generator (the custom backend emits x86_64 only); use -fbackend llvm",
+                                    opts.target.triple)});
+                    return artifact;
+                }
                 for (auto* global : module.globals)
                 {
                     if (!global)
@@ -347,16 +355,9 @@ namespace dcc::backend
 
                     if (want_exe)
                     {
-                        if (opts.target.arch != dcc::target::Arch::X86_64)
-                        {
-                            artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: executable output is only supported for x86_64 ELF targets"});
-                        }
-                        else
-                        {
-                            auto exe = link_executable(obj_bytes, opts, artifact);
-                            if (exe)
-                                artifact.executable_bytes = std::move(exe);
-                        }
+                        auto exe = link_executable(obj_bytes, opts, artifact);
+                        if (exe)
+                            artifact.executable_bytes = std::move(exe);
                     }
 
                     if (want_shared)
@@ -366,11 +367,6 @@ namespace dcc::backend
                             auto dll = link_shared_library_coff(obj_bytes, opts, artifact);
                             if (dll)
                                 artifact.shared_library_bytes = std::move(dll);
-                        }
-                        else if (opts.target.arch != dcc::target::Arch::X86_64)
-                        {
-                            artifact.diagnostics.push_back(
-                                BackendDiagnostic{{}, "custom backend: shared library output is only supported for x86_64 ELF targets"});
                         }
                         else
                         {

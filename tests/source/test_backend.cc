@@ -1432,6 +1432,37 @@ TEST_CASE("custom-backend-rejects-far-and-unavailable-based-ir")
     }
 }
 
+TEST_CASE("custom-backend-rejects-32-bit-x86-targets-instead-of-emitting-x86_64")
+{
+    for (auto triple : {"x86-elf", "x86-coff"})
+    {
+        auto target = TargetConfig::parse_triple(triple);
+        REQUIRE(target.has_value());
+        IrContext ctx{256 * 1024, &*target};
+        auto* mod = ctx.module("ia32_custom");
+        auto* i32 = ctx.int_t(32, true);
+        auto* function = ctx.function("answer", ir_type_cast<IrFuncType>(ctx.func_t(i32, {})));
+        auto* block = ctx.basic_block("entry", 0);
+        block->terminator = ctx.ret(ctx.int_const(i32, 42));
+        function->blocks.push_back(block);
+        function->entry_block = block;
+        mod->functions.push_back(function);
+        for (auto kind : {ArtifactKind::ObjectBytes, ArtifactKind::AsmText, ArtifactKind::MirText, ArtifactKind::ExecutableBytes})
+        {
+            BackendOptions opts;
+            opts.target = *target;
+            opts.requested_artifacts = {kind};
+            auto artifact = make_em64t_backend()->emit(*mod, opts);
+            REQUIRE(artifact.diagnostics.size() == 1);
+            CHECK(artifact.diagnostics[0].message ==
+                  std::format("custom backend: target '{}' has no native code generator (the custom backend emits x86_64 only); use -fbackend llvm", triple));
+            CHECK(!artifact.object_bytes.has_value());
+            CHECK(!artifact.asm_text.has_value());
+            CHECK(!artifact.executable_bytes.has_value());
+        }
+    }
+}
+
 TEST_CASE("custom-backend-accepts-fs-gs-based-ir-and-rejects-based-atomics")
 {
     auto target = TargetConfig::host_default();
