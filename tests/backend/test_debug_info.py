@@ -15,7 +15,7 @@ targets = {
     "windows": ["-target", "x86_64-coff"],
     "freestanding": ["-target", "x86_64-elf", "-fno-simd", "-fno-x87", "-fno-red-zone", "-fpic"],
 }
-freestanding_excluded = {"std/sys/linux/syscall.dc", "std/sys/win/imports.dc"}
+freestanding_excluded = {"std/sys/linux/syscall.dc", "std/sys/win/imports.dc", "std/prelude/hosted.dc"}
 library_sources = sorted((libdcext / "std").rglob("*.dc")) + [libdcext / "assert.dc", libdcext / "common" / "abi.dc"]
 
 regression = """module m;
