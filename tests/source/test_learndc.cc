@@ -2959,6 +2959,24 @@ TEST_CASE("workspace reset takes a backup before restoring")
     CHECK_EQ(entries_with_prefix(backups / "basics" / "one", "").size(), 2u);
 }
 
+TEST_CASE("workspace reset names the backup when restoring a starter file fails")
+{
+    TempDir t;
+    auto ex = make_exercise();
+    auto const root = t.path / "ws";
+    auto const backups = t.path / "backups";
+    auto started = workspace::start(ex, root);
+    REQUIRE(started);
+    auto ws = started->workspace;
+    std::filesystem::remove(root / "src" / "main.dc");
+    write_file(root / "src" / "main.dc" / "inner.txt", "work\n");
+    auto result = workspace::reset(ws, ex, backups);
+    REQUIRE(!result);
+    CHECK(result.error().message.find("your files were saved in") != std::string::npos);
+    CHECK(result.error().message.find(platform::path_to_utf8(backups)) != std::string::npos);
+    CHECK_EQ(entries_with_prefix(backups / "basics" / "one", "").size(), 1u);
+}
+
 TEST_CASE("workspace reset refuses a backup directory inside the workspace")
 {
     TempDir t;

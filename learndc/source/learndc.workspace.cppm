@@ -521,12 +521,16 @@ export namespace learndc::workspace
                 result.backup_path = target;
             }
         }
+        auto const saved_note = [&]() {
+            return result.backup_path.empty() ? std::string()
+                                              : std::format("; your files were saved in '{}'", platform::path_to_utf8(result.backup_path));
+        };
         for (auto const& [path, bytes] : ex.starter)
         {
             if (auto r = detail::ensure_parent(ws.root, path); !r)
-                return std::unexpected(r.error());
+                return detail::fail(r.error().kind, r.error().message + saved_note());
             if (auto w = platform::atomic_write(detail::join(ws.root, path), bytes); !w)
-                return detail::fail(ErrorKind::Io, w.error().message);
+                return detail::fail(ErrorKind::Io, w.error().message + saved_note());
             result.restored.push_back(path);
         }
         for (auto const& rel : present)
