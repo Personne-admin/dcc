@@ -1,5 +1,5 @@
   1  2  3 Exercise  4  5  6  7
-╭─ Solution: Variables and … ─ your files vs the solution ─╮
+╭─ Solution: Variables and mutation ───────────────────────╮
 │ src/main.dc                                              │
 │ --- your src/main.dc                                     │
 │ +++ solution src/main.dc                                 │
@@ -13,8 +13,8 @@
 │      return 0;                                           │
 │  }                                                       │
 │                                                          │
+│ Why the solution works                                   │
 │ Adding the tax to the price gives the total. The minus   │
 │ sign subtracted it instead.                              │
-│                                                          │
 ╰──────────────────────────────────────────────────────────╯
  Up Down scroll  Esc close solution  ? help  q quit

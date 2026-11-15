@@ -1,5 +1,5 @@
  Learn DC · Settings                              1 of 6 completed ██░░░░░░░░░░
-╭─ Menu ─────────╮╭─ Settings ─────────────────────────────────────────────────╮
+╭─ Menu ─────────╮╭────────────────────────────────────────────────────────────╮
 │   1 Home       ││ › editor.preset                 auto                       │
 │   2 Learn      ││   editor.command                (not set)                  │
 │   3 Exercise   ││   editor.kind                   auto                       │

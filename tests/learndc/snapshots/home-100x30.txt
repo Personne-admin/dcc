@@ -1,5 +1,5 @@
  Learn DC · Home                                                      1 of 6 completed ██░░░░░░░░░░
-╭─ Menu ───────────────╮╭─ Home ───────────────────────────────────────────────────────────────────╮
+╭─ Menu ───────────────╮╭──────────────────────────────────────────────────────────────────────────╮
 │ › 1 Home             ││ Continue where you left off                                              │
 │   2 Learn            ││ › ◐ Variables and mutation                     beginner     in progress  │
 │   3 Exercise         ││     fundamentals/variables · fix behavior · last check 2 of 3 passed     │

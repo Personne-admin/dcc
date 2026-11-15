@@ -1,5 +1,5 @@
   1  2 Learn  3  4  5  6  7
-╭─ Learn ──────────────────────────────────── 6 exercises ─╮
+╭──────────────────────────────────────────── 6 exercises ─╮
 │ status any  level any  track all  kind any               │
 │ search none                                              │
 │──────────────────────────────────────────────────────────│
@@ -17,4 +17,4 @@
 │ Choose between two paths with a condition.               │
 │ implement function · 12 min · branches, output           │
 ╰──────────────────────────────────────────────────────────╯
- Enter open  / search  f d t y filter  b bookmark  ? help
+ Enter open  / search  f d t y filter  ? help  q quit

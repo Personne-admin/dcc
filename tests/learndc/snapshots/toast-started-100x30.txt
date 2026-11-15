@@ -1,23 +1,23 @@
  Learn DC · Your first DC program                                     0 of 6 completed ░░░░░░░░░░░░
 ╭───╮╭─ › Instructions ─────────────────────────────────╮╭─ Files ─────────────────────────────────╮
 │ 1 ││ beginner · 5 min                                 ┃│   project.dcon                          │
-│ 2 ││ complete program                                 ┃│ › src/main.dc  entry                    │
-│ 3 ││ in progress                                      ┃╰─────────────────────────────────────────╯
-│ 4 ││                                                  ┃╭─ Preview: src/main.dc ──────────────────╮
-│ 5 ││ Print a greeting from a fallible main.           ┃│  1 │ module main;                       │
-│ 6 ││                                                  ┃│  2 │                                    │
-│ 7 ││ Goals                                            ┃│  3 │ import std::io;                    │
-│   ││ • Make every check pass                          ┃│  4 │                                    │
-│ ? ││ • Read the diagnostics before changing code      ┃│  5 │ public i32 main()                  │
-│   ││                                                  ┃│  6 │ {                                  │
-│   ││ A variable gives a name to a value. Declare it   ││  7 │     i32 price = 40;                │
-│   ││ with its type, then use the name wherever you    ││  8 │     i32 tax = 2;                   │
-│   ││ need the value.                                  ││  9 │     i32 total = price - tax;       │
-│   ││                                                  ││ 10 │     io::println("Total: {}", tot…  │
-│   ││ • Declare price and tax as i32.                  ││ 11 │     return 0;                      │
-│   ││ • Add them together into total.                  ││ 12 │ }                                  │
-│   ││                                                  ││                                         │
+│ 2 ││ complete program · in progress                   ┃│ › src/main.dc  entry                    │
+│ 3 ││                                                  ┃╰─────────────────────────────────────────╯
+│ 4 ││ Print a greeting from a fallible main.           ┃╭─ Preview: src/main.dc ──────────────────╮
+│ 5 ││                                                  ┃│  1 │ module main;                       │
+│ 6 ││ Goals                                            ┃│  2 │                                    │
+│ 7 ││ • Make every check pass                          ┃│  3 │ import std::io;                    │
+│   ││ • Read the diagnostics before changing code      ┃│  4 │                                    │
+│ ? ││                                                  ┃│  5 │ public i32 main()                  │
+│   ││ A variable gives a name to a value. Declare it   ┃│  6 │ {                                  │
+│   ││ with its type, then use the name wherever you    ┃│  7 │     i32 price = 40;                │
+│   ││ need the value.                                  ││  8 │     i32 tax = 2;                   │
+│   ││                                                  ││  9 │     i32 total = price - tax;       │
+│   ││ • Declare price and tax as i32.                  ││ 10 │     io::println("Total: {}", tot…  │
+│   ││ • Add them together into total.                  ││ 11 │     return 0;                      │
+│   ││                                                  ││ 12 │ }                                  │
 │   ││   i32 total = 40 + 2;                            ││                                         │
+│   ││                                                  ││                                         │
 │   │╰──────────────────────────────────────────────────╯╰─────────────────────────────────────────╯
 │   │╭─ Results ───────────────────────────────────────────────────────────────────────────────────╮
 │   ││ No check yet.                                                                               ┃

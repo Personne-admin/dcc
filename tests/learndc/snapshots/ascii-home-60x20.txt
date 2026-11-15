@@ -1,5 +1,5 @@
   1 Home  2  3  4  5  6  7
-+- Home ---------------------------------------------------+
++----------------------------------------------------------+
 | Continue where you left off                              |
 | > [~] Variables and mutation   beginner     in progress  |
 |     fundamentals/variables - fix behavior - last check ~ |

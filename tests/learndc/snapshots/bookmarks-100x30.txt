@@ -1,5 +1,5 @@
  Learn DC · Bookmarks                                                 1 of 6 completed ██░░░░░░░░░░
-╭─ Menu ───────────────╮╭─ Bookmarks ──────────────────────────────────────────────────── 1 saved ─╮
+╭─ Menu ───────────────╮╭──────────────────────────────────────────────────────────────── 1 saved ─╮
 │   1 Home             ││ › ○ Grouping data in structs                   intermediate not started  │
 │   2 Learn            ││                                                                          │
 │   3 Exercise         ││                                                                          │

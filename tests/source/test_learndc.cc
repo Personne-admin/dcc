@@ -4546,6 +4546,32 @@ TEST_CASE("doctor reports missing tools with actionable fixes")
     CHECK_EQ(j.find("items")->size(), report.items.size());
 }
 
+TEST_CASE("doctor does not show a startup log line as a version")
+{
+    TempDir t;
+    doctor::DoctorOptions o;
+    platform::Overrides ov;
+    ov.home = t.path;
+    o.dirs = platform::resolve_dirs(ov, platform::Env{}).value();
+    o.env["PATH"] = platform::path_to_utf8(t.path / "none");
+    o.os = platform::Os::Linux;
+    auto const script = t.path / "dccd";
+    write_file(script, "#!/bin/sh\necho '[dccd] dcc language server started at /tmp/x/dccd'\n");
+    std::filesystem::permissions(script, std::filesystem::perms::owner_all);
+    o.tools.dccd.name = "dccd";
+    o.tools.dccd.path = script;
+    o.tools.dccd.source = toolchain::Source::Sibling;
+    auto content = base_source();
+    o.content = &content;
+    auto report = doctor::run_doctor(o);
+    auto const* dccd = report.find("dccd");
+    REQUIRE(dccd != nullptr);
+    CHECK(dccd->status == doctor::Status::Ok);
+    CHECK(dccd->detail.find("[dccd]") == std::string::npos);
+    CHECK(dccd->detail.find("started") == std::string::npos);
+    CHECK(dccd->detail.find(platform::path_to_utf8(script)) != std::string::npos);
+}
+
 TEST_CASE("doctor flags broken content unwritable dirs and terminal problems")
 {
     TempDir t;
@@ -5240,11 +5266,12 @@ expect_stdout = "Total: 40\n"
     {
         auto const dir = std::format("tracks/{}/{}/", track, name);
         s.add(dir + "exercise.toml", tui_exercise_toml(track, name, title, summary, difficulty, kind, minutes, prerequisites));
-        s.add(dir + "README.md", std::string(tui_readme));
+        s.add(dir + "README.md", text::replace_all(tui_readme, "# Variables and mutation", std::format("# {}", title)));
         s.add(dir + "hints.md",
               "## Hint 1\n\nRead the failing check: it names the value it expected.\n\n## Hint 2\n\nLook at the operator on the line that computes total.\n\n"
               "## Hint 3\n\nTax is added to the price, not subtracted from it.\n");
-        s.add(dir + "explanation.md", "Adding the tax to the price gives the total. The minus sign subtracted it instead.\n");
+        s.add(dir + "explanation.md",
+              "# Why the solution works\n\nAdding the tax to the price gives the total. The minus sign subtracted it instead.\n\n```dc\ni32 total = price + tax;\n```\n");
         s.add(dir + "starter/project.dcon", "dpm::v1::Project { name = \"prog\" }\n");
         s.add(dir + "starter/src/main.dc", std::string(tui_main_source));
         s.add(dir + "solution/src/main.dc", std::string(tui_solution_source));
@@ -5786,8 +5813,9 @@ TEST_CASE("tui marks results stale when files change and coalesces watch reruns"
     CHECK(fx.empty());
     CHECK(!m.exercise.stale);
     fx = press(m, "Esc");
-    CHECK(has_effect<tm::StopWatch>(fx));
-    CHECK(!m.exercise.watching);
+    CHECK(!has_effect<tm::StopWatch>(fx));
+    CHECK(m.exercise.watching);
+    CHECK(m.screen == tm::Screen::Home);
 }
 
 TEST_CASE("tui detects edits made by an external editor")
@@ -6093,7 +6121,7 @@ TEST_CASE("tui snapshots of toasts")
     snap(m, "toast-started", {{100, 30}, {60, 20}});
     press(m, "b");
     snap(m, "toast-bookmarked", {{100, 30}});
-    m.handle(tm::Tick{9000});
+    m.handle(tm::Tick{1000});
     CHECK_EQ(m.toasts.size(), 1u);
     m.handle(tm::Tick{20000});
     CHECK(m.toasts.empty());
@@ -6366,7 +6394,7 @@ TEST_CASE("markdown plain mode has no box drawing and aligns tables with spaces"
     std::string const src = "# Title\n\nUse `code` and **bold**.\n\n| Name | Count |\n| :--- | ---: |\n| alpha | 5 |\n| beta | 120 |\n\n- item\n\n```\nraw\n```\n";
     auto const out = md_text(src, 40, true);
     CHECK_EQ(out,
-             "# Title\n\nUse `code` and bold.\n\n"
+             "Title\n\nUse `code` and bold.\n\n"
              "Name   Count\n"
              "-----  -----\n"
              "alpha      5\n"
@@ -6375,8 +6403,104 @@ TEST_CASE("markdown plain mode has no box drawing and aligns tables with spaces"
              "    raw\n");
     for (char c : out)
         CHECK(static_cast<unsigned char>(c) < 0x80);
-    CHECK_EQ(md::render_plain("## Sub\ntext"), "## Sub\n\ntext\n");
+    CHECK_EQ(md::render_plain("## Sub\ntext"), "Sub\n\ntext\n");
     CHECK_EQ(md::render_plain("[a](b)"), "a (b)\n");
+}
+
+TEST_CASE("markdown keeps the spaces inside code spans")
+{
+    auto const spans = md_spans("a ` 42` b `x  y` c `{:^6}`");
+    CHECK(has_span(spans, " 42", md::Kind::Code));
+    CHECK(has_span(spans, "x  y", md::Kind::Code));
+    CHECK(has_span(spans, "{:^6}", md::Kind::Code));
+    std::string const table = "| Spec | Result |\n| --- | --- |\n| `{:6}` | ` 42` |\n| `{:<6}` | `42 ` |\n";
+    auto const stacked = md_text(table, 16);
+    CHECK(stacked.find("Result:  42") != std::string::npos);
+    CHECK(stacked.find("Result: 42 \n") != std::string::npos);
+    CHECK(stacked.find('\xC2') == std::string::npos);
+    auto const plain = md_text(table, 60, true);
+    CHECK(plain.find("{:6}") != std::string::npos);
+    CHECK(plain.find("` 42`") != std::string::npos);
+    CHECK(plain.find("`42 `") != std::string::npos);
+    CHECK(plain.find("`{:6}`") == std::string::npos);
+    CHECK(plain.find("Spec") != std::string::npos);
+    CHECK(plain.find('\xC2') == std::string::npos);
+}
+
+TEST_CASE("markdown plain tables drop the backticks around simple code so they fit and align")
+{
+    std::string const src = "| function | result |\n| --- | --- |\n| `sum_of_squares(a, b)` | the square of `a` plus the square of `b`; reuse `square` |\n"
+                            "| `square(n)` | `n` times `n` |\n";
+    auto const out = md_text(src, 80, true);
+    auto const lines = text::split_lines(out);
+    REQUIRE(lines.size() >= 4u);
+    CHECK(lines[0].starts_with("function"));
+    CHECK(lines[1].starts_with("--------"));
+    CHECK(out.find("function: ") == std::string::npos);
+    CHECK(fits_width(out, 80));
+    auto const col = lines[2].find("the square");
+    REQUIRE(col != std::string::npos);
+    CHECK_EQ(lines[3].find("n times n"), col);
+    CHECK_EQ(lines[0].find("result"), col);
+}
+
+TEST_CASE("markdown drops quoted code blocks and named sections")
+{
+    std::string const explanation = "# Why\n\nText.\n\n```dc\ni32 total = price + tax;\n    return 0;\n```\n\nMore.\n\n```dc\nsomething else();\n```\n";
+    std::vector<std::string> const refs = {"module main;\n    i32 total = price + tax;\nreturn 0;\n"};
+    auto const out = md::drop_quoted_code(explanation, refs);
+    CHECK(out.find("price + tax") == std::string::npos);
+    CHECK(out.find("something else();") != std::string::npos);
+    CHECK(out.find("```dc\nsomething else();\n```") != std::string::npos);
+    CHECK(out.find("Text.") != std::string::npos);
+    CHECK(out.find("More.") != std::string::npos);
+    CHECK_EQ(md::drop_quoted_code(explanation, {}), explanation);
+    std::string const readme = "# T\n\nIntro.\n\n## Your task\n\nDo it.\n\n```\n## Acceptance criteria\n```\n\n## Acceptance criteria\n\n- one\n- two\n\n## After\n\nEnd.\n";
+    auto const trimmed = md::drop_section(readme, "acceptance criteria");
+    CHECK(trimmed.find("- one") == std::string::npos);
+    CHECK(trimmed.find("Do it.") != std::string::npos);
+    CHECK(trimmed.find("## After\n\nEnd.") != std::string::npos);
+    CHECK(trimmed.find("```\n## Acceptance criteria\n```") != std::string::npos);
+    CHECK_EQ(md::drop_section(readme, "missing"), readme);
+}
+
+TEST_CASE("cli show hint and solution print plain readable markdown without a repeated title")
+{
+    char const* content = std::getenv("DCC_TEST_LEARNDC_CONTENT");
+    REQUIRE(content != nullptr);
+    CliFixture f;
+    f.content = std::filesystem::path(content);
+    auto source = catalog::load_directory(content);
+    REQUIRE(source);
+    auto loaded = catalog::Catalog::load(*source);
+    REQUIRE(loaded);
+    CHECK_EQ(loaded->exercises().size(), 23u);
+    for (auto const& ex : loaded->exercises())
+    {
+        auto const& id = ex.id;
+        auto const& title = ex.title;
+        auto const shown = f.run({"show", id});
+        CHECK_EQ(shown.code, 0);
+        std::size_t titles = 0;
+        for (auto const& line : text::split_lines(shown.out))
+        {
+            CHECK(!line.starts_with("#"));
+            CHECK(!line.starts_with("Acceptance criteria"));
+            if (line == title)
+                ++titles;
+        }
+        if (titles != 1u)
+            std::println(std::cerr, "      {}: title printed {} times", id, titles);
+        CHECK_EQ(titles, 1u);
+        auto const hint = f.run({"hint", id});
+        CHECK_EQ(hint.code, 0);
+        for (auto const& line : text::split_lines(hint.out))
+            CHECK(!line.starts_with("#"));
+        CHECK(shown.out.find('\xE2') == std::string::npos);
+    }
+    auto const functions = f.run({"show", "fundamentals/functions"});
+    CHECK(functions.out.find("function: ") == std::string::npos);
+    CHECK(functions.out.find("\n--------") != std::string::npos);
 }
 
 TEST_CASE("markdown sanitizes terminal escapes in its input")
@@ -6585,9 +6709,9 @@ TEST_CASE("tui watch mode shows a banner with the workspace and live state")
     m.handle(tm::Resize{100, 30});
     auto const waiting = learndc::tui::render_snapshot(m, 100, 30);
     CHECK(waiting.find("WATCH ON") != std::string::npos);
-    CHECK(waiting.find("WATCHING") != std::string::npos);
+    CHECK(waiting.find("WATCHING") == std::string::npos);
     CHECK(waiting.find("Waiting for changes") != std::string::npos);
-    CHECK(waiting.find("Watching ") != std::string::npos);
+    CHECK(waiting.find(root) != std::string::npos);
 
     m.handle(tm::Tick{5000, "10:00:00"});
     fx = m.handle(tm::FilesChanged{});
@@ -6617,7 +6741,10 @@ TEST_CASE("tui watch mode shows a banner with the workspace and live state")
     CHECK_EQ(status.clock, "10:00:04");
     snap_fixed("watch-result", {{100, 30}, {80, 24}, {60, 20}});
     m.handle(tm::Resize{100, 30});
-    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Last result: failed at 10:00:04") != std::string::npos);
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Checked at 10:00:04") != std::string::npos);
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Last result") == std::string::npos);
+    CHECK(learndc::tui::render_snapshot(m, 60, 20).find("2 of 3 checks passed") != std::string::npos);
+    m.handle(tm::Resize{100, 30});
 
     press(m, "?");
     CHECK(m.screen == tm::Screen::Help);
@@ -6634,11 +6761,9 @@ TEST_CASE("tui watch mode shows a banner with the workspace and live state")
     auto const after = learndc::tui::render_snapshot(m, 100, 30);
     CHECK(after.find("WATCH") == std::string::npos);
     CHECK(after.find("Watching") == std::string::npos);
-    CHECK(after.find("Last result:") == std::string::npos);
+    CHECK(after.find("Checked at") == std::string::npos);
     press(m, "w");
-    CHECK(m.watch_status().phase == tm::WatchPhase::Result);
-    CHECK(m.watch_status().clock.empty());
-    CHECK(m.watch_status().age_ms < 0);
+    CHECK(m.watch_status().phase == tm::WatchPhase::Waiting);
     press(m, "w");
     tm::Model twin(*w.ctx, {100, 30});
     press(twin, "3");
@@ -6647,17 +6772,67 @@ TEST_CASE("tui watch mode shows a banner with the workspace and live state")
     CHECK_EQ(learndc::tui::render_snapshot(m, 100, 30), learndc::tui::render_snapshot(twin, 100, 30));
 }
 
-TEST_CASE("tui watch banner disappears when leaving the exercise")
+TEST_CASE("tui watch keeps running on other screens with a header indicator")
 {
     TuiWorld w;
     tm::Model m(*w.ctx, {100, 30});
     press(m, "3");
     press(m, "w");
     CHECK(m.exercise.watching);
-    auto fx = press(m, "2");
+    auto const on_exercise = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(on_exercise.find("WATCH ON") != std::string::npos);
+    CHECK(on_exercise.find("WATCHING") == std::string::npos);
+    for (auto const* key : {"2", "4", "5", "6", "7", "1"})
+    {
+        auto fx = press(m, key);
+        CHECK(!has_effect<tm::StopWatch>(fx));
+        CHECK(m.exercise.watching);
+        for (auto const& size : std::vector<std::pair<int, int>>{{100, 30}, {80, 24}, {60, 20}})
+        {
+            m.handle(tm::Resize{size.first, size.second});
+            auto const out = learndc::tui::render_snapshot(m, size.first, size.second);
+            CHECK(out.find("WATCHING") != std::string::npos);
+            CHECK(out.find("WATCH ON") == std::string::npos);
+        }
+        m.handle(tm::Resize{100, 30});
+    }
+    press(m, "3");
+    CHECK(m.screen == tm::Screen::Exercise);
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("WATCH ON") != std::string::npos);
+    auto fx = m.handle(tm::FilesChanged{});
+    CHECK(has_effect<tm::StartCheck>(fx));
+    press(m, "2");
+    CHECK(m.exercise.phase == tm::CheckPhase::Running);
+    m.handle(tm::CheckDone{failing_report(platform::path_to_utf8(m.exercise.ws->root))});
+    CHECK(m.exercise.report.has_value());
+    CHECK(m.exercise.watching);
+    press(m, "3");
+    fx = press(m, "w");
     CHECK(has_effect<tm::StopWatch>(fx));
-    CHECK(m.watch_status().phase == tm::WatchPhase::Off);
+    CHECK(!m.exercise.watching);
+    press(m, "2");
     CHECK(learndc::tui::render_snapshot(m, 100, 30).find("WATCH") == std::string::npos);
+}
+
+TEST_CASE("tui opening another exercise stops watch and says so")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "w");
+    REQUIRE(m.exercise.watching);
+    press(m, "2");
+    press(m, "Down");
+    press(m, "Down");
+    auto const fx = press(m, "Enter");
+    CHECK(has_effect<tm::StopWatch>(fx));
+    CHECK(!m.exercise.watching);
+    REQUIRE(!m.toasts.empty());
+    CHECK(m.toasts.back().text.find("Watch stopped") != std::string::npos);
+    CHECK(m.watch_status().phase == tm::WatchPhase::Off);
+    auto const out = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(out.find("WATCH") == std::string::npos);
+    CHECK(out.find("Watch stopped") != std::string::npos);
 }
 
 TEST_CASE("tui exercise complete opens a modal that stays until dismissed")
@@ -6817,6 +6992,292 @@ TEST_CASE("tui confirmation dialogs show their own choices once")
     auto const quit = learndc::tui::render_snapshot(m, 100, 30);
     CHECK(quit.find("[y] Quit") != std::string::npos);
     CHECK(quit.find("[n] Stay") != std::string::npos);
+}
+
+TEST_CASE("tui toasts do not outlive their context and replace each other")
+{
+    TuiWorld w(false);
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "2");
+    press(m, "Enter");
+    press(m, "Enter");
+    REQUIRE(m.toasts.size() == 1u);
+    CHECK_EQ(m.toasts.front().text, "Created your files");
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Created your files") != std::string::npos);
+    press(m, "s");
+    REQUIRE(m.dialog.kind == tm::DialogKind::Solution);
+    CHECK(m.toasts.empty());
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Created your files") == std::string::npos);
+    press(m, "n");
+    press(m, "b");
+    REQUIRE(m.toasts.size() == 1u);
+    CHECK(m.toasts.front().text.find("Bookmarked") != std::string::npos);
+    press(m, "b");
+    REQUIRE(m.toasts.size() == 1u);
+    CHECK(m.toasts.front().text.find("Removed the bookmark") != std::string::npos);
+    press(m, "?");
+    CHECK(m.screen == tm::Screen::Help);
+    CHECK(m.toasts.empty());
+    press(m, "Esc");
+    press(m, "Esc");
+    press(m, "2");
+    press(m, "Down");
+    press(m, "Enter");
+    CHECK(m.toasts.empty());
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Created your files") == std::string::npos);
+    press(m, "Enter");
+    REQUIRE(!m.toasts.empty());
+    press(m, "R");
+    CHECK(m.dialog.kind == tm::DialogKind::Reset);
+    CHECK(m.toasts.empty());
+}
+
+TEST_CASE("tui hides the status line while a dialog is open")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "b");
+    REQUIRE(!m.toasts.empty());
+    press(m, "R");
+    type_text(m, "q");
+    press(m, "Enter");
+    REQUIRE(m.dialog.kind == tm::DialogKind::Reset);
+    REQUIRE(!m.toasts.empty());
+    auto const text = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(text.find("The reset was not confirmed") == std::string::npos);
+}
+
+TEST_CASE("tui key recap keeps help, pane switching and quit at compact widths")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {60, 20});
+    for (auto const* key : {"3", "2", "1", "4", "5", "6", "7"})
+    {
+        press(m, key);
+        auto const lines = text::split_lines(learndc::tui::render_snapshot(m, 60, 20));
+        REQUIRE(!lines.empty());
+        auto const& bar = lines.back();
+        CHECK(bar.find("? help") != std::string::npos);
+        CHECK(bar.find("q quit") != std::string::npos);
+        CHECK(static_cast<int>(text::display_width(bar)) <= 60);
+    }
+    press(m, "3");
+    auto const bar = text::split_lines(learndc::tui::render_snapshot(m, 60, 20)).back();
+    CHECK(bar.find("Tab pane") != std::string::npos);
+    CHECK(bar.find("e edit") != std::string::npos);
+    for (int i = 0; i < 3; ++i)
+    {
+        press(m, "Tab");
+        CHECK(text::split_lines(learndc::tui::render_snapshot(m, 60, 20)).back() == bar);
+    }
+}
+
+TEST_CASE("tui states each fact once per screen")
+{
+    TuiWorld w(false);
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "2");
+    press(m, "Enter");
+    auto count = [](std::string const& haystack, std::string_view needle) {
+        std::size_t n = 0;
+        auto const lower = text::lower(haystack);
+        for (auto at = lower.find(needle); at != std::string::npos; at = lower.find(needle, at + 1))
+            ++n;
+        return n;
+    };
+    for (auto const& size : std::vector<std::pair<int, int>>{{100, 30}, {80, 24}, {60, 20}})
+    {
+        m.handle(tm::Resize{size.first, size.second});
+        for (int pane = 0; pane < 3; ++pane)
+        {
+            auto const out = learndc::tui::render_snapshot(m, size.first, size.second);
+            if (count(out, "not started") > 1u)
+                std::println(std::cerr, "      {}x{} pane {}\n{}", size.first, size.second, pane, out);
+            CHECK(count(out, "not started") <= 1u);
+            press(m, "Tab");
+        }
+    }
+    press(m, "Enter");
+    for (auto const& size : std::vector<std::pair<int, int>>{{100, 30}, {80, 24}, {60, 20}})
+    {
+        m.handle(tm::Resize{size.first, size.second});
+        for (int pane = 0; pane < 3; ++pane)
+        {
+            auto const out = learndc::tui::render_snapshot(m, size.first, size.second);
+            if (count(out, "no check yet") > 1u)
+                std::println(std::cerr, "      {}x{} pane {}\n{}", size.first, size.second, pane, out);
+            CHECK(count(out, "no check yet") <= 1u);
+            press(m, "Tab");
+        }
+    }
+    press(m, "c");
+    m.handle(tm::CheckDone{failing_report(platform::path_to_utf8(m.exercise.ws->root))});
+    for (auto const& size : std::vector<std::pair<int, int>>{{100, 30}, {80, 24}, {60, 20}})
+    {
+        m.handle(tm::Resize{size.first, size.second});
+        for (int pane = 0; pane < 3; ++pane)
+        {
+            auto const out = learndc::tui::render_snapshot(m, size.first, size.second);
+            if (count(out, "of 3 checks passed") + count(out, "of 2 checks passed") > 1u)
+                std::println(std::cerr, "      {}x{} pane {}\n{}", size.first, size.second, pane, out);
+            CHECK(count(out, "checks passed") <= 1u);
+            press(m, "Tab");
+        }
+    }
+}
+
+TEST_CASE("tui preview follows the file after an external change and a check")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    auto const file = m.exercise.ws->root / "src" / "main.dc";
+    write_file(file, "module main;\npublic i32 main() { return 7; }\n");
+    press(m, "c");
+    bool refreshed = false;
+    for (auto const& line : m.exercise.preview_lines)
+        refreshed = refreshed || line.find("return 7") != std::string::npos;
+    CHECK(refreshed);
+    write_file(file, "module main;\npublic i32 main() { return 9; }\n");
+    m.handle(tm::CheckDone{failing_report(platform::path_to_utf8(m.exercise.ws->root))});
+    refreshed = false;
+    for (auto const& line : m.exercise.preview_lines)
+        refreshed = refreshed || line.find("return 9") != std::string::npos;
+    CHECK(refreshed);
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("return 9") != std::string::npos);
+}
+
+TEST_CASE("tui solution view lists the solution once and never clips a diff line")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "s");
+    press(m, "y");
+    REQUIRE(m.exercise.solution.has_value());
+    CHECK(m.exercise.solution->explanation.find("i32 total = price + tax;") == std::string::npos);
+    CHECK(m.exercise.solution->explanation.find("Adding the tax") != std::string::npos);
+    auto const out = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(out.find("your files vs the solution") == std::string::npos);
+    CHECK(out.find("yours") != std::string::npos);
+    CHECK(out.find("solution") != std::string::npos);
+    write_file(m.exercise.ws->root / "src" / "main.dc",
+               "module main;\n\npublic i32 main()\n{\n    i32 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa = 40;\n    return 0;\n}\n");
+    press(m, "Esc");
+    press(m, "s");
+    press(m, "y");
+    REQUIRE(m.exercise.solution.has_value());
+    m.handle(tm::Resize{100, 80});
+    auto const tall = learndc::tui::render_snapshot(m, 100, 80);
+    CHECK(tall.find("\xE2\x80\xA6") == std::string::npos);
+    std::size_t total = 0;
+    for (std::size_t i = 0; i < tall.size();)
+    {
+        if (tall[i] != 'a')
+        {
+            ++i;
+            continue;
+        }
+        std::size_t j = i;
+        while (j < tall.size() && tall[j] == 'a')
+            ++j;
+        if (j - i >= 10)
+            total += j - i;
+        i = j;
+    }
+    CHECK_EQ(total, 59u);
+}
+
+TEST_CASE("tui build errors are shown once in the results")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "c");
+    m.handle(tm::CheckDone{build_error_report(platform::path_to_utf8(m.exercise.ws->root))});
+    press(m, "Tab");
+    press(m, "Tab");
+    auto const out = learndc::tui::render_snapshot(m, 100, 30);
+    auto first = out.find("unknown name");
+    REQUIRE(first != std::string::npos);
+    CHECK(out.find("unknown name", first + 1) == std::string::npos);
+    CHECK(out.find("Compiler output:") == std::string::npos);
+    press(m, "l");
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Compiler output:") != std::string::npos);
+}
+
+TEST_CASE("tui screen names are not repeated in the pane titles")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    for (auto const* key : {"1", "2", "4", "5", "6", "7"})
+    {
+        press(m, key);
+        auto const lines = text::split_lines(learndc::tui::render_snapshot(m, 100, 30));
+        auto const& top = lines[1];
+        for (auto const* name : {"Home", "Learn", "Progress", "Bookmarks", "Doctor", "Settings"})
+            CHECK(top.find(std::format("\xE2\x94\x80 {} ", name)) == std::string::npos);
+    }
+    press(m, "4");
+    auto const out = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(out.find("of 6 completed") != std::string::npos);
+    std::size_t n = 0;
+    for (auto at = out.find("of 6 completed"); at != std::string::npos; at = out.find("of 6 completed", at + 1))
+        ++n;
+    CHECK_EQ(n, 1u);
+}
+
+TEST_CASE("tui exercise layout has no gap above the results at 80x24")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {80, 24});
+    press(m, "3");
+    press(m, "Tab");
+    auto const lines = text::split_lines(learndc::tui::render_snapshot(m, 80, 24));
+    int results_row = -1;
+    int files_bottom = -1;
+    for (std::size_t i = 0; i < lines.size(); ++i)
+    {
+        if (lines[i].find("Results") != std::string::npos)
+            results_row = static_cast<int>(i);
+        if (lines[i].find("\xE2\x95\xB0") != std::string::npos && files_bottom < 0)
+            files_bottom = static_cast<int>(i);
+    }
+    REQUIRE(results_row > 0);
+    REQUIRE(files_bottom > 0);
+    CHECK_EQ(results_row, files_bottom + 1);
+}
+
+TEST_CASE("tui dialogs show their choices once and leave the recap empty")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "R");
+    REQUIRE(m.dialog.kind == tm::DialogKind::Reset);
+    CHECK(m.key_hints().empty());
+    auto const reset = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(reset.find("[Enter] Reset") != std::string::npos);
+    CHECK(reset.find("[Esc] Cancel") != std::string::npos);
+    CHECK(reset.find("type y") == std::string::npos);
+    CHECK(text::split_lines(reset).back().find_first_not_of(' ') == std::string::npos);
+    press(m, "Esc");
+    press(m, "c");
+    runner::CheckReport pass;
+    pass.exercise = "fundamentals/variables";
+    pass.outcome = runner::Outcome::Passed;
+    pass.passed = 3;
+    pass.total = 3;
+    m.handle(tm::CheckDone{pass});
+    REQUIRE(m.dialog.kind == tm::DialogKind::Complete);
+    CHECK(m.key_hints().empty());
+    CHECK(text::split_lines(learndc::tui::render_snapshot(m, 100, 30)).back().find_first_not_of(' ') == std::string::npos);
+    press(m, "Esc");
+    press(m, "7");
+    press(m, "Enter");
+    REQUIRE(m.dialog.kind == tm::DialogKind::Choice);
+    CHECK(m.key_hints().empty());
 }
 
 TEST_CASE("tui doctor terminal item follows the live size and layout")

@@ -1,20 +1,20 @@
  Learn DC · Variables and mutation                                    1 of 6 completed ██░░░░░░░░░░
 ╭───╮╭─ Instructions ───────────────────────────────────╮╭─ Files ─────────────────────────────────╮
 │ 1 ││ beginner · 10 min                                ┃│   project.dcon                          │
-│ 2 ││ fix behavior                                     ┃│ › src/main.dc  entry                    │
-│ 3 ││ in progress                                      ┃╰─────────────────────────────────────────╯
-│ 4 ││                                                  ┃╭─ Preview: src/main.dc ──────────────────╮
-│ 5 ││ Fix the arithmetic so the program prints the     ┃│  1 │ module main;                       ┃
-│ 6 ││ right total.                                     ┃│  2 │                                    ┃
-│ 7 ││                                                  ┃│  3 │ import std::io;                    ┃
-│   ││ Goals                                            ││  4 │                                    ┃
-│ ? ││ • Make every check pass                          ││  5 │ public i32 main()                  ┃
-│   ││ • Read the diagnostics before changing code      ││  6 │ {                                  ┃
-│   ││                                                  ││  7 │     i32 price = 40;                ┃
-│   ││ A variable gives a name to a value. Declare it   ││  8 │     i32 tax = 2;                   ┃
-│   ││ with its type, then use the name wherever you    ││  9 │     i32 total = price - tax;       ┃
-│   ││ need the value.                                  ││ 10 │     io::println("Total: {}", tot…  ┃
-│   ││                                                  ││ 11 │     return 0;                      │
+│ 2 ││ fix behavior · in progress                       ┃│ › src/main.dc  entry                    │
+│ 3 ││                                                  ┃╰─────────────────────────────────────────╯
+│ 4 ││ Fix the arithmetic so the program prints the     ┃╭─ Preview: src/main.dc ──────────────────╮
+│ 5 ││ right total.                                     ┃│  1 │ module main;                       ┃
+│ 6 ││                                                  ┃│  2 │                                    ┃
+│ 7 ││ Goals                                            ┃│  3 │ import std::io;                    ┃
+│   ││ • Make every check pass                          ││  4 │                                    ┃
+│ ? ││ • Read the diagnostics before changing code      ││  5 │ public i32 main()                  ┃
+│   ││                                                  ││  6 │ {                                  ┃
+│   ││ A variable gives a name to a value. Declare it   ││  7 │     i32 price = 40;                ┃
+│   ││ with its type, then use the name wherever you    ││  8 │     i32 tax = 2;                   ┃
+│   ││ need the value.                                  ││  9 │     i32 total = price - tax;       ┃
+│   ││                                                  ││ 10 │     io::println("Total: {}", tot…  ┃
+│   ││ • Declare price and tax as i32.                  ││ 11 │     return 0;                      │
 │   │╰──────────────────────────────────────────────────╯╰─────────────────────────────────────────╯
 │   │╭─ › Results ─────────────────────────────────────────────────────────────────────────────────╮
 │   ││ ✗ 2 of 3 checks passed · 0.31s                                                              │

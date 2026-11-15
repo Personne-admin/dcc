@@ -8,12 +8,13 @@
 
 
 
-
                    ╭─ Reset to the starter files? ──────────────────────────────╮
                    │ Your current files are copied to a backup first, then      │
                    │ replaced by the starter files.                             │
                    │                                                            │
                    │ Confirm: y_                                                │
+                   │                                                            │
+                   │ [Enter] Reset   [Esc] Cancel                               │
                    ╰────────────────────────────────────────────────────────────╯
 
 
@@ -27,4 +28,3 @@
 
 
 
- type y confirm  Enter reset  Esc cancel

@@ -1,24 +1,24 @@
  Learn DC · Help                                  1 of 6 completed ██░░░░░░░░░░
-╭─ Menu ─────────╮╭─ Help ─────────────────────────────────────────────────────╮
+╭─ Menu ─────────╮╭────────────────────────────────────────────────────────────╮
 │   1 Home       ││ Keys on the Exercise screen                                ┃
 │   2 Learn      ││   Tab           move between instructions, files and       ┃
 │ › 3 Exercise   ││                 results                                    ┃
 │   4 Progress   ││   Up Down       scroll, or choose a file when the files    ┃
 │   5 Bookmarks  ││                 pane is focused                            ┃
-│   6 Doctor     ││   Enter         start the exercise (first time) or edit    ┃
-│   7 Settings   ││                 the chosen file                            ┃
-│                ││   e             edit the chosen file in your editor        ┃
-│   ? Help       ││   o             open the workspace folder (graphical       ┃
-│                ││                 editors)                                   │
+│   6 Doctor     ││   e / Enter     start the exercise, then edit the chosen   ┃
+│   7 Settings   ││                 file in your editor                        ┃
+│                ││   o             open the workspace folder (graphical       ┃
+│   ? Help       ││                 editors)                                   ┃
 │                ││   c             run the checks                             │
-│                ││   x             cancel a running check                     │
+│                ││   x             cancel the running check                   │
 │                ││   r             build and run your program                 │
 │                ││   w             watch: run the checks whenever a file      │
-│                ││                 changes; a banner shows the state          │
+│                ││                 changes                                    │
 │                ││   h             reveal the next hint                       │
 │                ││   s             show the reference solution (asks first)   │
 │                ││   l             show or hide the raw compiler and program  │
 │                ││                 output                                     │
+│                ││   n             go to the next exercise                    │
 ╰────────────────╯╰────────────────────────────────────────────────────────────╯
 
  Up Down scroll  Esc back

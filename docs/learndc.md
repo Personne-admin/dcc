@@ -7,7 +7,7 @@ learndc is an adjacent learning option. It does not replace `dpm new` and `dpm r
 Status of this release:
 
 - The command line described below is complete and was tested on Linux.
-- The full-screen interface is not available yet in the current build: running `learndc` without a command prints a notice and points you to `learndc --help`. The TUI sections below describe the intended behavior and will be confirmed when the interface lands. Everything the interface does is also available as commands, so you can learn today.
+- The full-screen interface opens when you run `learndc` without a command in a terminal. Everything it does is also available as commands.
 - Windows: learndc is cross-compiled for Windows but has not been validated natively. `learndc.exe` is not in the MSI yet. See [Platform status](#platform-status).
 
 ## Contents
@@ -89,7 +89,7 @@ Run `learndc` with no command in an interactive terminal (stdin and stdout both 
 
 Screens: Home (continue where you stopped, the recommended next exercise, progress per path), Learn (every exercise with status, filters and search), Exercise (instructions, files, results), Progress, Bookmarks, Doctor, Settings, Help and a first-run Onboarding. The number keys 1 to 7 switch between the main screens.
 
-Each screen follows two rules. The bottom bar is a short recap of the keys that matter in the current context, and it stays the same while you move between panes. The Help screen (`?`) is the complete key reference and lists the keys of the screen you came from. The keymap is written down once, here:
+Each screen follows two rules. The bottom bar is a short recap of the keys that matter in the current context. It stays the same while you move between panes, drops the least important keys (never Tab, `?` and `q`) when the window is narrow, and is empty while a dialog is open because the dialog shows its own choices. A status message such as "Created your files" is shown for a few seconds and disappears as soon as you open a dialog or change screen. The Help screen (`?`) is the complete key reference and lists the keys of the screen you came from. The keymap is written down once, here:
 
 | Key | Where | Action |
 | --- | --- | --- |
@@ -97,7 +97,7 @@ Each screen follows two rules. The bottom bar is a short recap of the keys that 
 | `?` | everywhere | open Help |
 | `Esc` | everywhere | go back, or close a dialog |
 | `q` | everywhere | quit (asks first while a check is running) |
-| `Ctrl+C` | everywhere | cancel a running check; a second press quits |
+| `Ctrl+C` | everywhere | cancel a running check; with none running, quit |
 | `Up` `Down` | lists, panes | move or scroll |
 | `Enter` | lists | open the chosen item |
 | `n` | Home, Exercise | open the recommended or next exercise |
@@ -116,13 +116,13 @@ Each screen follows two rules. The bottom bar is a short recap of the keys that 
 | `R` | Exercise | reset to the starter files (backup first, asks for a typed `y`) |
 | `r` `t` | Doctor | check again; check again with a real test build |
 
-Exercise screen. The instructions, hints and explanations are rendered from Markdown: headings, wrapped paragraphs, bullet and numbered lists with hanging indents, fenced code blocks (clipped, never re-wrapped), inline code, bold and italic, pipe tables (a table that does not fit the width is shown as stacked `Header: value` lines) and links shown as `text (url)`. Inline code is drawn in its own color, and in the `no-color` and `high-contrast` themes in inverse video. The sidebar shrinks to a narrow column of numbers on this screen so the instructions get the width.
+Exercise screen. The instructions, hints and explanations are rendered from Markdown: headings, wrapped paragraphs, bullet and numbered lists with hanging indents, fenced code blocks (clipped, never re-wrapped), inline code, bold and italic, pipe tables (a table that does not fit the width is shown as stacked `Header: value` lines, keeping the spaces inside code) and links shown as `text (url)`. Inline code is drawn in its own color, and in the `no-color` and `high-contrast` themes in inverse video. The sidebar shrinks to a narrow column of numbers on this screen so the instructions get the width.
 
-Watch mode. While watch is on, a banner at the top of the exercise screen shows the watched workspace path and the live state: waiting for changes, change detected and checking, or the last result with its time. The header shows `WATCHING` on every screen, including Help. Turning watch off, or leaving the exercise, removes the banner and the indicator completely.
+Watch mode. While watch is on, a banner at the top of the exercise screen shows the watched workspace path and the live state: waiting for changes, change detected and checking, or the time of the last check (the results themselves are in the Results pane). On every other screen, including Help, the header shows `WATCHING` instead, and watch keeps running there. Watch ends when you turn it off with `w` or open a different exercise (a message says so); the banner and the indicator then disappear completely.
 
 Running your program. `r` clears the terminal, prints a one-line header naming the program, runs it with the terminal attached, and returns to learndc after you press Enter.
 
-Completing an exercise. When the last failing check of an exercise passes for the first time, a modal dialog titled "Exercise complete" shows the exercise, how many checks passed, how many attempts and hints it took, and the next recommended exercise (or "All exercises complete"). It offers to open the next exercise or stay where you are, and it stays open until you choose; the same dialog appears when a watch run is the one that passes.
+Completing an exercise. When the last failing check of an exercise passes for the first time, a modal dialog titled "Exercise complete" (on whatever screen you are, when watch ran the check) shows the exercise, how many checks passed, how many attempts and hints it took, and the next recommended exercise (or "All exercises complete"). It offers to open the next exercise or stay where you are, and it stays open until you choose; the same dialog appears when a watch run is the one that passes.
 
 Doctor. The terminal size item always shows the current size and the layout in use, and updates when you resize the terminal.
 
@@ -130,7 +130,7 @@ Layout follows the terminal size: wide (at least 100x30), normal (at least 80x24
 
 Themes (`ui.theme`): `dark` (default), `light`, `high-contrast` and `no-color`. ASCII mode (`ui.ascii`: `auto`, `on`, `off`) replaces box drawing and symbols with plain ASCII; `auto` turns it on when the locale is not UTF-8. `--ascii` forces it for one run. Colors are off when stdout is not a terminal, when `NO_COLOR` is set, with `--no-color`, or with the `no-color` theme. Reduced motion (`ui.reduced_motion`) disables the spinner shown while a check runs.
 
-Accessibility: nothing depends on color alone (every result carries a word such as pass or FAIL), the ASCII and no-color modes need no special fonts, and there is no required animation. If a full-screen interface does not suit your screen reader, use the command line: every command prints linear, plain text, `--ascii --no-color` removes decoration, and `--json` gives structured data. The command line is a complete way to use learndc. Where the command line prints Markdown (`show`, `hint`, `solution --show`) it renders it as plain text: headings keep their `#` marks, inline code keeps its backticks, bold and italic markers are removed, code blocks are indented, and tables are aligned columns without box drawing (or `Header: value` lines when they are wider than 80 columns).
+Accessibility: nothing depends on color alone (every result carries a word such as pass or FAIL), the ASCII and no-color modes need no special fonts, and there is no required animation. If a full-screen interface does not suit your screen reader, use the command line: every command prints linear, plain text, `--ascii --no-color` removes decoration, and `--json` gives structured data. The command line is a complete way to use learndc. Where the command line prints Markdown (`show`, `hint`, `solution --show`) it renders it as plain text: headings are plain lines without `#` marks, the exercise title is printed once, inline code keeps its backticks (inside table cells only when it has leading or trailing spaces), bold and italic markers are removed, code blocks are indented, and tables are aligned columns without box drawing (or `Header: value` lines when they are wider than 80 columns). Both the command line and the interface leave out the README's "Acceptance criteria" section, because the checks are listed anyway, and the solution views leave out explanation code blocks that repeat the solution files already shown.
 
 ## Command reference
 

@@ -17,4 +17,4 @@
 │ 10 │     io::println("Total: {}", total);                │
 │ 11 │     return 0;                                       │
 ╰──────────────────────────────────────────────────────────╯
- e edit  c check  r run  h hint  s solution  w watch
+ e edit  c check  r run  h hint  Tab pane  ? help  q quit

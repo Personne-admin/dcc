@@ -4,11 +4,10 @@ No check yet.
 ╭─ › Instructions ─────────────────────────────────────────╮
 │ Variables and mutation                                   ┃
 │ beginner · 10 min                                        ┃
-│ fix behavior                                             ┃
-│ in progress                                              ┃
+│ fix behavior · in progress                               ┃
 │                                                          ┃
 │ Fix the arithmetic so the program prints the right       ┃
-│ total.                                                   │
+│ total.                                                   ┃
 │                                                          │
 │ Goals                                                    │
 │ • Make every check pass                                  │
@@ -16,5 +15,6 @@ No check yet.
 │                                                          │
 │ A variable gives a name to a value. Declare it with its  │
 │ type, then use the name wherever you need the value.     │
+│                                                          │
 ╰──────────────────────────────────────────────────────────╯
- e edit  c check  r run  h hint  s solution  w watch
+ e edit  c check  r run  h hint  Tab pane  ? help  q quit

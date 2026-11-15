@@ -201,7 +201,7 @@ namespace learndc::tui
                     return;
                 auto options = app::runner_options(m_ctx, runner::Backend::Dpm, nullptr);
                 m_screen->Post(m_screen->WithRestoredIO([this, ex, root = e.root, options = std::move(options)] {
-                    std::cout << "\x1b[2J\x1b[3J\x1b[H--- learndc: building and running " << text::sanitize(ex->title) << " ---\n" << std::flush;
+                    std::cout << "\x1b[2J\x1b[3J\x1b[H--- Running " << text::sanitize(ex->title) << " ---\n" << std::flush;
                     auto outcome = runner::build_and_run_interactive(*ex, root, options);
                     if (!outcome.ok && !outcome.diagnostics.empty())
                         std::cout << text::sanitize(outcome.diagnostics) << "\n";
@@ -216,7 +216,7 @@ namespace learndc::tui
                         message = std::format("Your program exited with code {}", *outcome.exit_code);
                     else
                         message = "Your program did not finish";
-                    std::cout << "\n--- " << message << ". Press Enter to return to learndc. ---\n" << std::flush;
+                    std::cout << "\n--- " << message << " ---\nPress Enter to return to learndc.\n" << std::flush;
                     std::string line;
                     std::getline(std::cin, line);
                     post(model::ProgramDone{outcome.ok, message});

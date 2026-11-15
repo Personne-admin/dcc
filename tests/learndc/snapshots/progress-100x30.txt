@@ -1,6 +1,6 @@
  Learn DC · Progress                                                  1 of 6 completed ██░░░░░░░░░░
-╭─ Menu ───────────────╮╭─ Progress ───────────────────────────────────────────────────────────────╮
-│   1 Home             ││ Overall  █████░░░░░░░░░░░░░░░░░░░░░░░░░  1 of 6 completed                │
+╭─ Menu ───────────────╮╭──────────────────────────────────────────────────────────────────────────╮
+│   1 Home             ││ Overall  █████░░░░░░░░░░░░░░░░░░░░░░░░░                                  │
 │   2 Learn            ││ 1 completed · 1 in progress · 4 not started                              │
 │   3 Exercise         ││                                                                          │
 │ › 4 Progress         ││ By path                                                                  │

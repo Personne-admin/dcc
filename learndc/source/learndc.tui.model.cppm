@@ -12,6 +12,7 @@ import learndc.doctor;
 import learndc.editor;
 import learndc.watch;
 import learndc.diff;
+import learndc.markdown;
 import learndc.app;
 
 export namespace learndc::tui::model
@@ -299,6 +300,7 @@ export namespace learndc::tui::model
         bool error = false;
         std::int64_t duration_ms = 4000;
         std::int64_t shown_ms = -1;
+        std::uint64_t seq = 0;
     };
 
     enum class DialogKind
@@ -510,13 +512,12 @@ export namespace learndc::tui::model
             case Screen::Exercise:
                 here.lines = {"Tab           move between instructions, files and results",
                               "Up Down       scroll, or choose a file when the files pane is focused",
-                              "Enter         start the exercise (first time) or edit the chosen file",
-                              "e             edit the chosen file in your editor",
+                              "e / Enter     start the exercise, then edit the chosen file in your editor",
                               "o             open the workspace folder (graphical editors)",
                               "c             run the checks",
-                              "x             cancel a running check",
+                              "x             cancel the running check",
                               "r             build and run your program",
-                              "w             watch: run the checks whenever a file changes; a banner shows the state",
+                              "w             watch: run the checks whenever a file changes",
                               "h             reveal the next hint",
                               "s             show the reference solution (asks first)",
                               "l             show or hide the raw compiler and program output",
@@ -546,8 +547,8 @@ export namespace learndc::tui::model
         out.push_back(std::move(here));
         out.push_back({"Everywhere",
                        {"1 .. 7        Home, Learn, Exercise, Progress, Bookmarks, Doctor, Settings", "?             this help",
-                        "Esc           go back or close a dialog", "q             quit (asks first while a check is running)",
-                        "Ctrl+C       cancel a running check; press again to quit"}});
+                        "Esc           go back or close a dialog", "q             quit (asks first while a check runs)",
+                        "Ctrl+C       cancel a running check; with none running, quit"}});
         out.push_back(
             {"Reading check results",
              {"Each check shows pass or FAIL with the stage where it stopped: build, run, compare, harness or timeout.",
@@ -713,7 +714,7 @@ export namespace learndc::tui::model
             w.triggered = es.watch_triggered;
             if (es.phase != CheckPhase::Idle)
                 w.phase = es.rerun_pending ? WatchPhase::Detected : WatchPhase::Checking;
-            else if (es.report)
+            else if (es.report && es.watch_result_ms >= 0)
             {
                 w.phase = WatchPhase::Result;
                 switch (es.report->outcome)
@@ -732,13 +733,8 @@ export namespace learndc::tui::model
                         break;
                 }
                 w.passed = es.report->outcome == runner::Outcome::Passed;
-                if (es.watch_result_ms >= 0)
-                {
-                    w.clock = es.watch_clock;
-                    w.age_ms = std::max<std::int64_t>(0, now_ms - es.watch_result_ms);
-                }
-                else
-                    w.age_ms = -1;
+                w.clock = es.watch_clock;
+                w.age_ms = std::max<std::int64_t>(0, now_ms - es.watch_result_ms);
             }
             else
                 w.phase = WatchPhase::Waiting;
@@ -828,17 +824,7 @@ export namespace learndc::tui::model
             std::vector<KeyHint> k;
             if (dialog.open())
             {
-                switch (dialog.kind)
-                {
-                    case DialogKind::Reset:
-                        return {{"type y", "confirm"}, {"Enter", "reset"}, {"Esc", "cancel"}};
-                    case DialogKind::Choice:
-                        return {{"Up Down", "choose"}, {"Enter", "select"}, {"Esc", "cancel"}};
-                    case DialogKind::Complete:
-                        return {{"Up Down", "choose"}, {"Enter", "select"}, {"Esc", "stay"}};
-                    default:
-                        return {};
-                }
+                return {};
             }
             if (screen == Screen::Learn && searching)
                 return {{"type", "to search"}, {"Enter", "keep"}, {"Esc", "clear"}};
@@ -886,13 +872,21 @@ export namespace learndc::tui::model
         std::vector<Effect> handle(Event const& event)
         {
             fx.clear();
+            auto const before = context_signature();
+            if (!std::holds_alternative<Tick>(event))
+                ++event_seq;
             std::visit([this](auto const& e) { on(e); }, event);
+            if (context_signature() != before)
+                std::erase_if(toasts, [this](Toast const& t) { return t.seq != event_seq; });
             return std::move(fx);
         }
 
         void push_toast(std::string text, bool error = false, std::int64_t duration_ms = 0)
         {
+            if (!toasts.empty() && toasts.back().seq != event_seq)
+                toasts.clear();
             Toast t;
+            t.seq = event_seq;
             t.text = std::move(text);
             t.error = error;
             t.duration_ms = duration_ms > 0 ? duration_ms : (error ? 6000 : 4000);
@@ -944,7 +938,10 @@ export namespace learndc::tui::model
             if (!exercise.ex || exercise.ex->id != ex->id)
             {
                 if (exercise.watching)
+                {
                     fx.push_back(StopWatch{});
+                    push_toast(std::format("Watch stopped: {} is no longer open", text::sanitize(exercise.ex->title)));
+                }
                 exercise = ExerciseState{};
                 exercise.ex = ex;
                 load_workspace();
@@ -970,16 +967,17 @@ export namespace learndc::tui::model
 
     private:
         std::vector<Effect> fx;
+        std::uint64_t event_seq = 0;
+
+        [[nodiscard]] std::tuple<Screen, catalog::Exercise const*, DialogKind, bool> context_signature() const
+        {
+            return {screen, exercise.ex, dialog.kind, exercise.solution.has_value()};
+        }
 
         void enter(Screen target)
         {
             if (target == screen)
                 return;
-            if (screen == Screen::Exercise && target != Screen::Help && exercise.watching)
-            {
-                exercise.watching = false;
-                fx.push_back(StopWatch{});
-            }
             if (target != Screen::Help && screen != Screen::Help)
                 back.push_back(screen);
             else if (target == Screen::Help)
@@ -995,11 +993,6 @@ export namespace learndc::tui::model
         {
             if (target == screen)
                 return;
-            if (screen == Screen::Exercise && exercise.watching)
-            {
-                exercise.watching = false;
-                fx.push_back(StopWatch{});
-            }
             back.clear();
             screen = target;
             searching = false;
@@ -1008,11 +1001,6 @@ export namespace learndc::tui::model
 
         void go_back()
         {
-            if (screen == Screen::Exercise && exercise.watching && (back.empty() || back.back() != Screen::Help))
-            {
-                exercise.watching = false;
-                fx.push_back(StopWatch{});
-            }
             if (!back.empty())
             {
                 screen = back.back();
@@ -1237,6 +1225,7 @@ export namespace learndc::tui::model
             es.report = done.report;
             es.stale = false;
             es.scroll_results = 0;
+            refresh_files();
             mark_stale_if_changed();
             if (es.watching && !was_cancelling)
             {
@@ -1310,6 +1299,7 @@ export namespace learndc::tui::model
             auto& es = exercise;
             if (!es.ex || !es.ws || es.phase != CheckPhase::Idle)
                 return;
+            refresh_files();
             es.phase = CheckPhase::Running;
             es.stage_text = "Starting";
             es.started_ms = now_ms;
@@ -1938,7 +1928,10 @@ export namespace learndc::tui::model
                 f.unified = diff::unified(mine, theirs, view.has_workspace ? "your " + path : "empty", "solution " + path);
                 view.files.push_back(std::move(f));
             }
-            view.explanation = text::sanitize(es.ex->explanation);
+            std::vector<std::string> references;
+            for (auto const& [path, bytes] : es.ex->solution)
+                references.push_back(bytes);
+            view.explanation = markdown::drop_quoted_code(text::sanitize(es.ex->explanation), references);
             es.solution = std::move(view);
             refresh_progress();
         }
@@ -2195,6 +2188,8 @@ export namespace learndc::tui::model
                 dialog.kind = DialogKind::Reset;
                 dialog.title = "Reset to the starter files?";
                 dialog.body = {"Your current files are copied to a backup first, then replaced by the starter files."};
+                dialog.yes_label = "Reset";
+                dialog.no_label = "Cancel";
                 return;
             }
             if (k == "l")

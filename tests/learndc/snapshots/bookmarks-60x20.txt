@@ -1,5 +1,5 @@
   1  2  3  4  5 Bookmarks  6  7
-╭─ Bookmarks ──────────────────────────────────── 1 saved ─╮
+╭──────────────────────────────────────────────── 1 saved ─╮
 │ › ○ Grouping data in structs   intermediate not started  │
 │                                                          │
 │                                                          │

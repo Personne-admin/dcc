@@ -1,17 +1,17 @@
- Learn DC · Variables and mutation   ◉ WATCHING
+ Learn DC · Variables and mutation                1 of 6 completed ██░░░░░░░░░░
 ╭───╮╭─ ◉ WATCH ON ────────────────────────────────────────────────────────────╮
-│ 1 ││ Watching /work/learndc/workspaces/fundamentals/variables                │
-│ 2 ││ Last result: failed at 10:00:04                                         │
+│ 1 ││ /work/learndc/workspaces/fundamentals/variables                         │
+│ 2 ││ Checked at 10:00:04                                                     │
 │ 3 │╰─────────────────────────────────────────────────────────────────────────╯
 │ 4 │╭─ › Instructions ────────────────────────────────────────────────────────╮
 │ 5 ││ beginner · 10 min                                                       ┃
-│ 6 ││ fix behavior                                                            ┃
-│ 7 ││ in progress                                                             │
-│   ││                                                                         │
-│ ? ││ Fix the arithmetic so the program prints the right total.               │
-│   ││                                                                         │
+│ 6 ││ fix behavior · in progress                                              ┃
+│ 7 ││                                                                         │
+│   ││ Fix the arithmetic so the program prints the right total.               │
+│ ? ││                                                                         │
 │   ││ Goals                                                                   │
 │   ││ • Make every check pass                                                 │
+│   ││ • Read the diagnostics before changing code                             │
 │   │╰─────────────────────────────────────────────────────────────────────────╯
 │   │ Files   project.dcon  › src/main.dc
 │   │╭─ Results ───────────────────────────────────────────────────────────────╮

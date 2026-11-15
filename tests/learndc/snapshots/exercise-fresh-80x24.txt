@@ -1,17 +1,17 @@
  Learn DC · Variables and mutation                1 of 6 completed ██░░░░░░░░░░
 ╭───╮╭─ › Instructions ────────────────────────────────────────────────────────╮
 │ 1 ││ beginner · 10 min                                                       ┃
-│ 2 ││ fix behavior                                                            ┃
-│ 3 ││ in progress                                                             ┃
-│ 4 ││                                                                         ┃
-│ 5 ││ Fix the arithmetic so the program prints the right total.               ┃
-│ 6 ││                                                                         │
-│ 7 ││ Goals                                                                   │
-│   ││ • Make every check pass                                                 │
-│ ? ││ • Read the diagnostics before changing code                             │
-│   ││                                                                         │
+│ 2 ││ fix behavior · in progress                                              ┃
+│ 3 ││                                                                         ┃
+│ 4 ││ Fix the arithmetic so the program prints the right total.               ┃
+│ 5 ││                                                                         ┃
+│ 6 ││ Goals                                                                   │
+│ 7 ││ • Make every check pass                                                 │
+│   ││ • Read the diagnostics before changing code                             │
+│ ? ││                                                                         │
 │   ││ A variable gives a name to a value. Declare it with its type, then use  │
 │   ││ the name wherever you need the value.                                   │
+│   ││                                                                         │
 │   │╰─────────────────────────────────────────────────────────────────────────╯
 │   │ Files   project.dcon  › src/main.dc
 │   │╭─ Results ───────────────────────────────────────────────────────────────╮

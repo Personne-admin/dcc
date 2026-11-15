@@ -1,5 +1,5 @@
  Learn DC · Variables and mutation                1 of 6 completed ██░░░░░░░░░░
-╭─ Solution: Variables and mutation ────────────── your files vs the solution ─╮
+╭─ Solution: Variables and mutation ───────────────────────────────────────────╮
 │ src/main.dc                                                                  │
 │ --- your src/main.dc                                                         │
 │ +++ solution src/main.dc                                                     │
@@ -13,9 +13,9 @@
 │      return 0;                                                               │
 │  }                                                                           │
 │                                                                              │
+│ Why the solution works                                                       │
 │ Adding the tax to the price gives the total. The minus sign subtracted it    │
 │ instead.                                                                     │
-│                                                                              │
 │                                                                              │
 │                                                                              │
 │                                                                              │
