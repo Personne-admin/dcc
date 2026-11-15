@@ -39,5 +39,3 @@ specific test first and be careful at the boundaries: `score >= 90` and
 - The project builds with `dpm build`.
 - The program output matches, and both function checks pass, including the
   boundary scores 90, 89, 80, 79, 70 and 69.
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

@@ -40,5 +40,3 @@ output format.
 - The project builds with `dpm build`.
 - `learndc check` passes the program output and both function checks,
   including negative numbers such as `square(-3)` and `is_even(-4)`.
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

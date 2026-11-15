@@ -47,5 +47,3 @@ Green: Go for 25 seconds
 - The project builds with `dpm build`.
 - The program prints exactly the three lines above and exits with code 0.
 - Every light has the right action and the right number of seconds.
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

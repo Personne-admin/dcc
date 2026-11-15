@@ -53,5 +53,3 @@ and then exit with code 1, without printing a third `reserved` line.
 - The project builds with `dpm build`.
 - The output is exactly the three lines above.
 - The program exits with code 1 because the last reservation fails.
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

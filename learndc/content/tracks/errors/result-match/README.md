@@ -51,5 +51,3 @@ declared in `src/ages.dc`.
 - The project builds with `dpm build`.
 - The boundaries 0 and 150 are valid; -1 and 151 are errors of the right kind.
 - The program prints the four lines above and exits with code 0.
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

@@ -44,5 +44,3 @@ A result of `0` is a real answer, so it is `Some(0)`, not `None`.
 - `checked_div(0, 5)` is `Some(0)`; `checked_div(5, 0)` and `checked_div(0, 0)`
   are `None`.
 - The program prints the three lines above and exits with code 0.
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

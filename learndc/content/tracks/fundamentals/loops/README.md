@@ -51,5 +51,3 @@ Liftoff!
 
 - `sum_to` passes the function check for 1, 2, 5, 10 and 100, and also
   returns 0 for 0 and -3.
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

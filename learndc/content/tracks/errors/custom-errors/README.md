@@ -60,5 +60,3 @@ and exit with code 1 when port 70000 is rejected.
 - The three validators behave as described for the boundary ports 1, 65535,
   0 and 70000, and for an empty name.
 - The program prints the two lines above and exits with code 1.
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

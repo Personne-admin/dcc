@@ -45,5 +45,3 @@ hall: 4x3, area 12
 grown: 6x5, area 30
 cell: 5x5, area 25
 ```
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

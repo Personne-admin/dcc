@@ -40,13 +40,11 @@ Item: notebook
 Total: 750 cents
 ```
 
-It does not build. Run `learndc run` or `dpm build`, read the diagnostic
-with the steps above, and repair the line it points at. Do not change
-`total_price`; the mistake is in how `main` uses it.
+It does not build. Check it, read the diagnostic with the steps above, and
+repair the line it points at. Do not change `total_price`; the mistake is in
+how `main` uses it.
 
 ## Acceptance criteria
 
 - The project builds with `dpm build`.
 - The program prints exactly the two lines above and exits with code 0.
-
-Run `learndc check` when you are ready.

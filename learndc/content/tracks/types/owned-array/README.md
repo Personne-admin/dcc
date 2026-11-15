@@ -47,5 +47,3 @@ even: 20
 ```
 
 - `collect_evens` appends to an array that already has elements.
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

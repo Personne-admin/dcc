@@ -42,5 +42,3 @@ last two: total 23, highest 19
 
 - `total` and `highest` also give correct answers for empty slices and for
   negative numbers.
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

@@ -41,5 +41,3 @@ ints: larger 9, smaller 3
 floats: larger 2.500000, smaller 1.250000
 bytes: larger 200, smaller 100
 ```
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

@@ -50,5 +50,3 @@ disc: area 12, corners 0
 wall: area 15, corners 4
 nothing: area 0, corners 0
 ```
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

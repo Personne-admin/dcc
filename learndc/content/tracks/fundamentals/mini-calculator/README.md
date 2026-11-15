@@ -57,5 +57,3 @@ second result: 3
 
 - Both function checks pass, including negative numbers, `Div` by zero and
   an empty list of steps.
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

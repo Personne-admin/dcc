@@ -39,5 +39,3 @@ both problems:
 
 - The project builds with `dpm build`.
 - The program prints exactly the two lines above and exits with code 0.
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.
