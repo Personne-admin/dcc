@@ -248,6 +248,8 @@ TEST_CASE("compile commands plan every product before the first lock and write n
     auto const root = std::filesystem::temp_directory_path() /
                       std::format("dpm_compdb_{}_{}", std::chrono::steady_clock::now().time_since_epoch().count(), std::random_device{}());
     std::filesystem::create_directories(root / "src");
+    for (auto const* name : {"main.dc", "tool.dc"})
+        std::ofstream{root / "src" / name} << "module main;\n";
     {
         std::ofstream out{root / "project.dcon"};
         out << "dpm::v1::Project {\n    name = \"app\",\n    version = \"0.1.0\",\n    products = {\n"
@@ -259,7 +261,7 @@ TEST_CASE("compile commands plan every product before the first lock and write n
     options.cache_root = root / "cache";
     auto const result = dpm::compdb::plan(root, options);
     CHECK(result.ok);
-    REQUIRE_EQ(result.entries.size(), std::size_t{2});
+    REQUIRE(result.entries.size() == 2);
     CHECK_EQ(result.entries[0].product, std::string{"app"});
     CHECK_EQ(result.entries[1].product, std::string{"tool"});
     CHECK(result.entries[0].file == root / "src" / "main.dc");
