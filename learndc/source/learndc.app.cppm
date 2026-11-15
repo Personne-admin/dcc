@@ -2,6 +2,7 @@ export module learndc.app;
 
 import std;
 import learndc.text;
+import learndc.markdown;
 import learndc.json;
 import learndc.platform;
 import learndc.catalog;
@@ -505,10 +506,7 @@ export namespace learndc::app
         }
         if (!ex.explanation.empty())
         {
-            out += "Why it works\n------------\n";
-            out += ex.explanation;
-            if (out.back() != '\n')
-                out += '\n';
+            out += markdown::render_plain(ex.explanation);
         }
         auto const now = platform::now_utc_iso8601();
         auto updated = update_progress(ctx, [&](progress::Progress& pr) { progress::mark_solution_viewed(pr, ex.id, now); });

@@ -2,6 +2,7 @@ export module learndc.cli;
 
 import std;
 import learndc.text;
+import learndc.markdown;
 import learndc.json;
 import learndc.platform;
 import learndc.catalog;
@@ -614,9 +615,8 @@ export namespace learndc::cli
             std::print(o, "\nChecks\n");
             for (auto const& c : ex.checks)
                 std::print(o, "  - {} ({})\n", c.name, check_kind_name(c.kind));
-            std::print(o, "\n{}", ex.readme);
-            if (!ex.readme.empty() && ex.readme.back() != '\n')
-                o << '\n';
+            if (!ex.readme.empty())
+                std::print(o, "\n{}", markdown::render_plain(ex.readme));
             if (workspace_path.empty())
                 std::print(o, "\nStart with: learndc start {}\n", ex.id);
             return app::exit_ok;
@@ -893,9 +893,7 @@ export namespace learndc::cli
             auto hint = app::reveal_hint(s.ctx, *target->exercise, level);
             if (!hint)
                 return report_failure(s, hint.error());
-            std::print(s.out(), "Hint {} of 3 for {}\n\n{}", hint->level, target->exercise->id, hint->text);
-            if (hint->text.empty() || hint->text.back() != '\n')
-                s.out() << '\n';
+            std::print(s.out(), "Hint {} of 3 for {}\n\n{}", hint->level, target->exercise->id, markdown::render_plain(hint->text));
             if (hint->all_shown)
                 s.out() << "\nAll hints are shown. 'learndc solution --diff' compares your files with the reference solution.\n";
             return app::exit_ok;
