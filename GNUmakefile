@@ -94,6 +94,7 @@ tools-windows:
 	@$(MAKE) CROSS=windows driver
 	@$(MAKE) CROSS=windows dccd
 	@$(MAKE) CROSS=windows dpm
+	@$(MAKE) CROSS=windows learndc
 
 MSI_VERSION ?= $(firstword $(subst -, ,$(DCC_VERSION)))
 MSI_STAGE_DIR := $(TOPLEVEL)/build-windows/msi-stage
@@ -108,6 +109,7 @@ msi: tools-windows
 	$(Q)cp $(TOPLEVEL)/build-windows/bin/dcc.exe $(MSI_STAGE_DIR)/bin/
 	$(Q)cp $(TOPLEVEL)/build-windows/bin/dccd.exe $(MSI_STAGE_DIR)/bin/
 	$(Q)cp $(TOPLEVEL)/build-windows/bin/dpm.exe $(MSI_STAGE_DIR)/bin/
+	$(Q)cp $(TOPLEVEL)/build-windows/bin/learndc.exe $(MSI_STAGE_DIR)/bin/
 	$(Q)$(PYTHON) $(TOPLEVEL)/mk/stage_windows_toolchain.py --stage $(MSI_STAGE_DIR) --sysroot $(MINGW_SYSROOT) $(if $(WINDOWS_LINKER_ARCHIVE),--archive $(WINDOWS_LINKER_ARCHIVE))
 	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-windows-llvm.a $(MSI_STAGE_DIR)/lib/
 	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-windows-custom.a $(MSI_STAGE_DIR)/lib/
@@ -117,6 +119,8 @@ msi: tools-windows
 	$(Q)mkdir -p $(MSI_STAGE_DIR)/include/dpm
 	$(Q)cp $(TOPLEVEL)/build-windows/include/dpm/v1.dc $(MSI_STAGE_DIR)/include/dpm/
 	$(Q)cp $(TOPLEVEL)/LICENSE $(MSI_STAGE_DIR)/
+	$(Q)mkdir -p $(MSI_STAGE_DIR)/licenses
+	$(Q)cp $(TOPLEVEL)/learndc/third_party/ftxui/LICENSE $(MSI_STAGE_DIR)/licenses/FTXUI-LICENSE
 	@mkdir -p $(dir $(MSI_OUT))
 	$(Q)$(PYTHON) $(GEN_WXS_SCRIPT) --stage-dir $(MSI_STAGE_DIR) --version $(MSI_VERSION) \
 		--output $(TOPLEVEL)/build-windows/dcc.wxs

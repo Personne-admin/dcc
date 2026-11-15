@@ -7,11 +7,16 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 work="$(mktemp -d)"
 export WINEPREFIX="$work/prefix" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml="
 wine wineboot --init >/dev/null 2>&1
+msiinfo export "$msi" Shortcut | tr -d '\r' > "$work/shortcut.idt"
+msiinfo export "$msi" Environment | tr -d '\r' > "$work/environment.idt"
+grep -q 'Learn DC' "$work/shortcut.idt" || { echo "error: no Learn DC shortcut in the MSI" >&2; cat "$work/shortcut.idt" >&2; exit 1; }
+grep -q '\[#f_bin_learndc_exe\]' "$work/shortcut.idt" || { echo "error: the Learn DC shortcut does not target learndc.exe" >&2; exit 1; }
+grep -q $'=\*PATH\t\[~\];\[INSTALLDIR\]bin' "$work/environment.idt" || { echo "error: the MSI does not append [INSTALLDIR]bin to the system PATH" >&2; cat "$work/environment.idt" >&2; exit 1; }
 wine msiexec /i "$msi" /qn
 wineserver -w
 inst="$WINEPREFIX/drive_c/Program Files/dcc"
 (cd "$inst" && find . -type f | sort) > "$work/installed.txt"
-for f in ./bin/dcc.exe ./bin/dccd.exe ./bin/dpm.exe ./bin/ld.lld.exe ./LICENSE ./lib/libdcext-windows-llvm.a ./lib/libdcext-windows-custom.a ./lib/libdcext-freestanding-llvm.a ./lib/libdcext-freestanding-custom.a ./include/std.dc; do
+for f in ./bin/dcc.exe ./bin/dccd.exe ./bin/dpm.exe ./bin/learndc.exe ./bin/ld.lld.exe ./LICENSE ./licenses/FTXUI-LICENSE ./lib/libdcext-windows-llvm.a ./lib/libdcext-windows-custom.a ./lib/libdcext-freestanding-llvm.a ./lib/libdcext-freestanding-custom.a ./include/std.dc; do
     grep -qxF "$f" "$work/installed.txt" || { echo "error: $f not installed" >&2; exit 1; }
 done
 echo "installed $(wc -l < "$work/installed.txt") files under C:\\Program Files\\dcc"
@@ -22,6 +27,10 @@ fi
 
 timeout 60 wine "$inst/bin/dcc.exe" --version | tr -d '\r' | tee "$version_out"
 timeout 60 wine "$inst/bin/dpm.exe" --version
+timeout 60 wine "$inst/bin/learndc.exe" --version | tr -d '\r'
+mkdir -p "$work/learndc home"
+LEARNDC_HOME="$(winepath -w "$work/learndc home")" timeout 60 wine "$inst/bin/learndc.exe" list --json | tr -d '\r' > "$work/learndc-list.json"
+grep -q '"fundamentals/hello-world"' "$work/learndc-list.json" || { echo "error: learndc.exe did not list its embedded exercises" >&2; exit 1; }
 python3 "$here/../../tests/lsp_stdio.py" "$inst/bin/dccd.exe" --wine wine
 cp "$here/smoke/hello.dc" "$work/"
 cd "$work"

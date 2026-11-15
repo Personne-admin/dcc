@@ -91,17 +91,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $msi = (Get-ChildItem dist/release/*.msi | Select-Object -First 1).FullName
-          $custom = Join-Path $env:RUNNER_TEMP ('dcc install ' + [char]0x5DE5 + [char]0x5177)
-          foreach ($prefix in @((Join-Path $env:ProgramFiles 'dcc'), $custom)) {
-            $install = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /norestart INSTALLDIR=`"$prefix`"" -Wait -PassThru
-            if ($install.ExitCode -notin @(0, 3010)) { throw "MSI install failed: $($install.ExitCode)" }
-            try {
-              & ./tests/dpm/windows.ps1 -Prefix $prefix
-            } finally {
-              $uninstall = Start-Process msiexec.exe -ArgumentList "/x `"$msi`" /qn /norestart" -Wait -PassThru
-              if ($uninstall.ExitCode -notin @(0, 3010)) { throw "MSI uninstall failed: $($uninstall.ExitCode)" }
-            }
-          }
+          & ./ci/release/smoke-msi-windows.ps1 -Msi $msi -Work $env:RUNNER_TEMP
 
   publish:
     needs: [build, smoke-deb, smoke-msi]

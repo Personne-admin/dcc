@@ -7,6 +7,11 @@ import xml.sax.saxutils as sx
 
 # persistent code used by windows to know that the same program is being updated.
 UPGRADE_CODE = "BC06D996-A013-4321-9967-7BCEDBBD011B"
+PATH_COMPONENT_GUID = "6F1C2B7E-3D4A-4E8B-9A51-2C7D0E9F4B13"
+OPTIONS_COMPONENT_GUID = "0B8E5D21-7A3C-4F96-8E12-5D9C4A7B3E60"
+SHORTCUT_COMPONENT_GUID = "A4D7F3C2-9B1E-4C58-B6A0-3E2F8D1C7A95"
+INSTALLER_KEY = r"Software\dcc\Installer"
+SHORTCUT_NAME = "Learn DC"
 
 
 def safe_id(prefix: str, rel_path: str) -> str:
@@ -56,7 +61,7 @@ def main():
         print(f"error: stage dir does not exist: {stage_dir}", file=sys.stderr)
         sys.exit(1)
 
-    for name in ("dcc.exe", "dccd.exe", "dpm.exe", "ld.lld.exe"):
+    for name in ("dcc.exe", "dccd.exe", "dpm.exe", "learndc.exe", "ld.lld.exe"):
         if not os.path.isfile(os.path.join(stage_dir, "bin", name)):
             p.error(f"MSI payload is missing bin/{name}")
 
@@ -64,7 +69,7 @@ def main():
         if not os.path.isfile(os.path.join(stage_dir, "lib", "lib" + name + ".a")):
             p.error(f"MSI payload is missing lib/lib{name}.a")
 
-    for name in ("include/std.dc", "include/libdcext.manifest", "include/dpm/v1.dc"):
+    for name in ("include/std.dc", "include/libdcext.manifest", "include/dpm/v1.dc", "LICENSE", "licenses/FTXUI-LICENSE"):
         if not os.path.isfile(os.path.join(stage_dir, name)):
             p.error(f"MSI payload is missing {name}")
 
@@ -83,6 +88,32 @@ def main():
             component_refs.append(f'      <ComponentRef Id="{comp_id}" />')
         directory_refs.append(f'<DirectoryRef Id="{dir_id}">{"".join(comps)}</DirectoryRef>')
 
+    learndc_file_id = safe_id("f", os.path.join("bin", "learndc.exe"))
+    bin_dir_id = safe_id("d", "bin")
+    directory_refs.append(
+        f'<DirectoryRef Id="{bin_dir_id}">'
+        f'<Component Id="c_path_entry" Guid="{PATH_COMPONENT_GUID}">'
+        f'<Condition>ADDTOPATH = "1"</Condition>'
+        f'<RegistryValue Root="HKLM" Key="{INSTALLER_KEY}" Name="PathEntry" Type="string" Value="[INSTALLDIR]bin" KeyPath="yes" />'
+        f'<Environment Id="e_path" Name="PATH" Value="[INSTALLDIR]bin" Action="set" Part="last" System="yes" Permanent="no" />'
+        f"</Component>"
+        f'<Component Id="c_installer_options" Guid="{OPTIONS_COMPONENT_GUID}">'
+        f'<RegistryValue Root="HKLM" Key="{INSTALLER_KEY}" Name="AddToPath" Type="string" Value="[ADDTOPATH]" KeyPath="yes" />'
+        f"</Component>"
+        f"</DirectoryRef>"
+    )
+    directory_refs.append(
+        f'<DirectoryRef Id="DccStartMenuFolder">'
+        f'<Component Id="c_start_menu" Guid="{SHORTCUT_COMPONENT_GUID}">'
+        f'<Shortcut Id="s_learndc" Name="{SHORTCUT_NAME}" Description="Learn the DC language with interactive exercises" '
+        f'Target="[#{learndc_file_id}]" WorkingDirectory="PersonalFolder" />'
+        f'<RemoveFolder Id="r_start_menu" On="uninstall" />'
+        f'<RegistryValue Root="HKMU" Key="{INSTALLER_KEY}" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />'
+        f"</Component>"
+        f"</DirectoryRef>"
+    )
+    component_refs.extend(f'      <ComponentRef Id="{c}" />' for c in ("c_path_entry", "c_installer_options", "c_start_menu"))
+
     directory_refs_xml = "\n    ".join(directory_refs)
     component_refs_xml = "\n".join(component_refs)
 
@@ -94,15 +125,34 @@ def main():
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <Media Id="1" Cabinet="dcc.cab" EmbedCab="yes" />
     <Property Id="INSTALLDIR" Secure="yes" />
+    <Property Id="ADDTOPATH" Secure="yes">
+      <RegistrySearch Id="AddToPathRemembered" Root="HKLM" Key="{INSTALLER_KEY}" Name="AddToPath" Type="raw" />
+    </Property>
+    <Property Id="ADDTOPATH_CMD" Secure="yes" />
     <CustomAction Id="SetInstallLocation" Property="ARPINSTALLLOCATION" Value="[INSTALLDIR]" />
+    <CustomAction Id="SaveAddToPathCmd" Property="ADDTOPATH_CMD" Value="[ADDTOPATH]" />
+    <CustomAction Id="RestoreAddToPathCmd" Property="ADDTOPATH" Value="[ADDTOPATH_CMD]" />
+    <CustomAction Id="DefaultAddToPath" Property="ADDTOPATH" Value="1" />
     <InstallExecuteSequence>
+      <Custom Action="SaveAddToPathCmd" Before="AppSearch">ADDTOPATH</Custom>
+      <Custom Action="RestoreAddToPathCmd" After="AppSearch">ADDTOPATH_CMD</Custom>
+      <Custom Action="DefaultAddToPath" After="RestoreAddToPathCmd">NOT ADDTOPATH</Custom>
       <Custom Action="SetInstallLocation" After="CostFinalize">NOT REMOVE~="ALL"</Custom>
     </InstallExecuteSequence>
+    <InstallUISequence>
+      <Custom Action="SaveAddToPathCmd" Before="AppSearch">ADDTOPATH</Custom>
+      <Custom Action="RestoreAddToPathCmd" After="AppSearch">ADDTOPATH_CMD</Custom>
+      <Custom Action="DefaultAddToPath" After="RestoreAddToPathCmd">NOT ADDTOPATH</Custom>
+    </InstallUISequence>
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLDIR" Name="dcc">{tree_xml}</Directory>
       </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="DccStartMenuFolder" Name="dcc" />
+      </Directory>
+      <Directory Id="PersonalFolder" />
     </Directory>
 
     {directory_refs_xml}
