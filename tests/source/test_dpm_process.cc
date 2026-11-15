@@ -90,6 +90,33 @@ TEST_CASE("native process timeout and child working directory")
     CHECK_EQ(result.out, std::filesystem::canonical(command.cwd).generic_string());
 }
 
+TEST_CASE("native process cancellation and stderr capture bound")
+{
+    std::atomic<bool> cancel{false};
+    auto command = child({"--sleep"});
+    command.cancel = &cancel;
+    std::jthread trigger{[&] {
+        std::this_thread::sleep_for(50ms);
+        cancel.store(true);
+    }};
+    auto started = std::chrono::steady_clock::now();
+    auto result = dpm::process::run(command);
+    auto elapsed = std::chrono::steady_clock::now() - started;
+    CHECK(result.started);
+    CHECK(result.aborted);
+    CHECK(!result.timed_out);
+    CHECK(!result.ok());
+    CHECK(elapsed < 3s);
+    cancel.store(false);
+    command = child({"--flood"});
+    command.max_error_capture = 1000;
+    result = dpm::process::run(command);
+    CHECK(result.ok());
+    CHECK(result.err_truncated);
+    CHECK_EQ(result.err.size(), 1000u);
+    CHECK_EQ(result.out.size(), 200000u);
+}
+
 TEST_CASE("process redirection unicode executable and interrupted lock ownership")
 {
     auto root = std::filesystem::temp_directory_path() / std::format("dpm process {}", std::chrono::steady_clock::now().time_since_epoch().count());

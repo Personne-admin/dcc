@@ -39,6 +39,8 @@ export namespace dcc::host::process
         bool inherit_env{};
         bool own_group{};
         std::chrono::milliseconds grace{2000};
+        std::atomic<bool> const* cancel{};
+        std::size_t max_error_capture = 64u << 10;
     };
 
     struct Result
@@ -49,6 +51,7 @@ export namespace dcc::host::process
         bool timed_out{};
         bool aborted{};
         bool truncated{};
+        bool err_truncated{};
         std::string out;
         std::string err;
         std::string error;
@@ -75,6 +78,22 @@ export namespace dcc::host::process
         }
         out.append(slashes * 2, '\\');
         return out + '"';
+    }
+
+    namespace detail
+    {
+        [[nodiscard]] inline bool cancelled(Command const& cmd)
+        {
+            return cmd.cancel && cmd.cancel->load(std::memory_order_relaxed);
+        }
+
+        inline void append_error(Result& result, Command const& cmd, std::string_view chunk)
+        {
+            auto room = cmd.max_error_capture > result.err.size() ? cmd.max_error_capture - result.err.size() : 0;
+            if (chunk.size() > room)
+                result.err_truncated = true;
+            result.err.append(chunk.substr(0, room));
+        }
     }
 
 #if !defined(_WIN32)
@@ -289,6 +308,12 @@ export namespace dcc::host::process
                     ::kill(-pid, sig);
                 }
                 auto now = std::chrono::steady_clock::now();
+                if (!kill_at && detail::cancelled(cmd))
+                {
+                    result.aborted = true;
+                    ::kill(-pid, SIGTERM);
+                    kill_at = now + cmd.grace;
+                }
                 if (!kill_at && now >= deadline)
                 {
                     result.timed_out = true;
@@ -330,6 +355,13 @@ export namespace dcc::host::process
                     break;
                 if (done < 0 && errno != EINTR)
                     break;
+                if (detail::cancelled(cmd))
+                {
+                    result.aborted = true;
+                    kill_child();
+                    ::waitpid(pid, &pass_status, 0);
+                    break;
+                }
                 if (std::chrono::steady_clock::now() >= deadline)
                 {
                     result.timed_out = true;
@@ -361,6 +393,12 @@ export namespace dcc::host::process
         while (open_fds > 0)
         {
             auto now = std::chrono::steady_clock::now();
+            if (detail::cancelled(cmd))
+            {
+                result.aborted = true;
+                kill_child();
+                break;
+            }
             if (now >= deadline)
             {
                 result.timed_out = true;
@@ -368,7 +406,7 @@ export namespace dcc::host::process
                 break;
             }
             auto wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
-            int ready = ::poll(fds.data(), nfds, static_cast<int>(std::min<long long>(wait_ms, 1000)));
+            int ready = ::poll(fds.data(), nfds, static_cast<int>(std::min<long long>(wait_ms, cmd.cancel ? 50 : 1000)));
             if (ready < 0 && errno != EINTR)
                 break;
             for (std::size_t i = 0; i < nfds; ++i)
@@ -405,10 +443,7 @@ export namespace dcc::host::process
                         result.out.append(chunk);
                 }
                 else if (static_cast<int>(i) == err_index)
-                {
-                    if (result.err.size() < (64u << 10))
-                        result.err.append(chunk.substr(0, (64u << 10) - result.err.size()));
-                }
+                    detail::append_error(result, cmd, chunk);
             }
             if (killed)
                 break;
@@ -774,8 +809,8 @@ export namespace dcc::host::process
                         else
                             result.out += chunk;
                     }
-                    else if (result.err.size() < (64u << 10))
-                        result.err.append(chunk.substr(0, (64u << 10) - result.err.size()));
+                    else
+                        detail::append_error(result, cmd, chunk);
                 }
             };
             for (;;)
@@ -808,6 +843,11 @@ export namespace dcc::host::process
                         kill_at = now + cmd.grace;
                     else
                         kill();
+                }
+                if (!killed && !kill_at && detail::cancelled(cmd))
+                {
+                    result.aborted = true;
+                    kill();
                 }
                 if (kill_at && now >= *kill_at)
                     kill();
