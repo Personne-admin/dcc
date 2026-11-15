@@ -6,8 +6,13 @@ import learndc.platform;
 import learndc.catalog;
 import learndc.bundle;
 import learndc.diff;
+import learndc.settings;
+import learndc.progress;
+import dcc.host.process;
 
+#define main harness_main
 #include "harness.hh"
+#undef main
 
 namespace text = learndc::text;
 namespace json = learndc::json;
@@ -16,6 +21,8 @@ namespace platform = learndc::platform;
 namespace catalog = learndc::catalog;
 namespace bundle = learndc::bundle;
 namespace diff = learndc::diff;
+namespace settings = learndc::settings;
+namespace progress = learndc::progress;
 
 namespace
 {
@@ -2065,4 +2072,554 @@ TEST_CASE("side by side rows")
     CHECK(rows[1].kind == diff::RowKind::Change);
     CHECK(rows[2].kind == diff::RowKind::Insert);
     CHECK(diff::side_by_side("", "").empty());
+}
+
+namespace
+{
+    std::string g_self;
+
+    std::string slurp(std::filesystem::path const& p)
+    {
+        return platform::read_file(p).value_or("<missing>");
+    }
+
+    std::vector<std::filesystem::path> entries_with_prefix(std::filesystem::path const& dir, std::string_view prefix)
+    {
+        std::vector<std::filesystem::path> out;
+        std::error_code ec;
+        for (auto const& e : std::filesystem::directory_iterator(dir, ec))
+            if (platform::path_to_utf8(e.path().filename()).starts_with(prefix))
+                out.push_back(e.path());
+        return out;
+    }
+}
+
+SECTION("learndc.settings");
+
+TEST_CASE("settings defaults list and get")
+{
+    settings::Settings s;
+    CHECK_EQ(settings::get(s, "editor.preset").value(), "auto");
+    CHECK_EQ(settings::get(s, "ui.theme").value(), "dark");
+    CHECK_EQ(settings::get(s, "checks.timeout_seconds").value(), "10");
+    CHECK_EQ(settings::get(s, "checks.build_timeout_seconds").value(), "120");
+    CHECK_EQ(settings::get(s, "checks.max_output_kib").value(), "256");
+    CHECK_EQ(settings::get(s, "checks.watch_debounce_ms").value(), "400");
+    CHECK_EQ(settings::get(s, "ui.open_continue").value(), "true");
+    CHECK_EQ(settings::get(s, "onboarding.done").value(), "false");
+    CHECK_EQ(settings::get(s, "editor.command").value(), "");
+    CHECK_EQ(settings::list(s).size(), settings::keys().size());
+    CHECK_EQ(settings::list(s).size(), 16u);
+    CHECK(settings::find_key("tools.dcc") != nullptr);
+    CHECK(settings::find_key("tools.nope") == nullptr);
+}
+
+TEST_CASE("settings set validates every key")
+{
+    settings::Settings s;
+    CHECK(settings::set(s, "editor.preset", "nvim"));
+    CHECK_EQ(s.editor_preset, "nvim");
+    CHECK(settings::set(s, "editor.preset", " CODE "));
+    CHECK_EQ(s.editor_preset, "code");
+    CHECK(settings::set(s, "ui.reduced_motion", "yes"));
+    CHECK(s.ui_reduced_motion);
+    CHECK(settings::set(s, "ui.reduced_motion", "off"));
+    CHECK(!s.ui_reduced_motion);
+    CHECK(settings::set(s, "checks.timeout_seconds", "30"));
+    CHECK_EQ(s.checks_timeout_seconds, 30);
+    CHECK(settings::set(s, "tools.dcc", "/opt/dcc/bin/dcc"));
+    CHECK_EQ(s.tools_dcc, "/opt/dcc/bin/dcc");
+    CHECK(settings::set(s, "learner.level", "experienced"));
+
+    auto before = s;
+    auto bad = settings::set(s, "editor.preset", "emacs");
+    REQUIRE(!bad);
+    CHECK(bad.error().message.find("expected one of") != std::string::npos);
+    CHECK(bad.error().message.find("nvim") != std::string::npos);
+    bad = settings::set(s, "ui.theme", "");
+    CHECK(!bad);
+    bad = settings::set(s, "editor.wait", "maybe");
+    REQUIRE(!bad);
+    CHECK(bad.error().message.find("true or false") != std::string::npos);
+    bad = settings::set(s, "checks.timeout_seconds", "0");
+    REQUIRE(!bad);
+    CHECK(bad.error().message.find("between 1 and 600") != std::string::npos);
+    CHECK(!settings::set(s, "checks.timeout_seconds", "601"));
+    CHECK(!settings::set(s, "checks.timeout_seconds", "-5"));
+    CHECK(!settings::set(s, "checks.timeout_seconds", "12x"));
+    CHECK(!settings::set(s, "checks.timeout_seconds", ""));
+    CHECK(!settings::set(s, "checks.timeout_seconds", "99999999999999999999"));
+    CHECK(!settings::set(s, "checks.build_timeout_seconds", "5"));
+    CHECK(!settings::set(s, "checks.watch_debounce_ms", "10"));
+    CHECK(!settings::set(s, "tools.dpm", "a\nb"));
+    CHECK(!settings::set(s, "tools.dpm", "bad\xff"));
+    bad = settings::set(s, "editor.colour", "x");
+    REQUIRE(!bad);
+    CHECK(bad.error().message.find("unknown setting 'editor.colour'") != std::string::npos);
+    CHECK(bad.error().message.find("known settings:") != std::string::npos);
+    CHECK(!settings::get(s, "nope"));
+    CHECK(s == before);
+}
+
+TEST_CASE("settings editor command accepts words and json arrays")
+{
+    settings::Settings s;
+    CHECK(settings::set(s, "editor.command", "code --wait --goto \"{file}:{line}\""));
+    CHECK_EQ(s.editor_command.size(), 4u);
+    CHECK_EQ(s.editor_command[3], "{file}:{line}");
+    CHECK(settings::set(s, "editor.command", "[\"nvim\", \"+{line}\", \"{file}\"]"));
+    CHECK_EQ(s.editor_command.size(), 3u);
+    CHECK_EQ(s.editor_command[1], "+{line}");
+    CHECK_EQ(settings::get(s, "editor.command").value(), "nvim +{line} {file}");
+    CHECK(!settings::set(s, "editor.command", "\"unterminated"));
+    CHECK(!settings::set(s, "editor.command", "[1, 2]"));
+    CHECK(!settings::set(s, "editor.command", "[\"\"]"));
+    CHECK(!settings::set(s, "editor.command", "[\"a\\u0001b\"]"));
+    CHECK_EQ(s.editor_command.size(), 3u);
+    CHECK(settings::set(s, "editor.command", ""));
+    CHECK(s.editor_command.empty());
+}
+
+TEST_CASE("settings json round trip and strict loading")
+{
+    settings::Settings s;
+    CHECK(settings::set(s, "editor.preset", "custom"));
+    CHECK(settings::set(s, "editor.command", "hx {file}"));
+    CHECK(settings::set(s, "ui.theme", "high-contrast"));
+    CHECK(settings::set(s, "checks.max_output_kib", "512"));
+    CHECK(settings::set(s, "onboarding.done", "true"));
+    auto text_out = settings::to_json(s).dump(2);
+    auto back = settings::parse(text_out);
+    REQUIRE(back);
+    CHECK(*back == s);
+
+    CHECK(!settings::parse("[]"));
+    CHECK(!settings::parse("{"));
+    auto unknown = settings::parse("{\"schema\":1,\"editor\":{\"colour\":\"x\"}}");
+    REQUIRE(!unknown);
+    CHECK(unknown.error().message.find("editor.colour") != std::string::npos);
+    CHECK(!settings::parse("{\"schema\":2}"));
+    CHECK(!settings::parse("{\"ui\":{\"reduced_motion\":\"yes\"}}"));
+    CHECK(!settings::parse("{\"checks\":{\"timeout_seconds\":\"5\"}}"));
+    CHECK(!settings::parse("{\"checks\":{\"timeout_seconds\":9999}}"));
+    CHECK(!settings::parse("{\"editor\":{\"preset\":\"emacs\"}}"));
+    CHECK(!settings::parse("{\"bogus\":1}"));
+    auto partial = settings::parse("{\"schema\":1,\"ui\":{\"theme\":\"light\"}}");
+    REQUIRE(partial);
+    CHECK_EQ(partial->ui_theme, "light");
+    CHECK_EQ(partial->checks_timeout_seconds, 10);
+}
+
+TEST_CASE("settings files load save and update")
+{
+    TempDir t;
+    auto const file = t.path / "cfg" / "config.json";
+    auto missing = settings::load(file);
+    REQUIRE(missing);
+    CHECK(*missing == settings::Settings{});
+    settings::Settings s;
+    CHECK(settings::set(s, "ui.ascii", "on"));
+    CHECK(settings::save(file, s));
+    auto loaded = settings::load(file);
+    REQUIRE(loaded);
+    CHECK_EQ(loaded->ui_ascii, "on");
+
+    auto updated = settings::update(file, [](settings::Settings& x) { return settings::set(x, "ui.theme", "light"); });
+    REQUIRE(updated);
+    CHECK_EQ(updated->ui_theme, "light");
+    CHECK_EQ(updated->ui_ascii, "on");
+    auto failed = settings::update(file, [](settings::Settings& x) { return settings::set(x, "ui.theme", "neon"); });
+    CHECK(!failed);
+    CHECK_EQ(settings::load(file)->ui_theme, "light");
+
+    write_file(file, "{ not json");
+    auto broken = settings::load(file);
+    REQUIRE(!broken);
+    CHECK(broken.error().message.find("config.json") != std::string::npos);
+    CHECK_EQ(slurp(file), "{ not json");
+}
+
+SECTION("learndc.progress");
+
+TEST_CASE("progress records checks and never loses completion")
+{
+    progress::Progress p;
+    CHECK(progress::status_of(p, "a/b") == progress::Status::NotStarted);
+    progress::record_check(p, "a/b", 1, 2, 1, "2026-01-01T00:00:00Z");
+    auto const& e1 = p.exercises.at("a/b");
+    CHECK(e1.status == progress::Status::InProgress);
+    CHECK_EQ(e1.attempts, 1);
+    CHECK_EQ(e1.last_passed, 1);
+    CHECK_EQ(e1.last_total, 2);
+    CHECK_EQ(e1.first_started_at, "2026-01-01T00:00:00Z");
+    CHECK(e1.completed_at.empty());
+    CHECK_EQ(p.recent.size(), 1u);
+
+    progress::record_check(p, "a/b", 2, 2, 1, "2026-01-02T00:00:00Z");
+    auto const& e2 = p.exercises.at("a/b");
+    CHECK(e2.status == progress::Status::Completed);
+    CHECK_EQ(e2.completed_at, "2026-01-02T00:00:00Z");
+    CHECK_EQ(e2.completed_revision, 1);
+    CHECK_EQ(e2.passes, 1);
+
+    progress::record_check(p, "a/b", 0, 2, 1, "2026-01-03T00:00:00Z");
+    auto const& e3 = p.exercises.at("a/b");
+    CHECK(e3.status == progress::Status::Completed);
+    CHECK_EQ(e3.completed_at, "2026-01-02T00:00:00Z");
+    CHECK_EQ(e3.attempts, 3);
+    CHECK_EQ(e3.last_passed, 0);
+    CHECK(progress::needs_revisit(e3, 2));
+    CHECK(!progress::needs_revisit(e3, 1));
+    CHECK(!progress::needs_revisit(progress::ExerciseProgress{}, 5));
+
+    progress::record_check(p, "a/b", 2, 2, 2, "2026-02-01T00:00:00Z");
+    CHECK_EQ(p.exercises.at("a/b").completed_revision, 2);
+    CHECK_EQ(p.exercises.at("a/b").completed_at, "2026-01-02T00:00:00Z");
+}
+
+TEST_CASE("progress hints bookmarks recent and workspaces")
+{
+    progress::Progress p;
+    progress::reveal_hint(p, "a/b", 2, "t1");
+    progress::reveal_hint(p, "a/b", 1, "t2");
+    CHECK_EQ(p.exercises.at("a/b").hint_level, 2);
+    progress::reveal_hint(p, "a/b", 9, "t3");
+    CHECK_EQ(p.exercises.at("a/b").hint_level, 3);
+    progress::mark_solution_viewed(p, "a/b", "t4");
+    CHECK(p.exercises.at("a/b").solution_viewed);
+    CHECK(progress::toggle_bookmark(p, "a/b"));
+    CHECK(progress::is_bookmarked(p, "a/b"));
+    CHECK(!progress::toggle_bookmark(p, "a/b"));
+    CHECK(p.bookmarks.empty());
+    for (int i = 0; i < 15; ++i)
+        progress::touch_recent(p, std::format("t/e{}", i));
+    CHECK_EQ(p.recent.size(), progress::max_recent);
+    CHECK_EQ(p.recent.front(), "t/e14");
+    progress::touch_recent(p, "t/e10");
+    CHECK_EQ(p.recent.front(), "t/e10");
+    CHECK_EQ(p.recent.size(), progress::max_recent);
+}
+
+TEST_CASE("progress json round trip")
+{
+    progress::Progress p;
+    progress::record_check(p, "a/b", 2, 2, 3, "2026-01-02T00:00:00Z");
+    progress::reveal_hint(p, "a/c", 1, "2026-01-03T00:00:00Z");
+    progress::toggle_bookmark(p, "a/c");
+    progress::set_active(p, "a/c");
+    p.workspaces["a/c"] = "/tmp/learn dc/\xC3\xBC" "bung \xE5\xB7\xA5\xE5\x85\xB7";
+    auto back = progress::from_json(progress::to_json(p));
+    REQUIRE(back);
+    CHECK(*back == p);
+
+    CHECK(!progress::from_json(json::Json::make_array()));
+    CHECK(!progress::from_json(*json::parse("{}")));
+    int unsupported = 0;
+    auto future = progress::from_json(*json::parse("{\"schema\":7}"), &unsupported);
+    CHECK(!future);
+    CHECK_EQ(unsupported, 7);
+    CHECK(!progress::from_json(*json::parse("{\"schema\":1,\"exercises\":{\"a/b\":{\"status\":\"done\"}}}")));
+    CHECK(!progress::from_json(*json::parse("{\"schema\":1,\"exercises\":{\"a/b\":{\"status\":\"completed\",\"attempts\":-1}}}")));
+    CHECK(!progress::from_json(*json::parse("{\"schema\":1,\"exercises\":[]}")));
+    CHECK(!progress::from_json(*json::parse("{\"schema\":1,\"bookmarks\":[1]}")));
+    auto minimal = progress::from_json(*json::parse("{\"schema\":1,\"exercises\":{\"a/b\":{\"status\":\"completed\"}}}"));
+    REQUIRE(minimal);
+    CHECK(progress::is_completed(*minimal, "a/b"));
+}
+
+TEST_CASE("progress store persists and keeps a backup")
+{
+    TempDir t;
+    progress::ProgressStore store(t.path / "data" / "progress.json", t.path / "data" / "progress.lock");
+    auto first = store.load();
+    REQUIRE(first);
+    CHECK(first->progress == progress::Progress{});
+    CHECK(first->warnings.empty());
+    CHECK(!std::filesystem::exists(store.file()));
+
+    auto a = store.update([](progress::Progress& p) { progress::record_check(p, "a/b", 1, 3, 1, "2026-01-01T00:00:00Z"); });
+    REQUIRE(a);
+    CHECK(std::filesystem::exists(store.file()));
+    CHECK(!std::filesystem::exists(store.backup_file()));
+    auto b = store.update([](progress::Progress& p) { progress::set_active(p, "a/b"); });
+    REQUIRE(b);
+    CHECK(std::filesystem::exists(store.backup_file()));
+
+    auto loaded = store.load();
+    REQUIRE(loaded);
+    CHECK_EQ(loaded->progress.active_exercise, "a/b");
+    CHECK_EQ(loaded->progress.exercises.at("a/b").attempts, 1);
+    auto backup = json::parse(slurp(store.backup_file()));
+    REQUIRE(backup);
+    auto backup_progress = progress::from_json(*backup);
+    REQUIRE(backup_progress);
+    CHECK(backup_progress->active_exercise.empty());
+    CHECK_EQ(backup_progress->exercises.at("a/b").attempts, 1);
+    CHECK(entries_with_prefix(t.path / "data", "progress.json.tmp").empty());
+}
+
+TEST_CASE("progress store quarantines corrupt files")
+{
+    TempDir t;
+    auto const dir = t.path / "data";
+    progress::ProgressStore store(dir / "progress.json", dir / "progress.lock");
+    write_file(store.file(), "{ this is not json");
+    auto loaded = store.load();
+    REQUIRE(loaded);
+    CHECK(loaded->progress == progress::Progress{});
+    CHECK_EQ(loaded->warnings.size(), 1u);
+    CHECK(loaded->warnings[0].find("corrupt") != std::string::npos);
+    auto quarantined = entries_with_prefix(dir, "progress.json.corrupt-");
+    CHECK_EQ(quarantined.size(), 1u);
+    CHECK_EQ(slurp(quarantined[0]), "{ this is not json");
+    auto again = store.load();
+    REQUIRE(again);
+    CHECK(again->warnings.empty());
+
+    REQUIRE(store.update([](progress::Progress& p) { progress::record_check(p, "a/b", 2, 2, 1, "2026-01-01T00:00:00Z"); }));
+    REQUIRE(store.update([](progress::Progress& p) { progress::set_active(p, "a/b"); }));
+    write_file(store.file(), "{\"schema\":1,\"exercises\":{\"a/b\":{\"status\":\"bogus\"}}}");
+    auto recovered = store.load();
+    REQUIRE(recovered);
+    CHECK_EQ(recovered->warnings.size(), 1u);
+    CHECK(recovered->warnings[0].find("restored from the previous backup") != std::string::npos);
+    CHECK(progress::is_completed(recovered->progress, "a/b"));
+    CHECK_EQ(entries_with_prefix(dir, "progress.json.corrupt-").size(), 2u);
+
+    write_file(store.file(), "");
+    auto empty_file = store.update([](progress::Progress& p) { progress::set_active(p, "x/y"); });
+    REQUIRE(empty_file);
+    CHECK_EQ(empty_file->warnings.size(), 1u);
+    CHECK_EQ(empty_file->progress.active_exercise, "x/y");
+    CHECK_EQ(store.load()->progress.active_exercise, "x/y");
+}
+
+TEST_CASE("progress store refuses to overwrite a newer schema")
+{
+    TempDir t;
+    progress::ProgressStore store(t.path / "progress.json", t.path / "progress.lock");
+    write_file(store.file(), "{\"schema\":2,\"future\":true}");
+    auto loaded = store.load();
+    REQUIRE(!loaded);
+    CHECK(loaded.error().message.find("unsupported progress schema 2") != std::string::npos);
+    CHECK(!store.update([](progress::Progress& p) { progress::set_active(p, "a/b"); }));
+    CHECK_EQ(slurp(store.file()), "{\"schema\":2,\"future\":true}");
+    CHECK(entries_with_prefix(t.path, "progress.json.corrupt-").empty());
+}
+
+TEST_CASE("progress store merges concurrent updates from threads")
+{
+    TempDir t;
+    progress::ProgressStore a(t.path / "progress.json", t.path / "progress.lock");
+    progress::ProgressStore b(t.path / "progress.json", t.path / "progress.lock");
+    constexpr int per_thread = 25;
+    std::atomic<int> failures{0};
+    auto work = [&](progress::ProgressStore& store, std::string tag) {
+        for (int i = 0; i < per_thread; ++i)
+        {
+            auto r = store.update([&](progress::Progress& p) {
+                ++p.exercises["shared/counter"].attempts;
+                p.bookmarks.push_back(std::format("{}/{}", tag, i));
+            });
+            if (!r)
+                ++failures;
+        }
+    };
+    std::thread one(work, std::ref(a), std::string("one"));
+    std::thread two(work, std::ref(b), std::string("two"));
+    one.join();
+    two.join();
+    CHECK_EQ(failures.load(), 0);
+    auto loaded = a.load();
+    REQUIRE(loaded);
+    CHECK_EQ(loaded->progress.exercises.at("shared/counter").attempts, 2 * per_thread);
+    CHECK_EQ(loaded->progress.bookmarks.size(), static_cast<std::size_t>(2 * per_thread));
+    CHECK(loaded->warnings.empty());
+}
+
+TEST_CASE("progress store merges concurrent updates from processes")
+{
+    TempDir t;
+    auto const file = t.path / "progress.json";
+    auto const lock = t.path / "progress.lock";
+    constexpr int per_process = 20;
+    std::array<dcc::host::process::Result, 2> results;
+    std::vector<std::thread> threads;
+    for (std::size_t i = 0; i < results.size(); ++i)
+        threads.emplace_back([&, i] {
+            dcc::host::process::Command cmd;
+            cmd.argv = {g_self, "--progress-worker", platform::path_to_utf8(file), platform::path_to_utf8(lock), std::format("proc{}", i), std::to_string(per_process)};
+            cmd.timeout = std::chrono::seconds(60);
+            results[i] = dcc::host::process::run(cmd);
+        });
+    for (auto& th : threads)
+        th.join();
+    for (auto const& r : results)
+    {
+        CHECK(r.started);
+        CHECK_EQ(r.exit_code, 0);
+    }
+    progress::ProgressStore store(file, lock);
+    auto loaded = store.load();
+    REQUIRE(loaded);
+    CHECK_EQ(loaded->progress.exercises.at("shared/counter").attempts, 2 * per_process);
+    CHECK_EQ(loaded->progress.bookmarks.size(), static_cast<std::size_t>(2 * per_process));
+}
+
+TEST_CASE("progress export parses and rejects foreign files")
+{
+    progress::Progress p;
+    progress::record_check(p, "a/b", 2, 2, 1, "2026-01-02T00:00:00Z");
+    progress::toggle_bookmark(p, "a/c");
+    auto const exported = progress::export_text(p, "2026-03-01T00:00:00Z");
+    auto parsed = json::parse(exported);
+    REQUIRE(parsed);
+    CHECK_EQ(parsed->find("format")->as_string().value(), "learndc-progress");
+    CHECK_EQ(parsed->find("schema")->as_int().value(), 1);
+    CHECK_EQ(parsed->find("exported_at")->as_string().value(), "2026-03-01T00:00:00Z");
+    auto back = progress::parse_export(exported);
+    REQUIRE(back);
+    CHECK(*back == p);
+
+    CHECK(!progress::parse_export("nonsense"));
+    CHECK(!progress::parse_export("{\"schema\":1,\"progress\":{}}"));
+    CHECK(!progress::parse_export("{\"format\":\"other\",\"schema\":1,\"progress\":{\"schema\":1}}"));
+    auto future = progress::parse_export("{\"format\":\"learndc-progress\",\"schema\":2,\"progress\":{\"schema\":1}}");
+    REQUIRE(!future);
+    CHECK(future.error().message.find("unsupported export schema 2") != std::string::npos);
+    CHECK(!progress::parse_export("{\"format\":\"learndc-progress\",\"schema\":1}"));
+    CHECK(!progress::parse_export("{\"format\":\"learndc-progress\",\"schema\":1,\"progress\":{\"schema\":1,\"exercises\":5}}"));
+}
+
+TEST_CASE("progress import merges and reports conflicts")
+{
+    progress::Progress current;
+    progress::record_check(current, "a/one", 1, 2, 1, "2026-01-05T00:00:00Z");
+    progress::record_check(current, "a/two", 2, 2, 1, "2026-01-06T00:00:00Z");
+    progress::set_active(current, "a/one");
+    current.bookmarks = {"a/one"};
+    current.workspaces["a/one"] = "/work/one";
+
+    progress::Progress incoming;
+    progress::record_check(incoming, "a/one", 2, 2, 2, "2026-01-03T00:00:00Z");
+    incoming.exercises["a/one"].attempts = 7;
+    incoming.exercises["a/one"].hint_level = 2;
+    incoming.exercises["a/one"].first_started_at = "2025-12-31T00:00:00Z";
+    progress::record_check(incoming, "a/two", 1, 2, 1, "2026-01-07T00:00:00Z");
+    incoming.exercises["a/two"].attempts = 1;
+    progress::record_check(incoming, "a/three", 2, 2, 1, "2026-01-08T00:00:00Z");
+    incoming.bookmarks = {"a/two", "a/one"};
+    incoming.workspaces["a/one"] = "/other/one";
+    incoming.workspaces["a/three"] = "/work/three";
+    progress::set_active(incoming, "a/three");
+
+    auto const snapshot = current;
+    auto plan = progress::plan_import(current, incoming);
+    CHECK(current == snapshot);
+
+    auto const& one = plan.merged.exercises.at("a/one");
+    CHECK(one.status == progress::Status::Completed);
+    CHECK_EQ(one.attempts, 7);
+    CHECK_EQ(one.hint_level, 2);
+    CHECK_EQ(one.completed_at, "2026-01-03T00:00:00Z");
+    CHECK_EQ(one.completed_revision, 2);
+    CHECK_EQ(one.first_started_at, "2025-12-31T00:00:00Z");
+    CHECK_EQ(one.last_checked_at, "2026-01-05T00:00:00Z");
+    CHECK_EQ(one.last_passed, 1);
+    auto const& two = plan.merged.exercises.at("a/two");
+    CHECK(two.status == progress::Status::Completed);
+    CHECK_EQ(two.last_checked_at, "2026-01-07T00:00:00Z");
+    CHECK_EQ(two.last_passed, 1);
+    CHECK(plan.merged.exercises.contains("a/three"));
+    CHECK_EQ(plan.merged.active_exercise, "a/one");
+    CHECK_EQ(plan.merged.bookmarks, (std::vector<std::string>{"a/one", "a/two"}));
+    CHECK_EQ(plan.merged.workspaces.at("a/one"), "/work/one");
+    CHECK_EQ(plan.merged.workspaces.at("a/three"), "/work/three");
+
+    auto has_conflict = [&](std::string_view exercise, std::string_view field) {
+        return std::ranges::any_of(plan.conflicts, [&](progress::Conflict const& c) { return c.exercise == exercise && c.field == field; });
+    };
+    CHECK(has_conflict("a/one", "status"));
+    CHECK(!has_conflict("a/one", "completed_revision"));
+    CHECK(has_conflict("a/one", "workspace"));
+    CHECK(has_conflict("a/two", "status"));
+    CHECK(has_conflict("", "active_exercise"));
+    for (auto const& c : plan.conflicts)
+        CHECK(!c.describe().empty());
+
+    auto has_change = [&](std::string_view exercise, std::string_view field) {
+        return std::ranges::any_of(plan.changes, [&](progress::Change const& c) { return c.exercise == exercise && c.field == field; });
+    };
+    CHECK(has_change("a/one", "attempts"));
+    CHECK(has_change("a/one", "completed_at"));
+    CHECK(has_change("a/three", "status"));
+    CHECK(has_change("", "bookmark"));
+    CHECK(has_change("a/three", "workspace"));
+    CHECK(!has_change("a/two", "status"));
+    for (auto const& c : plan.changes)
+        CHECK(!c.describe().empty());
+
+    progress::apply_import(current, plan);
+    CHECK(current == plan.merged);
+    auto idempotent = progress::plan_import(current, incoming);
+    CHECK(idempotent.merged == current);
+    CHECK(idempotent.changes.empty());
+}
+
+TEST_CASE("progress import status conflict keeps the completed side")
+{
+    progress::Progress current;
+    progress::mark_started(current, "a/one", "2026-01-01T00:00:00Z");
+    progress::Progress incoming;
+    progress::record_check(incoming, "a/one", 2, 2, 1, "2026-01-02T00:00:00Z");
+    auto plan = progress::plan_import(current, incoming);
+    CHECK(plan.merged.exercises.at("a/one").status == progress::Status::Completed);
+    CHECK_EQ(plan.conflicts.size(), 1u);
+    CHECK_EQ(plan.conflicts[0].field, "status");
+    CHECK_EQ(plan.conflicts[0].resolution, "completed");
+
+    TempDir t;
+    progress::ProgressStore store(t.path / "progress.json", t.path / "progress.lock");
+    REQUIRE(store.update([&](progress::Progress& p) { p = current; }));
+    auto imported = progress::import_into(store, incoming);
+    REQUIRE(imported);
+    CHECK(progress::is_completed(store.load()->progress, "a/one"));
+}
+
+int main(int argc, char** argv)
+{
+    g_self = platform::path_to_utf8(platform::executable_path().value_or(std::filesystem::path(argv[0])));
+    if (argc > 1)
+    {
+        std::string_view const mode{argv[1]};
+        auto const stem = std::filesystem::path(argv[0]).filename().string();
+        if (mode == "--version")
+        {
+            if (stem.starts_with("hang"))
+                std::this_thread::sleep_for(std::chrono::seconds(20));
+            if (stem.starts_with("fail"))
+                return 3;
+            if (stem.starts_with("silent"))
+                return 0;
+            std::println("fakedcc 1.2.3 (test)");
+            return 0;
+        }
+        if (mode == "--progress-worker" && argc == 6)
+        {
+            progress::ProgressStore store(argv[2], argv[3]);
+            int const n = std::stoi(argv[5]);
+            for (int i = 0; i < n; ++i)
+            {
+                auto r = store.update([&](progress::Progress& p) {
+                    ++p.exercises["shared/counter"].attempts;
+                    p.bookmarks.push_back(std::format("{}/{}", argv[4], i));
+                });
+                if (!r)
+                    return 1;
+            }
+            return 0;
+        }
+        return 2;
+    }
+    return test::run();
 }
