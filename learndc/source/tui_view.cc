@@ -748,6 +748,120 @@ namespace learndc::tui
             return std::format("{:.2f}s", static_cast<double>(ms) / 1000.0);
         }
 
+        [[nodiscard]] Line output_line(Ui const& ui, diff::OutputLine const& l, int width, bool marked, bool observed_numbers = false)
+        {
+            Role const role = l.mark == diff::Mark::Same ? Role::Muted : l.mark == diff::Mark::Expected ? Role::Del : Role::Add;
+            Line line;
+            std::string const marker = !marked ? "  " : l.mark == diff::Mark::Same ? "    " : l.mark == diff::Mark::Expected ? "  - " : "  + ";
+            std::string const number =
+                std::to_string(l.mark == diff::Mark::Observed || (observed_numbers && l.mark == diff::Mark::Same) ? l.observed_line : l.expected_line);
+            line.push_back({marker, plain(role, true)});
+            line.push_back({pad_left(number, 4) + " ", plain(Role::Muted)});
+            int const avail = std::max(8, width - width_of(marker) - 5);
+            std::string_view text = l.text;
+            std::size_t begin = l.has_change ? l.changed_begin : 0;
+            std::size_t end = l.has_change ? l.changed_end : 0;
+            std::string lead;
+            if (l.has_change && width_of(diff::visible_line(text.substr(0, begin), ui.ascii)) > avail - 12 && begin > 12)
+            {
+                std::size_t cut = begin - 12;
+                while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80)
+                    --cut;
+                lead = std::string(ui.gl.ell);
+                text = text.substr(cut);
+                begin -= cut;
+                end -= cut;
+            }
+            if (!lead.empty())
+                line.push_back({lead, plain(Role::Muted)});
+            if (l.has_change && end > begin)
+            {
+                auto changed = text::replace_all(std::string(text.substr(begin, end - begin)), " ", ui.ascii ? "~" : "\xC2\xB7");
+                line.push_back({diff::visible_line(text.substr(0, begin), ui.ascii, false), plain(role)});
+                line.push_back({diff::visible_line(changed, ui.ascii), Style{role, true, true, false}});
+                line.push_back({diff::visible_line(text.substr(end), ui.ascii), plain(role)});
+            }
+            else
+                line.push_back({diff::visible_line(text, ui.ascii), plain(role, l.mark != diff::Mark::Same)});
+            if (!l.newline)
+                line.push_back({ui.ascii ? "  (no newline at end)" : " \xE2\x8F\x8E missing", plain(Role::Warn)});
+            int used = 0;
+            Line clipped;
+            for (auto& span : line)
+            {
+                int const w = width_of(span.text);
+                if (used + w <= width)
+                {
+                    used += w;
+                    clipped.push_back(std::move(span));
+                    continue;
+                }
+                if (width - used > 1)
+                    clipped.push_back({fit(ui, span.text, width - used), span.style});
+                break;
+            }
+            return clipped;
+        }
+
+        void diff_lines_for(Ui const& ui, std::vector<Line>& out, diff::OutputDiff const& d, int width, bool full)
+        {
+            auto const view = ui.m.exercise.result_view;
+            if (view != model::ResultView::Diff)
+            {
+                bool const want_expected = view == model::ResultView::Expected;
+                out.push_back(text_line(want_expected ? "      Expected output:" : "      Your output:", plain(want_expected ? Role::Ok : Role::Fail, true)));
+                std::size_t shown = 0;
+                for (auto const& l : d.lines)
+                {
+                    if (l.mark == (want_expected ? diff::Mark::Observed : diff::Mark::Expected))
+                        continue;
+                    if (l.mark == diff::Mark::Gap)
+                    {
+                        out.push_back(text_line("      ...", plain(Role::Muted)));
+                        continue;
+                    }
+                    if (!full && shown >= 12)
+                    {
+                        out.push_back(text_line("      (l shows every line)", plain(Role::Muted)));
+                        break;
+                    }
+                    Line row;
+                    row.push_back({"    ", plain(Role::Text)});
+                    append(row, output_line(ui, l, width - 4, false, !want_expected));
+                    out.push_back(std::move(row));
+                    ++shown;
+                }
+                return;
+            }
+            Line head;
+            head.push_back({"      ", plain(Role::Text)});
+            head.push_back({"- expected", plain(Role::Del, true)});
+            head.push_back({"   ", plain(Role::Text)});
+            head.push_back({"+ your output", plain(Role::Add, true)});
+            if (d.expected_lines != d.observed_lines)
+                head.push_back({std::format("   {} vs {} lines", d.expected_lines, d.observed_lines), plain(Role::Muted)});
+            out.push_back(std::move(head));
+            auto const parts = diff::hunks(d, full ? 3 : 2, full);
+            for (std::size_t h = 0; h < parts.size(); ++h)
+            {
+                if (h > 0)
+                    out.push_back(text_line("      ...", plain(Role::Muted)));
+                for (auto i = parts[h].first; i < parts[h].second; ++i)
+                {
+                    Line row;
+                    row.push_back({"  ", plain(Role::Text)});
+                    append(row, output_line(ui, d.lines[i], width - 2, true));
+                    out.push_back(std::move(row));
+                }
+            }
+            auto const total = diff::hunks(d, 2, true).size();
+            if (!full && total > 1)
+                out.push_back(
+                    text_line(std::format("      {} more place{} differ (l shows the full diff)", total - 1, total == 2 ? "" : "s"), plain(Role::Muted)));
+            if (d.truncated)
+                out.push_back(text_line("      (the comparison stops here: the outputs are very long)", plain(Role::Muted)));
+        }
+
         void add_block(Ui const& ui, std::vector<Line>& out, int width, std::string_view label, Role label_role, std::string_view body, std::size_t max_lines,
                        bool all)
         {
@@ -892,7 +1006,9 @@ namespace learndc::tui
                 if (!r.summary.empty())
                     for (auto const& piece : text::wrap(clean_line(r.summary), to_size(std::max(4, width - 6))))
                         out.push_back(text_line("      " + piece, plain(Role::Text)));
-                if (!r.expected.empty() || !r.observed.empty())
+                if (r.output_diff)
+                    diff_lines_for(ui, out, *r.output_diff, width, raw);
+                else if (!r.expected.empty() || !r.observed.empty())
                 {
                     bool const visible = !r.expected_visible.empty() || !r.observed_visible.empty();
                     std::string e = r.expected;

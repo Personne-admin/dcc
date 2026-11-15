@@ -432,6 +432,13 @@ export namespace learndc::tui::model
         std::size_t missed_sel = 0;
     };
 
+    enum class ResultView
+    {
+        Diff,
+        Expected,
+        Observed,
+    };
+
     struct ExerciseState
     {
         catalog::Exercise const* ex = nullptr;
@@ -463,6 +470,7 @@ export namespace learndc::tui::model
         LectureState lecture;
         std::vector<LectureSection> sections;
         std::optional<std::size_t> activity;
+        ResultView result_view = ResultView::Diff;
     };
 
     enum class HomeKind
@@ -616,7 +624,8 @@ export namespace learndc::tui::model
                               "w             watch: run the checks whenever a file changes",
                               "h             reveal the next hint (in a multi-stage lesson: for the current stage first)",
                               "s             show the reference solution (asks first)",
-                              "l             show or hide the raw compiler and program output",
+                              "l             show or hide the raw compiler and program output, and the full output diff",
+                              "v             switch a failed output comparison between diff, expected output and your output",
                               "n             go to the next exercise",
                               "b             bookmark this exercise",
                               "R             reset the exercise to its starter files (backup first)",
@@ -2851,6 +2860,17 @@ export namespace learndc::tui::model
             {
                 es.raw_log = !es.raw_log;
                 es.scroll_results = 0;
+                return;
+            }
+            if (k == "v")
+            {
+                es.result_view = es.result_view == ResultView::Diff       ? ResultView::Expected
+                                 : es.result_view == ResultView::Expected ? ResultView::Observed
+                                                                          : ResultView::Diff;
+                es.pane = Pane::Results;
+                push_toast(es.result_view == ResultView::Diff       ? "Showing the difference"
+                           : es.result_view == ResultView::Expected ? "Showing the expected output"
+                                                                    : "Showing your output");
                 return;
             }
             if (k == "b")

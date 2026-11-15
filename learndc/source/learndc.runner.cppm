@@ -8,6 +8,7 @@ import learndc.catalog;
 import learndc.workspace;
 import learndc.toolchain;
 import learndc.settings;
+import learndc.diff;
 import dcc.host.process;
 
 export namespace learndc::runner
@@ -173,6 +174,7 @@ export namespace learndc::runner
         std::vector<Location> locations;
         std::string hint;
         std::string stage_id;
+        std::optional<diff::OutputDiff> output_diff;
     };
 
     struct StageResult
@@ -205,6 +207,7 @@ export namespace learndc::runner
         std::vector<StageResult> stages;
         std::string fingerprint;
         bool complete = false;
+        std::string diff_path;
 
         [[nodiscard]] StageResult const* find_stage(std::string_view id) const
         {
@@ -800,6 +803,24 @@ export namespace learndc::runner
                 r.summary = "the output does not contain the expected text";
             else
                 r.summary = "the output is different from what was expected";
+            if (!contains)
+            {
+                auto want = text::sanitize(expected);
+                auto got = text::sanitize(res.out);
+                if (check.line_endings == catalog::LineEndings::Portable)
+                {
+                    want = text::normalize_newlines(want);
+                    got = text::normalize_newlines(got);
+                }
+                if (check.stdout_match == catalog::StdoutMatch::Trimmed)
+                {
+                    want = std::string(text::trim(want));
+                    got = std::string(text::trim(got));
+                }
+                r.output_diff = diff::compare_output(want, got);
+                if (!r.output_diff->summary.empty())
+                    r.summary += ": " + r.output_diff->summary;
+            }
             return r;
         }
         r.expected = *check.expect_stderr_contains;
@@ -1406,6 +1427,13 @@ export namespace learndc::runner
         detail::summarize_stages(report, ex);
         report.fingerprint = s.fingerprint;
 
+        std::string diffs;
+        for (auto const& r : report.results)
+            if (r.output_diff)
+                diffs += std::format("=== {} ===\n{}\n", r.name, diff::render_output_diff(*r.output_diff, true, 3));
+        auto const diff_file = opt.dirs.logs_dir / platform::path_from_utf8(detail::slug_of(ex.id)) / "last-diff.txt";
+        if (!diffs.empty() && platform::atomic_write(diff_file, diffs))
+            report.diff_path = platform::path_to_utf8(diff_file);
         auto const log_file = opt.dirs.logs_dir / platform::path_from_utf8(detail::slug_of(ex.id)) / "last-check.log";
         s.log += std::format("\noutcome: {} ({} of {} passed)\n", to_string(report.outcome), report.passed, report.total);
         if (platform::atomic_write(log_file, s.log))
@@ -1539,6 +1567,16 @@ export namespace learndc::runner
         j.set("hint", r.hint);
         if (!r.stage_id.empty())
             j.set("stage", r.stage_id);
+        if (r.output_diff)
+        {
+            auto d = json::Json::make_object();
+            d.set("summary", r.output_diff->summary);
+            d.set("first_difference", static_cast<std::int64_t>(r.output_diff->first_difference));
+            d.set("differences", static_cast<std::int64_t>(r.output_diff->differences));
+            d.set("truncated", r.output_diff->truncated);
+            d.set("text", diff::render_output_diff(*r.output_diff, true, 3));
+            j.set("diff", std::move(d));
+        }
         return j;
     }
 
@@ -1562,6 +1600,8 @@ export namespace learndc::runner
         j.set("log_path", report.log_path);
         j.set("safety_note", report.safety_note);
         j.set("complete", report.complete);
+        if (!report.diff_path.empty())
+            j.set("diff_path", report.diff_path);
         if (!report.stages.empty())
         {
             auto stages = json::Json::make_array();
@@ -1620,6 +1660,26 @@ export namespace learndc::runner
             if (file.starts_with(root))
                 return std::string(file.substr(root.size()));
             return std::string(file);
+        }
+
+        [[nodiscard]] inline std::string diff_line(diff::OutputLine const& l, TextStyle const& style)
+        {
+            char const marker = l.mark == diff::Mark::Same ? ' ' : l.mark == diff::Mark::Expected ? '-' : '+';
+            std::string_view const code = l.mark == diff::Mark::Same ? "2" : l.mark == diff::Mark::Expected ? "31" : "32";
+            std::string body;
+            if (l.has_change && l.changed_end > l.changed_begin)
+            {
+                auto const before = diff::visible_line(std::string_view(l.text).substr(0, l.changed_begin), style.ascii, false);
+                auto changed = std::string(std::string_view(l.text).substr(l.changed_begin, l.changed_end - l.changed_begin));
+                changed = text::replace_all(changed, " ", style.ascii ? "~" : "\xC2\xB7");
+                changed = diff::visible_line(changed, style.ascii);
+                auto const after = diff::visible_line(std::string_view(l.text).substr(l.changed_end), style.ascii);
+                body = paint(style, code, before) + (style.color ? std::format("\x1b[7;{}m{}\x1b[0m", code, changed) : "[" + changed + "]") +
+                       paint(style, code, after);
+            }
+            else
+                body = paint(style, code, diff::visible_line(l.text, style.ascii));
+            return std::format("{} {}{}", paint(style, code, std::string(1, marker)), body, l.newline ? "" : paint(style, "2", "  (no newline at end)"));
         }
 
         [[nodiscard]] inline std::string clamp_lines(std::string_view s, std::size_t max_lines, std::size_t max_bytes)
@@ -1690,7 +1750,26 @@ export namespace learndc::runner
             std::string const indent = "      ";
             if (!r.summary.empty())
                 out += std::format("{}{} (stage: {})\n", indent, r.summary, to_string(r.stage));
-            if (!r.expected.empty() || !r.observed.empty())
+            if (r.output_diff)
+            {
+                for (auto const& [begin, end] : diff::hunks(*r.output_diff, style.verbose ? 3 : 2, style.verbose))
+                {
+                    auto const& head = r.output_diff->lines[begin];
+                    out += std::format(
+                        "{}{}\n", indent,
+                        detail::paint(style, "36",
+                                      std::format("@@ expected line {}, output line {} @@", head.expected_line ? head.expected_line : head.observed_line,
+                                                  head.observed_line ? head.observed_line : head.expected_line)));
+                    for (std::size_t i = begin; i < end; ++i)
+                        out += indent + detail::diff_line(r.output_diff->lines[i], style) + "\n";
+                }
+                auto const total = diff::hunks(*r.output_diff, 2, true).size();
+                if (!style.verbose && total > 1)
+                    out += std::format("{}{} more place{} differ; --verbose shows them all\n", indent, total - 1, total == 2 ? "" : "s");
+                if (r.output_diff->truncated)
+                    out += indent + "(the comparison is cut off; the outputs are very long)\n";
+            }
+            else if (!r.expected.empty() || !r.observed.empty())
             {
                 bool const visible = !r.expected_visible.empty() || !r.observed_visible.empty();
                 std::string expected = r.expected;
@@ -1752,6 +1831,8 @@ export namespace learndc::runner
             else
                 out += std::format("{} required stage{} still to go.\n", required_left, required_left == 1 ? "" : "s");
         }
+        if (!report.diff_path.empty())
+            out += std::format("Full diff: {}\n", report.diff_path);
         if (!report.log_path.empty())
             out += std::format("Full log: {}\n", report.log_path);
         if (!report.safety_note.empty())

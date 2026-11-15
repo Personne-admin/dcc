@@ -3879,8 +3879,13 @@ TEST_CASE("hello-world starter builds but fails the run check with expected and 
     CHECK(log.find("Hello, world!") != std::string::npos);
     auto const text = runner::render_text(report, {});
     CHECK(text.find("1 of 2 checks passed") != std::string::npos);
-    CHECK(text.find("Expected:") != std::string::npos);
-    CHECK(text.find("Observed:") != std::string::npos);
+    CHECK(text.find("- Hello, [Ada]!") != std::string::npos);
+    CHECK(text.find("+ Hello, [world]!") != std::string::npos);
+    CHECK(text.find("line 1 has \"world\" where \"Ada\" was expected") != std::string::npos);
+    CHECK(text.find("expected line 2 is missing") == std::string::npos);
+    CHECK(text.find("Full diff: ") != std::string::npos);
+    CHECK(std::filesystem::exists(report.diff_path));
+    CHECK(slurp(report.diff_path).find("- Welcome to DC.") != std::string::npos);
     CHECK(text.find("final full stop") != std::string::npos);
     CHECK(text.find("not a sandbox") != std::string::npos);
     CHECK(text.find('\x1b') == std::string::npos);
@@ -8968,4 +8973,156 @@ TEST_CASE("tui drills review cards and boss questions with the keyboard")
     press(m, "Esc");
     CHECK(!m.exercise.activity.has_value());
     CHECK(m.stage_views()[0].state == learndc::app::StageState::Verified);
+}
+
+SECTION("learndc.output-diff");
+
+TEST_CASE("output diff names a missing word and marks the exact span")
+{
+    auto const d = diff::compare_output("delivery: 3 kinds\nleft on the shelf:\n  apple 10\n", "delivery: 3 kinds\nleft on shelf:\n  apple 10\n");
+    CHECK_EQ(d.summary, "line 2 is missing \"the \"");
+    CHECK_EQ(d.differences, 1u);
+    REQUIRE(d.first_difference > 0u);
+    auto const& removed = d.lines[d.first_difference - 1];
+    auto const& added = d.lines[d.first_difference];
+    CHECK(removed.mark == diff::Mark::Expected);
+    CHECK(added.mark == diff::Mark::Observed);
+    CHECK_EQ(removed.text.substr(removed.changed_begin, removed.changed_end - removed.changed_begin), "the ");
+    CHECK_EQ(added.changed_begin, added.changed_end);
+    CHECK_EQ(removed.expected_line, 2u);
+    CHECK_EQ(added.observed_line, 2u);
+    auto const text = diff::render_output_diff(d, false);
+    CHECK(text.find("- left on the shelf:") != std::string::npos);
+    CHECK(text.find("+ left on shelf:") != std::string::npos);
+    CHECK(text.find("  delivery: 3 kinds") != std::string::npos);
+}
+
+TEST_CASE("output diff shows extra spaces, tabs and final newlines visibly")
+{
+    auto const spaces = diff::compare_output("total: 5\n", "total:  5\n");
+    CHECK_EQ(spaces.summary, "line 1 has extra \" \"");
+    auto const trailing = diff::compare_output("done\n", "done  \n");
+    CHECK(diff::render_output_diff(trailing, false).find("+ done~~") != std::string::npos);
+    CHECK(diff::visible_line("a\tb  ", false) == "a\xE2\x86\x92"
+                                                 "b\xC2\xB7\xC2\xB7");
+    auto const missing = diff::compare_output("a\nb\n", "a\nb");
+    CHECK(missing.only_final_newline);
+    CHECK_EQ(missing.summary, "the last line is missing its final newline");
+    CHECK(diff::render_output_diff(missing, false).find("(no newline at end)") != std::string::npos);
+    auto const extra = diff::compare_output("a\n", "a\n\n");
+    CHECK_EQ(extra.summary, "output line 2 was not expected");
+    auto const same_text_other_word = diff::compare_output("Hello, Ada!\n", "Hello, Bob!\n");
+    CHECK_EQ(same_text_other_word.summary, "line 1 has \"Bob\" where \"Ada\" was expected");
+}
+
+TEST_CASE("output diff keeps UTF-8 characters whole and finds changes in long lines")
+{
+    auto const d = diff::compare_output("caf\xC3\xA9 \xC3\xBC\n", "caf\xC3\xA8 \xC3\xBC\n");
+    REQUIRE(d.first_difference > 0u);
+    auto const& removed = d.lines[d.first_difference - 1];
+    CHECK_EQ(removed.text.substr(removed.changed_begin, removed.changed_end - removed.changed_begin), "\xC3\xA9");
+    auto const& added = d.lines[d.first_difference];
+    CHECK_EQ(added.text.substr(added.changed_begin, added.changed_end - added.changed_begin), "\xC3\xA8");
+
+    std::string long_a(500, 'x');
+    std::string long_b = long_a;
+    long_b[420] = 'y';
+    auto const wide = diff::compare_output(long_a + "\n", long_b + "\n");
+    REQUIRE(wide.first_difference > 0u);
+    CHECK_EQ(wide.lines[wide.first_difference - 1].changed_begin, 420u);
+    CHECK_EQ(wide.lines[wide.first_difference].changed_end, 421u);
+}
+
+TEST_CASE("output diff of large outputs keeps every change with context and stays bounded")
+{
+    std::string a;
+    std::string b;
+    for (int i = 1; i <= 10000; ++i)
+    {
+        a += std::format("row {}\n", i);
+        b += i == 7000 ? "row seven thousand\n" : std::format("row {}\n", i);
+    }
+    b += "row 10001\n";
+    auto const d = diff::compare_output(a, b);
+    CHECK(d.lines.size() < 40u);
+    CHECK(!d.truncated);
+    CHECK_EQ(d.summary, "line 7000 has \"seven thousand\" where \"7000\" was expected");
+    auto const first = diff::hunks(d, 2, false);
+    REQUIRE(first.size() == 1u);
+    CHECK_EQ(d.lines[first[0].first].expected_line, 6998u);
+    CHECK_EQ(diff::hunks(d, 2, true).size(), 2u);
+    CHECK(std::ranges::any_of(d.lines, [](diff::OutputLine const& l) { return l.mark == diff::Mark::Gap; }));
+    auto const full = diff::render_output_diff(d, true);
+    CHECK(full.find("+ row seven thousand") != std::string::npos);
+    CHECK(full.find("+ row 10001") != std::string::npos);
+
+    std::string many_a;
+    std::string many_b;
+    for (int i = 0; i < 9000; ++i)
+    {
+        many_a += std::format("a{}\n", i);
+        many_b += std::format("b{}\n", i);
+    }
+    auto const capped = diff::compare_output(many_a, many_b, 1000);
+    CHECK(capped.truncated);
+    CHECK(capped.lines.size() <= 1000u);
+}
+
+TEST_CASE("check output renders the diff in color, without color and in the tui")
+{
+    runner::CheckResult r;
+    r.name = "The night shift report";
+    r.kind = catalog::CheckKind::Run;
+    r.verdict = runner::Verdict::Fail;
+    r.stage = runner::Stage::Compare;
+    r.stage_id = "night-shift";
+    r.output_diff = diff::compare_output("order 1: packed\nleft on the shelf:\n  apple 10\n", "order 1: packed\nleft on shelf:\n  apple 10\n");
+    r.summary = "the output is different from what was expected: " + r.output_diff->summary;
+    r.expected = "order 1: packed\nleft on the shelf:\n  apple 10\n";
+    r.observed = "order 1: packed\nleft on shelf:\n  apple 10\n";
+    runner::CheckReport report;
+    report.exercise = "more/boss";
+    report.outcome = runner::Outcome::Failed;
+    report.total = 1;
+    report.results = {r};
+    report.stages = {{"night-shift", "The night shift", false, true, false, 1, 0, 1}};
+    report.diff_path = "/tmp/last-diff.txt";
+    runner::TextStyle plain_style;
+    auto const plain_text = runner::render_text(report, plain_style);
+    CHECK(plain_text.find("line 2 is missing \"the \"") != std::string::npos);
+    CHECK(plain_text.find("- left on [the\xC2\xB7]shelf:") != std::string::npos);
+    runner::TextStyle ascii_style;
+    ascii_style.ascii = true;
+    CHECK(runner::render_text(report, ascii_style).find("- left on [the~]shelf:") != std::string::npos);
+    CHECK(plain_text.find("+ left on shelf:") != std::string::npos);
+    CHECK(plain_text.find("Stage 1: The night shift") != std::string::npos);
+    CHECK(plain_text.find("Full diff: /tmp/last-diff.txt") != std::string::npos);
+    CHECK(plain_text.find("Expected:") == std::string::npos);
+    runner::TextStyle color_style;
+    color_style.color = true;
+    auto const colored = runner::render_text(report, color_style);
+    CHECK(colored.find("\x1b[7;31mthe\xC2\xB7\x1b[0m") != std::string::npos);
+    auto const json_text = runner::to_json(report).dump();
+    CHECK(json_text.find("\"diff\"") != std::string::npos);
+    CHECK(json_text.find("diff_path") != std::string::npos);
+
+    AcademyWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    m.open_exercise("more/boss");
+    m.exercise.report = report;
+    m.exercise.report->exercise = "more/boss";
+    auto const diff_view = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(diff_view.find("- expected") != std::string::npos);
+    CHECK(diff_view.find("left on the\xC2\xB7shelf:") != std::string::npos);
+    CHECK(diff_view.find("+    2 left on shelf:") != std::string::npos);
+    snap(m, "exercise-output-diff", {{100, 30}, {60, 20}});
+    m.handle(tm::Resize{100, 30});
+    press(m, "v");
+    CHECK(m.exercise.result_view == tm::ResultView::Expected);
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Expected output:") != std::string::npos);
+    press(m, "v");
+    CHECK(m.exercise.result_view == tm::ResultView::Observed);
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Your output:") != std::string::npos);
+    press(m, "v");
+    CHECK(m.exercise.result_view == tm::ResultView::Diff);
 }

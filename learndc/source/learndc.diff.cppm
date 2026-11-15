@@ -309,4 +309,259 @@ export namespace learndc::diff
         }
         return rows;
     }
+
+    enum class Mark
+    {
+        Same,
+        Expected,
+        Observed,
+        Gap,
+    };
+
+    struct OutputLine
+    {
+        Mark mark = Mark::Same;
+        std::string text;
+        std::size_t expected_line = 0;
+        std::size_t observed_line = 0;
+        bool newline = true;
+        std::size_t changed_begin = 0;
+        std::size_t changed_end = 0;
+        bool has_change = false;
+    };
+
+    struct OutputDiff
+    {
+        std::vector<OutputLine> lines;
+        std::size_t expected_lines = 0;
+        std::size_t observed_lines = 0;
+        std::size_t first_difference = 0;
+        std::size_t differences = 0;
+        bool truncated = false;
+        bool only_final_newline = false;
+        std::string summary;
+    };
+
+    namespace detail
+    {
+        [[nodiscard]] inline std::size_t utf8_back(std::string_view s, std::size_t i)
+        {
+            while (i > 0 && i < s.size() && (static_cast<unsigned char>(s[i]) & 0xC0) == 0x80)
+                --i;
+            return i;
+        }
+
+        inline void mark_change(OutputLine& removed, OutputLine& added)
+        {
+            std::string_view a = removed.text;
+            std::string_view b = added.text;
+            std::size_t prefix = 0;
+            while (prefix < a.size() && prefix < b.size() && a[prefix] == b[prefix])
+                ++prefix;
+            prefix = utf8_back(a, prefix);
+            std::size_t suffix = 0;
+            while (suffix < a.size() - prefix && suffix < b.size() - prefix && a[a.size() - 1 - suffix] == b[b.size() - 1 - suffix])
+                ++suffix;
+            auto a_end = a.size() - suffix;
+            auto b_end = b.size() - suffix;
+            while (a_end < a.size() && (static_cast<unsigned char>(a[a_end]) & 0xC0) == 0x80)
+                ++a_end;
+            while (b_end < b.size() && (static_cast<unsigned char>(b[b_end]) & 0xC0) == 0x80)
+                ++b_end;
+            removed.changed_begin = prefix;
+            removed.changed_end = std::max(prefix, a_end);
+            removed.has_change = true;
+            added.changed_begin = prefix;
+            added.changed_end = std::max(prefix, b_end);
+            added.has_change = true;
+        }
+
+        [[nodiscard]] inline std::string quote_short(std::string_view s, std::size_t limit = 60)
+        {
+            std::string out;
+            std::size_t i = 0;
+            while (i < s.size() && out.size() < limit)
+            {
+                auto const d = text::decode_utf8(s, i);
+                out += s.substr(i, d.length);
+                i += d.length;
+            }
+            if (i < s.size())
+                out += "...";
+            return out;
+        }
+        [[nodiscard]] inline std::string summarize(std::vector<OutputLine> const& removed, std::vector<OutputLine> const& added, bool last_block)
+        {
+            if (!removed.empty() && !added.empty())
+            {
+                auto const& e = removed.front();
+                auto const& o = added.front();
+                if (e.text == o.text && e.newline != o.newline && last_block)
+                    return e.newline ? "the last line is missing its final newline" : "there is an extra newline after the last line";
+                auto const missing = std::string_view(e.text).substr(e.changed_begin, e.changed_end - e.changed_begin);
+                auto const extra = std::string_view(o.text).substr(o.changed_begin, o.changed_end - o.changed_begin);
+                if (!missing.empty() && extra.empty())
+                    return std::format("line {} is missing \"{}\"", e.expected_line, quote_short(missing));
+                if (missing.empty() && !extra.empty())
+                    return std::format("line {} has extra \"{}\"", e.expected_line, quote_short(extra));
+                return std::format("line {} has \"{}\" where \"{}\" was expected", e.expected_line, quote_short(extra), quote_short(missing));
+            }
+            if (!removed.empty())
+                return std::format("expected line {} is missing from the output", removed.front().expected_line);
+            return std::format("output line {} was not expected", added.front().observed_line);
+        }
+    } // namespace detail
+
+    [[nodiscard]] inline OutputDiff compare_output(std::string_view expected, std::string_view observed, std::size_t max_lines = 4000)
+    {
+        OutputDiff out;
+        auto const a = to_lines(expected);
+        auto const b = to_lines(observed);
+        out.expected_lines = a.size();
+        out.observed_lines = b.size();
+        auto const edits = diff_lines(a, b);
+        std::vector<OutputLine> lines;
+        std::size_t i = 0;
+        while (i < edits.size())
+        {
+            if (edits[i].op == Op::Equal)
+            {
+                auto const& line = a[edits[i].a];
+                lines.push_back({Mark::Same, line.text, edits[i].a + 1, edits[i].b + 1, line.newline});
+                ++i;
+                continue;
+            }
+            std::vector<OutputLine> removed;
+            std::vector<OutputLine> added;
+            while (i < edits.size() && edits[i].op != Op::Equal)
+            {
+                if (edits[i].op == Op::Delete)
+                    removed.push_back({Mark::Expected, a[edits[i].a].text, edits[i].a + 1, 0, a[edits[i].a].newline});
+                else
+                    added.push_back({Mark::Observed, b[edits[i].b].text, 0, edits[i].b + 1, b[edits[i].b].newline});
+                ++i;
+            }
+            for (std::size_t k = 0; k < removed.size() && k < added.size(); ++k)
+                detail::mark_change(removed[k], added[k]);
+            if (!out.first_difference)
+            {
+                out.first_difference = lines.size() + 1;
+                out.summary = detail::summarize(removed, added, edits.size() == i && removed.size() == 1 && added.size() == 1);
+            }
+            out.differences += std::max(removed.size(), added.size());
+            for (auto& l : removed)
+                lines.push_back(std::move(l));
+            for (auto& l : added)
+                lines.push_back(std::move(l));
+        }
+        out.only_final_newline = out.summary.find("newline") != std::string::npos;
+        if (lines.size() > max_lines)
+        {
+            constexpr std::size_t keep = 3;
+            std::vector<bool> near(lines.size(), false);
+            for (std::size_t k = 0; k < lines.size(); ++k)
+                if (lines[k].mark != Mark::Same)
+                    for (std::size_t j = k >= keep ? k - keep : 0; j <= std::min(lines.size() - 1, k + keep); ++j)
+                        near[j] = true;
+            std::vector<OutputLine> kept;
+            bool gap = false;
+            for (std::size_t k = 0; k < lines.size(); ++k)
+            {
+                if (!near[k])
+                {
+                    gap = true;
+                    continue;
+                }
+                if (gap && !kept.empty())
+                    kept.push_back({Mark::Gap, {}, 0, 0, true});
+                gap = false;
+                kept.push_back(std::move(lines[k]));
+            }
+            if (kept.size() > max_lines)
+            {
+                kept.resize(max_lines);
+                out.truncated = true;
+            }
+            out.first_difference = 0;
+            for (std::size_t k = 0; k < kept.size(); ++k)
+                if (kept[k].mark == Mark::Expected || kept[k].mark == Mark::Observed)
+                {
+                    out.first_difference = k + 1;
+                    break;
+                }
+            lines = std::move(kept);
+        }
+        out.lines = std::move(lines);
+        return out;
+    }
+
+    [[nodiscard]] inline std::vector<std::pair<std::size_t, std::size_t>> hunks(OutputDiff const& d, std::size_t context, bool all)
+    {
+        std::vector<std::pair<std::size_t, std::size_t>> out;
+        auto const changed = [&](std::size_t k) { return d.lines[k].mark == Mark::Expected || d.lines[k].mark == Mark::Observed; };
+        for (std::size_t i = 0; i < d.lines.size(); ++i)
+        {
+            if (!changed(i))
+                continue;
+            auto begin = i;
+            while (begin > 0 && i - begin < context && d.lines[begin - 1].mark == Mark::Same)
+                --begin;
+            auto end = i + 1;
+            while (end < d.lines.size() && changed(end))
+                ++end;
+            for (std::size_t extra = 0; extra < context && end < d.lines.size() && d.lines[end].mark == Mark::Same; ++extra)
+                ++end;
+            if (!out.empty() && begin <= out.back().second)
+                out.back().second = end;
+            else
+                out.emplace_back(begin, end);
+            if (!all)
+                break;
+            i = end - 1;
+        }
+        return out;
+    }
+
+    [[nodiscard]] inline std::string visible_line(std::string_view line, bool ascii, bool line_end = true)
+    {
+        std::string out;
+        auto trailing = line.size();
+        while (line_end && trailing > 0 && (line[trailing - 1] == ' ' || line[trailing - 1] == '\t'))
+            --trailing;
+        for (std::size_t i = 0; i < line.size(); ++i)
+        {
+            char const c = line[i];
+            if (c == '\t')
+                out += ascii ? "\\t" : "\xE2\x86\x92";
+            else if (c == '\r')
+                out += ascii ? "\\r" : "\xE2\x90\x8D";
+            else if (c == ' ' && i >= trailing)
+                out += ascii ? "~" : "\xC2\xB7";
+            else
+                out += c;
+        }
+        return out;
+    }
+
+    [[nodiscard]] inline std::string render_output_diff(OutputDiff const& d, bool all, std::size_t context = 2)
+    {
+        std::string out;
+        if (!d.summary.empty())
+            out += "first difference: " + d.summary + "\n";
+        for (auto const& [begin, end] : hunks(d, context, all))
+        {
+            auto const& head = d.lines[begin];
+            out += std::format("@@ expected line {}, output line {} @@\n", head.expected_line ? head.expected_line : head.observed_line,
+                               head.observed_line ? head.observed_line : head.expected_line);
+            for (std::size_t i = begin; i < end; ++i)
+            {
+                auto const& l = d.lines[i];
+                char const marker = l.mark == Mark::Same ? ' ' : l.mark == Mark::Expected ? '-' : '+';
+                out += std::format("{} {}{}\n", marker, visible_line(l.text, true), l.newline ? "" : "  (no newline at end)");
+            }
+        }
+        if (d.truncated)
+            out += "(the comparison is cut off here; the outputs are very long)\n";
+        return out;
+    }
 } // namespace learndc::diff

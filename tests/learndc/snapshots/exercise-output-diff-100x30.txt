@@ -1,0 +1,30 @@
+ Test · The Keeper                                                    0 of 5 completed ░░░░░░░░░░░░
+╭───╮╭─ › Instructions ─────────────────────────────────╮╭─ Files ─────────────────────────────────╮
+│ 1 ││  ☠ BOSS FIGHT  The Keeper                        ┃│ No files yet.                           │
+│ 2 ││ Difficulty ████░ 4 of 5                          ┃╰─────────────────────────────────────────╯
+│ 3 ││ about 40 min · 3 stages                          ┃╭─ Preview ───────────────────────────────╮
+│ 4 ││                                                  ┃│ No file selected.                       │
+│ 5 ││ A keeper guards the shelf.                       ┃│                                         │
+│ 6 ││ boss fight · not started                         ┃│                                         │
+│ 7 ││                                                  ┃│                                         │
+│ 8 ││ Defeat the keeper.                               ┃│                                         │
+│   ││                                                  ┃│                                         │
+│ ? ││ Objectives  0 of 2 required stages passing       ┃│                                         │
+│   ││ › 1. First stage  current objective              ┃│                                         │
+│   ││      Do the first part.                          ┃│                                         │
+│   ││ ○ 2. Second stage                                ┃│                                         │
+│   ││ ○ 3. Bonus stage (bonus)                         ┃│                                         │
+│   ││                                                  ││                                         │
+│   │╰──────────────────────────────────────────────────╯╰─────────────────────────────────────────╯
+│   │╭─ Results ───────────────────────────────────────────────────────────────────────────────────╮
+│   ││ ✗ 0 of 1 check passed · 0.00s                                                               ┃
+│   ││ Stage 1  The night shift  failing                                                           ┃
+│   ││   ✗ FAIL      The night shift report  (compare)                                             ┃
+│   ││       the output is different from what was expected: line 2 is missing "the "              ┃
+│   ││       - expected   + your output                                                            ┃
+│   ││          1 order 1: packed                                                                  ┃
+│   ││     -    2 left on the·shelf:                                                               ┃
+│   ││     +    2 left on shelf:                                                                   │
+╰───╯╰─────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ Enter start  h hint  s solution  Tab pane  ? help  q quit

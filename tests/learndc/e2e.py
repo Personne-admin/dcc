@@ -376,8 +376,9 @@ def journey_start_and_check(real_content: Path):
     main.write_text(original)
 
     rc, out, err = expect(["check", "fundamentals/hello-world"], 1)
-    check("Expected" in out and "Observed" in out, f"failing check shows expected and observed\n{out}")
-    check("Hello, Ada!" in out, "expected text visible")
+    check("@@ expected line 1, output line 1 @@" in out and "+ Hello, [world]!" in out, f"failing check shows expected and observed\n{out}")
+    check("- Hello, [Ada]!" in out, "expected text visible")
+    check("last-diff.txt" in out, "full diff path shown")
     data = expect_json(["check", "fundamentals/hello-world", "--json"], 1)
     check(data.get("outcome") == "failed", f"json outcome {data.get('outcome')}")
     check(data.get("passed") == 1 and data.get("total") == 2, "json counts")

@@ -18,7 +18,7 @@
 │                ││                 lesson: for the current stage first)       │
 │                ││   s             show the reference solution (asks first)   │
 │                ││   l             show or hide the raw compiler and program  │
-│                ││                 output                                     │
+│                ││                 output, and the full output diff           │
 ╰────────────────╯╰────────────────────────────────────────────────────────────╯
 
  Up Down scroll  Esc back

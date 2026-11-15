@@ -13,7 +13,10 @@
 │                      ││   h             reveal the next hint (in a multi-stage lesson: for the   ┃
 │                      ││                 current stage first)                                     ┃
 │                      ││   s             show the reference solution (asks first)                 ┃
-│                      ││   l             show or hide the raw compiler and program output         ┃
+│                      ││   l             show or hide the raw compiler and program output, and    │
+│                      ││                 the full output diff                                     │
+│                      ││   v             switch a failed output comparison between diff, expected │
+│                      ││                 output and your output                                   │
 │                      ││   n             go to the next exercise                                  │
 │                      ││   b             bookmark this exercise                                   │
 │                      ││   R             reset the exercise to its starter files (backup first)   │
@@ -22,9 +25,6 @@
 │                      ││                                                                          │
 │                      ││ Everywhere                                                               │
 │                      ││   1 .. 8        Home, Learn, Lesson, Progress, Bookmarks, Doctor,        │
-│                      ││                 Settings, Review                                         │
-│                      ││   ?             this help                                                │
-│                      ││   Esc           go back or close a dialog                                │
 ╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
 
  Up Down scroll  Esc back
