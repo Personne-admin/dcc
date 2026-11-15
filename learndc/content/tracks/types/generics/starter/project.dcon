@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "picker",
+    version = "0.1.0",
+    products = {
+        { name = "picker", entry = "src/main.dc" },
+    },
+}

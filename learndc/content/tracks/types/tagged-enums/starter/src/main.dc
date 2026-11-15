@@ -1,0 +1,13 @@
+module main;
+import shapes;
+
+public Status(Error) main() {
+    shapes::Shape disc = shapes::Shape::Circle(2);
+    shapes::Shape wall = shapes::Shape::Rect(shapes::Size { width = 3, height = 5 });
+    shapes::Shape nothing = shapes::Shape::Empty;
+
+    println("disc: area {}, corners {}", disc.area(), disc.corners())?;
+    println("wall: area {}, corners {}", wall.area(), wall.corners())?;
+    println("nothing: area {}, corners {}", nothing.area(), nothing.corners())?;
+    return Status::Ok;
+}

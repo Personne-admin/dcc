@@ -1,0 +1,9 @@
+module pick;
+
+public i32 larger(i32 a, i32 b) {
+    return if a > b { a } else { b };
+}
+
+public T smaller(T)(T a, T b) {
+    return if a < b { a } else { b };
+}

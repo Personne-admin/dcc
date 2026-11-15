@@ -1,0 +1,37 @@
+module pick_check;
+import pick;
+
+public i32 main() {
+    i32 failures = 0;
+    if pick::larger(-3, -9) != -3 {
+        println("larger(-3, -9): expected -3, got {}", pick::larger(-3, -9));
+        failures += 1;
+    }
+    if pick::larger(7, 7) != 7 {
+        println("larger(7, 7): expected 7, got {}", pick::larger(7, 7));
+        failures += 1;
+    }
+    u8 low = 100;
+    u8 high = 200;
+    if pick::larger(low, high) != 200 {
+        println("larger of two u8 values: expected 200, got {}", pick::larger(low, high));
+        failures += 1;
+    }
+    u64 big = 5000000000;
+    u64 small = 4000000000;
+    if pick::larger(big, small) != 5000000000 {
+        println("larger of two u64 values: expected 5000000000, got {}", pick::larger(big, small));
+        failures += 1;
+    }
+    if pick::larger(2.5, 1.25) != 2.5 {
+        println("larger(2.5, 1.25): expected 2.5, got {}", pick::larger(2.5, 1.25));
+        failures += 1;
+    }
+    f64 neg = -0.5;
+    f64 pos = 0.25;
+    if pick::larger(neg, pos) != 0.25 {
+        println("larger of two f64 values: expected 0.25, got {}", pick::larger(neg, pos));
+        failures += 1;
+    }
+    return failures;
+}

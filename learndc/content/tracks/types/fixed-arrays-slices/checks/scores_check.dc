@@ -1,0 +1,26 @@
+module scores_check;
+import scores;
+
+i32 expect_eq([]const char label, i32 expected, i32 got) {
+    if expected == got {
+        return 0;
+    }
+    println("{}: expected {}, got {}", label, expected, got);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    i32[5] data = { 12, 7, 31, 4, 19 };
+    failures += expect_eq("total of the whole array", 73, scores::total(data));
+    failures += expect_eq("highest of the whole array", 31, scores::highest(data));
+    failures += expect_eq("total of data[3..5]", 23, scores::total(data[3..5]));
+    failures += expect_eq("highest of data[3..5]", 19, scores::highest(data[3..5]));
+    failures += expect_eq("total of data[0..1]", 12, scores::total(data[0..1]));
+    failures += expect_eq("total of an empty slice", 0, scores::total(data[2..2]));
+    failures += expect_eq("highest of an empty slice", 0, scores::highest(data[2..2]));
+    i32[3] negatives = { -5, -2, -9 };
+    failures += expect_eq("highest of all-negative values", -2, scores::highest(negatives));
+    failures += expect_eq("total of negatives", -16, scores::total(negatives));
+    return failures;
+}

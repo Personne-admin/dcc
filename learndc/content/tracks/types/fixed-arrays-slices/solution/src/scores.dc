@@ -1,0 +1,22 @@
+module scores;
+
+public i32 total([]const i32 values) {
+    i32 sum = 0;
+    for value in values {
+        sum += value;
+    }
+    return sum;
+}
+
+public i32 highest([]const i32 values) {
+    if values.len == 0 {
+        return 0;
+    }
+    i32 best = values[0];
+    for value in values {
+        if value > best {
+            best = value;
+        }
+    }
+    return best;
+}

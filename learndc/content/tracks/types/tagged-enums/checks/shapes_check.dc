@@ -1,0 +1,23 @@
+module shapes_check;
+import shapes;
+
+i32 expect_eq([]const char label, i32 expected, i32 got) {
+    if expected == got {
+        return 0;
+    }
+    println("{}: expected {}, got {}", label, expected, got);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    failures += expect_eq("area of Circle(1)", 3, shapes::area(shapes::Shape::Circle(1)));
+    failures += expect_eq("area of Circle(10)", 300, shapes::area(shapes::Shape::Circle(10)));
+    shapes::Size big = shapes::Size { width = 7, height = 6 };
+    failures += expect_eq("area of a 7x6 Rect", 42, shapes::area(shapes::Shape::Rect(big)));
+    shapes::Size thin = shapes::Size { width = 1, height = 9 };
+    failures += expect_eq("area of a 1x9 Rect", 9, shapes::area(shapes::Shape::Rect(thin)));
+    failures += expect_eq("area of Empty", 0, shapes::area(shapes::Shape::Empty));
+    failures += expect_eq("corners of a Rect", 4, shapes::corners(shapes::Shape::Rect(big)));
+    return failures;
+}

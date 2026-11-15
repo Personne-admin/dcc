@@ -1,0 +1,27 @@
+module shapes;
+
+public struct Size {
+    i32 width;
+    i32 height;
+}
+
+public enum Shape {
+    Circle(i32),
+    Rect(Size),
+    Empty,
+}
+
+public i32 corners(Shape s) {
+    return match s {
+        Shape::Circle(_) => 0,
+        Shape::Rect(_) => 4,
+        Shape::Empty => 0,
+    };
+}
+
+public i32 area(Shape s) {
+    return match s {
+        Shape::Circle(radius) => 3 * radius * radius,
+        Shape::Empty => 0,
+    };
+}

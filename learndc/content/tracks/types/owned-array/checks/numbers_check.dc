@@ -1,0 +1,52 @@
+module numbers_check;
+import numbers;
+
+i32 expect_eq([]const char label, i32 expected, i32 got) {
+    if expected == got {
+        return 0;
+    }
+    println("{}: expected {}, got {}", label, expected, got);
+    return 1;
+}
+
+i32 check_collect([]const char label, []const i32 input, []const i32 expected) {
+    Array(i32) out = {};
+    defer out.deinit();
+    if !numbers::collect_evens(&out, input).is_ok() {
+        println("{}: collect_evens returned an error", label);
+        return 1;
+    }
+    []const i32 got = out.items();
+    if got.len != expected.len {
+        println("{}: expected {} values, got {}", label, expected.len as i32, got.len as i32);
+        return 1;
+    }
+    i32 failures = 0;
+    for i in 0..expected.len {
+        failures += expect_eq(label, expected[i], got[i]);
+    }
+    return failures;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    i32[6] mixed = { 3, 8, 5, 12, 7, 20 };
+    i32[3] want_mixed = { 8, 12, 20 };
+    failures += check_collect("mixed values", mixed, want_mixed);
+
+    i32[3] odds = { 1, 3, 5 };
+    failures += check_collect("only odd values", odds, odds[0..0]);
+
+    i32[4] signs = { -4, -3, 0, 2 };
+    i32[3] want_signs = { -4, 0, 2 };
+    failures += check_collect("negatives and zero", signs, want_signs);
+
+    Array(i32) kept = {};
+    defer kept.deinit();
+    i32[2] first = { 2, 3 };
+    i32[2] second = { 4, 5 };
+    numbers::collect_evens(&kept, first);
+    numbers::collect_evens(&kept, second);
+    failures += expect_eq("collect_evens appends to the array it is given", 2, kept.items().len as i32);
+    return failures;
+}

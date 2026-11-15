@@ -1,0 +1,14 @@
+module main;
+import geometry;
+
+public Status(Error) main() {
+    geometry::Rect hall = geometry::Rect { width = 4, height = 3 };
+    println("hall: {}x{}, area {}", hall.width, hall.height, hall.area())?;
+
+    hall.grow(2);
+    println("grown: {}x{}, area {}", hall.width, hall.height, hall.area())?;
+
+    geometry::Rect cell = geometry::square(5);
+    println("cell: {}x{}, area {}", cell.width, cell.height, cell.area())?;
+    return Status::Ok;
+}

@@ -1,0 +1,5 @@
+schema = 1
+id = "types"
+title = "Types and memory"
+summary = "Arrays and slices, structs, tagged enums, owned arrays and generic functions."
+exercises = ["fixed-arrays-slices", "structs", "tagged-enums", "owned-array", "generics"]

@@ -1,0 +1,32 @@
+module geometry_check;
+import geometry;
+
+i32 expect_eq([]const char label, i32 expected, i32 got) {
+    if expected == got {
+        return 0;
+    }
+    println("{}: expected {}, got {}", label, expected, got);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    geometry::Rect r = geometry::Rect { width = 4, height = 3 };
+    failures += expect_eq("area of 4x3", 12, r.area());
+    failures += expect_eq("area as a plain call", 12, geometry::area(r));
+
+    r.grow(2);
+    failures += expect_eq("width after grow(2)", 6, r.width);
+    failures += expect_eq("height after grow(2)", 5, r.height);
+    failures += expect_eq("area after grow(2)", 30, r.area());
+
+    geometry::Rect copy = r;
+    copy.grow(1);
+    failures += expect_eq("grow changes only the rectangle it is called on", 6, r.width);
+
+    geometry::Rect s = geometry::square(5);
+    failures += expect_eq("square width", 5, s.width);
+    failures += expect_eq("square height", 5, s.height);
+    failures += expect_eq("square area", 25, s.area());
+    return failures;
+}

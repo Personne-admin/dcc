@@ -1,0 +1,11 @@
+module main;
+import pick;
+
+public Status(Error) main() {
+    u8 low = 100;
+    u8 high = 200;
+    println("ints: larger {}, smaller {}", pick::larger(3, 9), pick::smaller(3, 9))?;
+    println("floats: larger {}, smaller {}", pick::larger(2.5, 1.25), pick::smaller(2.5, 1.25))?;
+    println("bytes: larger {}, smaller {}", pick::larger(low, high), pick::smaller(low, high))?;
+    return Status::Ok;
+}

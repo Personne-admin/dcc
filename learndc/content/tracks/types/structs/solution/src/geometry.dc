@@ -1,0 +1,19 @@
+module geometry;
+
+public struct Rect {
+    i32 width;
+    i32 height;
+}
+
+public i32 area(Rect r) {
+    return r.width * r.height;
+}
+
+public void grow(Rect* r, i32 amount) {
+    r.width += amount;
+    r.height += amount;
+}
+
+public Rect square(i32 side) {
+    return Rect { width = side, height = side };
+}

@@ -1,0 +1,48 @@
+schema = 1
+id = "types/owned-array"
+revision = 1
+title = "Growable arrays that clean up"
+summary = "Fill and release an Array(T) with push, defer and items."
+kind = "implement-function"
+chapter = "memory"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["Array", "push", "defer", "deinit", "items", "ownership"]
+tags = ["arrays", "memory", "errors"]
+objectives = [
+    "Create an owned Array(T) and release it with defer deinit",
+    "Append with push and propagate allocation failure with ?",
+    "Pass an owned array by pointer and iterate it with items()",
+]
+entry_file = "src/main.dc"
+product = "evens"
+prerequisites = ["types/tagged-enums"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the even numbers"
+expect_stdout = """
+even: 8
+even: 12
+even: 20
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "print_evens fills its own Array with collect_evens and then prints each element."
+
+[[checks]]
+kind = "harness"
+name = "collect_evens keeps only even values and appends"
+harness = "checks/numbers_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Zero and negative even numbers count as even, and existing elements must stay."

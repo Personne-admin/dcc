@@ -1,0 +1,9 @@
+module numbers;
+
+public Status(Error) collect_evens(Array(i32)* out, []const i32 values) {
+    return Status::Ok;
+}
+
+public Status(Error) print_evens([]const i32 values) {
+    return Status::Ok;
+}

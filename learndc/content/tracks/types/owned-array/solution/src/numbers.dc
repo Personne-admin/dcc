@@ -1,0 +1,20 @@
+module numbers;
+
+public Status(Error) collect_evens(Array(i32)* out, []const i32 values) {
+    for value in values {
+        if value % 2 == 0 {
+            out.push(value)?;
+        }
+    }
+    return Status::Ok;
+}
+
+public Status(Error) print_evens([]const i32 values) {
+    Array(i32) evens = {};
+    defer evens.deinit();
+    collect_evens(&evens, values)?;
+    for even in evens.items() {
+        println("even: {}", even)?;
+    }
+    return Status::Ok;
+}

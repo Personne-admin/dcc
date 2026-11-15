@@ -1,0 +1,10 @@
+module main;
+import scores;
+
+public Status(Error) main() {
+    i32[5] results = { 12, 7, 31, 4, 19 };
+    println("all: total {}, highest {}", scores::total(results), scores::highest(results))?;
+    []const i32 last_two = results[3..5];
+    println("last two: total {}, highest {}", scores::total(last_two), scores::highest(last_two))?;
+    return Status::Ok;
+}

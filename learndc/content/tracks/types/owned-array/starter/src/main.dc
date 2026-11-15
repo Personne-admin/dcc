@@ -1,0 +1,8 @@
+module main;
+import numbers;
+
+public Status(Error) main() {
+    i32[6] data = { 3, 8, 5, 12, 7, 20 };
+    numbers::print_evens(data)?;
+    return Status::Ok;
+}

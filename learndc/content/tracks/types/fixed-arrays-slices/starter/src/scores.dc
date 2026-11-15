@@ -1,0 +1,9 @@
+module scores;
+
+public i32 total([]const i32 values) {
+    return 0;
+}
+
+public i32 highest([]const i32 values) {
+    return 0;
+}
