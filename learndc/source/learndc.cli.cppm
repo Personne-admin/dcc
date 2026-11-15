@@ -616,7 +616,7 @@ export namespace learndc::cli
             for (auto const& c : ex.checks)
                 std::print(o, "  - {} ({})\n", c.name, check_kind_name(c.kind));
             if (!ex.readme.empty())
-                std::print(o, "\n{}", markdown::render_plain(ex.readme));
+                std::print(o, "\n{}", markdown::render_plain(markdown::drop_section(ex.readme, "Acceptance criteria"), 80, true));
             if (workspace_path.empty())
                 std::print(o, "\nStart with: learndc start {}\n", ex.id);
             return app::exit_ok;

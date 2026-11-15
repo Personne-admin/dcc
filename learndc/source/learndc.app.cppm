@@ -506,7 +506,15 @@ export namespace learndc::app
         }
         if (!ex.explanation.empty())
         {
-            out += markdown::render_plain(ex.explanation);
+            std::string explanation = ex.explanation;
+            if (!diff)
+            {
+                std::vector<std::string> references;
+                for (auto const& [path, bytes] : ex.solution)
+                    references.push_back(bytes);
+                explanation = markdown::drop_quoted_code(explanation, references);
+            }
+            out += markdown::render_plain(explanation);
         }
         auto const now = platform::now_utc_iso8601();
         auto updated = update_progress(ctx, [&](progress::Progress& pr) { progress::mark_solution_viewed(pr, ex.id, now); });

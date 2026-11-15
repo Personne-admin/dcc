@@ -236,6 +236,33 @@ export namespace learndc::markdown
             return std::nullopt;
         }
 
+        inline constexpr std::string_view hard_space = "\xC2\xA0";
+
+        [[nodiscard]] inline std::string protect_spaces(std::string const& code)
+        {
+            std::string out;
+            for (std::size_t i = 0; i < code.size(); ++i)
+            {
+                bool protect = false;
+                if (code[i] == ' ')
+                {
+                    bool const edge = i == 0 || i + 1 == code.size();
+                    bool const run = (i > 0 && code[i - 1] == ' ') || (i + 1 < code.size() && code[i + 1] == ' ');
+                    protect = edge || run;
+                }
+                if (protect)
+                    out += hard_space;
+                else
+                    out += code[i];
+            }
+            return out;
+        }
+
+        [[nodiscard]] inline bool has_protected_edge(std::string const& code)
+        {
+            return code.empty() || code.starts_with(hard_space) || code.ends_with(hard_space);
+        }
+
         inline void parse_inline(std::string_view s, Kind base, Line& out)
         {
             std::string literal;
@@ -262,7 +289,7 @@ export namespace learndc::markdown
                         if (code.size() >= 2 && code.front() == ' ' && code.back() == ' ' && code.find_first_not_of(' ') != std::string::npos)
                             code = code.substr(1, code.size() - 2);
                         flush();
-                        push(out, std::move(code), Kind::Code);
+                        push(out, protect_spaces(code), Kind::Code);
                         i = *end + n;
                         continue;
                     }
@@ -729,12 +756,12 @@ export namespace learndc::markdown
             bool m_in_list = false;
             bool m_tight = false;
 
-            void inline_into(std::string_view s, Kind base, Line& out) const
+            void inline_into(std::string_view s, Kind base, Line& out, bool cell = false) const
             {
                 Line parsed;
                 parse_inline(s, base, parsed);
                 for (auto& sp : parsed)
-                    if (m_opt.plain && sp.kind == Kind::Code)
+                    if (m_opt.plain && sp.kind == Kind::Code && (!cell || has_protected_edge(sp.text)))
                         sp.text = "`" + sp.text + "`";
                 push_line(out, parsed);
             }
@@ -797,14 +824,12 @@ export namespace learndc::markdown
                 add_all(layout(content, m_width, first, rest));
             }
 
-            void emit_heading(int level, std::string const& body)
+            void emit_heading([[maybe_unused]] int level, std::string const& body)
             {
                 m_tight = false;
                 blank();
                 m_in_list = false;
                 Line first;
-                if (m_opt.plain)
-                    push(first, std::string(to_size(level), '#') + " ", Kind::Heading);
                 Line content;
                 inline_into(body, Kind::Heading, content);
                 for (auto& s : content)
@@ -877,7 +902,7 @@ export namespace learndc::markdown
                     for (auto const& c : raw)
                     {
                         Line l;
-                        inline_into(text::replace_all(c, "<br>", " "), r == 0 ? Kind::TableHead : Kind::Text, l);
+                        inline_into(text::replace_all(c, "<br>", " "), r == 0 ? Kind::TableHead : Kind::Text, l, true);
                         row.push_back(std::move(l));
                     }
                     cells.push_back(std::move(row));
@@ -1009,7 +1034,94 @@ export namespace learndc::markdown
     [[nodiscard]] inline std::vector<Line> render(std::string_view markdown, Options const& options = {})
     {
         detail::Renderer renderer(options);
-        return renderer.run(markdown);
+        auto lines = renderer.run(markdown);
+        for (auto& line : lines)
+            for (auto& span : line)
+                span.text = text::replace_all(span.text, detail::hard_space, " ");
+        return lines;
+    }
+
+    [[nodiscard]] inline std::string drop_quoted_code(std::string_view markdown, std::span<std::string const> references)
+    {
+        std::set<std::string> known;
+        for (auto const& ref : references)
+            for (auto const& line : text::split_lines(text::normalize_newlines(ref)))
+                known.insert(std::string(text::trim(line)));
+        auto const lines = text::split_lines(text::normalize_newlines(markdown));
+        std::string out;
+        for (std::size_t i = 0; i < lines.size(); ++i)
+        {
+            auto fence = detail::fence_of(lines[i]);
+            if (!fence)
+            {
+                out += lines[i];
+                out += '\n';
+                continue;
+            }
+            std::size_t end = i + 1;
+            while (end < lines.size())
+            {
+                auto const ct = text::trim(lines[end]);
+                if (ct.size() >= fence->second && detail::run_length(ct, 0, fence->first) == ct.size())
+                    break;
+                ++end;
+            }
+            bool quoted = false;
+            bool any = false;
+            for (std::size_t k = i + 1; k < end; ++k)
+            {
+                auto const t = text::trim(lines[k]);
+                if (t.empty())
+                    continue;
+                any = true;
+                quoted = known.contains(std::string(t));
+                if (!quoted)
+                    break;
+            }
+            quoted = quoted && any;
+            std::size_t const last = std::min(end, lines.size() - 1);
+            if (!quoted)
+            {
+                for (std::size_t k = i; k <= last; ++k)
+                {
+                    out += lines[k];
+                    out += '\n';
+                }
+            }
+            i = last;
+        }
+        return out;
+    }
+
+    [[nodiscard]] inline std::string drop_section(std::string_view markdown, std::string_view title)
+    {
+        auto const lines = text::split_lines(text::normalize_newlines(markdown));
+        std::string out;
+        std::optional<int> skipping;
+        std::optional<std::pair<char, std::size_t>> fence;
+        for (auto const& raw : lines)
+        {
+            if (fence)
+            {
+                auto const ct = text::trim(raw);
+                if (ct.size() >= fence->second && detail::run_length(ct, 0, fence->first) == ct.size())
+                    fence.reset();
+            }
+            else if (auto f = detail::fence_of(raw))
+                fence = f;
+            else if (auto h = detail::heading_of(raw))
+            {
+                if (skipping && h->first <= *skipping)
+                    skipping.reset();
+                if (!skipping && text::lower(h->second) == text::lower(title))
+                    skipping = h->first;
+            }
+            if (skipping)
+                continue;
+            out += raw;
+            out += '\n';
+        }
+        return out;
     }
 
     [[nodiscard]] inline std::string to_text(std::vector<Line> const& lines)
@@ -1023,10 +1135,11 @@ export namespace learndc::markdown
         return out;
     }
 
-    [[nodiscard]] inline std::string render_plain(std::string_view markdown, int width = 80)
+    [[nodiscard]] inline std::string render_plain(std::string_view markdown, int width = 80, bool skip_title = false)
     {
         Options o;
         o.width = width;
+        o.skip_title = skip_title;
         o.plain = true;
         o.ascii = true;
         return to_text(render(markdown, o));
