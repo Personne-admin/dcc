@@ -13,6 +13,7 @@ import learndc.toolchain;
 import learndc.runner;
 import learndc.watch;
 import learndc.editor;
+import learndc.doctor;
 import dcc.host.process;
 
 #define main harness_main
@@ -33,6 +34,7 @@ namespace toolchain = learndc::toolchain;
 namespace runner = learndc::runner;
 namespace watch = learndc::watch;
 namespace editor = learndc::editor;
+namespace doctor = learndc::doctor;
 
 namespace
 {
@@ -4307,6 +4309,95 @@ TEST_CASE("manual editors and unstartable editors report instead of failing sile
     auto f = editor::launch(*nvim, ph, folder);
     CHECK(!f.ok);
     CHECK(f.message.find("folder") != std::string::npos);
+}
+
+SECTION("learndc.doctor");
+
+TEST_CASE("doctor reports missing tools with actionable fixes")
+{
+    TempDir t;
+    doctor::DoctorOptions o;
+    platform::Overrides ov;
+    ov.home = t.path;
+    o.dirs = platform::resolve_dirs(ov, platform::Env{}).value();
+    o.env["PATH"] = platform::path_to_utf8(t.path / "none");
+    o.os = platform::Os::Linux;
+    o.stdin_tty = false;
+    o.stdout_tty = false;
+    auto content = base_source();
+    o.content = &content;
+    auto report = doctor::run_doctor(o);
+    auto const* dcc = report.find("dcc");
+    auto const* dpm = report.find("dpm");
+    REQUIRE(dcc != nullptr);
+    REQUIRE(dpm != nullptr);
+    CHECK(dcc->status == doctor::Status::Error);
+    CHECK(dcc->fix.find("tools.dcc") != std::string::npos);
+    CHECK(dcc->fix.find("LEARNDC_DCC") != std::string::npos);
+    CHECK(dpm->fix.find("tools.dpm") != std::string::npos);
+    CHECK(dpm->fix.find("LEARNDC_DPM") != std::string::npos);
+    CHECK(report.find("dccd")->status == doctor::Status::Info);
+    CHECK(report.find("dir.data")->status == doctor::Status::Ok);
+    CHECK(report.find("dir.cache")->status == doctor::Status::Ok);
+    CHECK(report.find("content")->status == doctor::Status::Ok);
+    CHECK(report.find("editor")->status == doctor::Status::Warn);
+    CHECK(report.find("editor")->fix.find("editor.preset") != std::string::npos);
+    CHECK(report.find("terminal.tty")->status == doctor::Status::Info);
+    CHECK(report.find("terminal.term")->status == doctor::Status::Warn);
+    CHECK(report.find("safety")->detail.find("not a sandbox") != std::string::npos);
+    CHECK(report.has_errors());
+    auto const text = doctor::render_text(report, {});
+    CHECK(text.find("Fix:") != std::string::npos);
+    CHECK(text.find("2 errors") != std::string::npos);
+    auto j = doctor::to_json(report);
+    CHECK_EQ(j.find("ok")->as_bool().value_or(true), false);
+    CHECK_EQ(j.find("items")->size(), report.items.size());
+}
+
+TEST_CASE("doctor flags broken content unwritable dirs and terminal problems")
+{
+    TempDir t;
+    doctor::DoctorOptions o;
+    platform::Overrides ov;
+    ov.home = t.path;
+    o.dirs = platform::resolve_dirs(ov, platform::Env{}).value();
+    write_file(t.path / "blocker", "file");
+    o.dirs.cache_dir = t.path / "blocker" / "cache";
+    o.env["TERM"] = "dumb";
+    o.env["NO_COLOR"] = "1";
+    o.os = platform::Os::Linux;
+    o.terminal = platform::TerminalSize{40, 10};
+    auto content = base_source();
+    edit(content, "tracks/basics/one/exercise.toml", "schema = 1", "schema = 9");
+    o.content = &content;
+    auto report = doctor::run_doctor(o);
+    CHECK(report.find("content")->status == doctor::Status::Error);
+    CHECK(report.find("dir.cache")->status == doctor::Status::Error);
+    CHECK(report.find("dir.cache")->fix.find("LEARNDC_HOME") != std::string::npos);
+    CHECK(report.find("terminal.term")->status == doctor::Status::Warn);
+    CHECK(report.find("terminal.size")->status == doctor::Status::Warn);
+    CHECK(report.find("terminal.color")->detail.find("NO_COLOR") != std::string::npos);
+}
+
+TEST_CASE("doctor with the real toolchain finds versions and can build")
+{
+    REQUIRE(real_tools_present());
+    TempDir t;
+    auto const run = make_options(t.path);
+    doctor::DoctorOptions o;
+    o.dirs = run.dirs;
+    o.settings = run.settings;
+    o.tools = run.tools;
+    o.env = platform::current_env();
+    o.stdin_tty = false;
+    o.stdout_tty = false;
+    o.build = true;
+    auto report = doctor::run_doctor(o);
+    CHECK(report.find("dcc")->status == doctor::Status::Ok);
+    CHECK(report.find("dpm")->status == doctor::Status::Ok);
+    auto const* build = report.find("build");
+    REQUIRE(build != nullptr);
+    CHECK(build->status == doctor::Status::Ok);
 }
 
 int main(int argc, char** argv)
