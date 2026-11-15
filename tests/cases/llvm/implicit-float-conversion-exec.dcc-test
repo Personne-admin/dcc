@@ -1,0 +1,53 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module test;
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+i32 seven = 7;
+u8 small_int = 200;
+i64 big_int = -5000000000;
+f32 half_f32 = 0.5;
+f64 quarter = 2.25;
+
+f64 widen_return(i32 x) {
+    return x;
+}
+
+f32 narrow_return(f64 x) {
+    return x;
+}
+
+@nomangle
+public i32 dcc_main() {
+    f64 from_i32 = seven;
+    if from_i32 != 7.0 { return 1; }
+    f64 from_u8 = small_int;
+    if from_u8 != 200.0 { return 2; }
+    f64 from_i64 = big_int;
+    if from_i64 != -5000000000.0 { return 3; }
+    f64 from_literal = 3;
+    if from_literal != 3.0 { return 4; }
+    f64 widened = half_f32;
+    if widened != 0.5 { return 5; }
+    f32 narrowed = quarter;
+    if narrowed != 2.25 { return 6; }
+    f64 assigned = 0.0;
+    assigned = seven;
+    if assigned != 7.0 { return 7; }
+    assigned = half_f32;
+    if assigned != 0.5 { return 8; }
+    if widen_return(seven) != 7.0 { return 9; }
+    if narrow_return(quarter) != 2.25 { return 10; }
+    i32 a = 7;
+    i32 b = 2;
+    f64 quotient = a / b;
+    if quotient != 3.0 { return 11; }
+    return 0;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-EXECUTABLE ===
+RUN-EXIT: 0

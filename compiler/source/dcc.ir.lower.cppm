@@ -1698,6 +1698,8 @@ export namespace dcc::ir::lower
                 auto* ret_sema_type = get_canonical_type(m_current_func_decl->return_type);
                 auto* val_sema_type = get_sema_resolved_type(rs->value);
                 val = coerce_array_decay(rs->value, val, val_sema_type, ret_sema_type);
+                if (ret_sema_type)
+                    val = coerce_numeric(val, lower_type(ret_sema_type));
             }
 
             flush_all_defers();
@@ -2621,6 +2623,7 @@ export namespace dcc::ir::lower
                         auto* val = lower_implicit_enum_construction(vd->init, [&]() { return lower_expr(vd->init); });
                         auto* init_sema_type = get_sema_resolved_type(vd->init);
                         val = coerce_array_decay(vd->init, val, init_sema_type, canon);
+                        val = coerce_numeric(val, lower_type(canon));
 
                         if (is_volatile)
                             append_inst(m_ctx.store_volatile(val, alloca));
@@ -5548,6 +5551,7 @@ export namespace dcc::ir::lower
             auto* rhs_sema_type = get_sema_resolved_type(bin->rhs);
             auto* lhs_sema_type = get_sema_resolved_type(bin->lhs);
             rhs_val = coerce_array_decay(bin->rhs, rhs_val, rhs_sema_type, lhs_sema_type);
+            rhs_val = coerce_numeric(rhs_val, lower_type(lhs_sema_type));
 
             auto lv = lower_assign_lvalue(bin->lhs);
             if (!lv.entry && !lv.gep_ptr)
@@ -11194,10 +11198,37 @@ export namespace dcc::ir::lower
             return fallback_lower();
         }
 
+        IrValue* coerce_numeric(IrValue* val, IrType const* target_ir_type)
+        {
+            if (!val || !target_ir_type || !val->type || val->type == target_ir_type)
+                return val;
+            IrValue* converted = nullptr;
+            if (val->type->kind == IrTypeKind::Int && target_ir_type->kind == IrTypeKind::Float)
+                converted = m_ctx.itofp(target_ir_type, val);
+            else if (val->type->kind == IrTypeKind::Float && target_ir_type->kind == IrTypeKind::Float)
+            {
+                auto const src_bits = static_cast<IrFloatType const*>(val->type)->bits;
+                auto const dst_bits = static_cast<IrFloatType const*>(target_ir_type)->bits;
+                if (src_bits < dst_bits)
+                    converted = m_ctx.fpext(target_ir_type, val);
+                else if (src_bits > dst_bits)
+                    converted = m_ctx.fptrunc(target_ir_type, val);
+            }
+            if (!converted)
+                return val;
+            auto name = ident_name();
+            converted->name = m_name_pool.back();
+            append_inst(converted);
+            return converted;
+        }
+
         IrValue* coerce_value(IrValue* val, IrType const* target_ir_type)
         {
             if (!val || !target_ir_type || val->type == target_ir_type)
                 return val;
+
+            if (target_ir_type->kind == IrTypeKind::Float && (val->type->kind == IrTypeKind::Int || val->type->kind == IrTypeKind::Float))
+                return coerce_numeric(val, target_ir_type);
 
             if (val->type->kind == IrTypeKind::Int && target_ir_type->kind == IrTypeKind::Int)
             {
