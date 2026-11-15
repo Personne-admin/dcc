@@ -49,6 +49,7 @@
             nativeBuildInputs = [
               pkgs.gnumake
               pkgs.python3
+              pkgs.makeWrapper
               llvm.clang
               pkgs.clang-tools
               llvm.llvm
@@ -68,6 +69,9 @@
                   'STDLIB_FLAGS := -stdlib=libc++' \
                   'STDLIB_FLAGS := -stdlib=libc++ -nostdinc++ -I${libcxxInclude} -Wno-unused-command-line-argument'
 
+              cat >> compiler/GNUmakefile <<'EOF'
+$(OBJ_DIR)/compiler/source/llvm_options.cc.o: BASE_CXXFLAGS := $(filter-out -nostdinc++ -I${libcxxInclude},$(BASE_CXXFLAGS)) -nostdinc++ -isystem ${pkgs.stdenv.cc.cc}/include/c++/${pkgs.stdenv.cc.cc.version} -isystem ${pkgs.stdenv.cc.cc}/include/c++/${pkgs.stdenv.cc.cc.version}/${pkgs.stdenv.hostPlatform.config}
+EOF
               runHook postPatch
             '';
 
@@ -82,6 +86,9 @@
                 PREFIX="$out" \
                 ${lib.escapeShellArgs makeArgs}
 
+              make -j"$NIX_BUILD_CORES" BUILD_TYPE=release PREFIX="$out" \
+                ${lib.escapeShellArgs makeArgs} libdcext TARGET=x86_64-linux BACKEND=custom
+
               runHook postBuild
             '';
 
@@ -93,6 +100,8 @@
                 PREFIX="$out" \
                 ${lib.escapeShellArgs makeArgs} \
                 install
+
+              wrapProgram "$out/bin/dcc" --prefix PATH : ${lib.makeBinPath [ llvm.lld ]}
 
               runHook postInstall
             '';
