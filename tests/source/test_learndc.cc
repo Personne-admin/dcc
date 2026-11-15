@@ -2398,6 +2398,30 @@ TEST_CASE("progress store persists and keeps a backup")
     CHECK(entries_with_prefix(t.path / "data", "progress.json.tmp").empty());
 }
 
+TEST_CASE("progress store does not quarantine a file it cannot read")
+{
+    TempDir t;
+    auto const dir = t.path / "data";
+    progress::ProgressStore store(dir / "progress.json", dir / "progress.lock");
+    REQUIRE(store.update([](progress::Progress& p) { progress::set_active(p, "a/b"); }));
+    REQUIRE(store.update([](progress::Progress& p) { progress::set_active(p, "c/d"); }));
+    std::filesystem::permissions(store.file(), std::filesystem::perms::none);
+    if (platform::read_file(store.file()))
+    {
+        std::filesystem::permissions(store.file(), std::filesystem::perms::owner_read | std::filesystem::perms::owner_write);
+        return;
+    }
+    auto loaded = store.load();
+    REQUIRE(!loaded);
+    CHECK(loaded.error().message.find("cannot be read") != std::string::npos);
+    CHECK(!store.update([](progress::Progress& p) { progress::set_active(p, "e/f"); }));
+    CHECK(std::filesystem::exists(store.file()));
+    CHECK(entries_with_prefix(dir, "progress.json.corrupt-").empty());
+    std::filesystem::permissions(store.file(), std::filesystem::perms::owner_read | std::filesystem::perms::owner_write);
+    CHECK(progress::is_completed(store.load()->progress, "a/b") == false);
+    CHECK_EQ(store.load()->progress.active_exercise, "c/d");
+}
+
 TEST_CASE("progress store quarantines corrupt files")
 {
     TempDir t;

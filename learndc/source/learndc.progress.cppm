@@ -360,6 +360,7 @@ export namespace learndc::progress
             Ok,
             Corrupt,
             Unsupported,
+            Unreadable,
         };
 
         struct ReadResult
@@ -378,7 +379,7 @@ export namespace learndc::progress
             auto data = platform::read_file(file);
             if (!data)
             {
-                r.kind = ReadKind::Corrupt;
+                r.kind = ReadKind::Unreadable;
                 r.message = "the file cannot be read";
                 return r;
             }
@@ -431,7 +432,7 @@ export namespace learndc::progress
                 return Loaded{};
             if (first.kind == detail::ReadKind::Ok)
                 return Loaded{std::move(first.progress), {}};
-            if (first.kind == detail::ReadKind::Unsupported)
+            if (first.kind == detail::ReadKind::Unsupported || first.kind == detail::ReadKind::Unreadable)
                 return std::unexpected(text::Error{std::format("{}: {}", platform::path_to_utf8(m_file), first.message)});
             return update_locked([](Progress&) {}, false);
         }
@@ -459,6 +460,7 @@ export namespace learndc::progress
                     loaded.progress = std::move(current.progress);
                     break;
                 case detail::ReadKind::Unsupported:
+                case detail::ReadKind::Unreadable:
                     return std::unexpected(text::Error{std::format("{}: {}", platform::path_to_utf8(m_file), current.message)});
                 case detail::ReadKind::Corrupt: {
                     auto quarantine = m_file;
