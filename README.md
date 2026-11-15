@@ -113,6 +113,14 @@ generated `Status(Error)` main, arrays and formatted output. DPM manifests,
 templates and tasks are described in [docs/dpm-templates.md](docs/dpm-templates.md)
 and [docs/dpm-tasks.md](docs/dpm-tasks.md).
 
+### Learn DC interactively
+
+If you would rather learn the language by doing small exercises, `learndc` is an
+offline companion tool: it creates an exercise project, runs your code and shows
+what differs from the expected result. It is optional and does not replace
+`dpm new` and `dpm run`. See [docs/learndc.md](docs/learndc.md); authors of
+exercises start at [docs/learndc-authoring.md](docs/learndc-authoring.md).
+
 ## Targets
 
 - `x86_64-elf`: Linux executables, hosted with `-flibdcext` or freestanding;
