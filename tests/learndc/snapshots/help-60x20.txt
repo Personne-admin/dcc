@@ -1,11 +1,11 @@
- Help   Esc goes back
+ Help
 ╭─ Help ───────────────────────────────────────────────────╮
 │ Keys on the Exercise screen                              ┃
 │   Tab           move between instructions, files and     ┃
 │                 results                                  ┃
 │   Up Down       scroll, or choose a file when the files  ┃
-│                 pane is focused                          │
-│   Enter         start the exercise (first time) or edit  │
+│                 pane is focused                          ┃
+│   Enter         start the exercise (first time) or edit  ┃
 │                 the chosen file                          │
 │   e             edit the chosen file in your editor      │
 │   o             open the workspace folder (graphical     │
@@ -14,7 +14,7 @@
 │   x             cancel a running check                   │
 │   r             build and run your program               │
 │   w             watch: run the checks whenever a file    │
-│                 changes                                  │
+│                 changes; a banner shows the state        │
 │   h             reveal the next hint                     │
 ╰──────────────────────────────────────────────────────────╯
  Up Down scroll  Esc back

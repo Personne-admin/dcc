@@ -17,4 +17,4 @@
 │ 10 │     io::println("Total: {}", total);                │
 │ 11 │     return 0;                                       │
 ╰──────────────────────────────────────────────────────────╯
- Up Down file  Enter edit  PgUp PgDn scroll  c check
+ e edit  c check  r run  h hint  s solution  w watch

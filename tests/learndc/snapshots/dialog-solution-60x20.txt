@@ -10,11 +10,11 @@
  │ Looking is recorded in your progress; your files are   │
  │ not changed.                                           │
  │                                                        │
- │ Press y for yes, n or Esc for no.                      │
+ │ [y] Show solution   [n] Cancel                         │
  ╰────────────────────────────────────────────────────────╯
 
 
 
 
 
- y yes  n Esc no
+

@@ -17,4 +17,4 @@
 │                                                          │
 │                                                          │
 ╰──────────────────────────────────────────────────────────╯
- Up Down scroll  l raw output  c check  e edit  Tab pane
+ e edit  c check  r run  h hint  s solution  w watch

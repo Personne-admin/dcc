@@ -1,30 +1,30 @@
  Learn DC · Variables and mutation                                    1 of 6 completed ██░░░░░░░░░░
-╭─ Menu ───────────────╮╭─ › Instructions ───────────────╮╭─ Files ────────────────────────────────╮
-│   1 Home             ││ • Add them together into       ││   project.dcon                         │
-│   2 Learn            ││   `total`.                     ││ › src/main.dc  entry                   │
-│ › 3 Exercise         ││                                │╰────────────────────────────────────────╯
-│   4 Progress         ││   i32 total = 40 + 2;          │╭─ Preview: src/main.dc ─────────────────╮
-│   5 Bookmarks        ││                                ││  1 │ module main;                      ┃
-│   6 Doctor           ││ Run the checks when you think  ││  2 │                                   ┃
-│   7 Settings         ││ you are done.                  ││  3 │ import std::io;                   ┃
-│                      ││                                ││  4 │                                   ┃
-│   ? Help             ││ Hints                          ││  5 │ public i32 main()                 ┃
-│                      ││ Hint 1 of 3                    ┃│  6 │ {                                 ┃
-│                      ││ Read the failing check: it     ┃│  7 │     i32 price = 40;               ┃
-│                      ││ names the value it expected.   ┃│  8 │     i32 tax = 2;                  ┃
-│                      ││ Hint 2 of 3                    ┃│  9 │     i32 total = price - tax;      ┃
-│                      ││ Look at the operator on the    ┃│ 10 │     io::println("Total: {}", to…  ┃
-│                      ││ line that computes total.      ┃│ 11 │     return 0;                     │
-│                      │╰────────────────────────────────╯╰────────────────────────────────────────╯
-│                      │╭─ Results ────────────────────────────────────────────────────────────────╮
-│                      ││ ✗ 2 of 3 checks passed · 0.31s                                           │
-│                      ││   ✓ pass      Compiles                                                   │
-│                      ││   ✗ FAIL      Prints the total  (compare)                                │
-│                      ││       The program output differs from what the exercise expects.         │
-│                      ││       Expected: Total: 42⏎                                               │
-│                      ││       Observed: Total: 38·⏎                                              │
-│  1 of 6 done         ││       Hint: Check which operator combines the price and the tax.         │
-│  ███░░░░░░░░░░░░░░░  ││   ✓ pass      Handles zero tax                                           │
-╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+╭───╮╭─ › Instructions ─────────────────────────────────╮╭─ Files ─────────────────────────────────╮
+│ 1 ││ │ Name  │ Meaning       │                        ││   project.dcon                          │
+│ 2 ││ ├───────┼───────────────┤                        ││ › src/main.dc  entry                    │
+│ 3 ││ │ price │ what it costs │                        │╰─────────────────────────────────────────╯
+│ 4 ││ │ tax   │ added on top  │                        │╭─ Preview: src/main.dc ──────────────────╮
+│ 5 ││ └───────┴───────────────┘                        ││  1 │ module main;                       ┃
+│ 6 ││                                                  ││  2 │                                    ┃
+│ 7 ││ Run the checks when you think you are done.      ││  3 │ import std::io;                    ┃
+│   ││                                                  ││  4 │                                    ┃
+│ ? ││ Hints                                            ││  5 │ public i32 main()                  ┃
+│   ││ Hint 1 of 3                                      ││  6 │ {                                  ┃
+│   ││ Read the failing check: it names the value it    ┃│  7 │     i32 price = 40;                ┃
+│   ││ expected.                                        ┃│  8 │     i32 tax = 2;                   ┃
+│   ││ Hint 2 of 3                                      ┃│  9 │     i32 total = price - tax;       ┃
+│   ││ Look at the operator on the line that computes   ┃│ 10 │     io::println("Total: {}", tot…  ┃
+│   ││ total.                                           ┃│ 11 │     return 0;                      │
+│   │╰──────────────────────────────────────────────────╯╰─────────────────────────────────────────╯
+│   │╭─ Results ───────────────────────────────────────────────────────────────────────────────────╮
+│   ││ ✗ 2 of 3 checks passed · 0.31s                                                              │
+│   ││   ✓ pass      Compiles                                                                      │
+│   ││   ✗ FAIL      Prints the total  (compare)                                                   │
+│   ││       The program output differs from what the exercise expects.                            │
+│   ││       Expected: Total: 42⏎                                                                  │
+│   ││       Observed: Total: 38·⏎                                                                 │
+│   ││       Hint: Check which operator combines the price and the tax.                            │
+│   ││   ✓ pass      Handles zero tax                                                              │
+╰───╯╰─────────────────────────────────────────────────────────────────────────────────────────────╯
 
  e edit  c check  r run  h hint  s solution  w watch  Tab pane  ? help  q quit

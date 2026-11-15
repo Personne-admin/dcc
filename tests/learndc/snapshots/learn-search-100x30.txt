@@ -23,8 +23,8 @@
 │                      ││                                                                          │
 │                      ││                                                                          │
 │                      ││──────────────────────────────────────────────────────────────────────────│
-│  1 of 6 done         ││ Bundle related values into one type.                                     │
-│  ███░░░░░░░░░░░░░░░  ││ complete program · 20 min · structs, output                              │
+│                      ││ Bundle related values into one type.                                     │
+│                      ││ complete program · 20 min · structs, output                              │
 ╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
 
  type to search  Enter keep  Esc clear

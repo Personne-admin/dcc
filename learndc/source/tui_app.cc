@@ -45,6 +45,18 @@ namespace learndc::tui
             return std::nullopt;
         }
 
+        [[nodiscard]] std::string wall_clock()
+        {
+            std::time_t const now = std::time(nullptr);
+            std::tm local{};
+#if defined(_WIN32)
+            localtime_s(&local, &now);
+#else
+            localtime_r(&now, &local);
+#endif
+            return std::format("{:02}:{:02}:{:02}", local.tm_hour, local.tm_min, local.tm_sec);
+        }
+
         class Shell
         {
         public:
@@ -112,7 +124,7 @@ namespace learndc::tui
 
             void dispatch(model::Event const& event)
             {
-                (void)m_model.handle(model::Tick{now_ms()});
+                (void)m_model.handle(model::Tick{now_ms(), wall_clock()});
                 apply(m_model.handle(event));
                 update_tick();
             }
@@ -134,7 +146,7 @@ namespace learndc::tui
                         std::lock_guard lock(m_mutex);
                         pending.swap(m_inbox);
                     }
-                    (void)m_model.handle(model::Tick{now_ms()});
+                    (void)m_model.handle(model::Tick{now_ms(), wall_clock()});
                     for (auto const& event : pending)
                         dispatch(event);
                     update_tick();
@@ -189,7 +201,7 @@ namespace learndc::tui
                     return;
                 auto options = app::runner_options(m_ctx, runner::Backend::Dpm, nullptr);
                 m_screen->Post(m_screen->WithRestoredIO([this, ex, root = e.root, options = std::move(options)] {
-                    std::cout << "\n--- learndc: building and running " << text::sanitize(ex->title) << " ---\n" << std::flush;
+                    std::cout << "\x1b[2J\x1b[3J\x1b[H--- learndc: building and running " << text::sanitize(ex->title) << " ---\n" << std::flush;
                     auto outcome = runner::build_and_run_interactive(*ex, root, options);
                     if (!outcome.ok && !outcome.diagnostics.empty())
                         std::cout << text::sanitize(outcome.diagnostics) << "\n";
@@ -225,7 +237,7 @@ namespace learndc::tui
                 auto finish = [this](editor::LaunchResult const& r) {
                     std::string message = r.message;
                     if (!r.ok)
-                        message += " (change the editor in Settings, key 7)";
+                        message += " (change the editor in Settings)";
                     else if (r.mode == editor::Mode::Terminal)
                         message.clear();
                     post(model::EditorDone{r.ok, std::move(message)});

@@ -1,0 +1,30 @@
+ Learn DC · Help   ◉ WATCHING                                         1 of 6 completed ██░░░░░░░░░░
+╭─ Menu ───────────────╮╭─ Help ───────────────────────────────────────────────────────────────────╮
+│   1 Home             ││ Keys on the Exercise screen                                              ┃
+│   2 Learn            ││   Tab           move between instructions, files and results             ┃
+│ › 3 Exercise         ││   Up Down       scroll, or choose a file when the files pane is focused  ┃
+│   4 Progress         ││   Enter         start the exercise (first time) or edit the chosen file  ┃
+│   5 Bookmarks        ││   e             edit the chosen file in your editor                      ┃
+│   6 Doctor           ││   o             open the workspace folder (graphical editors)            ┃
+│   7 Settings         ││   c             run the checks                                           ┃
+│                      ││   x             cancel a running check                                   ┃
+│   ? Help             ││   r             build and run your program                               ┃
+│                      ││   w             watch: run the checks whenever a file changes; a banner  ┃
+│                      ││                 shows the state                                          ┃
+│                      ││   h             reveal the next hint                                     ┃
+│                      ││   s             show the reference solution (asks first)                 ┃
+│                      ││   l             show or hide the raw compiler and program output         ┃
+│                      ││   n             go to the next exercise                                  ┃
+│                      ││   b             bookmark this exercise                                   ┃
+│                      ││   R             reset the exercise to its starter files (backup first)   ┃
+│                      ││                                                                          ┃
+│                      ││ Everywhere                                                               ┃
+│                      ││   1 .. 7        Home, Learn, Exercise, Progress, Bookmarks, Doctor,      │
+│                      ││                 Settings                                                 │
+│                      ││   ?             this help                                                │
+│                      ││   Esc           go back or close a dialog                                │
+│                      ││   q             quit (asks first while a check is running)               │
+│                      ││   Ctrl+C        cancel a running check; press again to quit              │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+
+ Up Down scroll  Esc back

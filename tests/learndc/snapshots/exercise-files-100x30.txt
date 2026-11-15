@@ -1,30 +1,30 @@
  Learn DC · Variables and mutation                                    1 of 6 completed ██░░░░░░░░░░
-╭─ Menu ───────────────╮╭─ Instructions ─────────────────╮╭─ › Files ──────────────────────────────╮
-│   1 Home             ││ Variables and mutation         ┃│   project.dcon                         │
-│   2 Learn            ││ beginner · 10 min              ┃│ › src/main.dc  entry                   │
-│ › 3 Exercise         ││ fix behavior                   ┃╰────────────────────────────────────────╯
-│   4 Progress         ││ in progress                    ┃╭─ Preview: src/main.dc ─────────────────╮
-│   5 Bookmarks        ││                                ┃│  1 │ module main;                      ┃
-│   6 Doctor           ││ Fix the arithmetic so the      ┃│  2 │                                   ┃
-│   7 Settings         ││ program prints the right       ┃│  3 │ import std::io;                   ┃
-│                      ││ total.                         ││  4 │                                   ┃
-│   ? Help             ││                                ││  5 │ public i32 main()                 ┃
-│                      ││ Goals                          ││  6 │ {                                 ┃
-│                      ││ • Make every check pass        ││  7 │     i32 price = 40;               ┃
-│                      ││ • Read the diagnostics before  ││  8 │     i32 tax = 2;                  ┃
-│                      ││   changing code                ││  9 │     i32 total = price - tax;      ┃
-│                      ││                                ││ 10 │     io::println("Total: {}", to…  ┃
-│                      ││ A variable gives a name to a   ││ 11 │     return 0;                     │
-│                      │╰────────────────────────────────╯╰────────────────────────────────────────╯
-│                      │╭─ Results ────────────────────────────────────────────────────────────────╮
-│                      ││ ✗ 2 of 3 checks passed · 0.31s                                           │
-│                      ││   ✓ pass      Compiles                                                   │
-│                      ││   ✗ FAIL      Prints the total  (compare)                                │
-│                      ││       The program output differs from what the exercise expects.         │
-│                      ││       Expected: Total: 42⏎                                               │
-│                      ││       Observed: Total: 38·⏎                                              │
-│  1 of 6 done         ││       Hint: Check which operator combines the price and the tax.         │
-│  ███░░░░░░░░░░░░░░░  ││   ✓ pass      Handles zero tax                                           │
-╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+╭───╮╭─ Instructions ───────────────────────────────────╮╭─ › Files ───────────────────────────────╮
+│ 1 ││ beginner · 10 min                                ┃│   project.dcon                          │
+│ 2 ││ fix behavior                                     ┃│ › src/main.dc  entry                    │
+│ 3 ││ in progress                                      ┃╰─────────────────────────────────────────╯
+│ 4 ││                                                  ┃╭─ Preview: src/main.dc ──────────────────╮
+│ 5 ││ Fix the arithmetic so the program prints the     ┃│  1 │ module main;                       ┃
+│ 6 ││ right total.                                     ┃│  2 │                                    ┃
+│ 7 ││                                                  ┃│  3 │ import std::io;                    ┃
+│   ││ Goals                                            ││  4 │                                    ┃
+│ ? ││ • Make every check pass                          ││  5 │ public i32 main()                  ┃
+│   ││ • Read the diagnostics before changing code      ││  6 │ {                                  ┃
+│   ││                                                  ││  7 │     i32 price = 40;                ┃
+│   ││ A variable gives a name to a value. Declare it   ││  8 │     i32 tax = 2;                   ┃
+│   ││ with its type, then use the name wherever you    ││  9 │     i32 total = price - tax;       ┃
+│   ││ need the value.                                  ││ 10 │     io::println("Total: {}", tot…  ┃
+│   ││                                                  ││ 11 │     return 0;                      │
+│   │╰──────────────────────────────────────────────────╯╰─────────────────────────────────────────╯
+│   │╭─ Results ───────────────────────────────────────────────────────────────────────────────────╮
+│   ││ ✗ 2 of 3 checks passed · 0.31s                                                              │
+│   ││   ✓ pass      Compiles                                                                      │
+│   ││   ✗ FAIL      Prints the total  (compare)                                                   │
+│   ││       The program output differs from what the exercise expects.                            │
+│   ││       Expected: Total: 42⏎                                                                  │
+│   ││       Observed: Total: 38·⏎                                                                 │
+│   ││       Hint: Check which operator combines the price and the tax.                            │
+│   ││   ✓ pass      Handles zero tax                                                              │
+╰───╯╰─────────────────────────────────────────────────────────────────────────────────────────────╯
 
- Up Down file  Enter edit  PgUp PgDn scroll  c check  Tab pane  ? help  q quit
+ e edit  c check  r run  h hint  s solution  w watch  Tab pane  ? help  q quit

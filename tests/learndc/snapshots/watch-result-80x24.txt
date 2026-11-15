@@ -1,0 +1,24 @@
+ Learn DC · Variables and mutation   ◉ WATCHING
+╭───╮╭─ ◉ WATCH ON ────────────────────────────────────────────────────────────╮
+│ 1 ││ Watching /work/learndc/workspaces/fundamentals/variables                │
+│ 2 ││ Last result: failed at 10:00:04                                         │
+│ 3 │╰─────────────────────────────────────────────────────────────────────────╯
+│ 4 │╭─ › Instructions ────────────────────────────────────────────────────────╮
+│ 5 ││ beginner · 10 min                                                       ┃
+│ 6 ││ fix behavior                                                            ┃
+│ 7 ││ in progress                                                             │
+│   ││                                                                         │
+│ ? ││ Fix the arithmetic so the program prints the right total.               │
+│   ││                                                                         │
+│   ││ Goals                                                                   │
+│   ││ • Make every check pass                                                 │
+│   │╰─────────────────────────────────────────────────────────────────────────╯
+│   │ Files   project.dcon  › src/main.dc
+│   │╭─ Results ───────────────────────────────────────────────────────────────╮
+│   ││ ✗ 2 of 3 checks passed · 0.31s                                          ┃
+│   ││   ✓ pass      Compiles                                                  ┃
+│   ││   ✗ FAIL      Prints the total  (compare)                               │
+│   ││       The program output differs from what the exercise expects.        │
+╰───╯╰─────────────────────────────────────────────────────────────────────────╯
+
+ e edit  c check  r run  h hint  s solution  w watch  Tab pane  ? help  q quit

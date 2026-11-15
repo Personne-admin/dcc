@@ -1,6 +1,6 @@
   1  2  3 Exercise  4  5  6  7
  Instructions   Files   Results
-No check yet. Press c to check.
+No check yet.
 ╭─ › Instructions ─────────────────────────────────────────╮
 │ Variables and mutation                                   ┃
 │ beginner · 10 min                                        ┃
@@ -8,8 +8,8 @@ No check yet. Press c to check.
 │ in progress                                              ┃
 │                                                          ┃
 │ Fix the arithmetic so the program prints the right       ┃
-│ total.                                                   ┃
-│                                                          ┃
+│ total.                                                   │
+│                                                          │
 │ Goals                                                    │
 │ • Make every check pass                                  │
 │ • Read the diagnostics before changing code              │

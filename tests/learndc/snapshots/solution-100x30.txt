@@ -15,8 +15,8 @@
 │   11     return 0;                                11     return 0;                               │
 │   12 }                                            12 }                                           │
 │                                                                                                  │
-│ Why it works                                                                                     │
 │ Adding the tax to the price gives the total. The minus sign subtracted it instead.               │
+│                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │
 │                                                                                                  │

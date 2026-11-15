@@ -1,6 +1,6 @@
   1  2  3  4  5  6 Doctor  7
 ╭─ Doctor ─────────────────────────────────────────────────╮
-│ 3 ok · 1 warning · 0 errors                              ┃
+│ 3 ok · 2 warnings · 0 errors                             ┃
 │                                                          ┃
 │ [ok]    dcc                                              ┃
 │         found next to learndc, version 0.6.0             ┃
@@ -10,11 +10,11 @@
 │         not found (optional)                             ┃
 │ [warn]  editor                                           ┃
 │         no editor was found, so learndc shows file       ┃
-│         paths instead                                    ┃
-│         Fix: Install nvim, vim or nano, or set one in    ┃
+│         paths instead                                    │
+│         Fix: Install nvim, vim or nano, or set one in    │
 │              Settings.                                   │
 │ [ok]    terminal                                         │
-│         interactive terminal, 100x30, UTF-8              │
-│ [info]  safety                                           │
+│         interactive terminal                             │
+│ [warn]  terminal size                                    │
 ╰──────────────────────────────────────────────────────────╯
  r recheck  t test build  Up Down scroll  ? help  q quit

@@ -9,22 +9,22 @@
 │   7 Settings         ││   c             run the checks                                           ┃
 │                      ││   x             cancel a running check                                   ┃
 │   ? Help             ││   r             build and run your program                               ┃
-│                      ││   w             watch: run the checks whenever a file changes            ┃
+│                      ││   w             watch: run the checks whenever a file changes; a banner  ┃
+│                      ││                 shows the state                                          ┃
 │                      ││   h             reveal the next hint                                     ┃
 │                      ││   s             show the reference solution (asks first)                 ┃
 │                      ││   l             show or hide the raw compiler and program output         ┃
-│                      ││   n             go to the next exercise                                  │
-│                      ││   b             bookmark this exercise                                   │
-│                      ││   R             reset the exercise to its starter files (backup first)   │
-│                      ││                                                                          │
-│                      ││ Everywhere                                                               │
+│                      ││   n             go to the next exercise                                  ┃
+│                      ││   b             bookmark this exercise                                   ┃
+│                      ││   R             reset the exercise to its starter files (backup first)   ┃
+│                      ││                                                                          ┃
+│                      ││ Everywhere                                                               ┃
 │                      ││   1 .. 7        Home, Learn, Exercise, Progress, Bookmarks, Doctor,      │
 │                      ││                 Settings                                                 │
 │                      ││   ?             this help                                                │
 │                      ││   Esc           go back or close a dialog                                │
 │                      ││   q             quit (asks first while a check is running)               │
-│  1 of 6 done         ││   Ctrl+C        cancel a running check; press again to quit              │
-│  ███░░░░░░░░░░░░░░░  ││                                                                          │
+│                      ││   Ctrl+C        cancel a running check; press again to quit              │
 ╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
 
  Up Down scroll  Esc back

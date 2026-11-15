@@ -1,0 +1,20 @@
+  1  2  3 Exercise  4  5  6  7   ◉ WATCHING
+╭─ ◉ WATCH ON ─────────────────────────────────────────────╮
+│ Watching /work/learndc/workspaces/fundamentals/variables │
+│ Last result: failed at 10:00:04                          │
+╰──────────────────────────────────────────────────────────╯
+ Instructions   Files   Results
+╭─ › Instructions ─────────────────────────────────────────╮
+│ Variables and mutation                                   ┃
+│ beginner · 10 min                                        ┃
+│ fix behavior                                             ┃
+│ in progress                                              ┃
+│                                                          │
+│ Fix the arithmetic so the program prints the right       │
+│ total.                                                   │
+│                                                          │
+│ Goals                                                    │
+│ • Make every check pass                                  │
+│ • Read the diagnostics before changing code              │
+╰──────────────────────────────────────────────────────────╯
+ e edit  c check  r run  h hint  s solution  w watch

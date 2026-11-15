@@ -1,6 +1,6 @@
   1  2  3 Exercise  4  5  6  7
  Instructions   Files   Results
-No check yet. Press c to check.
+No check yet.
 ╭─ › Instructions ─────────────────────────────────────────╮
 │ Your first DC program                                    ┃
 │ beginner · 5 min                                         ┃
@@ -8,8 +8,8 @@ No check yet. Press c to check.
 │ in progress                                              ┃
 │                                                          ┃
 │ Print a greeting from a fallible main.                   ┃
-│                                                          ┃
-│ Goals                                                    ┃
+│                                                          │
+│ Goals                                                    │
 │ • Make every check pass                                  │
 │ • Read the diagnostics before changing code              │
 │                                                          │
@@ -17,4 +17,4 @@ No check yet. Press c to check.
 │ type, then use the name wherever you need the value.     │
 │                                                          │
 ╰──────────────────────────────────────────────────────────╯
- Created your files. Press e to edit them, then c to chec…
+ Created your files

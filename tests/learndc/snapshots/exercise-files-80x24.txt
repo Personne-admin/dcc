@@ -1,24 +1,24 @@
  Learn DC · Variables and mutation                1 of 6 completed ██░░░░░░░░░░
-╭─ Menu ─────────╮╭─ › Files: src/main.dc ─────────────────────────────────────╮
-│   1 Home       ││   project.dcon                                             ┃
-│   2 Learn      ││ › src/main.dc  entry                                       ┃
-│ › 3 Exercise   ││────────────────────────────────────────────────────────────┃
-│   4 Progress   ││  1 │ module main;                                          ┃
-│   5 Bookmarks  ││  2 │                                                       ┃
-│   6 Doctor     ││  3 │ import std::io;                                       │
-│   7 Settings   ││  4 │                                                       │
-│                ││  5 │ public i32 main()                                     │
-│   ? Help       ││  6 │ {                                                     │
-│                ││  7 │     i32 price = 40;                                   │
-│                │╰────────────────────────────────────────────────────────────╯
-│                │ Up Down choose a file   Enter edit   PgUp PgDn scroll
-│                │╭─ Results ──────────────────────────────────────────────────╮
-│                ││ ✗ 2 of 3 checks passed · 0.31s                             ┃
-│                ││   ✓ pass      Compiles                                     ┃
-│                ││   ✗ FAIL      Prints the total  (compare)                  ┃
-│                ││       The program output differs from what the exercise    │
-│  1 of 6 done   ││       expects.                                             │
-│  ██░░░░░░░░░░  ││       Expected: Total: 42⏎                                 │
-╰────────────────╯╰────────────────────────────────────────────────────────────╯
+╭───╮╭─ › Files: src/main.dc ──────────────────────────────────────────────────╮
+│ 1 ││   project.dcon                                                          ┃
+│ 2 ││ › src/main.dc  entry                                                    ┃
+│ 3 ││─────────────────────────────────────────────────────────────────────────┃
+│ 4 ││  1 │ module main;                                                       ┃
+│ 5 ││  2 │                                                                    ┃
+│ 6 ││  3 │ import std::io;                                                    │
+│ 7 ││  4 │                                                                    │
+│   ││  5 │ public i32 main()                                                  │
+│ ? ││  6 │ {                                                                  │
+│   ││  7 │     i32 price = 40;                                                │
+│   │╰─────────────────────────────────────────────────────────────────────────╯
+│   │
+│   │╭─ Results ───────────────────────────────────────────────────────────────╮
+│   ││ ✗ 2 of 3 checks passed · 0.31s                                          ┃
+│   ││   ✓ pass      Compiles                                                  ┃
+│   ││   ✗ FAIL      Prints the total  (compare)                               ┃
+│   ││       The program output differs from what the exercise expects.        ┃
+│   ││       Expected: Total: 42⏎                                              │
+│   ││       Observed: Total: 38·⏎                                             │
+╰───╯╰─────────────────────────────────────────────────────────────────────────╯
 
- Up Down file  Enter edit  PgUp PgDn scroll  c check  Tab pane  ? help  q quit
+ e edit  c check  r run  h hint  s solution  w watch  Tab pane  ? help  q quit

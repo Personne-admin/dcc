@@ -17,8 +17,8 @@
 │                ││   learner.level                 new                        │
 │                ││   onboarding.done               true                       │
 │                ││────────────────────────────────────────────────────────────│
-│  1 of 6 done   ││ editor to open files with. Enter changes it.               │
-│  ██░░░░░░░░░░  ││                                                            │
+│                ││ editor to open files with                                  │
+│                ││                                                            │
 ╰────────────────╯╰────────────────────────────────────────────────────────────╯
 
  Enter change  Up Down move  ? help  q quit

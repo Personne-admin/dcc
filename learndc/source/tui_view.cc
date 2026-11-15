@@ -13,6 +13,7 @@ import learndc.doctor;
 import learndc.diff;
 import learndc.settings;
 import learndc.app;
+import learndc.markdown;
 import learndc.tui.model;
 
 namespace learndc::tui
@@ -38,6 +39,8 @@ namespace learndc::tui
             Add,
             Del,
             Key,
+            Inline,
+            Watch,
         };
 
         struct Style
@@ -46,6 +49,7 @@ namespace learndc::tui
             bool bold = false;
             bool inverse = false;
             bool underline = false;
+            bool italic = false;
 
             friend bool operator==(Style const&, Style const&) = default;
         };
@@ -203,7 +207,7 @@ namespace learndc::tui
 
         struct Glyphs
         {
-            std::string_view tl, tr, bl, br, h, v;
+            std::string_view tl, tr, bl, br, h, v, watch;
             std::string_view sel, done, active, todo, full, empty, ell, dot, pass, fail, warn, skip, thumb, bullet;
             int status_width = 1;
         };
@@ -230,6 +234,7 @@ namespace learndc::tui
                 g.skip = "[-]";
                 g.thumb = "#";
                 g.bullet = "-";
+                g.watch = "*";
                 g.status_width = 3;
             }
             else
@@ -254,6 +259,7 @@ namespace learndc::tui
                 g.skip = "\xE2\x97\x8B";
                 g.thumb = "\xE2\x94\x83";
                 g.bullet = "\xE2\x80\xA2";
+                g.watch = "\xE2\x97\x89";
                 g.status_width = 1;
             }
             return g;
@@ -390,12 +396,12 @@ namespace learndc::tui
                 ui.g.put(x, y, ui.gl.h, plain(Role::Border), span);
         }
 
-        Rect draw_box(Ui& ui, Rect r, std::string_view title, bool focused, std::string_view note = {})
+        Rect draw_box(Ui& ui, Rect r, std::string_view title, bool focused, std::string_view note = {}, std::optional<Role> accent = std::nullopt)
         {
             if (r.w < 3 || r.h < 2)
                 return {};
             Rect const all{0, 0, ui.g.width(), ui.g.height()};
-            Style const border = plain(focused ? Role::Focus : Role::Border);
+            Style const border = accent ? plain(*accent, true) : plain(focused ? Role::Focus : Role::Border);
             ui.g.put(r.x, r.y, ui.gl.tl, border, all);
             ui.g.put(r.right() - 1, r.y, ui.gl.tr, border, all);
             ui.g.put(r.x, r.bottom() - 1, ui.gl.bl, border, all);
@@ -417,7 +423,7 @@ namespace learndc::tui
             {
                 int const room = r.w - 6 - (note_label.empty() ? 0 : width_of(note_label) + 1);
                 auto const label = std::format(" {} ", fit(ui, title, std::max(1, room)));
-                Style ts = focused ? Style{Role::Focus, true, true, false} : plain(Role::Text, true);
+                Style ts = accent ? Style{*accent, true, true, false} : (focused ? Style{Role::Focus, true, true, false} : plain(Role::Text, true));
                 ui.g.put(r.x + 2, r.y, label, ts, all);
             }
             if (!note_label.empty())
@@ -517,87 +523,86 @@ namespace learndc::tui
                 lines.push_back(text_line(std::string(indent) + piece, style));
         }
 
-        [[nodiscard]] std::string strip_markup(std::string_view s)
+        [[nodiscard]] Style md_style(markdown::Kind kind)
         {
-            return text::replace_all(s, "**", "");
+            using K = markdown::Kind;
+            switch (kind)
+            {
+                case K::Text:
+                    return plain(Role::Text);
+                case K::Strong:
+                    return plain(Role::Text, true);
+                case K::Emphasis: {
+                    Style st = plain(Role::Text);
+                    st.italic = true;
+                    return st;
+                }
+                case K::StrongEmphasis: {
+                    Style st = plain(Role::Text, true);
+                    st.italic = true;
+                    return st;
+                }
+                case K::Code:
+                    return plain(Role::Inline);
+                case K::Heading:
+                    return plain(Role::Accent, true);
+                case K::CodeBlock:
+                    return plain(Role::Code);
+                case K::Border:
+                    return plain(Role::Border);
+                case K::TableHead:
+                    return plain(Role::Accent, true);
+                case K::Marker:
+                    return plain(Role::Accent);
+                case K::Link: {
+                    Style st = plain(Role::Accent);
+                    st.underline = true;
+                    return st;
+                }
+                case K::Url:
+                    return plain(Role::Muted);
+            }
+            return plain(Role::Text);
         }
 
-        void markdown_lines(Ui const& ui, std::vector<Line>& out, std::string_view markdown, int width, bool skip_title)
+        [[nodiscard]] Line from_markdown(markdown::Line const& line)
         {
-            auto const lines = text::split_lines(text::normalize_newlines(text::sanitize(markdown)));
-            bool in_code = false;
-            std::string paragraph;
-            auto flush = [&] {
-                if (paragraph.empty())
-                    return;
-                add_wrapped(out, strip_markup(paragraph), width, plain(Role::Text));
-                paragraph.clear();
-            };
-            auto blank = [&] {
-                if (!out.empty() && !out.back().empty())
-                    out.push_back({});
-            };
-            bool first = true;
-            for (auto const& raw : lines)
+            Line out;
+            for (auto const& sp : line)
+                out.push_back({sp.text, md_style(sp.kind)});
+            return out;
+        }
+
+        [[nodiscard]] std::vector<Line> markdown_block(Ui const& ui, std::string_view source, int width, bool skip_title = false)
+        {
+            markdown::Options options;
+            options.width = std::max(4, width);
+            options.ascii = ui.ascii;
+            options.skip_title = skip_title;
+            std::vector<Line> out;
+            for (auto const& l : markdown::render(source, options))
+                out.push_back(from_markdown(l));
+            return out;
+        }
+
+        void markdown_lines(Ui const& ui, std::vector<Line>& out, std::string_view source, int width, bool skip_title)
+        {
+            for (auto& l : markdown_block(ui, source, width, skip_title))
+                out.push_back(std::move(l));
+        }
+
+        [[nodiscard]] std::string markdown_inline(std::string_view source)
+        {
+            markdown::Options options;
+            options.width = 4000;
+            std::string out;
+            for (auto const& l : markdown::render(source, options))
             {
-                auto const t = std::string(text::trim(raw));
-                if (first && skip_title && raw.starts_with("# "))
-                {
-                    first = false;
-                    continue;
-                }
-                first = false;
-                if (t.starts_with("```"))
-                {
-                    flush();
-                    in_code = !in_code;
-                    continue;
-                }
-                if (in_code)
-                {
-                    out.push_back(text_line("  " + fit(ui, clean_line(raw), std::max(1, width - 2)), plain(Role::Code)));
-                    continue;
-                }
-                if (t.empty())
-                {
-                    flush();
-                    blank();
-                    continue;
-                }
-                if (t.starts_with("#"))
-                {
-                    flush();
-                    blank();
-                    auto h = t;
-                    while (!h.empty() && h.front() == '#')
-                        h.erase(h.begin());
-                    out.push_back(text_line(fit(ui, strip_markup(text::trim(h)), width), plain(Role::Accent, true)));
-                    continue;
-                }
-                bool const bullet = t.starts_with("- ") || t.starts_with("* ");
-                bool numbered = false;
-                std::size_t digits = 0;
-                while (digits < t.size() && std::isdigit(static_cast<unsigned char>(t[digits])))
-                    ++digits;
-                if (digits > 0 && digits + 1 < t.size() && t[digits] == '.' && t[digits + 1] == ' ')
-                    numbered = true;
-                if (bullet || numbered)
-                {
-                    flush();
-                    auto const body = strip_markup(text::trim(t.substr(bullet ? 2 : digits + 2)));
-                    auto const first_prefix = bullet ? std::format("{} ", ui.gl.bullet) : t.substr(0, digits + 2);
-                    auto const rest_prefix = std::string(to_size(width_of(first_prefix)), ' ');
-                    for (auto const& l : hanging(body, width, first_prefix, rest_prefix))
-                        out.push_back(text_line(l, plain(Role::Text)));
-                    continue;
-                }
-                if (!paragraph.empty())
-                    paragraph += ' ';
-                paragraph += t;
+                if (!out.empty())
+                    out += ' ';
+                out += markdown::line_text(l);
             }
-            flush();
-            while (!out.empty() && out.back().empty())
-                out.pop_back();
+            return out;
         }
 
         [[nodiscard]] std::vector<Line> instruction_lines(Ui& ui, int width)
@@ -606,7 +611,8 @@ namespace learndc::tui
             auto const& es = m.exercise;
             auto const& ex = *es.ex;
             std::vector<Line> lines;
-            lines.push_back(text_line(fit(ui, text::sanitize(ex.title), width), plain(Role::Accent, true)));
+            if (model::layout_for(ui.size) == LayoutMode::Compact)
+                lines.push_back(text_line(fit(ui, text::sanitize(ex.title), width), plain(Role::Accent, true)));
             add_wrapped(lines, std::format("{}{}{} min", difficulty_word(ex.difficulty), ui.sep(), ex.estimated_minutes), width, plain(Role::Muted));
             auto kind = kebab_words(catalog::to_string(ex.kind));
             if (m.bookmarked(ex.id))
@@ -616,35 +622,32 @@ namespace learndc::tui
             Line status;
             status.push_back({std::string(model::status_word(st)), plain(status_role(st), true)});
             lines.push_back(status);
-            if (!es.ws)
-                add_wrapped(lines, "Press Enter to create your files.", width, plain(Role::Warn));
             lines.push_back({});
-            add_wrapped(lines, ex.summary, width, plain(Role::Text));
+            markdown_lines(ui, lines, ex.summary, width, false);
             if (!ex.objectives.empty())
             {
                 lines.push_back({});
                 lines.push_back(text_line("Goals", plain(Role::Accent, true)));
+                std::string list;
                 for (auto const& o : ex.objectives)
-                    for (auto const& l : hanging(clean_line(o), width, std::format("{} ", ui.gl.bullet), "  "))
-                        lines.push_back(text_line(l, plain(Role::Text)));
+                    list += "- " + text::replace_all(o, "\n", " ") + "\n";
+                markdown_lines(ui, lines, list, width, false);
             }
             if (!ex.readme.empty())
             {
                 lines.push_back({});
                 markdown_lines(ui, lines, ex.readme, width, true);
             }
-            lines.push_back({});
             if (es.hints_shown > 0)
             {
+                lines.push_back({});
                 lines.push_back(text_line("Hints", plain(Role::Accent, true)));
                 for (int i = 0; i < es.hints_shown && i < 3; ++i)
                 {
                     lines.push_back(text_line(std::format("Hint {} of 3", i + 1), plain(Role::Warn, true)));
-                    add_wrapped(lines, ex.hints[to_size(i)], width, plain(Role::Text));
+                    markdown_lines(ui, lines, ex.hints[to_size(i)], width, false);
                 }
             }
-            else
-                lines.push_back(text_line("Stuck? Press h for a hint.", plain(Role::Muted)));
             return lines;
         }
 
@@ -804,11 +807,11 @@ namespace learndc::tui
                 if (!r.hint.empty() && r.verdict == runner::Verdict::Fail)
                 {
                     bool first = true;
-                    for (auto const& piece : text::wrap(clean_line(r.hint), to_size(std::max(4, width - 12))))
+                    for (auto const& piece : markdown_block(ui, r.hint, std::max(4, width - 12)))
                     {
                         Line h;
                         h.push_back({first ? "      Hint: " : "            ", plain(Role::Accent, true)});
-                        h.push_back({piece, plain(Role::Text)});
+                        append(h, piece);
                         out.push_back(std::move(h));
                         first = false;
                     }
@@ -848,7 +851,6 @@ namespace learndc::tui
                 l.push_back({std::format("{}running... {}s", ui.sep(), elapsed), plain(Role::Muted)});
             else
                 l.push_back({std::format("{}{}s", ui.sep(), elapsed), plain(Role::Muted)});
-            l.push_back({"   x cancels", plain(Role::Muted)});
             return l;
         }
 
@@ -868,8 +870,7 @@ namespace learndc::tui
             }
             if (!es.report)
             {
-                lines.push_back(text_line(es.ws ? "No check yet. Press c to check your work." : "Create your files first (Enter), then press c to check.",
-                                          plain(Role::Muted)));
+                lines.push_back(text_line("No check yet.", plain(Role::Muted)));
                 lines.push_back({});
                 lines.push_back(text_line("Checks for this exercise", plain(Role::Accent, true)));
                 for (auto const& c : es.ex->checks)
@@ -898,7 +899,7 @@ namespace learndc::tui
             std::vector<Line> lines;
             if (!es.ws)
             {
-                lines.push_back(text_line("Your files appear here once you start.", plain(Role::Muted)));
+                lines.push_back(text_line("No file selected.", plain(Role::Muted)));
                 return lines;
             }
             if (es.preview_lines.empty())
@@ -1057,7 +1058,7 @@ namespace learndc::tui
                 return running_line(ui);
             if (!es.report)
             {
-                l.push_back({es.ws ? "No check yet. Press c to check." : "Not started. Press Enter to create your files.", plain(Role::Muted)});
+                l.push_back({es.ws ? "No check yet." : "Not started.", plain(Role::Muted)});
                 return l;
             }
             auto const& r = *es.report;
@@ -1073,19 +1074,75 @@ namespace learndc::tui
             return l;
         }
 
+        [[nodiscard]] std::string age_text(std::int64_t ms)
+        {
+            if (ms < 2000)
+                return "just now";
+            if (ms < 60000)
+                return std::format("{}s ago", ms / 1000);
+            return std::format("{}m ago", ms / 60000);
+        }
+
+        [[nodiscard]] int draw_watch_banner(Ui& ui, Rect area)
+        {
+            auto const status = ui.m.watch_status();
+            if (status.phase == model::WatchPhase::Off || area.h < 12)
+                return 0;
+            Rect const box{area.x, area.y, area.w, 4};
+            auto const inner = draw_box(ui, box, std::format("{} WATCH ON", ui.gl.watch), true, {}, Role::Watch);
+            if (inner.empty())
+                return 4;
+            Line path;
+            path.push_back({"Watching ", plain(Role::Muted)});
+            path.push_back({text::truncate_middle(clean_line(status.path), to_size(std::max(8, inner.w - 9))), plain(Role::Text, true)});
+            draw_line(ui, inner, inner.y, path);
+            Line state;
+            switch (status.phase)
+            {
+                case model::WatchPhase::Off:
+                    break;
+                case model::WatchPhase::Waiting:
+                    state.push_back({"Waiting for changes", plain(Role::Watch, true)});
+                    break;
+                case model::WatchPhase::Checking: {
+                    auto const spin = spinner_frame(ui);
+                    state.push_back({(spin.empty() ? std::string() : spin + " ") + (status.triggered ? "Change detected, checking" : "Checking"),
+                                     plain(Role::Watch, true)});
+                    break;
+                }
+                case model::WatchPhase::Detected:
+                    state.push_back({"Change detected, checking again when this check ends", plain(Role::Watch, true)});
+                    break;
+                case model::WatchPhase::Result: {
+                    state.push_back({"Last result: ", plain(Role::Muted)});
+                    state.push_back({status.result, plain(status.passed ? Role::Ok : Role::Fail, true)});
+                    if (!status.clock.empty())
+                        state.push_back({std::format(" at {}", status.clock), plain(Role::Muted)});
+                    else if (status.age_ms >= 0)
+                        state.push_back({std::format(", {}", age_text(status.age_ms)), plain(Role::Muted)});
+                    break;
+                }
+            }
+            draw_line(ui, inner, inner.y + 1, state);
+            return 4;
+        }
+
         void draw_exercise(Ui& ui, Rect main)
         {
             auto const& m = ui.m;
             auto const& es = m.exercise;
             if (!es.ex)
                 return;
+            int const banner = draw_watch_banner(ui, main);
+            main.y += banner;
+            main.h -= banner;
             auto const mode = model::layout_for(ui.size);
             if (mode == LayoutMode::Wide)
             {
                 bool const has_report = es.report.has_value() || es.phase != model::CheckPhase::Idle;
                 int const results_h = std::clamp(has_report ? main.h * 2 / 5 : 7, 6, std::max(6, main.h - 8));
                 int const top_h = main.h - results_h;
-                int const left_w = std::max(24, main.w * 9 / 20);
+                int const left_w = std::max(24, main.w * 11 / 20);
                 draw_instructions_box(ui, Rect{main.x, main.y, left_w, top_h}, es.pane == Pane::Instructions);
                 Rect const right{main.x + left_w, main.y, main.w - left_w, top_h};
                 int const files_h = std::clamp(to_int(es.files.size()) + 2, 3, std::max(3, std::min(6, right.h / 3)));
@@ -1104,9 +1161,7 @@ namespace learndc::tui
                 else
                     draw_instructions_box(ui, Rect{main.x, main.y, main.w, top_h}, es.pane == Pane::Instructions);
                 Line strip;
-                if (es.pane == Pane::Files)
-                    strip.push_back({"Up Down choose a file   Enter edit   PgUp PgDn scroll", plain(Role::Muted)});
-                else
+                if (es.pane != Pane::Files)
                 {
                     strip.push_back({"Files ", plain(Role::Muted)});
                     for (std::size_t i = 0; i < es.files.size(); ++i)
@@ -1132,8 +1187,10 @@ namespace learndc::tui
                 tabs.push_back({" ", plain(Role::Text)});
             }
             draw_line(ui, main, main.y, tabs);
-            draw_line(ui, main, main.y + 1, summary_line(ui, main.w));
-            Rect const pane_rect{main.x, main.y + 2, main.w, main.h - 2};
+            int const head_rows = banner > 0 ? 1 : 2;
+            if (banner == 0)
+                draw_line(ui, main, main.y + 1, summary_line(ui, main.w));
+            Rect const pane_rect{main.x, main.y + head_rows, main.w, main.h - head_rows};
             switch (es.pane)
             {
                 case Pane::Instructions:
@@ -1235,7 +1292,6 @@ namespace learndc::tui
             }
             if (!sol.explanation.empty())
             {
-                lines.push_back(text_line("Why it works", plain(Role::Accent, true)));
                 markdown_lines(ui, lines, sol.explanation, inner.w, false);
             }
             int const clamped = clamp_scroll(sol.scroll, to_int(lines.size()), inner.h);
@@ -1315,7 +1371,7 @@ namespace learndc::tui
             section(model::HomeKind::Next, "Recommended next");
             if (items.empty())
             {
-                lines.push_back(text_line("Welcome! Open Learn (press 2) and choose your first exercise.", plain(Role::Text)));
+                lines.push_back(text_line("You have not started an exercise yet.", plain(Role::Text)));
             }
             if (!lines.empty())
                 lines.push_back({});
@@ -1351,8 +1407,6 @@ namespace learndc::tui
                 draw_line(ui, inner, inner.y + i, lines[to_size(idx)], selected);
             }
             draw_scrollbar(ui, main, start, to_int(lines.size()), inner.h);
-            if (to_int(lines.size()) + 2 <= inner.h)
-                draw_line(ui, inner, inner.bottom() - 1, text_line(fit(ui, "Tip: 2 browses every exercise and ? lists every key.", inner.w), plain(Role::Muted)));
         }
 
         void draw_learn(Ui& ui, Rect main)
@@ -1391,7 +1445,7 @@ namespace learndc::tui
                     search.push_back({"_", plain(Role::Accent, true)});
             }
             else
-                search.push_back({"press / to search", plain(Role::Muted)});
+                search.push_back({"none", plain(Role::Text)});
             draw_line(ui, inner, y++, search);
             bool const show_detail = inner.h >= 12;
             int const detail_h = show_detail ? 3 : 0;
@@ -1444,9 +1498,7 @@ namespace learndc::tui
             }
             if (list.empty())
             {
-                rows.push_back(text_line(m.query.empty() ? "No exercises match the filters. Press 0 to clear them."
-                                                         : "No exercise matches the search. Press Esc to clear it.",
-                                         plain(Role::Muted)));
+                rows.push_back(text_line(m.query.empty() ? "No exercises match the filters." : "No exercise matches the search.", plain(Role::Muted)));
                 selectable.push_back(false);
             }
             int const start = first_visible(focus, to_int(rows.size()), list_area.h);
@@ -1463,7 +1515,7 @@ namespace learndc::tui
                 auto const& ex = *list[idx];
                 int const dy = inner.bottom() - detail_h;
                 draw_rule(ui, inner, dy);
-                auto const wrapped = text::wrap(clean_line(ex.summary), to_size(std::max(4, inner.w)));
+                auto const wrapped = text::wrap(clean_line(markdown_inline(ex.summary)), to_size(std::max(4, inner.w)));
                 if (!wrapped.empty())
                     draw_line(ui, inner, dy + 1, text_line(fit(ui, wrapped[0], inner.w), plain(Role::Text)));
                 std::string concepts;
@@ -1522,7 +1574,7 @@ namespace learndc::tui
             lines.push_back(text_line("Worth another look", plain(Role::Accent, true)));
             int focus = 0;
             if (m.review.empty())
-                lines.push_back(text_line("  Nothing to review yet. Finished exercises you needed help with show up here.", plain(Role::Muted)));
+                lines.push_back(text_line("  Nothing to review yet.", plain(Role::Muted)));
             std::vector<int> review_lines;
             for (std::size_t i = 0; i < m.review.size(); ++i)
             {
@@ -1541,7 +1593,7 @@ namespace learndc::tui
             lines.push_back(text_line(std::format("Bookmarks ({})", m.prog.bookmarks.size()), plain(Role::Accent, true)));
             auto const marks = m.bookmark_list();
             if (marks.empty())
-                lines.push_back(text_line("  Press b on any exercise to bookmark it.", plain(Role::Muted)));
+                lines.push_back(text_line("  No bookmarks yet.", plain(Role::Muted)));
             for (auto const* ex : marks)
                 lines.push_back(text_line("  " + fit(ui, clean_line(ex->title), std::max(1, inner.w - 2)), plain(Role::Text)));
             int const start = first_visible(focus, to_int(lines.size()), inner.h);
@@ -1568,8 +1620,7 @@ namespace learndc::tui
                 return;
             if (list.empty())
             {
-                draw_line(ui, inner, inner.y, text_line("No bookmarks yet.", plain(Role::Text)));
-                draw_line(ui, inner, inner.y + 1, text_line("Press b on an exercise in Learn or on its page to keep it here.", plain(Role::Muted)));
+                draw_line(ui, inner, inner.y, text_line("No bookmarks yet.", plain(Role::Muted)));
                 return;
             }
             auto const sel = std::min(m.bookmark_sel, list.size() - 1);
@@ -1596,11 +1647,11 @@ namespace learndc::tui
             std::vector<Line> lines;
             if (!m.doctor_report)
             {
-                lines.push_back(text_line(m.doctor_running ? "Checking your setup..." : "Press r to check your setup.", plain(Role::Muted)));
+                lines.push_back(text_line(m.doctor_running ? "Checking your setup..." : "Setup not checked yet.", plain(Role::Muted)));
             }
             else
             {
-                auto const& rep = *m.doctor_report;
+                auto const rep = m.doctor_view();
                 Line sum;
                 sum.push_back({std::format("{} ok", rep.count(doctor::Status::Ok)), plain(Role::Ok, true)});
                 sum.push_back({ui.sep(), plain(Role::Muted)});
@@ -1690,9 +1741,8 @@ namespace learndc::tui
             int const dy = inner.bottom() - 2;
             draw_rule(ui, inner, dy - 1);
             auto const& cur = rows[sel];
-            auto const wrapped =
-                text::wrap(cur.description + (cur.editable ? ". Enter changes it." : ". Change it with: learndc config set " + cur.key + " <value>"),
-                           to_size(std::max(4, inner.w)));
+            auto const wrapped = text::wrap(cur.description + (cur.editable ? "" : ". Change it with: learndc config set " + cur.key + " <value>"),
+                                            to_size(std::max(4, inner.w)));
             for (std::size_t i = 0; i < wrapped.size() && i < 2; ++i)
                 draw_line(ui, inner, dy + to_int(i), text_line(fit(ui, wrapped[i], inner.w), plain(Role::Muted)));
         }
@@ -1763,7 +1813,7 @@ namespace learndc::tui
                     break;
                 case 1:
                     question = "Which editor should open your files?";
-                    explain = "learndc starts it for you when you press e. Custom commands: learndc config set editor.command.";
+                    explain = "learndc starts it for you. Custom commands: learndc config set editor.command.";
                     labels = m.onboarding.editor_labels;
                     break;
                 default:
@@ -1785,7 +1835,6 @@ namespace learndc::tui
                 l.push_back({fit(ui, labels[i], inner.w - 2), plain(Role::Text)});
                 draw_line(ui, inner, y++, l, selected);
             }
-            draw_line(ui, inner, inner.bottom() - 1, text_line("Enter confirms, s skips this step, Esc skips the rest.", plain(Role::Muted)));
         }
 
         void draw_dialog(Ui& ui, Rect area)
@@ -1795,10 +1844,11 @@ namespace learndc::tui
                 return;
             int const w = std::min(area.w - 2, 62);
             std::vector<Line> lines;
-            for (auto const& b : d.body)
-                for (auto const& piece : text::wrap(clean_line(b), to_size(std::max(4, w - 4))))
-                    lines.push_back(text_line(piece, plain(Role::Text)));
-            if (d.kind == model::DialogKind::Choice)
+            bool const listed = d.kind == model::DialogKind::Choice || d.kind == model::DialogKind::Complete;
+            for (std::size_t bi = 0; bi < d.body.size(); ++bi)
+                for (auto const& piece : text::wrap(clean_line(d.body[bi]), to_size(std::max(4, w - 4))))
+                    lines.push_back(text_line(piece, d.kind == model::DialogKind::Complete && bi == 0 ? plain(Role::Accent, true) : plain(Role::Text)));
+            if (listed)
             {
                 lines.push_back({});
                 for (std::size_t i = 0; i < d.labels.size(); ++i)
@@ -1821,13 +1871,18 @@ namespace learndc::tui
             else
             {
                 lines.push_back({});
-                lines.push_back(text_line("Press y for yes, n or Esc for no.", plain(Role::Muted)));
+                Line buttons;
+                buttons.push_back({"[y]", plain(Role::Key, true)});
+                buttons.push_back({std::format(" {}   ", d.yes_label.empty() ? std::string("Yes") : d.yes_label), plain(Role::Text)});
+                buttons.push_back({"[n]", plain(Role::Key, true)});
+                buttons.push_back({std::format(" {}", d.no_label.empty() ? std::string("No") : d.no_label), plain(Role::Text)});
+                lines.push_back(std::move(buttons));
             }
             int const h = std::min(area.h, to_int(lines.size()) + 2);
             Rect const box{area.x + (area.w - w) / 2, area.y + std::max(0, (area.h - h) / 2), w, h};
             ui.g.fill(box, plain(Role::Text));
             auto const inner = draw_box(ui, box, d.title, true);
-            int const start = d.kind == model::DialogKind::Choice
+            int const start = listed
                                   ? first_visible(to_int(d.selected) + to_int(lines.size()) - to_int(d.labels.size()), to_int(lines.size()), inner.h)
                                   : 0;
             for (int i = 0; i < inner.h; ++i)
@@ -1836,7 +1891,7 @@ namespace learndc::tui
                 if (idx >= to_int(lines.size()))
                     break;
                 bool const selected =
-                    d.kind == model::DialogKind::Choice && to_size(idx) == to_size(to_int(lines.size()) - to_int(d.labels.size())) + d.selected;
+                    listed && to_size(idx) == to_size(to_int(lines.size()) - to_int(d.labels.size())) + d.selected;
                 draw_line(ui, inner, inner.y + i, lines[to_size(idx)], selected);
             }
         }
@@ -1873,6 +1928,12 @@ namespace learndc::tui
             if (m.screen == model::Screen::Exercise && m.exercise.ex)
                 where = clean_line(m.exercise.ex->title);
             l.push_back({std::format("{}{}", ui.sep(), where), plain(Role::Text, true)});
+            auto const watching = m.exercise.watching && m.exercise.ws.has_value();
+            if (watching)
+            {
+                l.push_back({"  ", plain(Role::Text)});
+                l.push_back({std::format(" {} WATCHING ", ui.gl.watch), Style{Role::Watch, true, true, false}});
+            }
             draw_line(ui, row, row.y, l);
             std::string const done = std::format("{} of {} completed ", m.summary.completed, m.summary.total);
             int const bar_w = row.w >= 70 ? 12 : 0;
@@ -1922,15 +1983,19 @@ namespace learndc::tui
             {
                 line.clear();
                 line.push_back({" Help ", Style{Role::Accent, true, true, false}});
-                line.push_back({"  Esc goes back", plain(Role::Muted)});
+            }
+            if (m.exercise.watching && m.exercise.ws.has_value())
+            {
+                line.push_back({" ", plain(Role::Text)});
+                line.push_back({std::format(" {} WATCHING ", ui.gl.watch), Style{Role::Watch, true, true, false}});
             }
             draw_line(ui, row, row.y, line);
         }
 
-        void draw_sidebar(Ui& ui, Rect area)
+        void draw_sidebar(Ui& ui, Rect area, bool narrow)
         {
             auto const& m = ui.m;
-            auto const inner = draw_box(ui, area, "Menu", false);
+            auto const inner = draw_box(ui, area, narrow ? "" : "Menu", false);
             if (inner.empty())
                 return;
             static constexpr std::array<std::pair<model::Screen, std::string_view>, 7> entries = {
@@ -1946,6 +2011,12 @@ namespace learndc::tui
                 bool const current = m.screen == screen || (m.screen == model::Screen::Help && m.help_from == screen);
                 bool const dim = screen == model::Screen::Exercise && !m.exercise.ex;
                 Line l;
+                if (narrow)
+                {
+                    l.push_back({std::format("{}", n), plain(current ? Role::Text : (dim ? Role::Muted : Role::Text), current)});
+                    draw_line(ui, inner, y++, l, current);
+                    continue;
+                }
                 l.push_back({current ? std::format("{} ", ui.gl.sel) : std::string("  "), plain(Role::Accent, true)});
                 l.push_back({std::format("{} ", n), plain(current ? Role::Text : Role::Muted, current)});
                 l.push_back({std::string(name), plain(dim ? Role::Muted : Role::Text, current)});
@@ -1953,18 +2024,14 @@ namespace learndc::tui
             }
             ++y;
             Line help;
-            help.push_back({"  ? ", plain(Role::Muted)});
-            help.push_back({"Help", plain(Role::Text)});
-            draw_line(ui, inner, y++, help, m.screen == model::Screen::Help);
-            if (inner.h >= 14)
+            if (narrow)
+                help.push_back({"?", plain(Role::Text)});
+            else
             {
-                y = inner.bottom() - 2;
-                draw_line(ui, inner, y, text_line(std::format(" {} of {} done", m.summary.completed, m.summary.total), plain(Role::Muted)));
-                Line bar;
-                bar.push_back({" ", plain(Role::Text)});
-                append(bar, bar_spans(ui, std::max(1, inner.w - 2), m.summary.completed, m.summary.total));
-                draw_line(ui, inner, y + 1, bar);
+                help.push_back({"  ? ", plain(Role::Muted)});
+                help.push_back({"Help", plain(Role::Text)});
             }
+            draw_line(ui, inner, y++, help, m.screen == model::Screen::Help);
         }
 
         void draw_status(Ui& ui, Rect row)
@@ -1987,8 +2054,6 @@ namespace learndc::tui
                 draw_line(ui, row, row.y, l);
                 return;
             }
-            if (m.exercise.watching)
-                draw_line(ui, row, row.y, text_line(" Watching your files: the checks run when you save", plain(Role::Muted)));
         }
 
         void draw_keys(Ui& ui, Rect row)
@@ -2035,7 +2100,8 @@ namespace learndc::tui
             }
             int const footer = mode == LayoutMode::Compact ? 1 : 2;
             Rect const body{0, 1, total_w, total_h - 1 - footer};
-            int const side_w = mode == LayoutMode::Wide ? 24 : (mode == LayoutMode::Normal ? 18 : 0);
+            bool const narrow_side = m.screen == model::Screen::Exercise;
+            int const side_w = mode == LayoutMode::Compact ? 0 : (narrow_side ? 5 : (mode == LayoutMode::Wide ? 24 : 18));
             bool const solution = m.screen == model::Screen::Exercise && m.exercise.solution.has_value();
             if (mode == LayoutMode::Compact)
                 draw_tab_bar(ui, Rect{0, 0, total_w, 1});
@@ -2045,7 +2111,7 @@ namespace learndc::tui
             if (solution)
                 main = body;
             else if (side_w > 0)
-                draw_sidebar(ui, Rect{0, body.y, side_w, body.h});
+                draw_sidebar(ui, Rect{0, body.y, side_w, body.h}, narrow_side);
             switch (m.screen)
             {
                 case model::Screen::Home:
@@ -2104,6 +2170,10 @@ namespace learndc::tui
                 case ThemeId::Dark:
                     switch (role)
                     {
+                        case Role::Inline:
+                            return C::RGB(125, 211, 252);
+                        case Role::Watch:
+                            return C::RGB(251, 146, 60);
                         case Role::Accent:
                         case Role::Focus:
                         case Role::Key:
@@ -2128,6 +2198,10 @@ namespace learndc::tui
                 case ThemeId::Light:
                     switch (role)
                     {
+                        case Role::Inline:
+                            return C::RGB(3, 105, 161);
+                        case Role::Watch:
+                            return C::RGB(194, 65, 12);
                         case Role::Accent:
                         case Role::Focus:
                         case Role::Key:
@@ -2152,6 +2226,10 @@ namespace learndc::tui
                 case ThemeId::HighContrast:
                     switch (role)
                     {
+                        case Role::Inline:
+                            return std::nullopt;
+                        case Role::Watch:
+                            return C::RGB(255, 165, 0);
                         case Role::Accent:
                         case Role::Focus:
                         case Role::Key:
@@ -2186,6 +2264,10 @@ namespace learndc::tui
                 e = ftxui::bold(e);
             if (s.role == Role::Muted && theme == ThemeId::NoColor)
                 e = ftxui::dim(e);
+            if (s.italic)
+                e = ftxui::italic(e);
+            if (s.role == Role::Inline && (theme == ThemeId::NoColor || theme == ThemeId::HighContrast))
+                e = ftxui::inverted(e);
             if (s.inverse)
                 e = ftxui::inverted(e);
             if (s.underline)

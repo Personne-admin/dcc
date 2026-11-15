@@ -1,6 +1,6 @@
  Learn DC · Doctor                                1 of 6 completed ██░░░░░░░░░░
 ╭─ Menu ─────────╮╭─ Doctor ───────────────────────────────────────────────────╮
-│   1 Home       ││ 3 ok · 1 warning · 0 errors                                ┃
+│   1 Home       ││ 4 ok · 1 warning · 0 errors                                ┃
 │   2 Learn      ││                                                            ┃
 │   3 Exercise   ││ [ok]    dcc                                                ┃
 │   4 Progress   ││         found next to learndc, version 0.6.0               ┃
@@ -14,11 +14,11 @@
 │                ││         Fix: Install nvim, vim or nano, or set one in      ┃
 │                ││              Settings.                                     ┃
 │                ││ [ok]    terminal                                           ┃
-│                ││         interactive terminal, 100x30, UTF-8                ┃
-│                ││ [info]  safety                                             ┃
-│                ││         learndc compiles and runs your code with your      ┃
-│  1 of 6 done   ││         own permissions. Time limits, output limits and    │
-│  ██░░░░░░░░░░  ││         process cleanup stop runaway programs, but they    │
+│                ││         interactive terminal                               ┃
+│                ││ [ok]    terminal size                                      │
+│                ││         80x24, normal layout                               │
+│                ││ [info]  safety                                             │
+│                ││         learndc compiles and runs your code with your      │
 ╰────────────────╯╰────────────────────────────────────────────────────────────╯
 
  r recheck  t test build  Up Down scroll  ? help  q quit

@@ -13,8 +13,8 @@
 │      return 0;                                           │
 │  }                                                       │
 │                                                          │
-│ Why it works                                             │
 │ Adding the tax to the price gives the total. The minus   │
 │ sign subtracted it instead.                              │
+│                                                          │
 ╰──────────────────────────────────────────────────────────╯
  Up Down scroll  Esc close solution  ? help  q quit

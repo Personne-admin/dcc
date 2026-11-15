@@ -237,6 +237,11 @@ export namespace learndc::tui::model
     struct Tick
     {
         std::int64_t now_ms = 0;
+        std::string clock;
+
+        Tick() = default;
+
+        Tick(std::int64_t now, std::string wall = {}) : now_ms(now), clock(std::move(wall)) {}
     };
 
     using Event = std::variant<Key, Resize, CheckStage, CheckDone, EditorDone, ProgramDone, DoctorDone, FilesChanged, Tick>;
@@ -303,6 +308,7 @@ export namespace learndc::tui::model
         Solution,
         Reset,
         Choice,
+        Complete,
     };
 
     struct Dialog
@@ -315,6 +321,8 @@ export namespace learndc::tui::model
         std::vector<std::string> values;
         std::size_t selected = 0;
         std::string target;
+        std::string yes_label;
+        std::string no_label;
 
         [[nodiscard]] bool open() const { return kind != DialogKind::None; }
     };
@@ -362,6 +370,9 @@ export namespace learndc::tui::model
         watch::Snapshot report_snapshot;
         bool watching = false;
         bool rerun_pending = false;
+        bool watch_triggered = false;
+        std::string watch_clock;
+        std::int64_t watch_result_ms = -1;
         std::vector<std::string> preview_lines;
         std::string preview_note;
         std::optional<SolutionView> solution;
@@ -395,6 +406,26 @@ export namespace learndc::tui::model
         std::size_t selected = 0;
         std::vector<std::string> editor_values;
         std::vector<std::string> editor_labels;
+    };
+
+    enum class WatchPhase
+    {
+        Off,
+        Waiting,
+        Checking,
+        Detected,
+        Result,
+    };
+
+    struct WatchStatus
+    {
+        WatchPhase phase = WatchPhase::Off;
+        std::string path;
+        std::string result;
+        bool passed = false;
+        bool triggered = false;
+        std::string clock;
+        std::int64_t age_ms = 0;
     };
 
     struct HelpSection
@@ -485,7 +516,7 @@ export namespace learndc::tui::model
                               "c             run the checks",
                               "x             cancel a running check",
                               "r             build and run your program",
-                              "w             watch: run the checks whenever a file changes",
+                              "w             watch: run the checks whenever a file changes; a banner shows the state",
                               "h             reveal the next hint",
                               "s             show the reference solution (asks first)",
                               "l             show or hide the raw compiler and program output",
@@ -509,7 +540,7 @@ export namespace learndc::tui::model
                 here.lines = {"Up Down       choose", "Enter         confirm and continue", "s             skip this step", "Esc           skip the rest"};
                 break;
             case Screen::Help:
-                here.lines = {"Up Down       scroll", "Esc           go back"};
+                here.lines = {"Up Down       scroll"};
                 break;
         }
         out.push_back(std::move(here));
@@ -518,16 +549,10 @@ export namespace learndc::tui::model
                         "Esc           go back or close a dialog", "q             quit (asks first while a check is running)",
                         "Ctrl+C       cancel a running check; press again to quit"}});
         out.push_back(
-            {"A typical session",
-             {"1. Open an exercise from Learn and press Enter to create your files.", "2. Press e to edit, then c to check your work.",
-              "3. Read the results below the instructions and fix the first failure.", "4. Press h for a hint if you are stuck; s shows the solution last.",
-              "5. When every check passes the exercise is completed; press n for the next one."}});
-        out.push_back(
             {"Reading check results",
              {"Each check shows pass or FAIL with the stage where it stopped: build, run, compare, harness or timeout.",
               "Expected and Observed show whitespace: a middle dot is a trailing space, an arrow is a tab, the return sign marks the final newline.",
-              "file:line:column pointers point into your files; press e to jump there.", "Press l for the full compiler diagnostics and program output."}});
-        out.push_back({"Safety", {std::string(runner::safety_note_text)}});
+              "file:line:column pointers point into your files."}});
         return out;
     }
 
@@ -553,6 +578,8 @@ export namespace learndc::tui::model
         std::int64_t now_ms = 0;
         std::deque<Toast> toasts;
         Dialog dialog;
+        std::optional<Dialog> pending_dialog;
+        std::string clock_text;
         bool quit_requested = false;
 
         std::size_t home_sel = 0;
@@ -676,6 +703,86 @@ export namespace learndc::tui::model
             return rows;
         }
 
+        [[nodiscard]] WatchStatus watch_status() const
+        {
+            WatchStatus w;
+            auto const& es = exercise;
+            if (!es.watching || !es.ws)
+                return w;
+            w.path = platform::path_to_utf8(es.ws->root);
+            w.triggered = es.watch_triggered;
+            if (es.phase != CheckPhase::Idle)
+                w.phase = es.rerun_pending ? WatchPhase::Detected : WatchPhase::Checking;
+            else if (es.report)
+            {
+                w.phase = WatchPhase::Result;
+                switch (es.report->outcome)
+                {
+                    case runner::Outcome::Passed:
+                        w.result = "passed";
+                        break;
+                    case runner::Outcome::Failed:
+                        w.result = "failed";
+                        break;
+                    case runner::Outcome::Cancelled:
+                        w.result = "cancelled";
+                        break;
+                    case runner::Outcome::Error:
+                        w.result = "could not run";
+                        break;
+                }
+                w.passed = es.report->outcome == runner::Outcome::Passed;
+                if (es.watch_result_ms >= 0)
+                {
+                    w.clock = es.watch_clock;
+                    w.age_ms = std::max<std::int64_t>(0, now_ms - es.watch_result_ms);
+                }
+                else
+                    w.age_ms = -1;
+            }
+            else
+                w.phase = WatchPhase::Waiting;
+            return w;
+        }
+
+        [[nodiscard]] doctor::DoctorReport doctor_view() const
+        {
+            doctor::DoctorReport out;
+            if (!doctor_report)
+                return out;
+            out = *doctor_report;
+            for (auto& item : out.items)
+            {
+                if (item.id != "terminal.size")
+                    continue;
+                auto const mode = layout();
+                item.detail.clear();
+                item.fix.clear();
+                switch (mode)
+                {
+                    case LayoutMode::Wide:
+                        item.status = doctor::Status::Ok;
+                        item.detail = std::format("{}x{}, wide layout", size.width, size.height);
+                        break;
+                    case LayoutMode::Normal:
+                        item.status = doctor::Status::Ok;
+                        item.detail = std::format("{}x{}, normal layout", size.width, size.height);
+                        break;
+                    case LayoutMode::Compact:
+                        item.status = doctor::Status::Warn;
+                        item.detail = std::format("{}x{}, compact layout", size.width, size.height);
+                        item.fix = "Enlarge the terminal window to at least 80x24 for the full layout.";
+                        break;
+                    case LayoutMode::TooSmall:
+                        item.status = doctor::Status::Warn;
+                        item.detail = std::format("{}x{}, too small for the interface", size.width, size.height);
+                        item.fix = "Enlarge the terminal window to at least 40x12.";
+                        break;
+                }
+            }
+            return out;
+        }
+
         [[nodiscard]] catalog::Exercise const* selected_exercise() const
         {
             switch (screen)
@@ -727,8 +834,10 @@ export namespace learndc::tui::model
                         return {{"type y", "confirm"}, {"Enter", "reset"}, {"Esc", "cancel"}};
                     case DialogKind::Choice:
                         return {{"Up Down", "choose"}, {"Enter", "select"}, {"Esc", "cancel"}};
+                    case DialogKind::Complete:
+                        return {{"Up Down", "choose"}, {"Enter", "select"}, {"Esc", "stay"}};
                     default:
-                        return {{"y", "yes"}, {"n Esc", "no"}};
+                        return {};
                 }
             }
             if (screen == Screen::Learn && searching)
@@ -749,14 +858,9 @@ export namespace learndc::tui::model
                         k = {{"Up Down", "scroll"}, {"Esc", "close solution"}};
                     else if (!exercise.ws)
                         k = {{"Enter", "start"}, {"h", "hint"}, {"s", "solution"}, {"Tab", "pane"}};
-                    else if (check_running())
-                        k = {{"x", "cancel"}, {"e", "edit"}, {"Tab", "pane"}, {"w", "watch"}};
-                    else if (exercise.pane == Pane::Files)
-                        k = {{"Up Down", "file"}, {"Enter", "edit"}, {"PgUp PgDn", "scroll"}, {"c", "check"}, {"Tab", "pane"}};
-                    else if (exercise.pane == Pane::Results)
-                        k = {{"Up Down", "scroll"}, {"l", "raw output"}, {"c", "check"}, {"e", "edit"}, {"Tab", "pane"}};
                     else
-                        k = {{"e", "edit"}, {"c", "check"}, {"r", "run"}, {"h", "hint"}, {"s", "solution"}, {"w", "watch"}, {"Tab", "pane"}};
+                        k = {{"e", "edit"}, check_running() ? KeyHint{"x", "cancel"} : KeyHint{"c", "check"}, {"r", "run"}, {"h", "hint"}, {"s", "solution"},
+                             {"w", "watch"}, {"Tab", "pane"}};
                     break;
                 case Screen::Progress:
                     k = {{"Enter", "open"}, {"Up Down", "move"}};
@@ -834,7 +938,7 @@ export namespace learndc::tui::model
             }
             if (exercise.ex && exercise.ex->id != ex->id && check_running())
             {
-                push_toast("A check is still running; wait for it or press x to cancel it first", true);
+                push_toast("A check is still running", true);
                 return;
             }
             if (!exercise.ex || exercise.ex->id != ex->id)
@@ -1068,6 +1172,8 @@ export namespace learndc::tui::model
         void on(Tick const& t)
         {
             now_ms = std::max(now_ms, t.now_ms);
+            if (!t.clock.empty())
+                clock_text = t.clock;
             while (!toasts.empty())
             {
                 auto& front = toasts.front();
@@ -1112,7 +1218,10 @@ export namespace learndc::tui::model
             if (!es.watching)
                 return;
             if (es.phase == CheckPhase::Idle)
+            {
+                es.watch_triggered = true;
                 begin_check();
+            }
             else
                 es.rerun_pending = true;
         }
@@ -1129,23 +1238,17 @@ export namespace learndc::tui::model
             es.stale = false;
             es.scroll_results = 0;
             mark_stale_if_changed();
+            if (es.watching && !was_cancelling)
+            {
+                es.watch_result_ms = now_ms;
+                es.watch_clock = clock_text;
+            }
             auto rec = app::record_report(*ctx, *es.ex, done.report);
             refresh_progress();
             if (!rec)
                 push_toast(std::format("Could not save your progress: {}", text::sanitize(rec.error().message)), true);
-            else if (done.report.outcome == runner::Outcome::Cancelled)
-                push_toast("Check cancelled");
             else if (rec->completed_now)
-            {
-                std::string t = "All checks passed: exercise completed!";
-                if (!rec->next_title.empty())
-                    t += std::format(" Press n for the next one: {}", text::sanitize(rec->next_title));
-                push_toast(std::move(t));
-            }
-            else if (rec->all_passed)
-                push_toast("All checks passed");
-            else if (done.report.outcome == runner::Outcome::Error)
-                push_toast("The checks could not run; see the results below", true);
+                present_completion(*rec, done.report);
             if (was_cancelling && es.watching)
             {
                 es.rerun_pending = false;
@@ -1154,7 +1257,51 @@ export namespace learndc::tui::model
             if (es.rerun_pending && es.watching)
             {
                 es.rerun_pending = false;
+                es.watch_triggered = true;
                 begin_check();
+            }
+        }
+
+        void present_completion(app::CheckRecord const& rec, runner::CheckReport const& report)
+        {
+            auto const& es = exercise;
+            int attempts = 0;
+            if (auto it = prog.exercises.find(es.ex->id); it != prog.exercises.end())
+                attempts = it->second.attempts;
+            Dialog d;
+            d.kind = DialogKind::Complete;
+            d.title = "Exercise complete";
+            d.body.push_back(text::sanitize(es.ex->title));
+            d.body.push_back(std::format("{} of {} {} passed, {} {}, {}", report.passed, report.total, report.total == 1 ? "check" : "checks", attempts,
+                                         attempts == 1 ? "attempt" : "attempts",
+                                         es.hints_shown == 0 ? std::string("no hints used")
+                                                             : std::format("{} {} used", es.hints_shown, es.hints_shown == 1 ? "hint" : "hints")));
+            if (!rec.next_id.empty())
+            {
+                d.body.push_back(std::format("Next: {}", text::sanitize(rec.next_title)));
+                d.values = {"next", "stay"};
+                d.labels = {"Next exercise", "Stay here"};
+                d.target = rec.next_id;
+            }
+            else
+            {
+                d.body.push_back("All exercises complete");
+                d.values = {"progress", "stay"};
+                d.labels = {"Review your progress", "Stay here"};
+            }
+            if (dialog.open())
+                pending_dialog = std::move(d);
+            else
+                dialog = std::move(d);
+        }
+
+        void close_dialog()
+        {
+            dialog = Dialog{};
+            if (pending_dialog)
+            {
+                dialog = std::move(*pending_dialog);
+                pending_dialog.reset();
             }
         }
 
@@ -1255,7 +1402,6 @@ export namespace learndc::tui::model
                 es.phase = CheckPhase::Cancelling;
                 dialog = Dialog{};
                 fx.push_back(CancelCheck{});
-                push_toast("Cancelling the check; press Ctrl+C again to quit");
                 return;
             }
             quit_requested = true;
@@ -1272,6 +1418,8 @@ export namespace learndc::tui::model
                 dialog.kind = DialogKind::QuitRunning;
                 dialog.title = "Quit while a check is running?";
                 dialog.body = {"The running check will be cancelled before learndc exits."};
+                dialog.yes_label = "Quit";
+                dialog.no_label = "Stay";
                 return;
             }
             quit_requested = true;
@@ -1297,7 +1445,7 @@ export namespace learndc::tui::model
                         open_exercise(prog.active_exercise);
                     }
                     else
-                        push_toast("No exercise is open yet; choose one in Learn");
+                        push_toast("No exercise is open yet");
                     break;
                 case 4:
                     jump(Screen::Progress);
@@ -1552,7 +1700,7 @@ export namespace learndc::tui::model
                 return;
             if (!row.editable)
             {
-                push_toast(std::format("Change it from the command line: learndc config set {} <value>", row.key));
+                push_toast("This setting cannot be changed here");
                 return;
             }
             Dialog d;
@@ -1685,7 +1833,7 @@ export namespace learndc::tui::model
             {
                 case DialogKind::Choice:
                     if (k == "Esc")
-                        dialog = Dialog{};
+                        close_dialog();
                     else if (detail::is_down(k))
                         dialog.selected = std::min(dialog.selected + 1, dialog.values.size() - 1);
                     else if (detail::is_up(k) && dialog.selected > 0)
@@ -1694,9 +1842,27 @@ export namespace learndc::tui::model
                     {
                         auto const key = dialog.target;
                         auto const value = dialog.values[dialog.selected];
-                        dialog = Dialog{};
+                        close_dialog();
                         if (save_setting(key, value))
                             push_toast(std::format("Saved {} = {}", key, value));
+                    }
+                    break;
+                case DialogKind::Complete:
+                    if (k == "Esc")
+                        close_dialog();
+                    else if (detail::is_down(k) || k == "Tab")
+                        dialog.selected = std::min(dialog.selected + 1, dialog.values.size() - 1);
+                    else if (detail::is_up(k) || k == "ShiftTab")
+                        dialog.selected = dialog.selected > 0 ? dialog.selected - 1 : 0;
+                    else if (k == "Enter")
+                    {
+                        auto const choice = dialog.values[dialog.selected];
+                        auto const target = dialog.target;
+                        close_dialog();
+                        if (choice == "next")
+                            open_exercise(target);
+                        else if (choice == "progress")
+                            jump(Screen::Progress);
                     }
                     break;
                 case DialogKind::QuitRunning:
@@ -1708,20 +1874,20 @@ export namespace learndc::tui::model
                         fx.push_back(Quit{});
                     }
                     else if (k == "n" || k == "N" || k == "Esc")
-                        dialog = Dialog{};
+                        close_dialog();
                     break;
                 case DialogKind::Solution:
                     if (k == "y" || k == "Y" || k == "Enter")
                     {
-                        dialog = Dialog{};
+                        close_dialog();
                         reveal_solution();
                     }
                     else if (k == "n" || k == "N" || k == "Esc")
-                        dialog = Dialog{};
+                        close_dialog();
                     break;
                 case DialogKind::Reset:
                     if (k == "Esc")
-                        dialog = Dialog{};
+                        close_dialog();
                     else if (k == "Backspace")
                     {
                         if (!dialog.input.empty())
@@ -1731,11 +1897,11 @@ export namespace learndc::tui::model
                     {
                         if (dialog.input == "y" || dialog.input == "Y")
                         {
-                            dialog = Dialog{};
+                            close_dialog();
                             reset_exercise();
                         }
                         else
-                            push_toast("Type y to confirm the reset, or press Esc to cancel", true);
+                            push_toast("The reset was not confirmed", true);
                     }
                     else if (detail::printable_key(k) && dialog.input.size() < 8)
                         dialog.input += k;
@@ -1833,7 +1999,7 @@ export namespace learndc::tui::model
             }
             refresh_progress();
             load_workspace();
-            push_toast(started->result.created ? "Created your files. Press e to edit them, then c to check." : "Resumed your existing files");
+            push_toast(started->result.created ? "Created your files" : "Resumed your existing files");
             if (!started->missing_prerequisites.empty())
                 push_toast(std::format("Note: finish {} first for the best order", text::join(started->missing_prerequisites, ", ")));
             if (!started->platform_supported)
@@ -1866,7 +2032,7 @@ export namespace learndc::tui::model
             }
             if (folder && choice.kind == editor::Kind::Terminal && choice.folder_template.empty())
             {
-                push_toast("This editor runs in the terminal and cannot open a folder; press e to open a file", true);
+                push_toast("This editor runs in the terminal and cannot open a folder", true);
                 return;
             }
             LaunchEditor le;
@@ -1933,11 +2099,14 @@ export namespace learndc::tui::model
             if (k == "c")
             {
                 if (!es.ws)
-                    push_toast("Press Enter to create your files first", true);
+                    push_toast("Create your files first", true);
                 else if (check_running())
                     push_toast("A check is already running");
                 else
+                {
+                    es.watch_triggered = false;
                     begin_check();
+                }
                 return;
             }
             if (k == "x")
@@ -1946,7 +2115,6 @@ export namespace learndc::tui::model
                 {
                     es.phase = CheckPhase::Cancelling;
                     fx.push_back(CancelCheck{});
-                    push_toast("Cancelling the check");
                 }
                 else if (es.phase == CheckPhase::Cancelling)
                     push_toast("Still cancelling");
@@ -1957,7 +2125,7 @@ export namespace learndc::tui::model
             if (k == "r")
             {
                 if (!es.ws)
-                    push_toast("Press Enter to create your files first", true);
+                    push_toast("Create your files first", true);
                 else if (check_running())
                     push_toast("Wait for the check to finish first", true);
                 else
@@ -1968,20 +2136,24 @@ export namespace learndc::tui::model
             {
                 if (!es.ws)
                 {
-                    push_toast("Press Enter to create your files first", true);
+                    push_toast("Create your files first", true);
                     return;
                 }
                 es.watching = !es.watching;
                 if (es.watching)
                 {
+                    es.watch_triggered = false;
+                    es.watch_result_ms = -1;
+                    es.watch_clock.clear();
                     fx.push_back(StartWatch{es.ex->id, es.ws->root});
-                    push_toast("Watching your files: the checks run whenever you save");
                 }
                 else
                 {
                     es.rerun_pending = false;
+                    es.watch_triggered = false;
+                    es.watch_result_ms = -1;
+                    es.watch_clock.clear();
                     fx.push_back(StopWatch{});
-                    push_toast("Stopped watching");
                 }
                 return;
             }
@@ -2008,6 +2180,8 @@ export namespace learndc::tui::model
                 dialog.title = "Show the solution?";
                 dialog.body = {"Try the hints first: working it out yourself teaches the most.",
                                "Looking is recorded in your progress; your files are not changed."};
+                dialog.yes_label = "Show solution";
+                dialog.no_label = "Cancel";
                 return;
             }
             if (k == "R")
@@ -2020,7 +2194,7 @@ export namespace learndc::tui::model
                 dialog = Dialog{};
                 dialog.kind = DialogKind::Reset;
                 dialog.title = "Reset to the starter files?";
-                dialog.body = {"Your current files are copied to a backup first, then replaced by the starter files.", "Type y and press Enter to reset."};
+                dialog.body = {"Your current files are copied to a backup first, then replaced by the starter files."};
                 return;
             }
             if (k == "l")

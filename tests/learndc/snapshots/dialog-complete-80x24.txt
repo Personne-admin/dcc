@@ -1,0 +1,24 @@
+ Learn DC · Variables and mutation                2 of 6 completed ████░░░░░░░░
+
+
+
+
+
+
+         ╭─ Exercise complete ────────────────────────────────────────╮
+         │ Variables and mutation                                     │
+         │ 3 of 3 checks passed, 3 attempts, 1 hint used              │
+         │ Next: Making decisions with if                             │
+         │                                                            │
+         │ › Next exercise                                            │
+         │   Stay here                                                │
+         ╰────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+ Up Down choose  Enter select  Esc stay

@@ -1,7 +1,7 @@
   1  2 Learn  3  4  5  6  7
 ╭─ Learn ──────────────────────────────────── 6 exercises ─╮
 │ status any  level any  track all  kind any               │
-│ search press / to search                                 │
+│ search none                                              │
 │──────────────────────────────────────────────────────────│
 │ Fundamentals  1 of 4 completed                           │
 │   ✓ Your first DC program      beginner     completed    │

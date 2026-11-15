@@ -1,5 +1,6 @@
 import std;
 import learndc.text;
+import learndc.markdown;
 import learndc.json;
 import learndc.toml;
 import learndc.platform;
@@ -5222,6 +5223,8 @@ expect_stdout = "Total: 40\n"
     constexpr std::string_view tui_readme =
         "# Variables and mutation\n\nA variable gives a name to a value. Declare it with its type, then use the name wherever you need the value.\n\n"
         "- Declare `price` and `tax` as `i32`.\n- Add them together into `total`.\n\n```dc\ni32 total = 40 + 2;\n```\n\n"
+        "Use **both** values and read the *failing* check carefully.\n\n"
+        "| Name | Meaning |\n| --- | --- |\n| `price` | what it costs |\n| `tax` | added on top |\n\n"
         "Run the checks when you think you are done.\n";
 
     constexpr std::string_view tui_main_source =
@@ -5431,7 +5434,8 @@ expect_stdout = "Total: 40\n"
         r.items.push_back({"dpm", "dpm", doctor::Status::Ok, "found next to learndc, version 0.6.0", ""});
         r.items.push_back({"dccd", "dccd", doctor::Status::Info, "not found (optional)", ""});
         r.items.push_back({"editor", "editor", doctor::Status::Warn, "no editor was found, so learndc shows file paths instead", "Install nvim, vim or nano, or set one in Settings."});
-        r.items.push_back({"terminal", "terminal", doctor::Status::Ok, "interactive terminal, 100x30, UTF-8", ""});
+        r.items.push_back({"terminal.tty", "terminal", doctor::Status::Ok, "interactive terminal", ""});
+        r.items.push_back({"terminal.size", "terminal size", doctor::Status::Ok, "100x30", ""});
         r.items.push_back({"safety", "safety", doctor::Status::Info, std::string(runner::safety_note_text), ""});
         return r;
     }
@@ -5823,8 +5827,10 @@ TEST_CASE("tui completing an exercise records progress and offers the next one")
     pass.duration_ms = 420;
     m.handle(tm::CheckDone{pass});
     CHECK(m.status_of("fundamentals/variables") == progress::Status::Completed);
-    REQUIRE(!m.toasts.empty());
-    CHECK(m.toasts.front().text.find("completed") != std::string::npos);
+    CHECK(m.toasts.empty());
+    REQUIRE(m.dialog.kind == tm::DialogKind::Complete);
+    press(m, "Esc");
+    CHECK(!m.dialog.open());
     auto fx = press(m, "n");
     CHECK(fx.empty());
     CHECK(m.exercise.ex->id != "fundamentals/variables");
@@ -6085,9 +6091,8 @@ TEST_CASE("tui snapshots of toasts")
     press(m, "Enter");
     press(m, "Enter");
     snap(m, "toast-started", {{100, 30}, {60, 20}});
-    press(m, "c");
-    press(m, "x");
-    snap(m, "toast-cancelling", {{100, 30}});
+    press(m, "b");
+    snap(m, "toast-bookmarked", {{100, 30}});
     m.handle(tm::Tick{9000});
     CHECK_EQ(m.toasts.size(), 1u);
     m.handle(tm::Tick{20000});
@@ -6154,6 +6159,789 @@ TEST_CASE("tui snapshots of the ascii and no color variants")
     TuiWorld c(true, [](settings::Settings& s) { s.ui_theme = "dark"; });
     tm::Model m2(*c.ctx, {100, 30});
     CHECK(learndc::tui::render_snapshot(m2, 100, 30, true).find("\x1b[") != std::string::npos);
+}
+
+namespace
+{
+    namespace md = learndc::markdown;
+
+    std::string md_text(std::string_view source, int width, bool plain = false, bool ascii = false, bool skip_title = false)
+    {
+        md::Options o;
+        o.width = width;
+        o.plain = plain;
+        o.ascii = ascii;
+        o.skip_title = skip_title;
+        return md::to_text(md::render(source, o));
+    }
+
+    std::vector<md::Span> md_spans(std::string_view source)
+    {
+        md::Options o;
+        o.width = 200;
+        auto const lines = md::render(source, o);
+        CHECK_EQ(lines.size(), 1u);
+        if (lines.empty())
+            return {};
+        return lines[0];
+    }
+
+    bool has_span(std::vector<md::Span> const& spans, std::string_view text, md::Kind kind)
+    {
+        return std::ranges::any_of(spans, [&](md::Span const& s) { return s.text == text && s.kind == kind; });
+    }
+
+    bool fits_width(std::string const& rendered, int width)
+    {
+        for (auto const& line : text::split_lines(rendered))
+            if (static_cast<int>(text::display_width(line)) > width)
+                return false;
+        return true;
+    }
+} // namespace
+
+TEST_CASE("markdown renders inline code bold and italic without markers")
+{
+    auto const spans = md_spans("Use `i32` for **numbers**, *italic* and _also italic_ text.");
+    CHECK(has_span(spans, "i32", md::Kind::Code));
+    CHECK(has_span(spans, "numbers", md::Kind::Strong));
+    CHECK(has_span(spans, "italic", md::Kind::Emphasis));
+    CHECK(has_span(spans, "also italic", md::Kind::Emphasis));
+    CHECK_EQ(md_text("Use `i32` for **numbers**.", 80), "Use i32 for numbers.\n");
+    auto const both = md_spans("***loud***");
+    CHECK(has_span(both, "loud", md::Kind::StrongEmphasis));
+    auto const nested = md_spans("**bold and *nested* here**");
+    CHECK(has_span(nested, "nested", md::Kind::StrongEmphasis));
+    CHECK(has_span(nested, "bold and", md::Kind::Strong));
+}
+
+TEST_CASE("markdown leaves identifiers expressions and stray markers alone")
+{
+    CHECK_EQ(md_text("call snake_case_name and other_name_too", 80), "call snake_case_name and other_name_too\n");
+    CHECK_EQ(md_text("compute a*b and c*d now", 80), "compute a*b and c*d now\n");
+    CHECK_EQ(md_text("2 * 3 * 4 equals 24", 80), "2 * 3 * 4 equals 24\n");
+    CHECK_EQ(md_text("a lone * star and a lone _ bar", 80), "a lone * star and a lone _ bar\n");
+    CHECK_EQ(md_text("unclosed **bold stays literal", 80), "unclosed **bold stays literal\n");
+    CHECK_EQ(md_text("`**not bold**` and `a*b*c`", 80), "**not bold** and a*b*c\n");
+    auto const spans = md_spans("`**not bold**`");
+    CHECK(has_span(spans, "**not bold**", md::Kind::Code));
+}
+
+TEST_CASE("markdown handles escapes links and code spans with backticks")
+{
+    CHECK_EQ(md_text("a \\*star\\* and \\`tick\\` and \\\\ slash", 80), "a *star* and `tick` and \\ slash\n");
+    CHECK_EQ(md_text("see [the guide](https://example.org/guide) now", 80), "see the guide (https://example.org/guide) now\n");
+    CHECK_EQ(md_text("see [https://example.org](https://example.org)", 80), "see https://example.org\n");
+    CHECK_EQ(md_text("a [broken link](oops and `code`", 80), "a [broken link](oops and code\n");
+    CHECK_EQ(md_text("``a ` b``", 80), "a ` b\n");
+    auto const link = md_spans("[text](http://x.y)");
+    CHECK(has_span(link, "text", md::Kind::Link));
+    CHECK(has_span(link, "(http://x.y)", md::Kind::Url));
+}
+
+TEST_CASE("markdown wraps paragraphs by display width and splits long words")
+{
+    auto const out = md_text("alpha beta gamma delta epsilon zeta eta theta iota kappa", 20);
+    CHECK_EQ(out, "alpha beta gamma\ndelta epsilon zeta\neta theta iota kappa\n");
+    CHECK(fits_width(out, 20));
+    auto const wide = md_text("\xe6\xbc\xa2\xe5\xad\x97 \xe6\xbc\xa2\xe5\xad\x97 \xe6\xbc\xa2\xe5\xad\x97 \xe6\xbc\xa2\xe5\xad\x97", 9);
+    CHECK(fits_width(wide, 9));
+    CHECK_EQ(text::split_lines(wide).size(), 2u);
+    auto const longword = md_text("start abcdefghijklmnopqrstuvwxyz end", 10);
+    CHECK(fits_width(longword, 10));
+    CHECK_EQ(longword, "start\nabcdefghij\nklmnopqrst\nuvwxyz end\n");
+    CHECK_EQ(md_text("one\ntwo\nthree\n\nfour", 80), "one two three\n\nfour\n");
+    auto const code = md_text("a long line with `inline code that is wrapped` inside", 24);
+    CHECK(fits_width(code, 24));
+    CHECK(code.find("inline") != std::string::npos);
+    CHECK(code.find("wrapped") != std::string::npos);
+}
+
+TEST_CASE("markdown renders headings and can skip the title")
+{
+    CHECK_EQ(md_text("# Title\n\nbody\n\n## Section\ntext", 40), "Title\nbody\n\nSection\ntext\n");
+    CHECK_EQ(md_text("# Title\n\nbody\n\n## Section\ntext", 40, false, false, true), "body\n\nSection\ntext\n");
+    CHECK_EQ(md_text("## With `code` and **bold**", 40), "With code and bold\n");
+    auto const lines = md::render("## Sub", {});
+    REQUIRE(lines.size() == 1u);
+    CHECK(lines[0][0].kind == md::Kind::Heading);
+}
+
+TEST_CASE("markdown renders bullet and numbered lists with hanging indents")
+{
+    CHECK_EQ(md_text("- first item that is long enough to wrap around\n- second", 24),
+             "\xe2\x80\xa2 first item that is\n  long enough to wrap\n  around\n\xe2\x80\xa2 second\n");
+    CHECK_EQ(md_text("- first item that is long enough to wrap around\n- second", 24, false, true),
+             "- first item that is\n  long enough to wrap\n  around\n- second\n");
+    CHECK_EQ(md_text("1. one\n2. two that is quite a bit longer\n10. ten", 20), "1. one\n2. two that is quite\n   a bit longer\n10. ten\n");
+    CHECK_EQ(md_text("- outer\n  - inner\n  continued text\n- next", 40, false, true), "- outer\n  - inner continued text\n- next\n");
+    CHECK_EQ(md_text("text\n- item\nmore", 40, false, true), "text\n\n- item more\n");
+    CHECK_EQ(md_text("- item with `code` and **bold**", 40, false, true), "- item with code and bold\n");
+}
+
+TEST_CASE("markdown keeps code blocks verbatim and clips instead of wrapping")
+{
+    std::string const src = "before\n\n```dc\ni32 count = 3;\n\n    indented *star* `tick`\n```\n\nafter";
+    CHECK_EQ(md_text(src, 40), "before\n\n  i32 count = 3;\n\n      indented *star* `tick`\n\nafter\n");
+    auto const clipped = md_text("```\n0123456789012345678901234567890123456789\n```", 20);
+    CHECK_EQ(clipped, "  01234567890123456\xe2\x80\xa6\n");
+    CHECK_EQ(md_text("```\n0123456789012345678901234567890123456789\n```", 20, false, true), "  01234567890123456~\n");
+    CHECK_EQ(md_text("```\n0123456789012345678901234567890123456789\n```", 20, true), "    0123456789012345678901234567890123456789\n");
+    CHECK_EQ(md_text("~~~\ntilde\n~~~\ntext", 40), "  tilde\n\ntext\n");
+    CHECK_EQ(md_text("```dc\nunterminated", 40), "  unterminated\n");
+    CHECK_EQ(md_text("```\ntab\there\n```", 40), "  tab    here\n");
+}
+
+TEST_CASE("markdown renders pipe tables with borders and alignment")
+{
+    std::string const src = "| Name | Count |\n| :--- | ---: |\n| `alpha` | 5 |\n| beta | **120** |\n";
+    CHECK_EQ(md_text(src, 40),
+             "\xe2\x94\x8c\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\xac\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x90\n"
+             "\xe2\x94\x82 Name  \xe2\x94\x82 Count \xe2\x94\x82\n"
+             "\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\xbc\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\xa4\n"
+             "\xe2\x94\x82 alpha \xe2\x94\x82     5 \xe2\x94\x82\n"
+             "\xe2\x94\x82 beta  \xe2\x94\x82   120 \xe2\x94\x82\n"
+             "\xe2\x94\x94\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\xb4\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x98\n");
+    CHECK_EQ(md_text(src, 40, false, true),
+             "+-------+-------+\n"
+             "| Name  | Count |\n"
+             "+-------+-------+\n"
+             "| alpha |     5 |\n"
+             "| beta  |   120 |\n"
+             "+-------+-------+\n");
+    CHECK_EQ(md_text("| a | b |\n|:-:|--|\n| x | longer |", 40, false, true),
+             "+---+--------+\n"
+             "| a | b      |\n"
+             "+---+--------+\n"
+             "| x | longer |\n"
+             "+---+--------+\n");
+    CHECK_EQ(md_text("| a | b |\n|:-:|--|\n| xyz | q |", 40, false, true),
+             "+-----+---+\n"
+             "|  a  | b |\n"
+             "+-----+---+\n"
+             "| xyz | q |\n"
+             "+-----+---+\n");
+}
+
+TEST_CASE("markdown tables handle wide characters escaped pipes and ragged rows")
+{
+    CHECK_EQ(md_text("| k | v |\n|---|---|\n| \xe6\xbc\xa2\xe5\xad\x97 | a |\n| ab | b |", 40, false, true),
+             "+------+---+\n"
+             "| k    | v |\n"
+             "+------+---+\n"
+             "| \xe6\xbc\xa2\xe5\xad\x97 | a |\n"
+             "| ab   | b |\n"
+             "+------+---+\n");
+    CHECK_EQ(md_text("| k | v |\n|---|---|\n| a \\| b | c |", 40, false, true),
+             "+-------+---+\n"
+             "| k     | v |\n"
+             "+-------+---+\n"
+             "| a | b | c |\n"
+             "+-------+---+\n");
+    CHECK_EQ(md_text("| k | v |\n|---|---|\n| only |\n| x | y | extra |", 40, false, true),
+             "+------+---+\n"
+             "| k    | v |\n"
+             "+------+---+\n"
+             "| only |   |\n"
+             "| x    | y |\n"
+             "+------+---+\n");
+    CHECK_EQ(md_text("| not | a table |\nplain text", 40), "| not | a table | plain text\n");
+}
+
+TEST_CASE("markdown falls back to a stacked form when a table is too wide")
+{
+    std::string const src = "| function | result |\n| --- | --- |\n| `square(n)` | `n` times `n` |\n| `is_even(n)` | true when divisible by two |\n";
+    CHECK_EQ(md_text(src, 30),
+             "function: square(n)\nresult: n times n\n\nfunction: is_even(n)\nresult: true when divisible by\n  two\n");
+    auto const wide = md_text(src, 60, false, true);
+    CHECK(wide.starts_with("+"));
+    CHECK(fits_width(wide, 60));
+    auto const tiny = md_text(src, 12);
+    CHECK(fits_width(tiny, 12));
+    CHECK(tiny.find("function:") != std::string::npos);
+}
+
+TEST_CASE("markdown plain mode has no box drawing and aligns tables with spaces")
+{
+    std::string const src = "# Title\n\nUse `code` and **bold**.\n\n| Name | Count |\n| :--- | ---: |\n| alpha | 5 |\n| beta | 120 |\n\n- item\n\n```\nraw\n```\n";
+    auto const out = md_text(src, 40, true);
+    CHECK_EQ(out,
+             "# Title\n\nUse `code` and bold.\n\n"
+             "Name   Count\n"
+             "-----  -----\n"
+             "alpha      5\n"
+             "beta     120\n\n"
+             "- item\n\n"
+             "    raw\n");
+    for (char c : out)
+        CHECK(static_cast<unsigned char>(c) < 0x80);
+    CHECK_EQ(md::render_plain("## Sub\ntext"), "## Sub\n\ntext\n");
+    CHECK_EQ(md::render_plain("[a](b)"), "a (b)\n");
+}
+
+TEST_CASE("markdown sanitizes terminal escapes in its input")
+{
+    auto const out = md_text("plain \x1b[31mred\x1b[0m text\n\n```\ncode \x1b[2J here\n```", 40);
+    CHECK(out.find('\x1b') == std::string::npos);
+    CHECK(out.find("plain red text") != std::string::npos);
+}
+
+TEST_CASE("markdown renders every bundled exercise cleanly at 100 and 60 columns")
+{
+    char const* content = std::getenv("DCC_TEST_LEARNDC_CONTENT");
+    REQUIRE(content != nullptr);
+    auto source = catalog::load_directory(content);
+    REQUIRE(source);
+    auto loaded = catalog::Catalog::load(*source);
+    REQUIRE(loaded);
+    CHECK_EQ(loaded->exercises().size(), 23u);
+    for (auto const& ex : loaded->exercises())
+    {
+        std::vector<std::pair<std::string, std::string>> docs = {{"readme", ex.readme}, {"explanation", ex.explanation}};
+        for (std::size_t i = 0; i < ex.hints.size(); ++i)
+            docs.push_back({std::format("hint {}", i + 1), ex.hints[i]});
+        for (auto const& [label, body] : docs)
+            for (int width : {100, 60})
+                for (bool ascii : {false, true})
+                {
+                    md::Options o;
+                    o.width = width;
+                    o.ascii = ascii;
+                    auto const lines = md::render(body, o);
+                    CHECK(!lines.empty());
+                    for (auto const& line : lines)
+                    {
+                        CHECK(md::width_of(line) <= width);
+                        bool in_code = false;
+                        for (auto const& sp : line)
+                            in_code = in_code || sp.kind == md::Kind::CodeBlock;
+                        if (in_code)
+                            continue;
+                        std::string flat;
+                        for (auto const& sp : line)
+                            if (sp.kind != md::Kind::Code)
+                                flat += sp.text;
+                        bool const clean = flat.find('`') == std::string::npos && flat.find("**") == std::string::npos &&
+                                           flat.find("](") == std::string::npos && flat.find("| ---") == std::string::npos &&
+                                           flat.find("|---") == std::string::npos;
+                        if (!clean)
+                            std::println(std::cerr, "      {} {} at {}: raw markup in: {}", ex.id, label, width, flat);
+                        CHECK(clean);
+                    }
+                    auto const plain_out = md::render_plain(body, width);
+                    CHECK(fits_width(plain_out, std::max(width, 120)));
+                    for (char c : plain_out)
+                        CHECK(static_cast<unsigned char>(c) < 0x80);
+                }
+    }
+}
+
+TEST_CASE("tui key recap does not change with the focused pane")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    auto keys_of = [&] {
+        std::vector<std::pair<std::string, std::string>> out;
+        for (auto const& h : m.key_hints())
+            out.push_back({h.key, h.label});
+        return out;
+    };
+    auto const baseline = keys_of();
+    CHECK(baseline.size() >= 7u);
+    press(m, "Tab");
+    CHECK(m.exercise.pane == tm::Pane::Files);
+    CHECK(keys_of() == baseline);
+    press(m, "Tab");
+    CHECK(m.exercise.pane == tm::Pane::Results);
+    CHECK(keys_of() == baseline);
+    m.handle(tm::CheckDone{failing_report("/work/variables")});
+    CHECK(keys_of() == baseline);
+    press(m, "c");
+    auto const running = keys_of();
+    press(m, "Tab");
+    CHECK(keys_of() == running);
+    press(m, "Tab");
+    CHECK(keys_of() == running);
+    CHECK(running.size() == baseline.size());
+    for (std::size_t i = 0; i < baseline.size(); ++i)
+        if (running[i] != baseline[i])
+            CHECK_EQ(running[i].first, "x");
+    auto const recap = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(recap.find("Tab pane") != std::string::npos);
+}
+
+TEST_CASE("tui screens describe state without repeating key instructions")
+{
+    TuiWorld w(false);
+    tm::Model m(*w.ctx, {100, 30});
+    auto audit = [&](std::string const& what) {
+        for (auto const& size : std::vector<std::pair<int, int>>{{100, 30}, {80, 24}, {60, 20}})
+        {
+            m.handle(tm::Resize{size.first, size.second});
+            auto const out = learndc::tui::render_snapshot(m, size.first, size.second);
+            auto const lines = text::split_lines(out);
+            for (std::size_t i = 0; i + 1 < lines.size(); ++i)
+                for (std::string_view banned : {"Press ", "press ", "Tip:", "Type y", "for yes"})
+                    if (lines[i].find(banned) != std::string::npos)
+                    {
+                        std::println(std::cerr, "      {} at {}x{}: '{}' in: {}", what, size.first, size.second, banned, lines[i]);
+                        CHECK(false);
+                    }
+        }
+    };
+    audit("home");
+    press(m, "2");
+    audit("learn");
+    press(m, "/");
+    type_text(m, "zzzz");
+    audit("learn search");
+    press(m, "Esc");
+    press(m, "Esc");
+    press(m, "0");
+    press(m, "2");
+    press(m, "Enter");
+    audit("exercise not started");
+    press(m, "Tab");
+    audit("exercise files not started");
+    press(m, "Tab");
+    audit("exercise results not started");
+    press(m, "Tab");
+    press(m, "Enter");
+    audit("exercise started");
+    press(m, "Tab");
+    press(m, "Tab");
+    audit("exercise results");
+    press(m, "s");
+    audit("solution dialog");
+    press(m, "n");
+    press(m, "R");
+    audit("reset dialog");
+    press(m, "Esc");
+    press(m, "4");
+    audit("progress");
+    press(m, "5");
+    audit("bookmarks");
+    press(m, "6");
+    audit("doctor not run");
+    press(m, "7");
+    audit("settings");
+    TuiWorld fresh(false, [](settings::Settings& s) { s.onboarding_done = false; });
+    tm::Model onboarding(*fresh.ctx, {100, 30});
+    for (int step = 0; step < 3; ++step)
+    {
+        for (auto const& size : std::vector<std::pair<int, int>>{{100, 30}, {60, 20}})
+        {
+            onboarding.handle(tm::Resize{size.first, size.second});
+            auto const lines = text::split_lines(learndc::tui::render_snapshot(onboarding, size.first, size.second));
+            for (std::size_t i = 0; i + 1 < lines.size(); ++i)
+                CHECK(lines[i].find("Enter confirms") == std::string::npos);
+        }
+        press(onboarding, "s");
+    }
+}
+
+TEST_CASE("tui help is the only complete key reference and repeats nothing")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    for (auto const context : {tm::Screen::Home, tm::Screen::Learn, tm::Screen::Exercise, tm::Screen::Progress, tm::Screen::Bookmarks, tm::Screen::Doctor,
+                               tm::Screen::Settings, tm::Screen::Help})
+    {
+        std::set<std::string> seen;
+        for (auto const& section : tm::help_sections(context))
+            for (auto const& line : section.lines)
+                CHECK(seen.insert(line).second);
+    }
+    bool mentions_keys = false;
+    for (auto const& section : tm::help_sections(tm::Screen::Exercise))
+        mentions_keys = mentions_keys || section.title == "A typical session" || section.title == "Safety";
+    CHECK(!mentions_keys);
+}
+
+TEST_CASE("tui watch mode shows a banner with the workspace and live state")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    auto snap_fixed = [&m](std::string const& base, std::vector<std::pair<int, int>> const& sizes) {
+        auto const real = m.exercise.ws->root;
+        m.exercise.ws->root = "/work/learndc/workspaces/fundamentals/variables";
+        snap(m, base, sizes);
+        m.exercise.ws->root = real;
+    };
+    auto const before = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(before.find("WATCH") == std::string::npos);
+    CHECK(m.watch_status().phase == tm::WatchPhase::Off);
+    auto const root = platform::path_to_utf8(m.exercise.ws->root);
+
+    auto fx = press(m, "w");
+    CHECK(has_effect<tm::StartWatch>(fx));
+    auto status = m.watch_status();
+    CHECK(status.phase == tm::WatchPhase::Waiting);
+    CHECK_EQ(status.path, root);
+    snap_fixed("watch-waiting", {{100, 30}, {80, 24}, {60, 20}});
+    m.handle(tm::Resize{100, 30});
+    auto const waiting = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(waiting.find("WATCH ON") != std::string::npos);
+    CHECK(waiting.find("WATCHING") != std::string::npos);
+    CHECK(waiting.find("Waiting for changes") != std::string::npos);
+    CHECK(waiting.find("Watching ") != std::string::npos);
+
+    m.handle(tm::Tick{5000, "10:00:00"});
+    fx = m.handle(tm::FilesChanged{});
+    CHECK(has_effect<tm::StartCheck>(fx));
+    status = m.watch_status();
+    CHECK(status.phase == tm::WatchPhase::Checking);
+    CHECK(status.triggered);
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Change detected, checking") != std::string::npos);
+    snap_fixed("watch-checking", {{100, 30}, {60, 20}});
+
+    fx = m.handle(tm::FilesChanged{});
+    CHECK(fx.empty());
+    CHECK(m.watch_status().phase == tm::WatchPhase::Detected);
+    m.handle(tm::Resize{100, 30});
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("checking again") != std::string::npos);
+
+    fx = m.handle(tm::CheckDone{failing_report(root)});
+    CHECK(has_effect<tm::StartCheck>(fx));
+    CHECK(m.watch_status().phase == tm::WatchPhase::Checking);
+    m.handle(tm::Tick{9000, "10:00:04"});
+    fx = m.handle(tm::CheckDone{failing_report(root)});
+    CHECK(fx.empty());
+    status = m.watch_status();
+    CHECK(status.phase == tm::WatchPhase::Result);
+    CHECK_EQ(status.result, "failed");
+    CHECK(!status.passed);
+    CHECK_EQ(status.clock, "10:00:04");
+    snap_fixed("watch-result", {{100, 30}, {80, 24}, {60, 20}});
+    m.handle(tm::Resize{100, 30});
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Last result: failed at 10:00:04") != std::string::npos);
+
+    press(m, "?");
+    CHECK(m.screen == tm::Screen::Help);
+    CHECK(m.exercise.watching);
+    snap_fixed("watch-help", {{100, 30}, {60, 20}});
+    m.handle(tm::Resize{100, 30});
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("WATCHING") != std::string::npos);
+    press(m, "Esc");
+    CHECK(m.screen == tm::Screen::Exercise);
+
+    fx = press(m, "w");
+    CHECK(has_effect<tm::StopWatch>(fx));
+    CHECK(m.watch_status().phase == tm::WatchPhase::Off);
+    auto const after = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(after.find("WATCH") == std::string::npos);
+    CHECK(after.find("Watching") == std::string::npos);
+    CHECK(after.find("Last result:") == std::string::npos);
+    press(m, "w");
+    CHECK(m.watch_status().phase == tm::WatchPhase::Result);
+    CHECK(m.watch_status().clock.empty());
+    CHECK(m.watch_status().age_ms < 0);
+    press(m, "w");
+    tm::Model twin(*w.ctx, {100, 30});
+    press(twin, "3");
+    twin.handle(tm::CheckDone{failing_report(root)});
+    m.handle(tm::CheckDone{failing_report(root)});
+    CHECK_EQ(learndc::tui::render_snapshot(m, 100, 30), learndc::tui::render_snapshot(twin, 100, 30));
+}
+
+TEST_CASE("tui watch banner disappears when leaving the exercise")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "w");
+    CHECK(m.exercise.watching);
+    auto fx = press(m, "2");
+    CHECK(has_effect<tm::StopWatch>(fx));
+    CHECK(m.watch_status().phase == tm::WatchPhase::Off);
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("WATCH") == std::string::npos);
+}
+
+TEST_CASE("tui exercise complete opens a modal that stays until dismissed")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "h");
+    press(m, "c");
+    runner::CheckReport pass;
+    pass.exercise = "fundamentals/variables";
+    pass.outcome = runner::Outcome::Passed;
+    pass.passed = 3;
+    pass.total = 3;
+    pass.duration_ms = 420;
+    m.handle(tm::CheckDone{pass});
+    REQUIRE(m.dialog.kind == tm::DialogKind::Complete);
+    CHECK_EQ(m.dialog.title, "Exercise complete");
+    REQUIRE(m.dialog.body.size() == 3u);
+    CHECK_EQ(m.dialog.body[0], "Variables and mutation");
+    CHECK_EQ(m.dialog.body[1], "3 of 3 checks passed, 3 attempts, 1 hint used");
+    CHECK_EQ(m.dialog.body[2], "Next: Making decisions with if");
+    CHECK_EQ(m.dialog.labels, (std::vector<std::string>{"Next exercise", "Stay here"}));
+    CHECK(m.toasts.empty());
+    snap(m, "dialog-complete", {{100, 30}, {80, 24}, {60, 20}});
+    m.handle(tm::Resize{100, 30});
+    auto const shown = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(shown.find("Exercise complete") != std::string::npos);
+    CHECK(shown.find("Next exercise") != std::string::npos);
+    CHECK(shown.find("Stay here") != std::string::npos);
+    for (std::int64_t t = 10000; t <= 1000000; t += 200000)
+        m.handle(tm::Tick{t});
+    CHECK(m.dialog.kind == tm::DialogKind::Complete);
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Exercise complete") != std::string::npos);
+    press(m, "Esc");
+    CHECK(!m.dialog.open());
+    CHECK_EQ(m.exercise.ex->id, "fundamentals/variables");
+    CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Exercise complete") == std::string::npos);
+}
+
+TEST_CASE("tui exercise complete next choice opens the next exercise and stay keeps the current one")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "c");
+    runner::CheckReport pass;
+    pass.exercise = "fundamentals/variables";
+    pass.outcome = runner::Outcome::Passed;
+    pass.passed = 3;
+    pass.total = 3;
+    m.handle(tm::CheckDone{pass});
+    REQUIRE(m.dialog.kind == tm::DialogKind::Complete);
+    CHECK_EQ(m.dialog.selected, 0u);
+    press(m, "Down");
+    CHECK_EQ(m.dialog.selected, 1u);
+    press(m, "Enter");
+    CHECK(!m.dialog.open());
+    CHECK_EQ(m.exercise.ex->id, "fundamentals/variables");
+
+    TuiWorld second;
+    tm::Model n(*second.ctx, {100, 30});
+    press(n, "3");
+    press(n, "c");
+    n.handle(tm::CheckDone{pass});
+    REQUIRE(n.dialog.kind == tm::DialogKind::Complete);
+    press(n, "Enter");
+    CHECK(!n.dialog.open());
+    CHECK_EQ(n.exercise.ex->id, "fundamentals/branches");
+    CHECK(n.screen == tm::Screen::Exercise);
+}
+
+TEST_CASE("tui exercise complete appears once per completion including watch passes")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "w");
+    auto const root = platform::path_to_utf8(m.exercise.ws->root);
+    runner::CheckReport pass;
+    pass.exercise = "fundamentals/variables";
+    pass.outcome = runner::Outcome::Passed;
+    pass.passed = 3;
+    pass.total = 3;
+    pass.workspace = root;
+    m.handle(tm::FilesChanged{});
+    CHECK(!m.dialog.open());
+    m.handle(tm::CheckDone{pass});
+    REQUIRE(m.dialog.kind == tm::DialogKind::Complete);
+    CHECK(m.exercise.watching);
+    press(m, "Esc");
+    CHECK(!m.dialog.open());
+    m.handle(tm::FilesChanged{});
+    m.handle(tm::CheckDone{pass});
+    CHECK(!m.dialog.open());
+    CHECK(m.toasts.empty());
+}
+
+TEST_CASE("tui exercise complete waits behind an open dialog and reports a finished course")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "c");
+    press(m, "s");
+    REQUIRE(m.dialog.kind == tm::DialogKind::Solution);
+    runner::CheckReport pass;
+    pass.exercise = "fundamentals/variables";
+    pass.outcome = runner::Outcome::Passed;
+    pass.passed = 3;
+    pass.total = 3;
+    m.handle(tm::CheckDone{pass});
+    CHECK(m.dialog.kind == tm::DialogKind::Solution);
+    press(m, "n");
+    CHECK(m.dialog.kind == tm::DialogKind::Complete);
+
+    TuiWorld done(false);
+    {
+        auto finished = done.ctx->store.update([&](progress::Progress& p) {
+            for (auto const& ex : done.ctx->catalog.exercises())
+                if (ex.id != "fundamentals/variables")
+                    progress::record_check(p, ex.id, 3, 3, 1, "2026-01-01T00:00:00Z");
+        });
+        REQUIRE(finished.has_value());
+    }
+    tm::Model last(*done.ctx, {100, 30});
+    last.handle(tm::Resize{100, 30});
+    last.open_exercise("fundamentals/variables");
+    press(last, "Enter");
+    press(last, "c");
+    last.handle(tm::CheckDone{pass});
+    REQUIRE(last.dialog.kind == tm::DialogKind::Complete);
+    CHECK_EQ(last.dialog.body.back(), "All exercises complete");
+    CHECK_EQ(last.dialog.labels.size(), 2u);
+    CHECK_EQ(last.dialog.labels[1], "Stay here");
+    snap(last, "dialog-complete-all", {{100, 30}});
+}
+
+TEST_CASE("tui confirmation dialogs show their own choices once")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    press(m, "s");
+    CHECK(m.key_hints().empty());
+    auto const out = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(out.find("[y] Show solution") != std::string::npos);
+    CHECK(out.find("[n] Cancel") != std::string::npos);
+    CHECK(out.find("Press y") == std::string::npos);
+    auto const lines = text::split_lines(out);
+    CHECK(lines.back().find("y") == std::string::npos);
+    press(m, "n");
+    press(m, "c");
+    press(m, "q");
+    REQUIRE(m.dialog.kind == tm::DialogKind::QuitRunning);
+    CHECK(m.key_hints().empty());
+    auto const quit = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(quit.find("[y] Quit") != std::string::npos);
+    CHECK(quit.find("[n] Stay") != std::string::npos);
+}
+
+TEST_CASE("tui doctor terminal item follows the live size and layout")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "6");
+    doctor::DoctorReport rep;
+    rep.items.push_back({"terminal.size", "terminal size", doctor::Status::Ok, "100x30", ""});
+    rep.items.push_back({"dcc", "dcc", doctor::Status::Ok, "found", ""});
+    m.handle(tm::DoctorDone{rep});
+    auto item_of = [&]() -> doctor::Item {
+        auto const view = m.doctor_view();
+        auto const* item = view.find("terminal.size");
+        CHECK(item != nullptr);
+        return item ? *item : doctor::Item{};
+    };
+    CHECK_EQ(item_of().detail, "100x30, wide layout");
+    CHECK(item_of().status == doctor::Status::Ok);
+    auto out = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(out.find("100x30, wide layout") != std::string::npos);
+
+    m.handle(tm::Resize{60, 20});
+    CHECK_EQ(item_of().detail, "60x20, compact layout");
+    CHECK(item_of().status == doctor::Status::Warn);
+    CHECK(!item_of().fix.empty());
+    out = learndc::tui::render_snapshot(m, 60, 20);
+    CHECK(out.find("60x20, compact layout") != std::string::npos);
+    CHECK(out.find("100x30") == std::string::npos);
+    CHECK(out.find("1 warning") != std::string::npos);
+
+    m.handle(tm::Resize{80, 24});
+    CHECK_EQ(item_of().detail, "80x24, normal layout");
+    CHECK(item_of().status == doctor::Status::Ok);
+    out = learndc::tui::render_snapshot(m, 80, 24);
+    CHECK(out.find("80x24, normal layout") != std::string::npos);
+    CHECK(out.find("0 warnings") != std::string::npos);
+    CHECK(out.find("compact") == std::string::npos);
+
+    m.handle(tm::Resize{100, 30});
+    CHECK_EQ(item_of().detail, "100x30, wide layout");
+    CHECK(m.doctor_report->find("terminal.size")->detail == "100x30");
+}
+
+TEST_CASE("tui no color theme still distinguishes inline code")
+{
+    auto scroll_to_list = [](tm::Model& m) {
+        for (int sc = 0; sc < 60; ++sc)
+        {
+            m.exercise.scroll_instructions = sc;
+            if (learndc::tui::render_snapshot(m, 100, 30).find("Declare price and tax") != std::string::npos)
+                return true;
+        }
+        return false;
+    };
+    auto code_window = [](std::string const& out) {
+        for (auto at = out.find("Declare "); at != std::string::npos; at = out.find("Declare ", at + 1))
+        {
+            auto const code_at = out.find("price", at);
+            if (code_at != std::string::npos && code_at - at < 40)
+                return out.substr(at, code_at - at);
+        }
+        return std::string();
+    };
+    TuiWorld w(true, [](settings::Settings& s) { s.ui_theme = "no-color"; });
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "3");
+    REQUIRE(scroll_to_list(m));
+    auto const out = learndc::tui::render_snapshot(m, 100, 30, true);
+    CHECK(out.find("\x1b[38") == std::string::npos);
+    auto const window = code_window(out);
+    CHECK(!window.empty());
+    CHECK(window.find("\x1b[7m") != std::string::npos);
+    TuiWorld colored(true, [](settings::Settings& s) { s.ui_theme = "dark"; });
+    tm::Model c(*colored.ctx, {100, 30});
+    press(c, "3");
+    REQUIRE(scroll_to_list(c));
+    auto const dark_window = code_window(learndc::tui::render_snapshot(c, 100, 30, true));
+    CHECK(!dark_window.empty());
+    CHECK(dark_window.find("\x1b[38;2;125;211;252m") != std::string::npos);
+    CHECK(dark_window.find("\x1b[7m") == std::string::npos);
+}
+
+TEST_CASE("tui renders every bundled exercise within the terminal at 100 and 60 columns")
+{
+    char const* content = std::getenv("DCC_TEST_LEARNDC_CONTENT");
+    REQUIRE(content != nullptr);
+    TempDir temp;
+    auto const home = temp.path / "home";
+    std::filesystem::create_directories(home);
+    settings::Settings st;
+    st.onboarding_done = true;
+    st.ui_open_continue = false;
+    REQUIRE(settings::save(home / "config.json", st).has_value());
+    learndc::app::OpenOptions oo;
+    oo.home = home;
+    oo.content_dir = std::filesystem::path(content);
+    oo.env = platform::Env{{"PATH", platform::path_to_utf8(temp.path / "nowhere")}, {"LANG", "C.UTF-8"}};
+    oo.self_exe = std::nullopt;
+    auto opened = learndc::app::open(oo);
+    REQUIRE(opened.has_value());
+    learndc::app::Context ctx(std::move(*opened));
+    tm::Model m(ctx, {100, 30});
+    std::vector<std::string> ids;
+    for (auto const& ex : ctx.catalog.exercises())
+        ids.push_back(ex.id);
+    CHECK_EQ(ids.size(), 23u);
+    for (auto const& id : ids)
+    {
+        m.open_exercise(id);
+        REQUIRE(m.exercise.ex != nullptr);
+        m.exercise.hints_shown = 3;
+        for (auto const& size : std::vector<std::pair<int, int>>{{100, 30}, {60, 20}})
+        {
+            m.handle(tm::Resize{size.first, size.second});
+            for (int scroll : {0, 1 << 20})
+            {
+                m.exercise.scroll_instructions = scroll;
+                auto const out = learndc::tui::render_snapshot(m, size.first, size.second);
+                CHECK_EQ(static_cast<int>(text::split_lines(out).size()), size.second);
+                CHECK(fits_width(out, size.first));
+                CHECK(out.find("**") == std::string::npos);
+            }
+        }
+    }
 }
 
 int main(int argc, char** argv)

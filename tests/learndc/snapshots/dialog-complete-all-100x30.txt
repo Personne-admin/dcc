@@ -1,0 +1,30 @@
+ Learn DC · Variables and mutation                                    6 of 6 completed ████████████
+
+
+
+
+
+
+
+
+
+                   ╭─ Exercise complete ────────────────────────────────────────╮
+                   │ Variables and mutation                                     │
+                   │ 3 of 3 checks passed, 1 attempt, no hints used             │
+                   │ All exercises complete                                     │
+                   │                                                            │
+                   │ › Review your progress                                     │
+                   │   Stay here                                                │
+                   ╰────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+ Created your files
+ Up Down choose  Enter select  Esc stay

@@ -15,6 +15,6 @@
 │ Recent                                                   │
 │   ✓ Your first DC program      beginner     completed    │
 │                                                          │
-│ Tip: 2 browses every exercise and ? lists every key.     │
+│                                                          │
 ╰──────────────────────────────────────────────────────────╯
  Enter open  Up Down move  n next  2 learn  ? help  q quit

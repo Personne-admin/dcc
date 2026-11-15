@@ -12,10 +12,10 @@
                    ╭─ Reset to the starter files? ──────────────────────────────╮
                    │ Your current files are copied to a backup first, then      │
                    │ replaced by the starter files.                             │
-                   │ Type y and press Enter to reset.                           │
                    │                                                            │
                    │ Confirm: y_                                                │
                    ╰────────────────────────────────────────────────────────────╯
+
 
 
 
