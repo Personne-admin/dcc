@@ -6,14 +6,8 @@ public Status(Error) main() {
     []const char text = "the quick brown fox";
     println("text: {}", text)?;
     println("spaces: {}", words::count_char(text, ' '))?;
-
-    Optional(usize) found = words::find_char(text, 'q');
-    if found.is_some() {
-        println("first q at: {}", found.unwrap_some())?;
-    } else {
-        println("no q")?;
-    }
-
+    println("has q: {}", words::has_char(text, 'q'))?;
+    println("has z: {}", words::has_char(text, 'z'))?;
     println("first word: {}", words::first_word(text))?;
     return Status::Ok;
 }

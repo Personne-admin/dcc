@@ -1,0 +1,26 @@
+module digit_checks;
+
+import counting;
+using counting::*;
+
+bool expect(i32 n, i32 want) {
+    i32 got = count_digits(n);
+    if got == want {
+        println("ok    count_digits({})", n);
+        return true;
+    }
+    println("FAIL  count_digits({}): expected {}, got {}", n, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect(0, 1) { failures += 1; }
+    if !expect(5, 1) { failures += 1; }
+    if !expect(9, 1) { failures += 1; }
+    if !expect(10, 2) { failures += 1; }
+    if !expect(99, 2) { failures += 1; }
+    if !expect(100, 3) { failures += 1; }
+    if !expect(2147483647, 10) { failures += 1; }
+    return failures;
+}

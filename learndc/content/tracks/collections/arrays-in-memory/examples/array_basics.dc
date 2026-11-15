@@ -1,0 +1,13 @@
+module main;
+
+const usize DAYS = 4;
+
+public Status(Error) main() {
+    i32[DAYS] temps = { 12, 15, 9, 14 };
+    println("first: {}", temps[0])?;
+    temps[2] = 11;
+    for i in 0..DAYS {
+        println("day {}: {}", i, temps[i])?;
+    }
+    return Status::Ok;
+}

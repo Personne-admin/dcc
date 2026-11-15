@@ -1,0 +1,17 @@
+module stack;
+
+public using usize CAPACITY = 8;
+
+public struct Stack(T) {
+    T[CAPACITY] items;
+    usize len;
+}
+
+public bool push(T)(Stack(T)* self, T value) {
+    if self.len == CAPACITY {
+        return false;
+    }
+    self.items[self.len] = value;
+    self.len += 1;
+    return true;
+}

@@ -1,0 +1,40 @@
+module main;
+
+import config;
+
+Status(Error) describe(config::Problem problem) {
+    match problem {
+        config::Problem::NoEquals => println("no = in the line")?,
+        config::Problem::UnknownKey => println("unknown key")?,
+        config::Problem::BadPort(why) => match why {
+            config::NumberError::Empty => println("port is empty")?,
+            config::NumberError::NotADigit => println("port has a character that is not a digit")?,
+            config::NumberError::TooLarge => println("port is too large")?,
+        },
+        config::Problem::BadFlag => println("verbose must be true or false")?,
+    }
+    return Status::Ok;
+}
+
+Status(Error) report([]const char text) {
+    match config::load(text) {
+        Result::Ok(settings) => {
+            println("loaded {}", settings.name)?;
+            println("  port: {}", settings.port)?;
+            println("  verbose: {}", settings.verbose)?;
+        },
+        Result::Err(failure) => {
+            print("line {}: ", failure.line)?;
+            describe(failure.problem)?;
+        },
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    report("name = tiny-server\n  port=8080 \nverbose = true\n")?;
+    report("name = demo\nport = 99999\n")?;
+    report("name = demo\nverbose = maybe\n")?;
+    report("port = 22\ncolor = red\n")?;
+    return Status::Ok;
+}

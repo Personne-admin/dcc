@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "text_tools",
+    version = "0.1.0",
+    products = {
+        { name = "text_tools", entry = "src/main.dc" },
+    },
+}

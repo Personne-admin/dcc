@@ -1,0 +1,31 @@
+module turning;
+
+import courier;
+using courier::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(turn_left(Facing::North) == Facing::West, "left of North is West", &failures);
+    expect(turn_left(Facing::West) == Facing::South, "left of West is South", &failures);
+    expect(turn_left(Facing::South) == Facing::East, "left of South is East", &failures);
+    expect(turn_left(Facing::East) == Facing::North, "left of East is North", &failures);
+    expect(turn_right(Facing::North) == Facing::East, "right of North is East", &failures);
+    expect(turn_right(Facing::East) == Facing::South, "right of East is South", &failures);
+    expect(turn_right(Facing::South) == Facing::West, "right of South is West", &failures);
+    expect(turn_right(Facing::West) == Facing::North, "right of West is North", &failures);
+    Facing around = Facing::South;
+    for i32 i in 0..4 {
+        around = turn_right(around);
+    }
+    expect(around == Facing::South, "four right turns come back", &failures);
+    return failures;
+}

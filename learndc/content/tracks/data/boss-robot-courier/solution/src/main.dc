@@ -1,0 +1,35 @@
+module main;
+
+import courier;
+using courier::*;
+
+public Status(Error) main() {
+    Grid grid = Grid { width = 5, height = 4 };
+    []const Command program = {
+        Command::Forward(2),
+        Command::Right,
+        Command::Forward(9),
+        Command::Left,
+        Command::Forward(5),
+        Command::Left,
+        Command::Forward(4),
+        Command::Left,
+        Command::Forward(3),
+    };
+    Robot robot = Robot { x = 0, y = 0, facing = Facing::North };
+    i32 bumps = 0;
+
+    println("route on a {} x {} grid", grid.width, grid.height)?;
+
+    i32 number = 0;
+    for command in program {
+        robot = apply_in_grid(robot, grid, command, &bumps);
+        number += 1;
+        print("step {}: ({}, {}) facing ", number, robot.x, robot.y)?;
+        print_facing(robot.facing)?;
+        println("")?;
+    }
+
+    println("finished at ({}, {}) after {} commands with {} bumps", robot.x, robot.y, number, bumps)?;
+    return Status::Ok;
+}

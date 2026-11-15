@@ -1,0 +1,43 @@
+module main;
+
+import std::sort;
+import stack;
+import toolkit;
+using stack::Stack;
+
+public Status(Error) main() {
+    i32[6] temperatures = { 12, -4, 31, 25, 8, 22 };
+    f64[4] prices = { 2.5, 9.5, 0.75, 6.0 };
+
+    println("temperatures: max {}, min {}", toolkit::max_of(temperatures), toolkit::min_of(temperatures))?;
+    println("prices: max {:.2}, min {:.2}", toolkit::max_of(prices), toolkit::min_of(prices))?;
+    println("above 20: {}", toolkit::count_above(temperatures, 20))?;
+    println("above 5.00: {}", toolkit::count_above(prices, 5.0))?;
+    println("between 10 and 25: {}", toolkit::count_between(temperatures, 10, 25))?;
+
+    Stack(i32) pile = {};
+    for i32 t in temperatures {
+        pile.push(t);
+    }
+    print("reversed:")?;
+    while pile.size() > 0 {
+        print(" {}", pile.pop().unwrap_some())?;
+    }
+    println("")?;
+
+    []i32 ordered = temperatures;
+    std::sort::sort(ordered);
+    print("sorted:")?;
+    for i32 t in ordered {
+        print(" {}", t)?;
+    }
+    println("")?;
+    Optional(usize) hit = toolkit::find_sorted(ordered, 25);
+    if hit.is_some() {
+        println("25 found at {}", hit.unwrap_some())?;
+    }
+    if toolkit::find_sorted(ordered, 30).is_none() {
+        println("30 not found")?;
+    }
+    return Status::Ok;
+}

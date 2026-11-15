@@ -1,0 +1,13 @@
+module counting;
+
+public i32 count_digits(i32 n) {
+    return 0;
+}
+
+public i32 years_to_double(i32 start, i32 percent) {
+    return 0;
+}
+
+public i32 first_multiple_above(i32 step, i32 limit) {
+    return 0;
+}

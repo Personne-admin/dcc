@@ -10,11 +10,11 @@ public i32 triple(i32 n) {
 ```
 
 `return` hands a value back to the caller, which must match the return type.
-`public` makes the function visible to other modules. A module such as
-`numbers` is used from another file with `import numbers;`, and
-`using numbers::*;` lets you call its public functions without the prefix.
-A function can call any other function, including one declared earlier in the
-same module.
+`public` makes the function visible to other files. `main.dc` uses
+`numbers.dc` through the scaffolding lines `import numbers;` and
+`using numbers::*;`; the Modules chapter explains how they work, so leave
+them as they are. A function can call any other function, including one
+declared earlier in the same module.
 
 Useful operators for this exercise: `*` multiplies, `/` divides integers
 (dropping the fraction), `+` adds and `%` gives the remainder of a division.

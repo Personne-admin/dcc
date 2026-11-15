@@ -1,0 +1,23 @@
+module board;
+
+import std::slice;
+import std::sort;
+
+public usize leader([]const i32 scores) {
+    return 0;
+}
+
+public usize times([]const i32 scores, i32 score) {
+    return 0;
+}
+
+public void rank_desc([]i32 scores) {
+}
+
+public i32 median([]i32 scores) {
+    return 0;
+}
+
+public Optional(usize) find_score([]const i32 sorted, i32 score) {
+    return Optional::None;
+}

@@ -1,0 +1,42 @@
+schema = 1
+id = "first-steps/placeholders"
+revision = 1
+title = "Placeholders, text and numbers"
+summary = "Build a cafe order from several {} placeholders and learn when to use print instead of println."
+kind = "complete-program"
+chapter = "first-steps"
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["placeholder", "println", "print", "string", "number"]
+tags = ["output", "strings"]
+objectives = [
+    "Fill several {} placeholders in one call, in order",
+    "Mix text and numbers as arguments",
+    "Build one line from two calls with print and println",
+]
+entry_file = "src/main.dc"
+product = "placeholders"
+prerequisites = ["first-steps/first-error"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the cafe order"
+expect_stdout = """
+Cafe order
+Guest: Ada, table 7
+Items: 2 x tea, 1 x cake
+Total: 9 coins
+Enjoy your meal, Ada!
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Compare your output with the expected lines character by character: spaces, commas and the exclamation mark all count."

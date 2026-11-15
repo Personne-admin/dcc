@@ -1,0 +1,12 @@
+module main;
+
+import std::slice;
+
+public Status(Error) main() {
+    []const char a = "dc";
+    []const char b = "dc";
+    if std::slice::eq(a, b) {
+        println("same text")?;
+    }
+    return Status::Ok;
+}

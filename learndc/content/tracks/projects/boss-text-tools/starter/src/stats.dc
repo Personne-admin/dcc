@@ -1,0 +1,31 @@
+module stats;
+
+import std::map;
+
+using Lengths = std::map::Map(usize, u32);
+
+public struct LengthStats {
+    usize used;
+    usize common;
+    u32 common_count;
+}
+
+public usize longest(const Array([]const char)* words) {
+    return 0;
+}
+
+public usize total_letters(const Array([]const char)* words) {
+    return 0;
+}
+
+public []const char longest_word(const Array([]const char)* words) {
+    return "";
+}
+
+public u32 add_one(u32 n) {
+    return n + 1;
+}
+
+public Result(LengthStats, Error) length_stats(const Array([]const char)* words) {
+    return Result::Ok(LengthStats { used = 0, common = 0, common_count = 0 });
+}

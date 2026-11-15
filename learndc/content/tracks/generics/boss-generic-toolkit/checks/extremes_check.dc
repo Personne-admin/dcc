@@ -1,0 +1,35 @@
+module extremes_check;
+
+import toolkit;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    i32[5] negatives = { -5, -2, -9, -2, -7 };
+    expect(toolkit::max_of(negatives) == -2, "max_of of negative numbers", &failures);
+    expect(toolkit::min_of(negatives) == -9, "min_of of negative numbers", &failures);
+
+    i32[1] single = { 4 };
+    expect(toolkit::max_of(single) == 4 && toolkit::min_of(single) == 4, "one element is both extremes", &failures);
+
+    f64[4] prices = { 2.5, 9.5, 0.75, 6.0 };
+    expect(toolkit::max_of(prices) == 9.5, "max_of works for f64", &failures);
+    expect(toolkit::min_of(prices) == 0.75, "min_of works for f64", &failures);
+
+    u8[4] bytes = { 200, 7, 255, 0 };
+    expect(toolkit::max_of(bytes) == 255 && toolkit::min_of(bytes) == 0, "max_of and min_of work for u8", &failures);
+
+    []const char word = "generic";
+    expect(toolkit::max_of(word) == 'r', "max_of works for char", &failures);
+    expect(toolkit::min_of(word) == 'c', "min_of works for char", &failures);
+    return failures;
+}

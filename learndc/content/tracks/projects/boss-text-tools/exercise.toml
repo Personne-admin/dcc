@@ -1,0 +1,227 @@
+schema = 1
+id = "projects/boss-text-tools"
+revision = 1
+title = "The Newsroom Toolkit"
+summary = "Build a four-module text toolkit: split a text into words, measure them, count word lengths in a Map and print a report, with private helpers kept private."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 60
+concepts = ["modules", "public", "private", "import", "Array", "Map", "slices", "Result", "defer"]
+tags = ["boss", "modules", "projects", "text"]
+objectives = [
+    "Keep helper functions private so each module shows only its real surface",
+    "Split text into an Array of word slices and measure it from another module",
+    "Count word lengths in a Map and report the result from a report module",
+]
+entry_file = "src/main.dc"
+product = "text_tools"
+prerequisites = ["projects/projects-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 4
+story = """
+The newsroom's editor wants a toolkit that reads an article and answers three
+questions before the print deadline: how many words, how long are they and
+which length shows up most. The interns started it, left every helper public
+and went home. Tidy the modules, finish the tools and wire them into one
+report.
+"""
+
+[[stages]]
+id = "old-split"
+title = "Read the interns' split"
+summary = "Find the line that makes the interns' split produce empty words."
+questions = ["old-split"]
+hints = [
+    "Run the program in your head on the text `to be,  or not`: two separators in a row sit between `be` and `or`.",
+    "The line inside the loop pushes a slice at every separator, whether or not a word was in progress.",
+]
+
+[[stages]]
+id = "seal"
+title = "Seal the helpers"
+summary = "Only split, the stats functions and print_summary belong to the public surface; is_separator and add_one must become private."
+hints = [
+    "A declaration without the word `public` is private. Two helpers have it and should not.",
+    "Remove `public` from `is_separator` in words.dc and from `add_one` in stats.dc. The checker defines its own functions with those names; a leaked helper makes them ambiguous.",
+]
+
+[[stages]]
+id = "split"
+title = "Split into words"
+summary = "words::split pushes one slice of the text for every word onto the caller's array."
+hints = [
+    "Walk the text with an index. Remember where the current word began (start) and whether you are inside one (in_word).",
+    "At a separator, if in_word, push text[start..i] and leave the word. At a non-separator that starts a word, set start = i. After the loop, push the last word if you are still inside one.",
+]
+
+[[stages]]
+id = "measure"
+title = "Measure the words"
+summary = "stats::longest and stats::total_letters read the array through a const pointer."
+hints = [
+    "A word is a slice, so word.len is its length. `for word in words.items()` visits every word.",
+    "Keep a running best for longest and a running sum for total_letters, both starting at 0.",
+]
+
+[[stages]]
+id = "lengths"
+title = "Count the lengths in a Map"
+summary = "stats::length_stats counts how many words have each length in a Map, then reports how many lengths occur, the most common one and its count."
+hints = [
+    "Make a Lengths map (the alias is in stats.dc) with defer lengths.deinit(). For each word, read the count with lengths.get(word.len).some_or(0) and store add_one(count) with put, using ?.",
+    "used is lengths.len(). To find the most common length, try every length from 1 to longest(words) and keep the one with the biggest count. Looking from small to large and replacing only on a strictly bigger count makes the smallest length win a tie. Return Result::Ok(stats).",
+]
+
+[[stages]]
+id = "report"
+title = "The morning report"
+summary = "report::print_summary prints five lines and main owns the array, splits the built-in text and prints the report."
+hints = [
+    "main creates the Array with {} and writes defer found.deinit() on the next line, then calls words::split(&found, text)? and report::print_summary(&found)?.",
+    "print_summary prints words (words.len()), letters, longest, then calls stats::length_stats(words)? to print lengths used and the most common length with its count.",
+]
+
+[[stages]]
+id = "longest-word"
+title = "Bonus: the longest word"
+summary = "stats::longest_word returns the first word with the greatest length, or empty text for no words."
+optional = true
+hints = ["Keep a []const char best that starts as an empty string and replace it when a word is strictly longer."]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "is_separator and add_one are private"
+stage = "seal"
+harness = "checks/sealed.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Remove `public` from is_separator in words.dc and from add_one in stats.dc."
+
+[[checks]]
+kind = "harness"
+name = "split finds every word"
+stage = "split"
+harness = "checks/split_words.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Empty text and text of only separators have 0 words; the last word may have no separator after it."
+
+[[checks]]
+kind = "harness"
+name = "longest and total_letters"
+stage = "measure"
+harness = "checks/measure.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "length_stats counts lengths with a Map"
+stage = "lengths"
+harness = "checks/lengths.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "No words: all three fields are 0. Ties may pick either tied length, but common_count must be the tied count."
+
+[[checks]]
+kind = "run"
+name = "The morning report"
+stage = "report"
+expect_stdout = """
+words: 16
+letters: 60
+longest: 5
+lengths used: 3
+most common length: 3 (8 words)
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The text has 16 words and 60 letters; the length 3 appears in 8 of them."
+
+[[checks]]
+kind = "harness"
+name = "longest_word finds the first longest"
+stage = "longest-word"
+harness = "checks/longest_word.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[questions]]
+id = "old-split"
+type = "bug"
+prompt = "The interns' `split` returns 6 words for `to be,  or not`, which has 4. Which line is the bug?"
+code = """
+module main;
+
+bool is_separator(char c) {
+    return c == ' ' || c == ',';
+}
+
+Status(Error) split(Array([]const char)* out, []const char text) {
+    usize start = 0;
+    for usize i = 0; i < text.len; i++ {
+        if is_separator(text[i]) {
+            out.push(text[start..i])?;
+            start = i + 1;
+        }
+    }
+    out.push(text[start..text.len])?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Array([]const char) found = {};
+    defer found.deinit();
+    split(&found, "to be,  or not")?;
+    println("{} words", found.len())?;
+    return Status::Ok;
+}
+"""
+lines = [12]
+fixed = """
+module main;
+
+bool is_separator(char c) {
+    return c == ' ' || c == ',';
+}
+
+Status(Error) split(Array([]const char)* out, []const char text) {
+    usize start = 0;
+    bool in_word = false;
+    for usize i = 0; i < text.len; i++ {
+        if is_separator(text[i]) {
+            if in_word {
+                out.push(text[start..i])?;
+                in_word = false;
+            }
+        } else if !in_word {
+            start = i;
+            in_word = true;
+        }
+    }
+    if in_word {
+        out.push(text[start..text.len])?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Array([]const char) found = {};
+    defer found.deinit();
+    split(&found, "to be,  or not")?;
+    println("{} words", found.len())?;
+    return Status::Ok;
+}
+"""
+expect = "4 words\n"
+explanation = "Line 12 pushes a word at every separator, so two separators in a row push an empty slice between them (and a trailing separator pushes one too). A word ends at a separator only when you were inside a word, which is what a bool like `in_word` records."

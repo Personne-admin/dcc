@@ -1,0 +1,23 @@
+module shipping_cost;
+
+import shipping;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(shipping::shipping_cost(250, false) == 350, "250 g standard costs 350", &failures);
+    expect(shipping::shipping_cost(500, false) == 350, "500 g is still class 1", &failures);
+    expect(shipping::shipping_cost(501, false) == 500, "501 g is class 2", &failures);
+    expect(shipping::shipping_cost(2000, true) == 750, "2000 g express costs 750", &failures);
+    expect(shipping::shipping_cost(10000, false) == 650, "10000 g standard costs 650", &failures);
+    expect(shipping::shipping_cost(10001, true) == 1200, "10001 g express costs 1200", &failures);
+    return failures;
+}

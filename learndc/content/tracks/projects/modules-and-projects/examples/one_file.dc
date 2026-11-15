@@ -1,0 +1,18 @@
+module main;
+
+i32 average(i32 a, i32 b, i32 c) {
+    return (a + b + c) / 3;
+}
+
+[]const char verdict(i32 mark) {
+    if mark >= 50 {
+        return "pass";
+    }
+    return "fail";
+}
+
+public Status(Error) main() {
+    i32 mark = average(40, 55, 70);
+    println("average {}: {}", mark, verdict(mark))?;
+    return Status::Ok;
+}

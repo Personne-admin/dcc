@@ -1,0 +1,21 @@
+module main;
+
+public Status(Error) main() {
+    i32 first = 7;
+    i32 second = 8;
+    i32 third = 8;
+    i32 total = 0;
+    i32 whole_average = 0;
+    f64 average = 0.0;
+
+    f64 price = 2.5;
+    i32 cups = 3;
+    f64 cost = 0.0;
+
+    println("Scores: {}, {}, {}", first, second, third)?;
+    println("Total: {}", total)?;
+    println("Integer average: {}", whole_average)?;
+    println("Average: {:.2}", average)?;
+    println("Tea costs {:.2}, {} cups cost {:.2}", price, cups, cost)?;
+    return Status::Ok;
+}

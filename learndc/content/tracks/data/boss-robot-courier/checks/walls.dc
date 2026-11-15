@@ -1,0 +1,60 @@
+module walls;
+
+import courier;
+using courier::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Grid grid = Grid { width = 5, height = 4 };
+    expect(inside(grid, 0, 0) && inside(grid, 4, 3), "the corners are inside", &failures);
+    expect(!inside(grid, 5, 0) && !inside(grid, 0, 4), "x = width and y = height are outside", &failures);
+    expect(!inside(grid, -1, 0) && !inside(grid, 0, -1), "negative cells are outside", &failures);
+
+    i32 bumps = 0;
+    Robot east = Robot { x = 0, y = 0, facing = Facing::East };
+    Robot r = apply_in_grid(east, grid, Command::Forward(4), &bumps);
+    expect(r.x == 4 && bumps == 0, "reaching the last cell is no bump", &failures);
+    r = apply_in_grid(east, grid, Command::Forward(9), &bumps);
+    expect(r.x == 4 && r.y == 0 && bumps == 1, "Forward(9) stops at the wall and bumps once", &failures);
+    r = apply_in_grid(r, grid, Command::Forward(1), &bumps);
+    expect(r.x == 4 && bumps == 2, "pushing against the wall bumps again", &failures);
+    r = apply_in_grid(r, grid, Command::Forward(0), &bumps);
+    expect(bumps == 2, "Forward(0) never bumps", &failures);
+
+    i32 other = 0;
+    Robot west = Robot { x = 1, y = 3, facing = Facing::West };
+    Robot w = apply_in_grid(west, grid, Command::Forward(5), &other);
+    expect(w.x == 0 && w.y == 3 && other == 1, "the west wall stops the robot", &failures);
+    Robot turned = apply_in_grid(w, grid, Command::Left, &other);
+    expect(turned.facing == Facing::South && turned.x == 0 && other == 1, "turning in a grid works and does not bump", &failures);
+    Robot south = apply_in_grid(turned, grid, Command::Forward(7), &other);
+    expect(south.y == 0 && other == 2, "the south wall stops the robot", &failures);
+
+    []const Command route = {
+        Command::Forward(2),
+        Command::Right,
+        Command::Forward(9),
+        Command::Left,
+        Command::Forward(5),
+        Command::Left,
+        Command::Forward(4),
+        Command::Left,
+        Command::Forward(3),
+    };
+    i32 total = 0;
+    Robot start = Robot { x = 0, y = 0, facing = Facing::North };
+    Robot end = run_in_grid(start, grid, route, &total);
+    expect(end.x == 0 && end.y == 0 && end.facing == Facing::South, "run_in_grid follows the whole route", &failures);
+    expect(total == 2, "run_in_grid counts two bumps on the route", &failures);
+    expect(start.x == 0 && start.facing == Facing::North, "the start robot is not changed", &failures);
+    return failures;
+}

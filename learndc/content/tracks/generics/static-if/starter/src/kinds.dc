@@ -1,0 +1,9 @@
+module kinds;
+
+public []const char kind_of(T)() {
+    return "?";
+}
+
+public []const char size_class(T)() {
+    return "?";
+}

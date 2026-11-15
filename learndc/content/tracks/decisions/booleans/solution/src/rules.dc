@@ -1,0 +1,21 @@
+module rules;
+
+public bool can_vote(i32 age) {
+    return age >= 18;
+}
+
+public bool in_range(i32 n, i32 low, i32 high) {
+    return n >= low && n <= high;
+}
+
+public bool is_weekend(i32 day) {
+    return day == 6 || day == 7;
+}
+
+public bool is_working_day(i32 day) {
+    return in_range(day, 1, 7) && !is_weekend(day);
+}
+
+public bool is_leap_year(i32 year) {
+    return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+}

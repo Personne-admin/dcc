@@ -15,7 +15,7 @@ objectives = [
 ]
 entry_file = "src/main.dc"
 product = "receipt"
-prerequisites = ["memory/filling-arrays"]
+prerequisites = ["projects/boss-text-tools"]
 requires = ["dcc", "dpm"]
 min_dcc = "0.6.0"
 platforms = ["linux", "windows"]

@@ -1,0 +1,45 @@
+module board_check;
+
+import board;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    i32[5] a = { -4, -9, -1, -7, -2 };
+    expect(board::leader(a) == 2, "leader finds the largest negative score", &failures);
+    expect(board::times(a, -7) == 1, "times counts one match", &failures);
+    expect(board::times(a, 5) == 0, "times counts zero matches", &failures);
+
+    i32[6] b = { 5, 5, 1, 5, 2, 5 };
+    expect(board::times(b, 5) == 4, "times counts every match", &failures);
+    expect(board::leader(b) == 0, "leader returns the first of equal maxima", &failures);
+
+    i32[5] c = { 30, 10, 50, 20, 40 };
+    board::rank_desc(c);
+    expect(c[0] == 50 && c[1] == 40 && c[2] == 30 && c[3] == 20 && c[4] == 10, "rank_desc orders from high to low", &failures);
+
+    i32[5] d = { 9, 1, 7, 3, 5 };
+    expect(board::median(d) == 5, "median of five scores", &failures);
+    expect(d[0] == 1 && d[4] == 9, "median leaves the scores sorted ascending", &failures);
+
+    i32[1] e = { 8 };
+    expect(board::median(e) == 8, "median of one score", &failures);
+
+    i32[6] f = { 1, 4, 4, 8, 15, 16 };
+    Optional(usize) hit = board::find_score(f, 15);
+    expect(hit.is_some() && hit.unwrap_some() == 4, "find_score locates 15", &failures);
+    Optional(usize) first = board::find_score(f, 1);
+    expect(first.is_some() && first.unwrap_some() == 0, "find_score locates the first element", &failures);
+    expect(board::find_score(f, 5).is_none(), "find_score reports a missing score", &failures);
+    expect(board::find_score(f, 99).is_none(), "find_score reports a score past the end", &failures);
+    return failures;
+}

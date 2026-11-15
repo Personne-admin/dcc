@@ -1,0 +1,68 @@
+module toolkit;
+
+public T max_of(T)([]const T items) {
+    T best = items[0];
+    for T item in items {
+        if item > best {
+            best = item;
+        }
+    }
+    return best;
+}
+
+public T min_of(T)([]const T items) {
+    T best = items[0];
+    for T item in items {
+        if item < best {
+            best = item;
+        }
+    }
+    return best;
+}
+
+public usize count_above(T)([]const T items, T limit) {
+    usize total = 0;
+    for T item in items {
+        if item > limit {
+            total += 1;
+        }
+    }
+    return total;
+}
+
+public usize count_between(T)([]const T items, T low, T high) {
+    usize total = 0;
+    for T item in items {
+        if item >= low && item <= high {
+            total += 1;
+        }
+    }
+    return total;
+}
+
+public Optional(usize) find_sorted(T)([]const T sorted, T key) {
+    usize low = 0;
+    usize high = sorted.len;
+    while low < high {
+        usize mid = low + (high - low) / 2;
+        if sorted[mid] == key {
+            return Optional::Some(mid);
+        }
+        if sorted[mid] < key {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    return Optional::None;
+}
+
+public void clamp_all(T)([]T items, T low, T high) {
+    for usize i in 0..items.len {
+        if items[i] < low {
+            items[i] = low;
+        } else if items[i] > high {
+            items[i] = high;
+        }
+    }
+}

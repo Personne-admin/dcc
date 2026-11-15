@@ -1,0 +1,44 @@
+schema = 1
+id = "collections/fixed-arrays"
+revision = 1
+title = "A week of steps"
+summary = "Declare a fixed array, change one element and loop over all of them to total, pick and print values."
+kind = "complete-program"
+difficulty = "beginner"
+estimated_minutes = 12
+concepts = ["fixed array", "index", "element assignment", "const size", "for", "running total"]
+tags = ["arrays", "loops"]
+objectives = [
+    "Read and change elements of an i32[N] with an index",
+    "Loop over every valid index with a range that ends at the array size",
+    "Keep a running total and the index of the largest element",
+]
+entry_file = "src/main.dc"
+product = "step_counter"
+prerequisites = ["collections/arrays-in-memory"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the days, the total, the last day and the best day"
+expect_stdout = """
+day 1: 4000
+day 2: 7200
+day 3: 3000
+day 4: 8000
+day 5: 5500
+total: 27700
+last day: 5500
+best day: 4
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Day numbers start at 1 but indexes start at 0, so print i + 1. Day 2 lives in steps[1]."

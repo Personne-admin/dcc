@@ -1,0 +1,62 @@
+schema = 1
+id = "decisions/booleans"
+revision = 1
+title = "True and false"
+summary = "Answer yes/no questions with bool functions built from comparisons, &&, || and !."
+kind = "implement-function"
+difficulty = "beginner"
+estimated_minutes = 15
+concepts = ["bool", "comparison", "&&", "||", "!", "precedence"]
+tags = ["decisions", "bool", "logic"]
+objectives = [
+    "Turn a comparison into a bool value and return it",
+    "Combine conditions with &&, || and !",
+    "Use parentheses where || must be evaluated before &&",
+]
+entry_file = "src/main.dc"
+product = "booleans"
+prerequisites = ["functions/functions-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Program prints the answers"
+expect_stdout = """
+age 17 can vote: false
+age 18 can vote: true
+5 in range 1 to 10: true
+11 in range 1 to 10: false
+day 6 is weekend: true
+day 3 is working day: true
+day 9 is working day: false
+2024 is leap: true
+1900 is leap: false
+2000 is leap: true
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Every function in src/rules.dc still returns false."
+
+[[checks]]
+kind = "harness"
+name = "can_vote and in_range"
+harness = "checks/range_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Both ends of the range count: use >= and <=, and join the two comparisons with &&."
+
+[[checks]]
+kind = "harness"
+name = "weekend, working day and leap year"
+harness = "checks/calendar_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Days are numbered 1 (Monday) to 7 (Sunday). A leap year is divisible by 4, except century years, unless they are divisible by 400."

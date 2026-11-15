@@ -1,0 +1,41 @@
+module load;
+
+import std::slice;
+import config;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+void expect_loaded([]const char text, []const char name, u32 port, bool verbose, []const char what, i32* failures) {
+    match config::load(text) {
+        Result::Ok(settings) => {
+            expect(std::slice::eq(settings.name, name) && settings.port == port && settings.verbose == verbose, what, failures);
+        },
+        Result::Err(failure) => expect(false, what, failures),
+    }
+}
+
+void expect_failure([]const char text, usize line, config::Problem want, []const char what, i32* failures) {
+    match config::load(text) {
+        Result::Ok(settings) => expect(false, what, failures),
+        Result::Err(failure) => expect(failure.line == line && failure.problem == want, what, failures),
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect_loaded("name = web\nport = 8080\nverbose = true\n", "web", 8080, true, "a complete file", &failures);
+    expect_loaded("port = 9", "unnamed", 9, false, "no final newline, defaults for the rest", &failures);
+    expect_loaded("", "unnamed", 80, false, "empty text keeps the defaults", &failures);
+    expect_failure("name = a\nport = 70000\n", 2, config::Problem::BadPort(config::NumberError::TooLarge), "bad port on line 2", &failures);
+    expect_failure("oops\nname = a\n", 1, config::Problem::NoEquals, "missing = on line 1", &failures);
+    expect_failure("name = a\nport = 1\ncolor = red", 3, config::Problem::UnknownKey, "unknown key on the last line", &failures);
+    expect_failure("verbose = maybe\nport = x\n", 1, config::Problem::BadFlag, "the first error wins", &failures);
+    return failures;
+}

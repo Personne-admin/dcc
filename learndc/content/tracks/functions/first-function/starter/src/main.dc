@@ -1,0 +1,11 @@
+module main;
+
+import basics;
+using basics::*;
+
+public Status(Error) main() {
+    println("twice(21) = {}", twice(21))?;
+    println("triple(14) = {}", triple(14))?;
+    println("area of 6 x 7 = {}", rectangle_area(6, 7))?;
+    return Status::Ok;
+}

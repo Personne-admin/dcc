@@ -1,0 +1,123 @@
+schema = 1
+id = "values/values-and-types"
+revision = 1
+title = "Values and types"
+summary = "What a value is, why every value has a type, which basic types exist and how big a number each can hold."
+difficulty = "beginner"
+estimated_minutes = 12
+concepts = ["value", "type", "variable", "literal", "i32", "u8", "i64", "f64", "bool", "char", "[]const char"]
+tags = ["lecture", "types"]
+objectives = [
+    "Say what a value, a type and a variable are",
+    "Pick a fitting type for a count, a big number, a decimal, a yes/no, a letter and some text",
+    "Explain why the compiler refuses to put a value of the wrong type into a variable",
+]
+prerequisites = ["first-steps/ticket"]
+
+[[examples]]
+name = "types_tour"
+expect_stdout = """
+age: 12
+level: 255
+distance: 3000000000
+ready: true
+grade: A
+price: 2.500000
+name: Ada
+"""
+
+[[examples]]
+name = "type_sizes"
+expect_stdout = """
+u8 takes 1 byte
+i32 takes 4 bytes
+i64 takes 8 bytes
+f64 takes 8 bytes
+"""
+
+[[examples]]
+name = "same_type"
+expect_stdout = """
+count is 7
+"""
+
+[[questions]]
+id = "pick-a-type"
+type = "choice"
+prompt = "Which type fits the number of people in a room, 300 at most?"
+choices = ["u8", "i32", "bool", "char"]
+answer = 2
+why = [
+    "A `u8` stops at 255, so 300 does not fit.",
+    "",
+    "A `bool` is only `true` or `false`.",
+    "A `char` is one letter or symbol, not a number to count with.",
+]
+explanation = "`i32` holds whole numbers up to more than two billion, which is the usual choice for counts. A `u8` is too small here: its largest value is 255."
+
+[[questions]]
+id = "reject-text"
+type = "error"
+prompt = "This program does not build. What does the compiler object to?"
+code = """
+module main;
+
+public Status(Error) main() {
+    i32 age = "twelve";
+    println("{}", age)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "initializer type mismatch"
+choices = [
+    "`age` is a bad name for a variable",
+    "A value of type `[]const char` cannot go into an `i32`",
+    "`println` cannot print numbers",
+    "Variables must be declared after they are used",
+]
+answer = 2
+why = [
+    "Any sensible name works. The problem is the value, not the name.",
+    "",
+    "`println` prints numbers, text and more.",
+    "A variable is declared before its first use, as here.",
+]
+explanation = "The declared type is `i32`, but `\"twelve\"` is text. The compiler compares the two types before the program runs and refuses a mismatch. The message says what it expected and what it found."
+
+[[questions]]
+id = "bytes-of-i64"
+type = "short"
+prompt = "How many bytes does an `i64` take? Answer with a number."
+accept = ["8", "eight"]
+explanation = "`i64` is a 64-bit integer, and 64 bits are 8 bytes. It can hold numbers far larger than an `i32`."
+
+[[questions]]
+id = "decimal-type"
+type = "choice"
+prompt = "Which type does the literal `3.5` have?"
+choices = ["i32", "f64", "char", "[]const char"]
+answer = 2
+why = [
+    "An `i32` has no decimal point; `3.5` would lose its fraction.",
+    "",
+    "A `char` is a single letter in single quotes.",
+    "Text is written in double quotes.",
+]
+explanation = "A number with a decimal point is a floating-point number, `f64` by default. Whole numbers like `3` are integers."
+
+[[cards]]
+id = "what-is-type"
+front = "What is a type?"
+back = "It says what kind of value a variable holds and how much room it takes. The compiler checks every value against it."
+[[cards]]
+id = "integer-types"
+front = "Which types hold whole numbers, and how big are they?"
+back = "`u8` (0 to 255, 1 byte), `i32` (about plus or minus 2 billion, 4 bytes) and `i64` (very large, 8 bytes)."
+[[cards]]
+id = "other-types"
+front = "Which type holds a decimal number, a yes/no, one letter and text?"
+back = "`f64`, `bool` (`true` or `false`), `char` (like `'A'`) and `[]const char` (like `\"Ada\"`)."
+[[cards]]
+id = "declare-var"
+front = "How do you declare a variable?"
+back = "Type first, then the name, `=` and a value: `i32 count = 3;`"

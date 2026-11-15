@@ -1,0 +1,11 @@
+module main;
+
+import report;
+using report::*;
+
+public Status(Error) main() {
+    print_receipt(3, 2)?;
+    println("---")?;
+    print_receipt(10, 0)?;
+    return Status::Ok;
+}

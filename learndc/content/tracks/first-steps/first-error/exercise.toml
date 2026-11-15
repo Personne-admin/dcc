@@ -1,0 +1,39 @@
+schema = 1
+id = "first-steps/first-error"
+revision = 1
+title = "Reading your first compiler errors"
+summary = "Fix two small mistakes by reading the error and the line the compiler points to."
+kind = "repair-compilation"
+chapter = "first-steps"
+difficulty = "beginner"
+estimated_minutes = 8
+concepts = ["compile error", "error message", "line number", "semicolon", "unknown name"]
+tags = ["errors", "diagnostics"]
+objectives = [
+    "Find the error line and the --> position in a compiler message",
+    "Fix a misspelled name and a missing semicolon",
+    "Fix errors one at a time and build again after each",
+]
+entry_file = "src/main.dc"
+product = "first_error"
+prerequisites = ["first-steps/hello-world"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints both lines"
+expect_stdout = """
+Reading the first error
+Every error has a line number
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Both lines must be printed exactly as shown in the task, each by println and each ending with a semicolon."

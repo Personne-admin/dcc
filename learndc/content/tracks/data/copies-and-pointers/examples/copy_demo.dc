@@ -1,0 +1,21 @@
+module main;
+
+struct Counter {
+    i32 value;
+}
+
+Status(Error) bump_copy(Counter c) {
+    c.value += 1;
+    println("inside: {}", c.value)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Counter a = Counter { value = 5 };
+    Counter b = a;
+    b.value = 50;
+    println("a {} b {}", a.value, b.value)?;
+    bump_copy(a)?;
+    println("outside: {}", a.value)?;
+    return Status::Ok;
+}

@@ -1,0 +1,17 @@
+module basics;
+
+public i32 twice(i32 n) {
+    return n * 2;
+}
+
+public i32 triple(i32 n) {
+    return n * 3;
+}
+
+public i32 rectangle_area(i32 width, i32 height) {
+    return width * height;
+}
+
+public i32 seconds_in(i32 minutes) {
+    return minutes * 60;
+}

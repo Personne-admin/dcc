@@ -1,0 +1,18 @@
+module main;
+
+import rules;
+using rules::*;
+
+public Status(Error) main() {
+    println("age 17 can vote: {}", can_vote(17))?;
+    println("age 18 can vote: {}", can_vote(18))?;
+    println("5 in range 1 to 10: {}", in_range(5, 1, 10))?;
+    println("11 in range 1 to 10: {}", in_range(11, 1, 10))?;
+    println("day 6 is weekend: {}", is_weekend(6))?;
+    println("day 3 is working day: {}", is_working_day(3))?;
+    println("day 9 is working day: {}", is_working_day(9))?;
+    println("2024 is leap: {}", is_leap_year(2024))?;
+    println("1900 is leap: {}", is_leap_year(1900))?;
+    println("2000 is leap: {}", is_leap_year(2000))?;
+    return Status::Ok;
+}

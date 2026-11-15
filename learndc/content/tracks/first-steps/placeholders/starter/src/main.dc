@@ -1,0 +1,10 @@
+module main;
+
+public Status(Error) main() {
+    println("Cafe order")?;
+    // Guest line: name and table number
+    // Items line: start with print, finish with println
+    // Total line
+    // Goodbye line
+    return Status::Ok;
+}

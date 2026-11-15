@@ -1,0 +1,15 @@
+module main;
+
+import search;
+using search::*;
+
+public Status(Error) main() {
+    println("sum of 1 to 10 without multiples of 3: {}", sum_skipping_threes(10))?;
+    println("sum of 1 to 3 without multiples of 3: {}", sum_skipping_threes(3))?;
+    println("terms to reach 10: {}", terms_to_reach(10))?;
+    println("terms to reach 100: {}", terms_to_reach(100))?;
+    println("smallest divisor of 91: {}", smallest_divisor(91))?;
+    println("smallest divisor of 97: {}", smallest_divisor(97))?;
+    println("smallest divisor of 64: {}", smallest_divisor(64))?;
+    return Status::Ok;
+}

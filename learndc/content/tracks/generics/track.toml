@@ -3,4 +3,4 @@ id = "generics"
 title = "Generics and Compile Time"
 summary = "Write code once for many types and let the compiler do work before the program runs."
 goal = "Write generic functions and types and understand what the compiler generates for them."
-exercises = ["generic-functions"]
+exercises = ["how-generics-work", "generic-functions", "generic-structs", "compile-time", "static-if", "generics-drill", "boss-generic-toolkit"]

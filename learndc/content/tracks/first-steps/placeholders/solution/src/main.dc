@@ -1,0 +1,11 @@
+module main;
+
+public Status(Error) main() {
+    println("Cafe order")?;
+    println("Guest: {}, table {}", "Ada", 7)?;
+    print("Items: ")?;
+    println("{} x tea, {} x cake", 2, 1)?;
+    println("Total: {} coins", 9)?;
+    println("Enjoy your meal, {}!", "Ada")?;
+    return Status::Ok;
+}

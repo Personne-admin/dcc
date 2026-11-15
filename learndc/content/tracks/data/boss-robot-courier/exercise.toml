@@ -1,0 +1,213 @@
+schema = 1
+id = "data/boss-robot-courier"
+revision = 1
+title = "The Robot Courier"
+summary = "Steer a delivery robot around a walled grid: turn with enums, move with a struct, run a program of tagged-enum commands and report the route."
+kind = "challenge"
+difficulty = "intermediate"
+estimated_minutes = 60
+concepts = ["struct", "enum", "tagged enum", "match", "pointers", "slices", "loops"]
+tags = ["boss", "data", "structs", "enums"]
+objectives = [
+    "Model a facing with an enum, a position with a struct and commands with a tagged enum",
+    "Write match expressions that cover every variant and bind a payload",
+    "Count events with a pointer parameter and run a program held in a slice",
+]
+entry_file = "src/main.dc"
+product = "robot_courier"
+prerequisites = ["data/data-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 3
+story = """
+Robot B-7 delivers parcels across the warehouse floor, a grid of five columns
+and four rows, but its steering firmware was wiped last night. All it
+understands is a short program: go forward some cells, turn left, turn right.
+Rebuild its brain, teach it that walls exist and print the route it drove.
+"""
+
+[[stages]]
+id = "old-turn"
+title = "Read the old firmware"
+summary = "Find the bug in the old turn_right before you write your own."
+questions = ["old-turn"]
+hints = ["Check what the old code does when the robot faces West, and which arm answers for it."]
+
+[[stages]]
+id = "facing"
+title = "Turn left and right"
+summary = "turn_left and turn_right map each Facing to the next one with a match."
+hints = [
+    "Facing has four variants, so each match needs four arms. Turning right goes North, East, South, West, North.",
+    "return match facing { Facing::North => Facing::East, ... }; with one arm per variant and no wildcard arm.",
+]
+
+[[stages]]
+id = "moving"
+title = "Move forward"
+summary = "forward returns the robot moved some cells in the direction it faces."
+hints = [
+    "x grows to the East and y grows to the North. The robot parameter is a copy, so you can change it and return it.",
+    "match robot.facing { Facing::North => robot.y += distance, ... } then return robot;. South and West subtract.",
+]
+
+[[stages]]
+id = "program"
+title = "Run a program"
+summary = "apply executes one Command, and run executes every command of a slice in order."
+hints = [
+    "Command::Forward(distance) binds the number in the arm. Left and Right have no payload and only change the facing.",
+    "apply: match command { Command::Forward(distance) => robot = forward(robot, distance), Command::Left => robot.facing = turn_left(robot.facing), ... } then return robot;. run loops with for command in program and stores robot = apply(robot, command).",
+]
+
+[[stages]]
+id = "walls"
+title = "Stay inside the grid"
+summary = "inside tests a cell, and apply_in_grid and run_in_grid stop at the walls and count the bumps."
+hints = [
+    "A cell is inside when 0 <= x < width and 0 <= y < height. Move one cell at a time, so you can stop in front of the wall.",
+    "For Forward(distance) loop for i32 cell in 0..distance: compute Robot next = forward(robot, 1); if it is not inside, add 1 to *bumps and break; otherwise robot = next.",
+    "Turning never bumps. run_in_grid is run with apply_in_grid and the same bumps pointer passed along.",
+]
+
+[[stages]]
+id = "report"
+title = "Print the route report"
+summary = "main runs the program in the grid and prints a line per command and a summary."
+hints = [
+    "Loop for command in program, update robot with apply_in_grid(robot, grid, command, &bumps) and keep your own step counter.",
+    "print(...)? writes without a newline, print_facing(robot.facing)? prints the facing name and println(\"\")? ends the line.",
+]
+
+[[stages]]
+id = "back-home"
+title = "Bonus: back home"
+summary = "back_home tells whether a program ends on the cell where the robot started."
+optional = true
+hints = ["Run the program with run_in_grid on a local bumps counter and compare the end position with the start."]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "turn_left and turn_right cycle through the four facings"
+stage = "facing"
+harness = "checks/turning.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "forward moves in the facing direction"
+stage = "moving"
+harness = "checks/moving.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "apply and run execute commands"
+stage = "program"
+harness = "checks/program.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "inside, apply_in_grid and run_in_grid respect the walls"
+stage = "walls"
+harness = "checks/walls.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "The route report"
+stage = "report"
+expect_stdout = """
+route on a 5 x 4 grid
+step 1: (0, 2) facing North
+step 2: (0, 2) facing East
+step 3: (4, 2) facing East
+step 4: (4, 2) facing North
+step 5: (4, 3) facing North
+step 6: (4, 3) facing West
+step 7: (0, 3) facing West
+step 8: (0, 3) facing South
+step 9: (0, 0) facing South
+finished at (0, 0) after 9 commands with 2 bumps
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Print one line per command after executing it, and the summary after the loop. Both bumps are the long forward moves into the east and north walls."
+
+[[checks]]
+kind = "harness"
+name = "back_home compares the end with the start"
+stage = "back-home"
+harness = "checks/home.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[questions]]
+id = "old-turn"
+type = "bug"
+prompt = "The old firmware turned the robot right with this function, and robots facing West drove the wrong way. Which line is the bug?"
+code = """
+module main;
+
+enum Facing {
+    North,
+    East,
+    South,
+    West,
+}
+
+Facing turn_right(Facing facing) {
+    return match facing {
+        Facing::North => Facing::East,
+        Facing::East => Facing::South,
+        Facing::South => Facing::West,
+        _ => Facing::East,
+    };
+}
+
+public Status(Error) main() {
+    println("{}", turn_right(Facing::West) == Facing::North)?;
+    return Status::Ok;
+}
+"""
+lines = [16]
+fixed = """
+module main;
+
+enum Facing {
+    North,
+    East,
+    South,
+    West,
+}
+
+Facing turn_right(Facing facing) {
+    return match facing {
+        Facing::North => Facing::East,
+        Facing::East => Facing::South,
+        Facing::South => Facing::West,
+        Facing::West => Facing::North,
+    };
+}
+
+public Status(Error) main() {
+    println("{}", turn_right(Facing::West) == Facing::North)?;
+    return Status::Ok;
+}
+"""
+expect = "true\n"
+explanation = "The wildcard arm `_` catches West and answers East, so a robot facing West turned to the wrong side. A wildcard also hides future variants from the compiler. Your own turns list every Facing, so a new variant makes the compiler complain."

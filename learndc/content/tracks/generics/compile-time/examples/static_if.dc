@@ -1,0 +1,28 @@
+module main;
+
+[]const char kind_of(T)() {
+    static if T == i32 || T == i64 {
+        return "signed integer";
+    } else static if T == f64 {
+        return "float";
+    } else {
+        return "something else";
+    }
+}
+
+[]const char size_class(T)() {
+    static if sizeof(T) == 1 {
+        return "tiny";
+    } else static if sizeof(T) <= 4 {
+        return "small";
+    } else {
+        return "big";
+    }
+}
+
+public Status(Error) main() {
+    println("i32: {}, {}", kind_of!i32(), size_class!i32())?;
+    println("f64: {}, {}", kind_of!f64(), size_class!f64())?;
+    println("u8: {}, {}", kind_of!u8(), size_class!u8())?;
+    return Status::Ok;
+}

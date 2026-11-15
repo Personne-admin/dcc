@@ -1,0 +1,10 @@
+module main;
+
+import words;
+import report;
+
+public Status(Error) main() {
+    []const char text = "The quick brown fox jumps over the lazy dog.\nThe dog barks, the fox runs away.";
+    // Create the array, split the text into it and print the summary.
+    return Status::Ok;
+}

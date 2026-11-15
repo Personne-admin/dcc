@@ -2,5 +2,5 @@ schema = 1
 id = "collections"
 title = "Arrays, Slices and Text"
 summary = "Keep many values in one place, walk through them and treat text as characters."
-goal = "Store values in fixed arrays, pass them around as slices and search text character by character."
-exercises = ["arrays-and-slices", "text-slices"]
+goal = "Keep many values in fixed arrays, pass them around as slices and walk, cut and compare text."
+exercises = ["arrays-in-memory", "fixed-arrays", "arrays-and-slices", "text-slices", "comparing-text", "collections-drill"]

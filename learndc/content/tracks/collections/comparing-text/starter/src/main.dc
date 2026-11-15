@@ -1,0 +1,14 @@
+module main;
+
+import names;
+
+public Status(Error) main() {
+    []const []const char guests = { "ann", "bob", "ann", "cy" };
+    println("admin: {}", names::is_admin("admin"))?;
+    println("guest: {}", names::is_admin("guest"))?;
+    println("ann appears {} times", names::count_name(guests, "ann"))?;
+    println("zed appears {} times", names::count_name(guests, "zed"))?;
+    println("bob is on the list: {}", names::has_name(guests, "bob"))?;
+    println("zed is on the list: {}", names::has_name(guests, "zed"))?;
+    return Status::Ok;
+}

@@ -1,0 +1,38 @@
+module split_line;
+
+import std::slice;
+import config;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+void expect_pair([]const char line, []const char key, []const char value, i32* failures) {
+    match config::split_line(line) {
+        Optional::Some(pair) => {
+            expect(std::slice::eq(pair.key, key) && std::slice::eq(pair.value, value), line, failures);
+        },
+        Optional::None => expect(false, line, failures),
+    }
+}
+
+void expect_none([]const char line, i32* failures) {
+    expect(config::split_line(line).is_none(), line, failures);
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect_pair("name=app", "name", "app", &failures);
+    expect_pair("  port = 8080  ", "port", "8080", &failures);
+    expect_pair("verbose =true", "verbose", "true", &failures);
+    expect_pair("port =", "port", "", &failures);
+    expect_pair("a=b=c", "a", "b=c", &failures);
+    expect_none("nothing here", &failures);
+    expect_none("", &failures);
+    return failures;
+}

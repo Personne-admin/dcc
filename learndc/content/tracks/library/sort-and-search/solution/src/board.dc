@@ -1,0 +1,26 @@
+module board;
+
+import std::slice;
+import std::sort;
+
+public usize leader([]const i32 scores) {
+    return std::slice::index_of_max(scores).unwrap_some();
+}
+
+public usize times([]const i32 scores, i32 score) {
+    return std::slice::count(scores, score);
+}
+
+public void rank_desc([]i32 scores) {
+    std::sort::sort(scores);
+    std::slice::reverse(scores);
+}
+
+public i32 median([]i32 scores) {
+    std::sort::sort(scores);
+    return scores[scores.len / 2];
+}
+
+public Optional(usize) find_score([]const i32 sorted, i32 score) {
+    return std::sort::binary_search(sorted, score);
+}

@@ -1,0 +1,33 @@
+module measure;
+
+import words;
+import stats;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+Status(Error) run(i32* failures) {
+    Array([]const char) out = {};
+    defer out.deinit();
+    expect(stats::longest(&out) == 0, "longest of no words is 0", failures);
+    expect(stats::total_letters(&out) == 0, "total_letters of no words is 0", failures);
+    words::split(&out, "a bb, cccc dd")?;
+    expect(out.len() == 4, "split found four words", failures);
+    expect(stats::longest(&out) == 4, "longest is 4", failures);
+    expect(stats::total_letters(&out) == 9, "total_letters is 9", failures);
+    return Status::Ok;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !run(&failures).is_ok() {
+        failures += 1;
+    }
+    return failures;
+}

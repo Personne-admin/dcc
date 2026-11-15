@@ -1,0 +1,12 @@
+module main;
+
+i32 box_volume(i32 width, i32 height, i32 depth) {
+    return width * height * depth;
+}
+
+public Status(Error) main() {
+    println("small box: {}", box_volume(2, 3, 4))?;
+    println("big box: {}", box_volume(10, 10, 10))?;
+    println("flat box: {}", box_volume(8, 8, 1))?;
+    return Status::Ok;
+}

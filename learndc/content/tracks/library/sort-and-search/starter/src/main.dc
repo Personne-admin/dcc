@@ -1,0 +1,34 @@
+module main;
+
+import board;
+
+public Status(Error) main() {
+    i32[8] data = { 42, 17, 93, 17, 65, 8, 93, 30 };
+    []i32 scores = data;
+
+    println("leader at index {}", board::leader(scores))?;
+    println("17 appears {} times", board::times(scores, 17))?;
+
+    board::rank_desc(scores);
+    print("ranked:")?;
+    for i32 score in scores {
+        print(" {}", score)?;
+    }
+    println("")?;
+
+    println("median {}", board::median(scores))?;
+
+    Optional(usize) found = board::find_score(scores, 65);
+    if found.is_some() {
+        println("65 is at index {}", found.unwrap_some())?;
+    } else {
+        println("65 is missing")?;
+    }
+    Optional(usize) missing = board::find_score(scores, 50);
+    if missing.is_some() {
+        println("50 is at index {}", missing.unwrap_some())?;
+    } else {
+        println("50 is missing")?;
+    }
+    return Status::Ok;
+}

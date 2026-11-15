@@ -1,0 +1,17 @@
+module main;
+
+void add_one(i32* x) {
+    *x += 1;
+}
+
+public Status(Error) main() {
+    i32 n = 5;
+    i32* p = &n;
+    println("through p: {}", *p)?;
+    *p = 9;
+    println("n is now {}", n)?;
+    add_one(&n);
+    add_one(&n);
+    println("after two calls: {}", n)?;
+    return Status::Ok;
+}

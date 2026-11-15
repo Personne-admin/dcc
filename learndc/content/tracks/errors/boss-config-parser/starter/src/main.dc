@@ -1,0 +1,19 @@
+module main;
+
+import config;
+
+Status(Error) describe(config::Problem problem) {
+    return Status::Ok;
+}
+
+Status(Error) report([]const char text) {
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    report("name = tiny-server\n  port=8080 \nverbose = true\n")?;
+    report("name = demo\nport = 99999\n")?;
+    report("name = demo\nverbose = maybe\n")?;
+    report("port = 22\ncolor = red\n")?;
+    return Status::Ok;
+}

@@ -1,0 +1,17 @@
+module main;
+
+i32 twice(i32 n) {
+    return n * 2;
+}
+
+i32 twice_plus_one(i32 n) {
+    i32 doubled = twice(n);
+    return doubled + 1;
+}
+
+public Status(Error) main() {
+    i32 a = twice_plus_one(5);
+    println("a = {}", a)?;
+    println("again: {}", twice_plus_one(twice(3)))?;
+    return Status::Ok;
+}

@@ -1,0 +1,184 @@
+schema = 1
+id = "collections/collections-drill"
+revision = 1
+kind = "drill"
+title = "Collections drill"
+summary = "Predict array code, trace an index loop, find an off-by-one, read the slice comparison error and recall the rules."
+difficulty = "beginner"
+estimated_minutes = 12
+concepts = ["fixed array", "slice", "index", "for loop", "off-by-one", "std::slice::eq"]
+tags = ["drill", "collections"]
+objectives = [
+    "Predict what array and slice code prints, including changes made through a window",
+    "Trace a C-style for loop over text step by step",
+    "Spot a loop that skips an element and explain why == fails on slices",
+]
+prerequisites = ["collections/comparing-text"]
+
+[[questions]]
+id = "array-and-window"
+type = "predict"
+prompt = "What does this program print? Type every line."
+code = """
+module main;
+
+public Status(Error) main() {
+    i32[5] a = { 2, 4, 6, 8, 10 };
+    a[0] = a[4] - a[1];
+    []const i32 tail = a[2..5];
+    i32 sum = 0;
+    for v in tail {
+        sum += v;
+    }
+    println("{} {}", a[0], tail.len)?;
+    println("{}", sum)?;
+    return Status::Ok;
+}
+"""
+expect = """
+6 3
+24
+"""
+explanation = "`a[0] = a[4] - a[1]` stores 10 - 4 = 6. The window `a[2..5]` holds 6, 8 and 10: three elements whose sum is 24. Changing index 0 does not touch the window, which starts at index 2."
+
+[[questions]]
+id = "count-the-es"
+type = "trace"
+prompt = "How many times does the body of the `if` run?"
+code = """
+module main;
+
+public Status(Error) main() {
+    []const char text = "eleven";
+    usize found = 0;
+    for usize i = 0; i < text.len; i++ {
+        if text[i] == 'e' {
+            found++;
+        }
+    }
+    println("{}", found)?;
+    return Status::Ok;
+}
+"""
+accept = ["3", "three"]
+expect = "3\n"
+explanation = "The text has six characters, so `i` takes the values 0 to 5. The characters e, l, e, v, e, n contain an `e` at positions 0, 2 and 4: three matches."
+
+[[questions]]
+id = "skipped-first"
+type = "bug"
+prompt = "The program should print the total of all four numbers, 26, but it prints 20. Which line is the bug?"
+code = """
+module main;
+
+public Status(Error) main() {
+    i32[4] numbers = { 6, 4, 9, 7 };
+    i32 total = 0;
+    for i in 1..4 {
+        total += numbers[i];
+    }
+    println("{}", total)?;
+    return Status::Ok;
+}
+"""
+lines = [7]
+fixed = """
+module main;
+
+public Status(Error) main() {
+    i32[4] numbers = { 6, 4, 9, 7 };
+    i32 total = 0;
+    for i in 0..4 {
+        total += numbers[i];
+    }
+    println("{}", total)?;
+    return Status::Ok;
+}
+"""
+expect = "26\n"
+explanation = "Indexes of `i32[4]` run from 0 to 3, and the range `1..4` starts at 1, so the first element, 6, is never added. `0..4` visits 0, 1, 2 and 3."
+
+[[questions]]
+id = "slice-equality-error"
+type = "error"
+prompt = "The compiler rejects this program. Why?"
+code = """
+module main;
+
+public Status(Error) main() {
+    []const char answer = "yes";
+    if answer == "yes" {
+        println("agreed")?;
+    }
+    return Status::Ok;
+}
+"""
+diagnostic = "slice values cannot be compared for equality"
+choices = [
+    "`answer` must be declared with a number type to be compared",
+    "`==` does not compare the characters of two slices; use `std::slice::eq`",
+    "A text literal can never be compared with anything",
+    "`if` needs parentheses around its condition",
+]
+answer = 2
+why = [
+    "Numbers compare with `==`, but text is a slice of characters and is perfectly valid to hold in a variable.",
+    "",
+    "A literal is itself a slice, and two of them can be compared with `std::slice::eq`.",
+    "DC conditions never need parentheses; the same `if` with a number compiles.",
+]
+explanation = "A slice is a pointer plus a length, so `==` would compare where the texts are stored, not what they say. Import `std::slice` and write `std::slice::eq(answer, \"yes\")`."
+
+[[questions]]
+id = "arrange-the-array"
+type = "order"
+prompt = "Put the three lines of `main` in an order that prints 13. The array is declared first and the changed element must be in place before it is read."
+code = """
+    i32[3] scores = { 4, 8, 6 };
+    scores[1] = 9;
+    println("{}", scores[0] + scores[1])?;
+"""
+explanation = "The array has to exist before it is used, and the new value has to be stored before the sum reads it: 4 + 9 = 13. Printing first would show 4 + 8 = 12."
+
+[[questions]]
+id = "slice-facts"
+type = "multi"
+prompt = "Which statements are true?"
+choices = [
+    "`i32[4]` and `[]const i32` are the same type",
+    "A slice `a[1..3]` of a 5-element array has 2 elements",
+    "`for i in 0..=len` is a correct loop over the indexes of `len` elements",
+    "A text literal can be stored in a `[]const char`",
+]
+answers = [2, 4]
+why = [
+    "A fixed array owns its elements and has its size in the type; a slice is a pointer and a length.",
+    "",
+    "The inclusive range runs one past the last valid index and the program stops with an index panic.",
+    "",
+]
+explanation = "A range slice `a[1..3]` covers indexes 1 and 2. Indexes of `len` elements end at `len - 1`, so the loop needs the exclusive range `0..len`."
+
+[[questions]]
+id = "first-index"
+type = "short"
+prompt = "Which index does the first element of an array have? Answer with the number."
+accept = ["0", "zero"]
+explanation = "Indexes count the distance from the first box, so the first element is `values[0]`."
+
+[[questions]]
+id = "compare-function"
+type = "short"
+prompt = "Which function of `std::slice` compares two texts character by character? Answer with its short name."
+accept = ["eq", "std::slice::eq", "slice::eq"]
+explanation = "`std::slice::eq(a, b)` is true when both slices have the same length and the same characters."
+
+[[cards]]
+id = "text-compare-card"
+front = "How do you test whether two texts say the same thing?"
+back = "`import std::slice;` and call `std::slice::eq(a, b)`. `==` on slices is a compile error."
+
+[[cards]]
+id = "index-loop-card"
+front = "What are the three parts of `for usize i = 0; i < text.len; i++`?"
+back = "A start that runs once, a condition checked before every round, and a step that runs after every round."

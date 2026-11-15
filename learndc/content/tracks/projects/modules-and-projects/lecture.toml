@@ -1,0 +1,116 @@
+schema = 1
+id = "projects/modules-and-projects"
+revision = 1
+title = "Modules and projects"
+summary = "One file is one module: how public and private decide what other files can use, how import and qualified names work, and what project.dcon and dpm build do."
+difficulty = "beginner"
+estimated_minutes = 12
+concepts = ["module", "import", "public", "private", "qualified names", "using", "public import", "project.dcon", "dpm"]
+tags = ["lecture", "modules", "projects"]
+objectives = [
+    "Explain why a program is split into modules and which declarations other modules can see",
+    "Reach a public function with import and a qualified name, or bring names in with using",
+    "Read a project.dcon and say what dpm build and learndc do with it",
+]
+prerequisites = ["memory/boss-inventory-keeper"]
+
+[[examples]]
+name = "one_file"
+expect_stdout = """
+average 55: pass
+"""
+
+[[examples]]
+name = "qualified_name"
+expect_stdout = """
+same text
+"""
+
+[[examples]]
+name = "using_all"
+expect_stdout = """
+6 12
+"""
+
+[[questions]]
+id = "private-by-default"
+type = "choice"
+prompt = "`stats.dc` declares `i32 median(i32 a, i32 b, i32 c)` without the word `public`. What can `main.dc` do with it after `import stats;`?"
+choices = [
+    "Call it as `stats::median(...)`",
+    "Nothing: only code inside the `stats` module can call it",
+    "Call it, but only through `using`",
+    "Call it, but only if the file is also named median.dc",
+]
+answer = 2
+why = [
+    "Qualified names only reach what is public; this one is private.",
+    "",
+    "`using` brings names in; it cannot open a private declaration.",
+    "File names matter for module names, never for visibility.",
+]
+explanation = "Everything is private by default. The `public` keyword is what turns a function into part of the module's surface. Keeping helpers private lets you change them later without breaking any other file."
+
+[[questions]]
+id = "misspelled-import"
+type = "error"
+prompt = "This program does not compile. What is the real cause?"
+code = """
+module main;
+
+import std::mth;
+
+public Status(Error) main() {
+    println("{}", std::mth::gcd(12, 18))?;
+    return Status::Ok;
+}
+"""
+diagnostic = "could not resolve module `std::mth`"
+choices = [
+    "`gcd` is a private function",
+    "There is no module with that path: the import is misspelled",
+    "`println` cannot print a number",
+    "A program may not import more than one module",
+]
+answer = 2
+why = [
+    "The compiler never got as far as looking for `gcd`; it stopped at the import.",
+    "",
+    "`println` prints numbers. The error points at line 3, the import.",
+    "A program can import any number of modules.",
+]
+explanation = "`import` names a module by its path. The compiler looks for it in the import roots and reports `could not resolve module` when nothing matches. Read the position in the message: it points at the import line, not at the use."
+
+[[questions]]
+id = "manifest-fields"
+type = "multi"
+prompt = "Which of these does a `project.dcon` for a program name?"
+choices = [
+    "The package name and version",
+    "The products to build, each with a name",
+    "The entry file of each product, such as `src/main.dc`",
+    "Which functions of each module are public",
+]
+answers = [1, 2, 3]
+why = [
+    "",
+    "",
+    "",
+    "Visibility is written in the source, with `public`, never in the manifest.",
+]
+explanation = "The manifest says what to build: package name and version, then products with a name and an entry file. Which declarations are public is decided by the keyword in each source file."
+
+[[cards]]
+id = "module-per-file"
+front = "How do a file and a module relate?"
+back = "One file is one module. Its first line `module name;` must match the path of the file below src, so src/stats.dc holds `module stats;`."
+
+[[cards]]
+id = "visible-surface"
+front = "What can another module use?"
+back = "Only declarations marked `public`, after `import module;`, written as `module::name` (or bare after `using module::*;`)."
+
+[[cards]]
+id = "public-import"
+front = "When do you need `public import m;`?"
+back = "When a public signature mentions a type from `m`. A plain `import m;` is private to the module, so the compiler asks for `public import`."

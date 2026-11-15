@@ -1,0 +1,45 @@
+module program;
+
+import courier;
+using courier::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Robot start = Robot { x = 0, y = 0, facing = Facing::North };
+
+    Robot a = apply(start, Command::Forward(2));
+    expect(a.x == 0 && a.y == 2 && a.facing == Facing::North, "Forward(2) moves two cells", &failures);
+    Robot b = apply(start, Command::Left);
+    expect(b.x == 0 && b.y == 0 && b.facing == Facing::West, "Left turns without moving", &failures);
+    Robot c = apply(b, Command::Right);
+    expect(c.facing == Facing::North, "Right undoes Left", &failures);
+    expect(start.y == 0, "apply does not change the robot passed in", &failures);
+
+    []const Command route = {
+        Command::Forward(2),
+        Command::Right,
+        Command::Forward(3),
+        Command::Right,
+        Command::Forward(1),
+    };
+    Robot end = run(start, route);
+    expect(end.x == 3 && end.y == 1 && end.facing == Facing::South, "run follows a whole route", &failures);
+
+    []const Command nothing = {};
+    Robot same = run(start, nothing);
+    expect(same.x == 0 && same.y == 0 && same.facing == Facing::North, "an empty program does nothing", &failures);
+
+    []const Command spin = { Command::Left, Command::Left, Command::Left, Command::Left, Command::Forward(1) };
+    Robot spun = run(start, spin);
+    expect(spun.y == 1 && spun.facing == Facing::North, "four lefts face the same way", &failures);
+    return failures;
+}

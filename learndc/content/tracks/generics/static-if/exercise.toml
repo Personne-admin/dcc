@@ -1,0 +1,52 @@
+schema = 1
+id = "generics/static-if"
+revision = 1
+title = "A table of types with static if"
+summary = "Choose different code for different types at compile time with static if on T and on sizeof(T)."
+kind = "implement-function"
+difficulty = "advanced"
+estimated_minutes = 20
+concepts = ["static if", "type comparison", "sizeof", "generic function without arguments"]
+tags = ["generics", "compile time"]
+objectives = [
+    "Branch on the type parameter with static if T == i32 || T == i64",
+    "Branch on a size with static if sizeof(T) <= 4",
+    "Call a generic function that has no value parameters with an explicit type, kind_of!i32()",
+]
+entry_file = "src/main.dc"
+product = "typetable"
+prerequisites = ["generics/compile-time"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The type table"
+expect_stdout = """
+type  kind      size
+i32   signed    small
+u8    unsigned  tiny
+i64   signed    big
+f32   float     small
+f64   float     big
+bool  other     tiny
+char  other     tiny
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "kind_of lists the signed integers, then the unsigned ones, then the floats, and everything else is other. size_class looks only at sizeof(T)."
+
+[[checks]]
+kind = "harness"
+name = "kind_of and size_class cover every integer and float type"
+harness = "checks/kinds_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Include i8, i16, u16, u32 and u64 in the lists; the table in main only uses a few of them."

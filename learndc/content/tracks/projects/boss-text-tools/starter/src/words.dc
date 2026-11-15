@@ -1,0 +1,9 @@
+module words;
+
+public bool is_separator(char c) {
+    return c == ' ' || c == '\n' || c == '\t' || c == ',' || c == '.';
+}
+
+public Status(Error) split(Array([]const char)* out, []const char text) {
+    return Status::Ok;
+}

@@ -1,0 +1,18 @@
+module main;
+
+import pick;
+using pick::*;
+
+public Status(Error) main() {
+    println("max_of(3, 9) = {}", max_of(3, 9))?;
+    println("max_of(-4, -7) = {}", max_of(-4, -7))?;
+    println("abs_of(-12) = {}", abs_of(-12))?;
+    println("abs_of(5) = {}", abs_of(5))?;
+    println("sign(-8) = {}", sign(-8))?;
+    println("sign(0) = {}", sign(0))?;
+    println("sign(33) = {}", sign(33))?;
+    println("0 {}", item_word(0))?;
+    println("1 {}", item_word(1))?;
+    println("2 {}", item_word(2))?;
+    return Status::Ok;
+}

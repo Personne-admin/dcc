@@ -1,0 +1,26 @@
+module digit_checks;
+
+import oracle;
+using oracle::*;
+
+bool expect(i32 n, i32 want) {
+    i32 got = digit_sum(n);
+    if got == want {
+        println("ok    digit_sum({})", n);
+        return true;
+    }
+    println("FAIL  digit_sum({}): expected {}, got {}", n, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect(0, 0) { failures += 1; }
+    if !expect(7, 7) { failures += 1; }
+    if !expect(10, 1) { failures += 1; }
+    if !expect(99, 18) { failures += 1; }
+    if !expect(12345, 15) { failures += 1; }
+    if !expect(1000000, 1) { failures += 1; }
+    if !expect(2147483647, 46) { failures += 1; }
+    return failures;
+}

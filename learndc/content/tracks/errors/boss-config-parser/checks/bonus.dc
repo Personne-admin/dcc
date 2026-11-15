@@ -1,0 +1,32 @@
+module bonus;
+
+import std::slice;
+import config;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    match config::load("# my server\nname = app\n\n  # note\nport = 8080\n") {
+        Result::Ok(settings) => {
+            expect(std::slice::eq(settings.name, "app") && settings.port == 8080, "comments and blank lines are skipped", &failures);
+        },
+        Result::Err(failure) => expect(false, "comments and blank lines are skipped", &failures),
+    }
+    match config::load("# only a comment\n\n\n") {
+        Result::Ok(settings) => expect(settings.port == 80, "only comments gives the defaults", &failures),
+        Result::Err(failure) => expect(false, "only comments gives the defaults", &failures),
+    }
+    match config::load("# c\nname = x\n\n# d\nbogus\n") {
+        Result::Ok(settings) => expect(false, "line numbers count skipped lines", &failures),
+        Result::Err(failure) => expect(failure.line == 5, "line numbers count skipped lines", &failures),
+    }
+    return failures;
+}

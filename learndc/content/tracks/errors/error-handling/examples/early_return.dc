@@ -1,0 +1,32 @@
+module main;
+
+public enum StepError {
+    TooBig,
+}
+
+Result(i32, StepError) halve(i32 n) {
+    if n > 100 {
+        return Result::Err(StepError::TooBig);
+    }
+    return Result::Ok(n / 2);
+}
+
+Result(i32, StepError) quarter(i32 n) {
+    i32 half = halve(n)?;
+    i32 rest = halve(half)?;
+    return Result::Ok(rest);
+}
+
+Status(Error) report(i32 n) {
+    match quarter(n) {
+        Result::Ok(v) => println("quarter of {} is {}", n, v)?,
+        Result::Err(reason) => println("quarter of {} failed", n)?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    report(40)?;
+    report(300)?;
+    return Status::Ok;
+}

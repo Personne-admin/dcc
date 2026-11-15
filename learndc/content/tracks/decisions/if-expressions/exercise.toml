@@ -1,0 +1,62 @@
+schema = 1
+id = "decisions/if-expressions"
+revision = 1
+title = "If as an expression"
+summary = "Pick a value with if/else in one expression: maximum, absolute value, sign and a plural word."
+kind = "implement-function"
+difficulty = "beginner"
+estimated_minutes = 12
+concepts = ["if expression", "else if", "value of a block", "initializer"]
+tags = ["decisions", "if", "expressions"]
+objectives = [
+    "Write an if/else that produces a value",
+    "Use an if expression as an initializer and as a return value",
+    "Chain else if inside an expression",
+]
+entry_file = "src/main.dc"
+product = "if_expressions"
+prerequisites = ["decisions/branches"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Program prints the picked values"
+expect_stdout = """
+max_of(3, 9) = 9
+max_of(-4, -7) = -4
+abs_of(-12) = 12
+abs_of(5) = 5
+sign(-8) = -1
+sign(0) = 0
+sign(33) = 1
+0 items
+1 item
+2 items
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The four functions in src/pick.dc still return placeholders."
+
+[[checks]]
+kind = "harness"
+name = "max_of, abs_of and sign"
+harness = "checks/number_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Try equal values and zero too: max_of(5, 5) is 5, abs_of(0) is 0 and sign(0) is 0."
+
+[[checks]]
+kind = "harness"
+name = "item_word"
+harness = "checks/word_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Only the count 1 uses the singular word; 0 and every larger number use the plural."

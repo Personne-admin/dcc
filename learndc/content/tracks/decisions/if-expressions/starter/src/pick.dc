@@ -1,0 +1,17 @@
+module pick;
+
+public i32 max_of(i32 a, i32 b) {
+    return 0;
+}
+
+public i32 abs_of(i32 n) {
+    return 0;
+}
+
+public i32 sign(i32 n) {
+    return 0;
+}
+
+public []const char item_word(i32 count) {
+    return "";
+}

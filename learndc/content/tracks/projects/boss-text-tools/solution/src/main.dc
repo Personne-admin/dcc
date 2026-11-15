@@ -1,0 +1,13 @@
+module main;
+
+import words;
+import report;
+
+public Status(Error) main() {
+    []const char text = "The quick brown fox jumps over the lazy dog.\nThe dog barks, the fox runs away.";
+    Array([]const char) found = {};
+    defer found.deinit();
+    words::split(&found, text)?;
+    report::print_summary(&found)?;
+    return Status::Ok;
+}

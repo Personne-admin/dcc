@@ -1,0 +1,15 @@
+module main;
+
+T middle(T)([]const T items) {
+    return items[items.len / 2];
+}
+
+public Status(Error) main() {
+    i32[5] numbers = { 10, 20, 30, 40, 50 };
+    []const f64 prices = { 0.5, 1.25, 9.75 };
+
+    println("{}", middle(numbers))?;
+    println("{}", middle(prices))?;
+    println("{}", middle!i32(numbers))?;
+    return Status::Ok;
+}

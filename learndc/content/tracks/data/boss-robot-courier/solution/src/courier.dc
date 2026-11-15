@@ -1,0 +1,114 @@
+module courier;
+
+public enum Facing {
+    North,
+    East,
+    South,
+    West,
+}
+
+public struct Robot {
+    i32 x;
+    i32 y;
+    Facing facing;
+}
+
+public enum Command {
+    Forward(i32),
+    Left,
+    Right,
+}
+
+public struct Grid {
+    i32 width;
+    i32 height;
+}
+
+public Facing turn_left(Facing facing) {
+    return match facing {
+        Facing::North => Facing::West,
+        Facing::West => Facing::South,
+        Facing::South => Facing::East,
+        Facing::East => Facing::North,
+    };
+}
+
+public Facing turn_right(Facing facing) {
+    return match facing {
+        Facing::North => Facing::East,
+        Facing::East => Facing::South,
+        Facing::South => Facing::West,
+        Facing::West => Facing::North,
+    };
+}
+
+public Robot forward(Robot robot, i32 distance) {
+    match robot.facing {
+        Facing::North => robot.y += distance,
+        Facing::East => robot.x += distance,
+        Facing::South => robot.y -= distance,
+        Facing::West => robot.x -= distance,
+    }
+    return robot;
+}
+
+public Robot apply(Robot robot, Command command) {
+    match command {
+        Command::Forward(distance) => robot = forward(robot, distance),
+        Command::Left => robot.facing = turn_left(robot.facing),
+        Command::Right => robot.facing = turn_right(robot.facing),
+    }
+    return robot;
+}
+
+public Robot run(Robot robot, []const Command program) {
+    for command in program {
+        robot = apply(robot, command);
+    }
+    return robot;
+}
+
+public bool inside(Grid grid, i32 x, i32 y) {
+    return x >= 0 && x < grid.width && y >= 0 && y < grid.height;
+}
+
+public Robot apply_in_grid(Robot robot, Grid grid, Command command, i32* bumps) {
+    match command {
+        Command::Forward(distance) => {
+            for i32 cell in 0..distance {
+                Robot next = forward(robot, 1);
+                if !inside(grid, next.x, next.y) {
+                    *bumps += 1;
+                    break;
+                }
+                robot = next;
+            }
+        },
+        Command::Left => robot.facing = turn_left(robot.facing),
+        Command::Right => robot.facing = turn_right(robot.facing),
+    }
+    return robot;
+}
+
+public Robot run_in_grid(Robot robot, Grid grid, []const Command program, i32* bumps) {
+    for command in program {
+        robot = apply_in_grid(robot, grid, command, bumps);
+    }
+    return robot;
+}
+
+public bool back_home(Robot start, Grid grid, []const Command program) {
+    i32 bumps = 0;
+    Robot end = run_in_grid(start, grid, program, &bumps);
+    return end.x == start.x && end.y == start.y;
+}
+
+public Status(Error) print_facing(Facing facing) {
+    match facing {
+        Facing::North => print("North")?,
+        Facing::East => print("East")?,
+        Facing::South => print("South")?,
+        Facing::West => print("West")?,
+    }
+    return Status::Ok;
+}

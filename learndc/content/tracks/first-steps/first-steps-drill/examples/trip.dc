@@ -1,0 +1,8 @@
+module main;
+
+public Status(Error) main() {
+    println("Packing")?;
+    println("Boarding")?;
+    println("Flying")?;
+    return Status::Ok;
+}

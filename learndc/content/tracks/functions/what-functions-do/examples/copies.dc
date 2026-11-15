@@ -1,0 +1,13 @@
+module main;
+
+i32 with_bonus(i32 score) {
+    score += 10;
+    return score;
+}
+
+public Status(Error) main() {
+    i32 score = 50;
+    i32 better = with_bonus(score);
+    println("score {}, better {}", score, better)?;
+    return Status::Ok;
+}

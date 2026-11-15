@@ -1,0 +1,28 @@
+module player;
+
+public struct Player {
+    []const char name;
+    i32 health;
+    i32 score;
+}
+
+public Player new_player([]const char name) {
+    return Player { name = name, health = 100, score = 0 };
+}
+
+public Player award(Player p, i32 points) {
+    p.score += points;
+    return p;
+}
+
+public Player hit(Player p, i32 damage) {
+    p.health -= damage;
+    if p.health < 0 {
+        p.health = 0;
+    }
+    return p;
+}
+
+public bool is_alive(Player p) {
+    return p.health > 0;
+}

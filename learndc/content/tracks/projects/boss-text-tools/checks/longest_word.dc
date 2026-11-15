@@ -1,0 +1,35 @@
+module longest_word;
+
+import std::slice;
+import words;
+import stats;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+Status(Error) run(i32* failures) {
+    Array([]const char) out = {};
+    defer out.deinit();
+    expect(std::slice::eq(stats::longest_word(&out), ""), "no words gives empty text", failures);
+    words::split(&out, "sun moon stars sky")?;
+    expect(std::slice::eq(stats::longest_word(&out), "stars"), "stars is the longest", failures);
+    Array([]const char) tie = {};
+    defer tie.deinit();
+    words::split(&tie, "ab cd e")?;
+    expect(std::slice::eq(stats::longest_word(&tie), "ab"), "the first of equally long words wins", failures);
+    return Status::Ok;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !run(&failures).is_ok() {
+        failures += 1;
+    }
+    return failures;
+}

@@ -1,0 +1,8 @@
+module main;
+
+public Status(Error) main() {
+    i32 count = 3;
+    count = count + 4;
+    println("count is {}", count)?;
+    return Status::Ok;
+}

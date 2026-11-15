@@ -1,0 +1,32 @@
+module prime_checks;
+
+import oracle;
+using oracle::*;
+
+bool expect(i32 n, bool want) {
+    bool got = is_prime(n);
+    if got == want {
+        println("ok    is_prime({})", n);
+        return true;
+    }
+    println("FAIL  is_prime({}): expected {}, got {}", n, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect(-7, false) { failures += 1; }
+    if !expect(0, false) { failures += 1; }
+    if !expect(1, false) { failures += 1; }
+    if !expect(2, true) { failures += 1; }
+    if !expect(3, true) { failures += 1; }
+    if !expect(4, false) { failures += 1; }
+    if !expect(9, false) { failures += 1; }
+    if !expect(25, false) { failures += 1; }
+    if !expect(29, true) { failures += 1; }
+    if !expect(91, false) { failures += 1; }
+    if !expect(97, true) { failures += 1; }
+    if !expect(7919, true) { failures += 1; }
+    if !expect(7921, false) { failures += 1; }
+    return failures;
+}

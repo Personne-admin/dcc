@@ -1,0 +1,28 @@
+module stop_checks;
+
+import search;
+using search::*;
+
+bool expect([]const char call, i32 got, i32 want) {
+    if got == want {
+        println("ok    {}", call);
+        return true;
+    }
+    println("FAIL  {}: expected {}, got {}", call, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect("terms_to_reach(1)", terms_to_reach(1), 1) { failures += 1; }
+    if !expect("terms_to_reach(3)", terms_to_reach(3), 2) { failures += 1; }
+    if !expect("terms_to_reach(4)", terms_to_reach(4), 3) { failures += 1; }
+    if !expect("terms_to_reach(10)", terms_to_reach(10), 4) { failures += 1; }
+    if !expect("terms_to_reach(100)", terms_to_reach(100), 14) { failures += 1; }
+    if !expect("smallest_divisor(2)", smallest_divisor(2), 2) { failures += 1; }
+    if !expect("smallest_divisor(9)", smallest_divisor(9), 3) { failures += 1; }
+    if !expect("smallest_divisor(91)", smallest_divisor(91), 7) { failures += 1; }
+    if !expect("smallest_divisor(97)", smallest_divisor(97), 97) { failures += 1; }
+    if !expect("smallest_divisor(64)", smallest_divisor(64), 2) { failures += 1; }
+    return failures;
+}

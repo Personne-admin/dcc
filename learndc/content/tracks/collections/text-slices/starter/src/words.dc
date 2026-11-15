@@ -4,8 +4,8 @@ public usize count_char([]const char text, char target) {
     return 0;
 }
 
-public Optional(usize) find_char([]const char text, char target) {
-    return Optional::None;
+public bool has_char([]const char text, char target) {
+    return false;
 }
 
 public []const char first_word([]const char text) {

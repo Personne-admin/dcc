@@ -1,6 +1,6 @@
 schema = 1
 id = "functions"
 title = "Functions"
-summary = "Give a piece of work a name, feed it parameters and use the value it returns."
-goal = "Split a problem into small functions, call them from main and read errors about calls that do not fit."
-exercises = ["four-functions", "reading-errors"]
+summary = "Give a piece of work a name, feed it parameters, use the value it returns and print from inside a function."
+goal = "Split a problem into small functions, call them from main, pass printing failures on with ? and read errors about calls that do not fit."
+exercises = ["what-functions-do", "first-function", "four-functions", "reading-errors", "printing-functions", "functions-drill"]

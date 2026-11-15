@@ -1,0 +1,23 @@
+module kinds;
+
+public []const char kind_of(T)() {
+    static if T == i8 || T == i16 || T == i32 || T == i64 {
+        return "signed";
+    } else static if T == u8 || T == u16 || T == u32 || T == u64 {
+        return "unsigned";
+    } else static if T == f32 || T == f64 {
+        return "float";
+    } else {
+        return "other";
+    }
+}
+
+public []const char size_class(T)() {
+    static if sizeof(T) == 1 {
+        return "tiny";
+    } else static if sizeof(T) <= 4 {
+        return "small";
+    } else {
+        return "big";
+    }
+}

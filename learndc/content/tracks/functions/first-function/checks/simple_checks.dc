@@ -1,0 +1,25 @@
+module simple_checks;
+
+import basics;
+using basics::*;
+
+bool expect([]const char call, i32 got, i32 want) {
+    if got == want {
+        println("ok    {}", call);
+        return true;
+    }
+    println("FAIL  {}: expected {}, got {}", call, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect("twice(4)", twice(4), 8) { failures += 1; }
+    if !expect("triple(0)", triple(0), 0) { failures += 1; }
+    if !expect("triple(5)", triple(5), 15) { failures += 1; }
+    if !expect("triple(-2)", triple(-2), -6) { failures += 1; }
+    if !expect("rectangle_area(3, 4)", rectangle_area(3, 4), 12) { failures += 1; }
+    if !expect("rectangle_area(1, 9)", rectangle_area(1, 9), 9) { failures += 1; }
+    if !expect("rectangle_area(0, 5)", rectangle_area(0, 5), 0) { failures += 1; }
+    return failures;
+}

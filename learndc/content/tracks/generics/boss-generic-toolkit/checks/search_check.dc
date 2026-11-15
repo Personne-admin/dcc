@@ -1,0 +1,42 @@
+module search_check;
+
+import toolkit;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    i32[7] numbers = { -4, 8, 12, 22, 25, 31, 40 };
+    for usize i in 0..7 {
+        Optional(usize) hit = toolkit::find_sorted(numbers, numbers[i]);
+        expect(hit.is_some() && hit.unwrap_some() == i, "every element is found at its own index", &failures);
+    }
+    expect(toolkit::find_sorted(numbers, 30).is_none(), "a value between two elements is missing", &failures);
+    expect(toolkit::find_sorted(numbers, -100).is_none(), "a value below the first is missing", &failures);
+    expect(toolkit::find_sorted(numbers, 100).is_none(), "a value above the last is missing", &failures);
+
+    i32[1] single = { 5 };
+    expect(toolkit::find_sorted(single, 5).is_some(), "one element can be found", &failures);
+    expect(toolkit::find_sorted(single, 6).is_none(), "one element can be missed", &failures);
+
+    i32[1] one = { 0 };
+    expect(toolkit::find_sorted(one[0..0], 1).is_none(), "an empty slice finds nothing", &failures);
+
+    f64[4] prices = { 0.5, 0.75, 2.5, 9.5 };
+    Optional(usize) cheap = toolkit::find_sorted(prices, 0.75);
+    expect(cheap.is_some() && cheap.unwrap_some() == 1, "find_sorted works for f64", &failures);
+    expect(toolkit::find_sorted(prices, 3.0).is_none(), "find_sorted misses an f64", &failures);
+
+    []const char letters = "acegik";
+    Optional(usize) g = toolkit::find_sorted(letters, 'g');
+    expect(g.is_some() && g.unwrap_some() == 3, "find_sorted works for char", &failures);
+    return failures;
+}

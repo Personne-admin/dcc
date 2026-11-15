@@ -1,0 +1,14 @@
+module main;
+
+public Status(Error) main() {
+    println("==== TRAIN TICKET ====")?;
+    println("Passenger: {}", "Ada Lovelace")?;
+    println("From {} to {}", "Oslo", "Bergen")?;
+    println("Seat {}, car {}", 14, 3)?;
+    println("Price: {} euro", 59)?;
+    print("Have a good trip, ")?;
+    print("{}", "Ada")?;
+    println("!")?;
+    println("======================")?;
+    return Status::Ok;
+}

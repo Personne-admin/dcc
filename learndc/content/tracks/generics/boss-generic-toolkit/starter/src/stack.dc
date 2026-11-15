@@ -1,0 +1,17 @@
+module stack;
+
+public struct Stack(T) {
+    usize len;
+}
+
+public bool push(T)(Stack(T)* self, T value) {
+    return false;
+}
+
+public Optional(T) pop(T)(Stack(T)* self) {
+    return Optional::None;
+}
+
+public usize size(T)(const Stack(T)* self) {
+    return 0;
+}

@@ -1,0 +1,53 @@
+module home;
+
+import courier;
+using courier::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Grid grid = Grid { width = 5, height = 4 };
+    Robot start = Robot { x = 0, y = 0, facing = Facing::North };
+
+    []const Command nothing = {};
+    expect(back_home(start, grid, nothing), "an empty program ends where it began", &failures);
+
+    []const Command away = { Command::Forward(2) };
+    expect(!back_home(start, grid, away), "Forward(2) ends elsewhere", &failures);
+
+    []const Command square = {
+        Command::Forward(1),
+        Command::Right,
+        Command::Forward(1),
+        Command::Right,
+        Command::Forward(1),
+        Command::Right,
+        Command::Forward(1),
+    };
+    expect(back_home(start, grid, square), "a square walk comes back", &failures);
+
+    []const Command wall = { Command::Forward(9) };
+    expect(!back_home(start, grid, wall), "stopping at a wall is not being home", &failures);
+
+    []const Command tour = {
+        Command::Forward(2),
+        Command::Right,
+        Command::Forward(9),
+        Command::Left,
+        Command::Forward(5),
+        Command::Left,
+        Command::Forward(4),
+        Command::Left,
+        Command::Forward(3),
+    };
+    expect(back_home(start, grid, tour), "the tour of the grid ends at the start", &failures);
+    return failures;
+}

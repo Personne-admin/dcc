@@ -1,0 +1,128 @@
+schema = 1
+id = "errors/error-handling"
+revision = 1
+kind = "lecture"
+title = "Four ways to say it did not work"
+summary = "Compare sentinels, Optional, Result and Status, choose between them and see what ? does when something fails."
+difficulty = "beginner"
+estimated_minutes = 12
+concepts = ["sentinel", "Optional", "Result", "Status", "?", "early return", "error handling"]
+tags = ["lecture", "errors"]
+objectives = [
+    "Explain why a sentinel value is easy to misuse and what Optional changes",
+    "Choose between Optional, Result and Status for a given function",
+    "Describe what ? does on success and on failure",
+]
+prerequisites = ["data/boss-robot-courier"]
+
+[[examples]]
+name = "sentinel"
+expect_stdout = """
+bonus with a sentinel: 9
+no ratings yet, no bonus
+"""
+
+[[examples]]
+name = "three_kinds"
+expect_stdout = """
+first digit: 4
+not a digit
+"""
+
+[[examples]]
+name = "early_return"
+expect_stdout = """
+quarter of 40 is 10
+quarter of 300 failed
+"""
+
+[[questions]]
+id = "which-type"
+type = "choice"
+prompt = "`read_port(text)` can fail because the text is empty, is not a number, or is above 65535, and the caller wants to tell these apart. What should it return?"
+choices = [
+    "`i32`, with -1 for every failure",
+    "`Optional(u32)`",
+    "`Result(u32, PortError)` with an enum of the three reasons",
+    "`Status(PortError)`",
+]
+answer = 3
+why = [
+    "A sentinel cannot say which of the three reasons applied, and -1 looks like a number.",
+    "`None` carries no reason, so all three failures look the same.",
+    "",
+    "`Status` has no success value, but the function must hand back the port.",
+]
+explanation = "The function produces a value and the caller needs the reason, so it returns a Result whose error type is a small enum of the reasons."
+
+[[questions]]
+id = "follow-the-question-mark"
+type = "predict"
+prompt = "`step(1)` succeeds and `step(4)` fails. What does this program print? Type every line."
+code = """
+module main;
+
+Result(i32, Error) step(i32 n) {
+    if n > 2 {
+        return Result::Err(Error::Allocation(AllocError::OutOfMemory));
+    }
+    return Result::Ok(n + 1);
+}
+
+Status(Error) run() {
+    i32 a = step(1)?;
+    println("a = {}", a)?;
+    i32 b = step(a + 2)?;
+    println("b = {}", b)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("start")?;
+    match run() {
+        Status::Ok => println("done")?,
+        Status::Err(reason) => println("run failed")?,
+    }
+    return Status::Ok;
+}
+"""
+expect = """
+start
+a = 2
+run failed
+"""
+explanation = "step(1) succeeds and a is 2. The next step(4) fails, so its ? returns the error from run at once: `b = ...` is never printed. main's match receives the error and prints the failure line."
+
+[[questions]]
+id = "question-mark-facts"
+type = "multi"
+prompt = "Which statements about `?` hold?"
+choices = [
+    "On success of a Result it gives you the success value",
+    "On failure it returns the error from the current function",
+    "It can be used in a function that returns `void`",
+    "The lines after a failing `?` in the same function still run",
+]
+answers = [1, 2]
+why = [
+    "",
+    "",
+    "There is nowhere to return an error from a void function; use Status(...) or Result(...).",
+    "The failure returns immediately, so nothing after it runs.",
+]
+explanation = "`?` is shorthand for a match that continues with the value on success and returns the error on failure, so the function around it must be able to return that error."
+
+[[cards]]
+id = "pick-type"
+front = "No success value, only works or fails: which type?"
+back = "Status(E). With a value and a reason for failure use Result(T, E); with a value and no reason use Optional(T)."
+
+[[cards]]
+id = "sentinel-trap"
+front = "Why is returning -1 for \"not found\" risky?"
+back = "The type does not mark -1 as special, so a caller who forgets the check uses it as a real number and the compiler says nothing."
+
+[[cards]]
+id = "what-qm"
+front = "What does `x = f()?;` do when f fails?"
+back = "It returns the error from the current function immediately; the rest of the function does not run."

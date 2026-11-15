@@ -1,0 +1,59 @@
+schema = 1
+id = "loops/break-continue"
+revision = 1
+title = "Skipping and stopping"
+summary = "Use continue to skip an iteration and break to leave a loop as soon as the answer is known."
+kind = "implement-function"
+difficulty = "beginner"
+estimated_minutes = 15
+concepts = ["break", "continue", "while true", "early exit", "search loop"]
+tags = ["loops", "break", "continue"]
+objectives = [
+    "Skip the rest of one pass with continue",
+    "Leave a loop as soon as a condition is met with break",
+    "Combine a range loop with a divisibility test",
+]
+entry_file = "src/main.dc"
+product = "break_continue"
+prerequisites = ["loops/ranges"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Program prints the results"
+expect_stdout = """
+sum of 1 to 10 without multiples of 3: 37
+sum of 1 to 3 without multiples of 3: 3
+terms to reach 10: 4
+terms to reach 100: 14
+smallest divisor of 91: 7
+smallest divisor of 97: 97
+smallest divisor of 64: 2
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The three functions in src/search.dc still return 0."
+
+[[checks]]
+kind = "harness"
+name = "sum_skipping_threes"
+harness = "checks/skip_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "continue jumps straight to the next number. Multiples of 3 satisfy i % 3 == 0."
+
+[[checks]]
+kind = "harness"
+name = "terms_to_reach and smallest_divisor"
+harness = "checks/stop_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "A check that times out means a `while true` loop never reaches its break."

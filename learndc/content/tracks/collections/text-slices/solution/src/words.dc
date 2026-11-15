@@ -10,13 +10,13 @@ public usize count_char([]const char text, char target) {
     return total;
 }
 
-public Optional(usize) find_char([]const char text, char target) {
+public bool has_char([]const char text, char target) {
     for usize i = 0; i < text.len; i++ {
         if text[i] == target {
-            return Optional::Some(i);
+            return true;
         }
     }
-    return Optional::None;
+    return false;
 }
 
 public []const char first_word([]const char text) {

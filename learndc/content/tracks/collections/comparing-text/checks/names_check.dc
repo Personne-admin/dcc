@@ -1,0 +1,40 @@
+module names_check;
+
+import names;
+
+i32 expect_bool([]const char label, bool want, bool got) {
+    if want == got {
+        return 0;
+    }
+    println("{}: expected {}, got {}", label, want, got).unwrap();
+    return 1;
+}
+
+i32 expect_count([]const char label, usize want, usize got) {
+    if want == got {
+        return 0;
+    }
+    println("{}: expected {}, got {}", label, want, got).unwrap();
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    []const char typed = "adm";
+    failures += expect_bool("is_admin of a literal", true, names::is_admin("admin"));
+    failures += expect_bool("is_admin of Admin", false, names::is_admin("Admin"));
+    failures += expect_bool("is_admin of a prefix", false, names::is_admin("adm"));
+    failures += expect_bool("is_admin of a longer text", false, names::is_admin("administrator"));
+    failures += expect_bool("is_admin of an empty text", false, names::is_admin(""));
+    failures += expect_bool("is_admin of a sub-slice", true, names::is_admin("xadminx"[1..6]));
+    failures += expect_bool("is_admin of a typed prefix", false, names::is_admin(typed));
+    []const []const char list = { "ann", "bob", "ann", "ann" };
+    failures += expect_count("count_name ann", 3, names::count_name(list, "ann"));
+    failures += expect_count("count_name bob", 1, names::count_name(list, "bob"));
+    failures += expect_count("count_name an", 0, names::count_name(list, "an"));
+    failures += expect_count("count_name of a sub-slice", 1, names::count_name(list, "xbobx"[1..4]));
+    failures += expect_bool("has_name bob", true, names::has_name(list, "bob"));
+    failures += expect_bool("has_name cy", false, names::has_name(list, "cy"));
+    failures += expect_bool("has_name in an empty list", false, names::has_name(list[0..0], "ann"));
+    return if failures == 0 { 0 } else { 1 };
+}

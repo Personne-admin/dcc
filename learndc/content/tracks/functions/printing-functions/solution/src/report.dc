@@ -1,0 +1,19 @@
+module report;
+
+public Status(Error) print_banner([]const char text) {
+    println("== {} ==", text)?;
+    return Status::Ok;
+}
+
+public Status(Error) print_item([]const char name, i32 price) {
+    println("{}: {}", name, price)?;
+    return Status::Ok;
+}
+
+public Status(Error) print_receipt(i32 bread, i32 milk) {
+    print_banner("Corner Shop")?;
+    print_item("bread", bread)?;
+    print_item("milk", milk)?;
+    print_item("total", bread + milk)?;
+    return Status::Ok;
+}

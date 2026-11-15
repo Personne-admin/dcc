@@ -1,0 +1,24 @@
+module toolkit;
+
+public T max_of(T)([]const T items) {
+    return items[0];
+}
+
+public T min_of(T)([]const T items) {
+    return items[0];
+}
+
+public usize count_above(T)([]const T items, T limit) {
+    return 0;
+}
+
+public usize count_between(T)([]const T items, T low, T high) {
+    return 0;
+}
+
+public Optional(usize) find_sorted(T)([]const T sorted, T key) {
+    return Optional::None;
+}
+
+public void clamp_all(T)([]T items, T low, T high) {
+}

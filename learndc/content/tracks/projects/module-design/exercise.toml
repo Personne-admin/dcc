@@ -1,0 +1,56 @@
+schema = 1
+id = "projects/module-design"
+revision = 1
+title = "Design a module"
+summary = "Move the logic of a one-file program into its own module, publish one function and keep the helpers private."
+kind = "refactor"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["module", "public", "private", "import", "refactoring", "surface"]
+tags = ["modules", "visibility", "refactor"]
+objectives = [
+    "Move functions into a new module file whose name matches its module line",
+    "Publish only the function that callers need and keep the helpers private",
+    "Call the module through import and a qualified name from main",
+]
+entry_file = "src/main.dc"
+product = "parcels"
+prerequisites = ["projects/broken-project"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the price table"
+expect_stdout = """
+250 g: 350 / 525
+1200 g: 500 / 750
+5000 g: 650 / 975
+20000 g: 800 / 1200
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The table must not change when the code moves: four lines, standard price then express price."
+
+[[checks]]
+kind = "harness"
+name = "shipping_cost is public in module shipping"
+harness = "checks/shipping_cost.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Create src/shipping.dc with `module shipping;` and mark shipping_cost public."
+
+[[checks]]
+kind = "harness"
+name = "weight_class and surcharge stay private"
+harness = "checks/helpers_private.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Leave `public` off weight_class and surcharge. The checker declares functions with those names itself; if they are public, the call becomes ambiguous and the build fails."

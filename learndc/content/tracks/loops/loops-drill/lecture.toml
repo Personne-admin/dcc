@@ -1,0 +1,181 @@
+schema = 1
+id = "loops/loops-drill"
+revision = 1
+kind = "drill"
+title = "Loops drills"
+summary = "Trace and predict loops, count passes, find an off-by-one bug and explain a loop that never ends."
+difficulty = "beginner"
+estimated_minutes = 14
+concepts = ["while", "for", "range", "break", "continue", "off-by-one", "tracing"]
+tags = ["drill", "loops"]
+objectives = [
+    "Predict the result of a while loop by tracing it",
+    "Count the passes of ranges and of loops with continue",
+    "Find an off-by-one bug and a loop that cannot end",
+]
+prerequisites = ["loops/tracing-and-debugging"]
+
+[[examples]]
+name = "evens"
+expect_stdout = """
+30
+"""
+
+[[questions]]
+id = "triple-until"
+type = "predict"
+prompt = "What does this program print? Trace `x` and `count` through every pass."
+code = """
+module main;
+
+public Status(Error) main() {
+    i32 x = 1;
+    i32 count = 0;
+    while x < 50 {
+        x *= 3;
+        count += 1;
+    }
+    println("{} {}", x, count)?;
+    return Status::Ok;
+}
+"""
+expect = "81 4\n"
+explanation = "x becomes 3, 9, 27 and 81 in four passes. Only then is `x < 50` false, so the loop stops with x = 81 and count = 4. Note that x overshoots 50: the condition is tested before each pass, not after the update."
+
+[[questions]]
+id = "count-hi"
+type = "trace"
+prompt = "How many times does the program print `hi`?"
+code = """
+module main;
+
+public Status(Error) main() {
+    for i32 i in 2..=9 {
+        if i % 3 == 0 {
+            continue;
+        }
+        println("hi")?;
+    }
+    return Status::Ok;
+}
+"""
+accept = ["5", "five"]
+expect = "hi\nhi\nhi\nhi\nhi\n"
+explanation = "The range 2..=9 has 8 values. The multiples of 3 (3, 6 and 9) hit `continue` and skip the print, which leaves 2, 4, 5, 7 and 8: five lines."
+
+[[questions]]
+id = "factorial-bug"
+type = "bug"
+prompt = "`factorial(5)` should be 120 (1 * 2 * 3 * 4 * 5) but the program prints 24. Which line is the bug?"
+code = """
+module main;
+
+i32 factorial(i32 n) {
+    i32 result = 1;
+    for i32 i in 1..n {
+        result *= i;
+    }
+    return result;
+}
+
+public Status(Error) main() {
+    println("{}", factorial(5))?;
+    return Status::Ok;
+}
+"""
+lines = [6]
+fixed = """
+module main;
+
+i32 factorial(i32 n) {
+    i32 result = 1;
+    for i32 i in 1..=n {
+        result *= i;
+    }
+    return result;
+}
+
+public Status(Error) main() {
+    println("{}", factorial(5))?;
+    return Status::Ok;
+}
+"""
+expect = "120\n"
+explanation = "`1..n` excludes n, so the product is 1 * 2 * 3 * 4 = 24. With `1..=n` the last factor 5 is included. The answer being the correct one divided by n is the clue."
+
+[[questions]]
+id = "sum-evens"
+type = "order"
+prompt = "Put the lines in order so that the program prints 30, the sum of the even numbers from 1 to 10. Odd numbers are skipped with `continue`."
+example = "evens"
+code = """
+    i32 total = 0;
+    for i32 i in 1..=10 {
+        if i % 2 != 0 { continue; }
+        total += i;
+    }
+    println("{}", total)?;
+"""
+explanation = "The accumulator must exist before the loop. Inside the body the skip test comes first, so `total += i;` only runs for even numbers. The result is printed once, after the closing brace."
+
+[[questions]]
+id = "three-passes"
+type = "multi"
+prompt = "Which loops run exactly 3 passes?"
+choices = [
+    "for i32 i in 0..3",
+    "for i32 i in 1..=3",
+    "for i32 i in 0..=3",
+    "for i32 i in 3..6",
+]
+answers = [1, 2, 4]
+why = [
+    "",
+    "",
+    "0, 1, 2 and 3 are four values.",
+    "",
+]
+explanation = "A half-open range has end minus start passes (3 - 0 and 6 - 3). An inclusive range has one more than that, so `1..=3` has 3 and `0..=3` has 4."
+
+[[questions]]
+id = "endless"
+type = "choice"
+prompt = """
+This loop never ends:
+
+    i32 i = 0;
+    while i < 10 {
+        if i % 2 == 0 {
+            continue;
+        }
+        i += 1;
+    }
+
+What is the reason?
+"""
+choices = [
+    "`while` loops cannot contain an if",
+    "`i` starts at 0, which is even, so `continue` runs every time and `i += 1` is never reached",
+    "`i < 10` is never true",
+    "`continue` leaves the whole loop",
+]
+answer = 2
+why = [
+    "A body can contain anything, including conditions.",
+    "",
+    "It is true at the start, since 0 < 10.",
+    "That is `break`. `continue` only skips the rest of the current pass.",
+]
+explanation = "continue jumps back to the condition without running the update. Since i is 0 and never changes, the loop repeats forever. Update the variable before the `continue`, or use a for loop."
+
+[[questions]]
+id = "leave-loop"
+type = "short"
+prompt = "Which keyword leaves a loop immediately?"
+accept = ["break"]
+explanation = "`break` ends the innermost loop and the program continues after it. `continue` only ends the current pass."
+
+[[cards]]
+id = "passes-count"
+front = "How many passes does `a..b` make, and how many does `a..=b`?"
+back = "`a..b` makes b - a passes; `a..=b` makes b - a + 1."

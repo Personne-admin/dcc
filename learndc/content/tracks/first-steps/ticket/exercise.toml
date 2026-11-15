@@ -1,0 +1,102 @@
+schema = 1
+id = "first-steps/ticket"
+revision = 1
+title = "Print a train ticket"
+summary = "Build a printed ticket in three stages with println, print and placeholders."
+kind = "challenge"
+chapter = "first-steps"
+difficulty = "beginner"
+estimated_minutes = 15
+concepts = ["println", "print", "placeholder", "output"]
+tags = ["output", "challenge"]
+objectives = [
+    "Combine println, print and placeholders in one program",
+    "Work towards an exact output one piece at a time",
+    "Check a stage, read the result and fix only what it says",
+]
+entry_file = "src/main.dc"
+product = "ticket"
+prerequisites = ["first-steps/first-steps-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[stages]]
+id = "journey"
+title = "The heading and the journey"
+summary = "Print the heading, the passenger and the route."
+hints = [
+    "Every line is one println. The route line has two placeholders: from and to, both text.",
+    "Write the lines in the order they appear in the expected output. Quote text, leave numbers bare.",
+    "println(\"From {} to {}\", \"Oslo\", \"Bergen\")?; prints the route line.",
+]
+
+[[stages]]
+id = "seat-and-price"
+title = "Seat and price"
+summary = "Print the seat line and the price line with numbers in placeholders."
+hints = [
+    "The seat line has two number placeholders; the price line has one. Numbers are written without quotes.",
+    "Put both lines directly after the route line, so the output stays in the right order.",
+    "println(\"Seat {}, car {}\", 14, 3)?; and println(\"Price: {} euro\", 59)?;",
+]
+
+[[stages]]
+id = "farewell"
+title = "The farewell and the closing line"
+summary = "Print the farewell as three calls on one line, then the closing line. The whole output must match exactly."
+hints = [
+    "The farewell is one output line written by three calls: two with print and the last with println.",
+    "print(\"Have a good trip, \")?; then print the name through a placeholder, then println(\"!\")?; ends the line. The closing line is a plain println.",
+    "print(\"Have a good trip, \")?; print(\"{}\", \"Ada\")?; println(\"!\")?; println(\"======================\")?;",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the heading, passenger and route"
+stage = "journey"
+stdout_match = "contains"
+expect_stdout = """
+==== TRAIN TICKET ====
+Passenger: Ada Lovelace
+From Oslo to Bergen
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The first three lines are the heading, the passenger and the route, in that order, each ending the line."
+
+[[checks]]
+kind = "run"
+name = "Prints the seat and price lines"
+stage = "seat-and-price"
+stdout_match = "contains"
+expect_stdout = """
+Seat 14, car 3
+Price: 59 euro
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Seat 14, car 3 and then Price: 59 euro, each on its own line, with the exact spacing shown."
+
+[[checks]]
+kind = "run"
+name = "Prints the complete ticket"
+stage = "farewell"
+expect_stdout = """
+==== TRAIN TICKET ====
+Passenger: Ada Lovelace
+From Oslo to Bergen
+Seat 14, car 3
+Price: 59 euro
+Have a good trip, Ada!
+======================
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Nothing may be printed before, between or after these seven lines. The farewell must be one line: its first two calls use print, and only the last one ends the line."

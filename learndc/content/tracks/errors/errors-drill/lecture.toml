@@ -1,0 +1,303 @@
+schema = 1
+id = "errors/errors-drill"
+revision = 1
+kind = "drill"
+title = "Error drills"
+summary = "Predict, trace, debug and read errors across Optional, Result and Status, then recall which type fits which job."
+difficulty = "beginner"
+estimated_minutes = 15
+concepts = ["Optional", "Result", "Status", "?", "match", "error enum", "debugging"]
+tags = ["drill", "errors"]
+objectives = [
+    "Predict the output of a chain of functions that pass errors upward with ?",
+    "Trace which calls run before a ? returns early",
+    "Spot an ignored Status and a wrong error variant, and read a non-exhaustive match error",
+]
+prerequisites = ["errors/custom-errors"]
+
+[[questions]]
+id = "chain-output"
+type = "predict"
+prompt = "What does this program print? Type every line."
+code = """
+module main;
+
+public enum CheckError {
+    Negative,
+    TooBig,
+}
+
+Status(CheckError) check(i32 n) {
+    if n < 0 {
+        return CheckError::Negative;
+    }
+    if n > 10 {
+        return CheckError::TooBig;
+    }
+    return Status::Ok;
+}
+
+Status(CheckError) check_all(i32 a, i32 b, i32 c) {
+    check(a)?;
+    check(b)?;
+    check(c)?;
+    return Status::Ok;
+}
+
+
+public Status(Error) main() {
+    match check_all(1, 2, 3) {
+        Status::Ok => println("all fine")?,
+        Status::Err(e) => match e {
+            CheckError::Negative => println("negative")?,
+            CheckError::TooBig => println("too big")?,
+        },
+    }
+    match check_all(1, -2, 30) {
+        Status::Ok => println("all fine")?,
+        Status::Err(e) => match e {
+            CheckError::Negative => println("negative")?,
+            CheckError::TooBig => println("too big")?,
+        },
+    }
+    match check_all(1, 2, 30) {
+        Status::Ok => println("all fine")?,
+        Status::Err(e) => match e {
+            CheckError::Negative => println("negative")?,
+            CheckError::TooBig => println("too big")?,
+        },
+    }
+    return Status::Ok;
+}
+"""
+expect = """
+all fine
+negative
+too big
+"""
+explanation = "The first call passes all three checks. In the second, check(-2) fails with Negative and check_all returns it at once, so check(30) never runs. In the third, the first two pass and check(30) fails with TooBig."
+
+[[questions]]
+id = "how-many-calls"
+type = "trace"
+prompt = "How many times does `check` run in this program? Remember where the failing ? returns."
+code = """
+module main;
+
+i32 calls = 0;
+
+public enum CheckError {
+    Negative,
+    TooBig,
+}
+
+Status(CheckError) check(i32 n) {
+    calls += 1;
+    if n < 0 {
+        return CheckError::Negative;
+    }
+    if n > 10 {
+        return CheckError::TooBig;
+    }
+    return Status::Ok;
+}
+
+Status(CheckError) check_all(i32 a, i32 b, i32 c) {
+    check(a)?;
+    check(b)?;
+    check(c)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Status(CheckError) outcome = check_all(5, -1, 7);
+    println("{}", calls)?;
+    return Status::Ok;
+}
+"""
+accept = ["2", "two"]
+expect = "2\n"
+explanation = "check(5) passes and check(-1) fails. The ? after the second call returns Negative from check_all immediately, so the third check never runs. Two calls."
+
+[[questions]]
+id = "ignored-status"
+type = "bug"
+prompt = "Saving slot 9 fails, yet the program prints `saved`. Which line is the bug?"
+code = """
+module main;
+
+Status(Error) save(i32 slot) {
+    if slot > 3 {
+        return Status::Err(Error::Allocation(AllocError::OutOfMemory));
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("trying slot 9")?;
+    save(9);
+    println("saved")?;
+    return Status::Ok;
+}
+"""
+lines = [12]
+fixed = """
+module main;
+
+Status(Error) save(i32 slot) {
+    if slot > 3 {
+        return Status::Err(Error::Allocation(AllocError::OutOfMemory));
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("trying slot 9")?;
+    match save(9) {
+        Status::Ok => println("saved")?,
+        Status::Err(reason) => println("save failed")?,
+    }
+    return Status::Ok;
+}
+"""
+expect = """
+trying slot 9
+save failed
+"""
+explanation = "A Status that is not used with ? or match is simply dropped, and the compiler does not complain. Here the failure vanishes and the next line reports success. Handle every Status: pass it on with ? or match on it."
+
+[[questions]]
+id = "wrong-variant"
+type = "bug"
+prompt = "A 10 year old is reported as `too old`. Which line is the bug?"
+code = """
+module main;
+
+public enum AgeError {
+    TooYoung,
+    TooOld,
+}
+
+Result(u32, AgeError) check_age(u32 age) {
+    if age < 18 {
+        return Result::Err(AgeError::TooOld);
+    }
+    if age > 65 {
+        return Result::Err(AgeError::TooOld);
+    }
+    return Result::Ok(age);
+}
+
+public Status(Error) main() {
+    match check_age(10) {
+        Result::Ok(age) => println("{} may join", age)?,
+        Result::Err(reason) => match reason {
+            AgeError::TooYoung => println("too young")?,
+            AgeError::TooOld => println("too old")?,
+        },
+    }
+    return Status::Ok;
+}
+"""
+lines = [10]
+fixed = """
+module main;
+
+public enum AgeError {
+    TooYoung,
+    TooOld,
+}
+
+Result(u32, AgeError) check_age(u32 age) {
+    if age < 18 {
+        return Result::Err(AgeError::TooYoung);
+    }
+    if age > 65 {
+        return Result::Err(AgeError::TooOld);
+    }
+    return Result::Ok(age);
+}
+
+public Status(Error) main() {
+    match check_age(10) {
+        Result::Ok(age) => println("{} may join", age)?,
+        Result::Err(reason) => match reason {
+            AgeError::TooYoung => println("too young")?,
+            AgeError::TooOld => println("too old")?,
+        },
+    }
+    return Status::Ok;
+}
+"""
+expect = """
+too young
+"""
+explanation = "Both checks return AgeError::TooOld, so callers cannot tell the two failures apart. The compiler accepts any variant of the error type; only a careful read finds that the first check should return TooYoung."
+
+[[questions]]
+id = "missing-err"
+type = "error"
+prompt = "The compiler rejects this program. What is the real cause?"
+code = """
+module main;
+
+Result(u32, Error) width(u32 n) {
+    if n > 80 {
+        return Result::Err(Error::Allocation(AllocError::OutOfMemory));
+    }
+    return Result::Ok(n);
+}
+
+public Status(Error) main() {
+    match width(40) {
+        Result::Ok(w) => println("width {}", w)?,
+    }
+    return Status::Ok;
+}
+"""
+diagnostic = "match expression not exhaustive: missing case `Result::Err`"
+choices = [
+    "`width` returns the wrong type",
+    "The match handles `Ok` but never says what to do on `Err`",
+    "`println` cannot print a `u32`",
+    "A Result cannot be matched",
+]
+answer = 2
+why = [
+    "The match on `width(40)` is accepted as a Result; the error is about its arms.",
+    "",
+    "The `Ok` arm prints `w` and is fine.",
+    "A Result is matched with `Result::Ok` and `Result::Err` arms.",
+]
+explanation = "A match must cover every variant. A Result has Ok and Err, so leaving out Err is an error: the compiler will not let a failure slip through unhandled."
+
+[[questions]]
+id = "true-facts"
+type = "multi"
+prompt = "Which statements hold?"
+choices = [
+    "`Optional::None` says that there is no value but not why",
+    "`Result(T, E)` can say why an operation failed",
+    "A function that returns `Status(Error)` produces a value on success",
+    "`Optional::Some(0)` and `Optional::None` mean the same",
+]
+answers = [1, 2]
+why = [
+    "",
+    "",
+    "A Status has no success value; it only reports success or an error.",
+    "Some(0) is a real answer that happens to be zero; None means there is no answer.",
+]
+explanation = "Optional answers \"is there a value?\", Result adds the reason, and Status reports only success or failure. A zero is a value, so it is never the same as None."
+
+[[questions]]
+id = "none-name"
+type = "short"
+prompt = "Which `Optional` variant, written with its enum name, means that there is no value?"
+accept = ["optional::none", "none"]
+explanation = "`Optional::None` has no payload and is written without parentheses; `Optional::Some(value)` holds the value."
+
+[[cards]]
+id = "ignored"
+front = "What happens to a Status you call but never ?, match or store?"
+back = "It is dropped silently and the failure is lost. Always pass it on with ? or match on it."

@@ -1,0 +1,32 @@
+module kinds_check;
+
+import std::slice;
+import kinds;
+
+void expect_text([]const char got, []const char want, []const char what, i32* failures) {
+    if std::slice::eq(got, want) {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}: expected {}, got {}", what, want, got);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect_text(kinds::kind_of!i8(), "signed", "i8 is signed", &failures);
+    expect_text(kinds::kind_of!i16(), "signed", "i16 is signed", &failures);
+    expect_text(kinds::kind_of!u16(), "unsigned", "u16 is unsigned", &failures);
+    expect_text(kinds::kind_of!u32(), "unsigned", "u32 is unsigned", &failures);
+    expect_text(kinds::kind_of!u64(), "unsigned", "u64 is unsigned", &failures);
+    expect_text(kinds::kind_of!f32(), "float", "f32 is a float", &failures);
+    expect_text(kinds::kind_of!f64(), "float", "f64 is a float", &failures);
+    expect_text(kinds::kind_of!bool(), "other", "bool is other", &failures);
+    expect_text(kinds::kind_of!char(), "other", "char is other", &failures);
+    expect_text(kinds::size_class!i8(), "tiny", "i8 is tiny", &failures);
+    expect_text(kinds::size_class!u16(), "small", "u16 is small", &failures);
+    expect_text(kinds::size_class!u32(), "small", "u32 is small", &failures);
+    expect_text(kinds::size_class!u64(), "big", "u64 is big", &failures);
+    expect_text(kinds::size_class!f64(), "big", "f64 is big", &failures);
+    return failures;
+}

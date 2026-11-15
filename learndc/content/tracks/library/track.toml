@@ -3,4 +3,4 @@ id = "library"
 title = "Everyday Library"
 summary = "Use the hosted library for formatted output and other everyday jobs."
 goal = "Lay out output with format specs and lean on library helpers instead of writing everything yourself."
-exercises = ["formatting"]
+exercises = ["formatting", "sort-and-search", "library-drill"]

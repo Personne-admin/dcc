@@ -1,0 +1,60 @@
+module oracle;
+
+public i32 digit_sum(i32 n) {
+    i32 sum = 0;
+    while n > 0 {
+        sum += n % 10;
+        n /= 10;
+    }
+    return sum;
+}
+
+public bool is_prime(i32 n) {
+    if n < 2 {
+        return false;
+    }
+    for i32 d in 2..n {
+        if d * d > n {
+            break;
+        }
+        if n % d == 0 {
+            return false;
+        }
+    }
+    return true;
+}
+
+public i32 collatz_steps(i32 n) {
+    i32 steps = 0;
+    while n != 1 {
+        if n % 2 == 0 {
+            n /= 2;
+        } else {
+            n = 3 * n + 1;
+        }
+        steps += 1;
+    }
+    return steps;
+}
+
+public i32 gcd(i32 a, i32 b) {
+    while b != 0 {
+        i32 rest = a % b;
+        a = b;
+        b = rest;
+    }
+    return a;
+}
+
+public bool is_perfect(i32 n) {
+    if n < 2 {
+        return false;
+    }
+    i32 sum = 0;
+    for i32 d in 1..n {
+        if n % d == 0 {
+            sum += d;
+        }
+    }
+    return sum == n;
+}

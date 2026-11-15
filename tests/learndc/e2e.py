@@ -3,6 +3,7 @@ import codecs
 import fcntl
 import json
 import os
+import re
 import pty
 import select
 import shutil
@@ -286,11 +287,11 @@ def make_content(real_content: Path, target: Path):
     src = real_content / "tracks" / "first-steps" / "hello-world"
     hello = target / "tracks" / "fundamentals" / "hello-world"
     shutil.copytree(src, hello)
-    toml = (hello / "exercise.toml").read_text()
+    toml = re.sub(r"^prerequisites = \[.*?\]", "prerequisites = []", (hello / "exercise.toml").read_text(), count=1, flags=re.M)
     (hello / "exercise.toml").write_text(toml.replace('id = "first-steps/hello-world"', 'id = "fundamentals/hello-world"'))
     again = target / "tracks" / "fundamentals" / "hello-again"
     shutil.copytree(src, again)
-    toml = (again / "exercise.toml").read_text()
+    toml = re.sub(r"^prerequisites = \[.*?\]", "prerequisites = []", (again / "exercise.toml").read_text(), count=1, flags=re.M)
     toml = toml.replace('id = "first-steps/hello-world"', 'id = "fundamentals/hello-again"')
     toml = toml.replace('title = "Your first DC program"', 'title = "Your second DC program"')
     toml = toml.replace("prerequisites = []", 'prerequisites = ["fundamentals/hello-world"]')

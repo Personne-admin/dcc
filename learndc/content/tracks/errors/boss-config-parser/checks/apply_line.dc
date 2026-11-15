@@ -1,0 +1,56 @@
+module apply_line;
+
+import std::slice;
+import config;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+void expect_ok(config::Settings* settings, []const char line, i32* failures) {
+    expect(config::apply_line(settings, line).is_ok(), line, failures);
+}
+
+void expect_problem(config::Settings* settings, []const char line, config::Problem want, i32* failures) {
+    match config::apply_line(settings, line) {
+        Status::Ok => expect(false, line, failures),
+        Status::Err(found) => expect(found == want, line, failures),
+    }
+}
+
+void expect_bad_port(config::Settings* settings, []const char line, config::NumberError want, i32* failures) {
+    match config::apply_line(settings, line) {
+        Status::Ok => expect(false, line, failures),
+        Status::Err(found) => match found {
+            config::Problem::BadPort(why) => expect(why == want, line, failures),
+            config::Problem::NoEquals => expect(false, line, failures),
+            config::Problem::UnknownKey => expect(false, line, failures),
+            config::Problem::BadFlag => expect(false, line, failures),
+        },
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    config::Settings settings = config::default_settings();
+    expect_ok(&settings, "name = shop", &failures);
+    expect(std::slice::eq(settings.name, "shop"), "name is stored", &failures);
+    expect_ok(&settings, "port = 8080", &failures);
+    expect(settings.port == 8080, "port is stored", &failures);
+    expect_ok(&settings, "verbose = true", &failures);
+    expect(settings.verbose, "verbose is stored", &failures);
+    expect_problem(&settings, "color = red", config::Problem::UnknownKey, &failures);
+    expect_problem(&settings, "just some text", config::Problem::NoEquals, &failures);
+    expect_problem(&settings, "verbose = maybe", config::Problem::BadFlag, &failures);
+    expect_bad_port(&settings, "port = abc", config::NumberError::NotADigit, &failures);
+    expect_bad_port(&settings, "port = 70000", config::NumberError::TooLarge, &failures);
+    expect_bad_port(&settings, "port =", config::NumberError::Empty, &failures);
+    expect(settings.port == 8080, "a rejected port leaves the old value", &failures);
+    expect(settings.verbose, "a rejected flag leaves the old value", &failures);
+    return failures;
+}

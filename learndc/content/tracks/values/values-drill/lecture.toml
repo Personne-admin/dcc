@@ -1,0 +1,181 @@
+schema = 1
+id = "values/values-drill"
+revision = 1
+kind = "drill"
+title = "Values drill"
+summary = "Trace updates, predict integer division and remainder, find a wrong operator and decide which declarations the compiler accepts."
+difficulty = "beginner"
+estimated_minutes = 12
+concepts = ["variables", "types", "arithmetic", "integer division", "remainder", "as", "+=", "f64"]
+tags = ["drill", "types", "arithmetic"]
+objectives = [
+    "Follow a variable through several updates and name its final value",
+    "Predict integer division, remainder and precedence",
+    "Tell which declarations fit their types and read a type mismatch error",
+]
+prerequisites = ["values/decimals"]
+
+[[questions]]
+id = "trace-updates"
+type = "trace"
+prompt = "What does this program print? Follow `n` after every statement."
+code = """
+module main;
+
+public Status(Error) main() {
+    i32 n = 4;
+    n += 6;
+    n *= 2;
+    n -= 3;
+    n++;
+    println("{}", n)?;
+    return Status::Ok;
+}
+"""
+accept = ["18", "eighteen"]
+expect = "18\n"
+explanation = "n starts at 4, becomes 10 after `+= 6`, 20 after `*= 2`, 17 after `-= 3` and 18 after `++`. Each update starts from the value the previous one left."
+
+[[questions]]
+id = "predict-division"
+type = "predict"
+prompt = "What does this program print? Type every line."
+code = """
+module main;
+
+public Status(Error) main() {
+    println("{}", 17 / 5)?;
+    println("{}", 17 % 5)?;
+    println("{}", 2 + 3 * 4)?;
+    println("{}", (2 + 3) * 4)?;
+    return Status::Ok;
+}
+"""
+expect = """
+3
+2
+14
+20
+"""
+explanation = "17 holds three full fives, so 17 / 5 is 3 and 17 % 5 is the 2 left over. Multiplication goes before addition, so 2 + 3 * 4 is 2 + 12. The parentheses in the last line force the addition first."
+
+[[questions]]
+id = "predict-f64"
+type = "predict"
+prompt = "What does this program print? Mind which division works on integers."
+code = """
+module main;
+
+public Status(Error) main() {
+    i32 a = 7;
+    i32 b = 2;
+    println("{}", a / b)?;
+    println("{:.2}", a as f64 / b as f64)?;
+    return Status::Ok;
+}
+"""
+expect = """
+3
+3.50
+"""
+explanation = "`a / b` divides two `i32` values and drops the fraction, so 3. After `as f64` both sides are decimals, the result is 3.5, and `{:.2}` shows two digits: 3.50."
+
+[[questions]]
+id = "wrong-operator"
+type = "bug"
+prompt = "The program should print how many minutes are left over after full hours, 20 for 200 minutes. It prints 3. Which line is the bug?"
+code = """
+module main;
+
+public Status(Error) main() {
+    i32 total = 200;
+    i32 minutes = total / 60;
+    println("{} min left over", minutes)?;
+    return Status::Ok;
+}
+"""
+lines = [6]
+fixed = """
+module main;
+
+public Status(Error) main() {
+    i32 total = 200;
+    i32 minutes = total % 60;
+    println("{} min left over", minutes)?;
+    return Status::Ok;
+}
+"""
+expect = """
+20 min left over
+"""
+explanation = "`/` counts the full hours, which is 3. What is left over is the remainder, written `%`: 200 % 60 is 20."
+
+[[questions]]
+id = "which-compile"
+type = "multi"
+prompt = "Which of these declarations compile?"
+choices = [
+    "`i32 a = 40;`",
+    "`u8 b = 300;`",
+    "`f64 c = 2.5;`",
+    "`bool d = 1;`",
+    "`char e = 'x';`",
+    "`i32 f = 2.5;`",
+]
+answers = [1, 3, 5]
+why = [
+    "",
+    "300 does not fit in a `u8`, which stops at 255.",
+    "",
+    "A `bool` is `true` or `false`, never a number.",
+    "",
+    "`2.5` is an `f64` and an `i32` cannot hold the fraction.",
+]
+explanation = "A declaration compiles when the value has the type of the variable, and a literal also has to fit. Three of the six break that rule."
+
+[[questions]]
+id = "mixed-add"
+type = "error"
+prompt = "The compiler rejects `z + c`. What is the cause?"
+code = """
+module main;
+
+public Status(Error) main() {
+    u8 z = 200;
+    i32 c = 5;
+    i32 d = z + c;
+    println("{}", d)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "type mismatch: left `u8`, right `i32`"
+choices = [
+    "The sum is too large for any type",
+    "The two operands have different types, `u8` and `i32`",
+    "`d` should be declared before `z`",
+    "`+` only works on literals",
+]
+answer = 2
+why = [
+    "The sum of 200 and 5 is only 205.",
+    "",
+    "The order of declarations is fine; each name is declared before it is used.",
+    "`+` works on variables and literals alike.",
+]
+explanation = "Both sides of an operator must have the same type. The compiler does not guess which side to convert. Make them agree with `as`, for example `z as i32 + c`."
+
+[[questions]]
+id = "remainder-operator"
+type = "short"
+prompt = "Which operator gives the remainder of a division? Type the symbol."
+accept = ["%"]
+explanation = "`%` returns what is left after the division: 17 % 5 is 2."
+
+[[cards]]
+id = "int-division"
+front = "What is 17 / 5 with whole numbers, and what is 17 % 5?"
+back = "3 and 2. The division drops the fraction; the remainder is what was left over."
+[[cards]]
+id = "as-conversion"
+front = "How do you divide two integers and keep the fraction?"
+back = "Convert with `as f64` first: `a as f64 / b as f64`, and print with `{:.2}` for two digits."

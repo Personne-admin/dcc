@@ -1,0 +1,16 @@
+module main;
+
+import counting;
+using counting::*;
+
+public Status(Error) main() {
+    println("digits in 0: {}", count_digits(0))?;
+    println("digits in 7: {}", count_digits(7))?;
+    println("digits in 12345: {}", count_digits(12345))?;
+    println("digits in 1000000: {}", count_digits(1000000))?;
+    println("1000 at 10 percent doubles after {} years", years_to_double(1000, 10))?;
+    println("100 at 1 percent doubles after {} years", years_to_double(100, 1))?;
+    println("first multiple of 7 above 50: {}", first_multiple_above(7, 50))?;
+    println("first multiple of 5 above 25: {}", first_multiple_above(5, 25))?;
+    return Status::Ok;
+}

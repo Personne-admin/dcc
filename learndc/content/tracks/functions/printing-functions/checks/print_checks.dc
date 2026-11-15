@@ -1,0 +1,12 @@
+module print_checks;
+
+import report;
+using report::*;
+
+public i32 main() {
+    print_banner("Test");
+    print_item("tea", 4);
+    print_item("empty", 0);
+    print_receipt(1, 1);
+    return 0;
+}

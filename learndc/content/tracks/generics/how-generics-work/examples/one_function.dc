@@ -1,0 +1,12 @@
+module main;
+
+T larger(T)(T a, T b) {
+    return if a > b { a } else { b };
+}
+
+public Status(Error) main() {
+    println("{}", larger(3, 9))?;
+    println("{}", larger(2.5, 0.5))?;
+    println("{}", larger('a', 'z'))?;
+    return Status::Ok;
+}

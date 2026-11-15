@@ -1,0 +1,29 @@
+module helpers_private;
+
+import shipping;
+using shipping::*;
+
+i32 weight_class(i32 grams) {
+    return 7;
+}
+
+i32 surcharge(i32 base) {
+    return 0;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if weight_class(10) == 7 && surcharge(10) == 0 {
+        println("ok    weight_class and surcharge are not part of the public surface");
+    } else {
+        println("FAIL  helpers are not private");
+        failures += 1;
+    }
+    if shipping_cost(250, false) == 350 {
+        println("ok    shipping_cost is public");
+    } else {
+        println("FAIL  shipping_cost gives a wrong result");
+        failures += 1;
+    }
+    return failures;
+}

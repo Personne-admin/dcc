@@ -3417,7 +3417,8 @@ namespace
         s.add("tracks/first-steps/track.toml", "schema = 1\nid = \"first-steps\"\ntitle = \"F\"\nsummary = \"s\"\nexercises = [\"hello-world\"]\n");
         for (auto const& [path, bytes] : full->files)
             if (path.starts_with("tracks/first-steps/hello-world/"))
-                s.add(path, bytes);
+                s.add(path,
+                      path.ends_with("exercise.toml") ? std::regex_replace(bytes, std::regex("prerequisites = \\[[^\\]]*\\]"), "prerequisites = []") : bytes);
         auto loaded = catalog::Catalog::load(s);
         if (!loaded)
             return std::nullopt;

@@ -1,0 +1,217 @@
+schema = 1
+id = "loops/boss-number-oracle"
+revision = 1
+title = "The Number Oracle"
+summary = "Rebuild the oracle's methods with loops: digit sums, primes, Collatz steps and the greatest common divisor, then print her report."
+kind = "challenge"
+difficulty = "beginner"
+estimated_minutes = 45
+concepts = ["while", "for", "break", "continue", "bool", "if", "functions", "debugging"]
+tags = ["boss", "loops", "functions", "decisions"]
+objectives = [
+    "Choose between while and for for each problem and write the loop correctly",
+    "Combine conditions, early exits and counters inside loops",
+    "Call your own functions from a loop in main and print an aligned table",
+]
+entry_file = "src/main.dc"
+product = "number_oracle"
+prerequisites = ["loops/loops-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 2
+story = """
+At the fair in Lowtown sits the Number Oracle, who tells you the secrets of
+any number you hand her for a copper coin. Her apprentice has run off with
+the book of methods and left only a legacy page behind. Rebuild the methods
+one by one, then let the oracle print her full report.
+"""
+
+[[stages]]
+id = "old-oracle"
+title = "Read the old page"
+summary = "Find the bug in the apprentice's is_prime before you write your own."
+questions = ["old-prime"]
+hints = [
+    "Trace is_prime(7) by hand: which values does d take, and what is 7 % 7?",
+    "Look at the end of the range in the for line.",
+]
+
+[[stages]]
+id = "digits"
+title = "Sum of the digits"
+summary = "digit_sum adds up the decimal digits of a number."
+hints = [
+    "n % 10 is the last digit and n / 10 removes it. Repeat while digits are left.",
+    "Start a sum at 0. While n > 0, add n % 10 to the sum and divide n by 10. n is your own copy, so you may change it.",
+]
+
+[[stages]]
+id = "primes"
+title = "Prime or not"
+summary = "is_prime is true for numbers with no divisor other than 1 and themselves."
+hints = [
+    "Numbers below 2 are not prime. Otherwise try every d from 2 up to n - 1: one divisor settles the question.",
+    "Inside for i32 d in 2..n, return false as soon as n % d == 0. When the loop ends without finding one, return true.",
+]
+
+[[stages]]
+id = "collatz"
+title = "The Collatz journey"
+summary = "collatz_steps counts how often the rule is applied before a number reaches 1."
+hints = [
+    "The rule: an even number is halved, an odd number becomes 3 * n + 1. You do not know in advance how many steps it takes, so use while.",
+    "while n != 1 { if n is even { n /= 2; } else { n = 3 * n + 1; } steps += 1; } then return steps. collatz_steps(1) is 0.",
+]
+
+[[stages]]
+id = "common-divisor"
+title = "The greatest common divisor"
+summary = "gcd finds the largest number that divides both inputs, using Euclid's remainder method."
+hints = [
+    "Euclid: gcd(a, b) is the same as gcd(b, a % b). When b is 0, the answer is a.",
+    "while b != 0 { i32 rest = a % b; a = b; b = rest; } return a; Parameters are copies, so you may change them.",
+]
+
+[[stages]]
+id = "report"
+title = "The oracle speaks"
+summary = "main prints one aligned row for every number from 1 to 15, then the count of primes."
+hints = [
+    "Loop over 1..=15 with for i32 n. In each pass print one row that calls the four functions. Count the primes in a variable of your own.",
+    "println(\"{:>3} {:>9} {:>6} {:>8} {:>11}\", n, digit_sum(n), is_prime(n), collatz_steps(n), gcd(n, 12))?; then add 1 to a counter when is_prime(n) is true. After the loop print the line primes up to 15.",
+]
+
+[[stages]]
+id = "perfect"
+title = "Bonus: perfect numbers"
+summary = "is_perfect is true when a number equals the sum of its divisors below itself."
+optional = true
+hints = [
+    "6 is perfect: 1 + 2 + 3 = 6. Add up every d from 1 to n - 1 that divides n and compare with n.",
+    "Numbers below 2 are not perfect. Loop d over 1..n, add d to a sum when n % d == 0, then return sum == n.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "digit_sum adds the digits"
+stage = "digits"
+harness = "checks/digit_checks.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "is_prime separates primes from composites"
+stage = "primes"
+harness = "checks/prime_checks.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "collatz_steps counts the journey"
+stage = "collatz"
+harness = "checks/collatz_checks.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "gcd finds the common divisor"
+stage = "common-divisor"
+harness = "checks/gcd_checks.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "The oracle's report"
+stage = "report"
+expect_stdout = """
+number oracle
+  n digit sum  prime  collatz  gcd(n, 12)
+  1         1  false        0           1
+  2         2   true        1           2
+  3         3   true        7           3
+  4         4  false        2           4
+  5         5   true        5           1
+  6         6  false        8           6
+  7         7   true       16           1
+  8         8  false        3           4
+  9         9  false       19           3
+ 10         1  false        6           2
+ 11         2   true       14           1
+ 12         3  false        9          12
+ 13         4   true        9           1
+ 14         5  false       17           2
+ 15         6  false       17           3
+primes up to 15: 6
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "One row per number from 1 to 15, then the line with the number of primes. Check the widths: 3, 9, 6, 8 and 11, with one space between the columns."
+
+[[checks]]
+kind = "harness"
+name = "is_perfect finds perfect numbers"
+stage = "perfect"
+harness = "checks/perfect_checks.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[questions]]
+id = "old-prime"
+type = "bug"
+prompt = "The apprentice's `is_prime(7)` says false, and so does every other number from 2 up. Which line is the bug?"
+code = """
+module main;
+
+bool is_prime(i32 n) {
+    if n < 2 {
+        return false;
+    }
+    for i32 d in 2..=n {
+        if n % d == 0 {
+            return false;
+        }
+    }
+    return true;
+}
+
+public Status(Error) main() {
+    println("{} {}", is_prime(7), is_prime(8))?;
+    return Status::Ok;
+}
+"""
+lines = [8]
+fixed = """
+module main;
+
+bool is_prime(i32 n) {
+    if n < 2 {
+        return false;
+    }
+    for i32 d in 2..n {
+        if n % d == 0 {
+            return false;
+        }
+    }
+    return true;
+}
+
+public Status(Error) main() {
+    println("{} {}", is_prime(7), is_prime(8))?;
+    return Status::Ok;
+}
+"""
+expect = "true false\n"
+explanation = "`2..=n` includes n itself, and every number divides itself, so `n % n == 0` always triggers the early return. A prime has no divisor below itself: the range must stop before n, which is `2..n`. The bug is an off-by-one at the end of the range."

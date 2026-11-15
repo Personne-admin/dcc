@@ -1,0 +1,173 @@
+schema = 1
+id = "generics/compile-time"
+revision = 1
+title = "Compile time: constants, layout and static if"
+summary = "Name constants, ask the compiler for sizes and field offsets, understand padding, run functions while compiling and choose code with static if."
+difficulty = "advanced"
+estimated_minutes = 16
+concepts = ["value alias", "sizeof", "alignof", "offsetof", "padding", "memory layout", "static if", "compile-time function evaluation"]
+tags = ["lecture", "generics", "memory layout"]
+objectives = [
+    "Declare a compile-time constant with a value alias and use it as an array length",
+    "Predict sizeof, alignof and offsetof of a struct and reorder fields to remove padding",
+    "Use a function call as a constant and choose code per type with static if",
+]
+prerequisites = ["generics/generic-structs"]
+
+[[examples]]
+name = "constants"
+expect_stdout = """
+slots: 4
+seconds per day: 86400
+table bytes: 32
+table entries: 8
+"""
+
+[[examples]]
+name = "layout"
+expect_stdout = """
+sizes: 1 2 4 8
+Loose: size 12, align 4
+Loose offsets: 0 4 8
+Tight: size 8, align 4
+Tight offsets: 0 4 5
+"""
+
+[[examples]]
+name = "compile_call"
+expect_stdout = """
+10! = 3628800
+buffer holds 24 bytes
+"""
+
+[[examples]]
+name = "static_if"
+expect_stdout = """
+i32: signed integer, small
+f64: float, big
+u8: something else, tiny
+"""
+
+[[questions]]
+id = "mixed-layout"
+type = "predict"
+prompt = "What does this program print? Work out where each field sits: every field starts at a multiple of its own size."
+code = """
+module main;
+
+struct Mixed {
+    u8 a;
+    u16 b;
+    u8 c;
+}
+
+struct Sorted {
+    u16 b;
+    u8 a;
+    u8 c;
+}
+
+public Status(Error) main() {
+    println("{} {}", sizeof(Mixed), sizeof(Sorted))?;
+    println("{}", offsetof(Mixed, c))?;
+    return Status::Ok;
+}
+"""
+expect = """
+6 4
+4
+"""
+explanation = "In `Mixed`, `a` is at offset 0, a padding byte follows, `b` must start at a multiple of 2 so it takes offset 2, and `c` goes to offset 4. The struct is padded to a multiple of its alignment 2, giving 6 bytes. In `Sorted` the 2-byte field comes first, `a` and `c` follow at 2 and 3, and nothing needs padding: 4 bytes."
+
+[[questions]]
+id = "padding-bytes"
+type = "trace"
+prompt = "The program prints the size of `Wide`. How many of those bytes are padding, that is, not used by any field? Type a number."
+code = """
+module main;
+
+struct Wide {
+    u8 a;
+    u64 b;
+    u16 c;
+}
+
+public Status(Error) main() {
+    println("{}", sizeof(Wide))?;
+    return Status::Ok;
+}
+"""
+accept = ["13", "thirteen"]
+expect = "24\n"
+explanation = "The fields use 1 + 8 + 2 = 11 bytes of the 24. `b` must start at a multiple of 8, so seven bytes follow `a`; `c` ends at offset 18 and six more bytes round the struct up to a multiple of 8, which is 24. 7 + 6 = 13 bytes of padding. Declared as `u64 b; u16 c; u8 a;` the struct needs only 16."
+
+[[questions]]
+id = "assign-alias"
+type = "error"
+prompt = "The compiler rejects this program. What is the real cause?"
+code = """
+module main;
+
+using usize SLOTS = 4;
+
+public Status(Error) main() {
+    SLOTS = 5;
+    return Status::Ok;
+}
+"""
+diagnostic = "value alias `SLOTS` is not assignable"
+choices = [
+    "`usize` cannot hold the value 5",
+    "A value alias is a name for a compile-time value, not a variable",
+    "Assignments are not allowed in `main`",
+    "`SLOTS` is declared after it is used",
+]
+answer = 2
+why = [
+    "5 fits in a `usize` easily.",
+    "",
+    "`main` can assign to its variables like any function.",
+    "Declarations at module level can be used anywhere in the module.",
+]
+explanation = "A value alias has no storage; every use is replaced by its constant value while compiling, so there is nothing to assign to. Declare a variable if the value has to change."
+
+[[questions]]
+id = "best-order"
+type = "multi"
+prompt = "The fields `u8 a`, `u16 c` and `u32 b` can be declared in any order. Which orders give the smallest possible size, 8 bytes?"
+choices = [
+    "`u8 a; u32 b; u16 c;`",
+    "`u32 b; u16 c; u8 a;`",
+    "`u8 a; u16 c; u32 b;`",
+    "`u16 c; u32 b; u8 a;`",
+]
+answers = [2, 3]
+why = [
+    "`b` starts at offset 4 after three padding bytes, `c` at 8, and the size is rounded to 12.",
+    "",
+    "",
+    "`b` must start at 4, so two padding bytes follow `c`, then `a` sits at 8 and the size rounds up to 12.",
+]
+explanation = "Padding appears when a field needs a higher boundary than the previous field ended on. Largest first never needs any in the middle. `u8 a; u16 c; u32 b;` also works because the 1-byte field and its one padding byte fill exactly the gap before the 2-byte field, and the 4-byte field then starts at offset 4. Both give 8 bytes, the 7 bytes of data rounded up to a multiple of 4."
+
+[[questions]]
+id = "size-keyword"
+type = "short"
+prompt = "Which builtin gives the number of bytes a type occupies? One word."
+accept = ["sizeof"]
+explanation = "`sizeof(T)` is evaluated by the compiler and is a `usize` constant. Together with `alignof` and `offsetof` it describes the layout of a type."
+
+[[cards]]
+id = "value-alias"
+front = "How do you declare a compile-time constant, and what can it be used for?"
+back = "`using usize SLOTS = 4;`. It has no storage; it can size arrays and drive `static if`."
+
+[[cards]]
+id = "padding"
+front = "Why does struct { u8; u32; u8 } take 12 bytes?"
+back = "Each field starts at a multiple of its size, so 3 padding bytes follow the first u8, and 3 more round the whole struct up to a multiple of 4. Largest fields first needs 8."
+
+[[cards]]
+id = "static-if"
+front = "What does `static if` do that `if` does not?"
+back = "The compiler decides it while compiling and keeps only the branch that applies, for example `static if T == f64 { ... }` in a generic function."

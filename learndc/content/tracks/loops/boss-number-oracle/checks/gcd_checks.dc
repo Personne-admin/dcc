@@ -1,0 +1,26 @@
+module gcd_checks;
+
+import oracle;
+using oracle::*;
+
+bool expect(i32 a, i32 b, i32 want) {
+    i32 got = gcd(a, b);
+    if got == want {
+        println("ok    gcd({}, {})", a, b);
+        return true;
+    }
+    println("FAIL  gcd({}, {}): expected {}, got {}", a, b, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect(12, 18, 6) { failures += 1; }
+    if !expect(18, 12, 6) { failures += 1; }
+    if !expect(7, 13, 1) { failures += 1; }
+    if !expect(5, 0, 5) { failures += 1; }
+    if !expect(0, 9, 9) { failures += 1; }
+    if !expect(100, 100, 100) { failures += 1; }
+    if !expect(1071, 462, 21) { failures += 1; }
+    return failures;
+}

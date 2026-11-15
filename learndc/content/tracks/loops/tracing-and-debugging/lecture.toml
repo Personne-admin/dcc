@@ -1,0 +1,154 @@
+schema = 1
+id = "loops/tracing-and-debugging"
+revision = 1
+title = "Tracing and debugging loops"
+summary = "Trace loops with a table, recognise off-by-one errors, print state while debugging and read failing check output."
+difficulty = "beginner"
+estimated_minutes = 12
+concepts = ["trace table", "off-by-one", "print debugging", "debugging", "loop bounds"]
+tags = ["lecture", "loops", "debugging"]
+objectives = [
+    "Fill in a trace table for a loop with one or two variables",
+    "Recognise an off-by-one error from the output and from the range",
+    "Use expected and got lines of a check to locate a bug",
+]
+prerequisites = ["loops/break-continue"]
+
+[[examples]]
+name = "trace_table"
+expect_stdout = """
+total = 30
+"""
+
+[[examples]]
+name = "fence_posts"
+expect_stdout = """
+rails: 5
+posts: 6
+"""
+
+[[examples]]
+name = "print_debugging"
+expect_stdout = """
+step 1: n = 33
+step 2: n = 11
+step 3: n = 3
+step 4: n = 1
+4 steps
+"""
+
+[[questions]]
+id = "trace-total"
+type = "trace"
+prompt = "What is `total` after the loop? Make a trace table with one row per pass."
+code = """
+module main;
+
+public Status(Error) main() {
+    i32 total = 0;
+    for i32 i in 1..=4 {
+        if i % 2 == 0 {
+            total += i;
+        } else {
+            total -= 1;
+        }
+    }
+    println("{}", total)?;
+    return Status::Ok;
+}
+"""
+accept = ["4", "four"]
+expect = "4\n"
+explanation = "The passes give -1 (i = 1), 1 (i = 2), 0 (i = 3) and 4 (i = 4). Even numbers add themselves, odd numbers subtract 1."
+
+[[questions]]
+id = "count-multiples"
+type = "bug"
+prompt = "`count_multiples(10, 5)` should be 2 (5 and 10) but the program prints 1. Which line is the bug?"
+code = """
+module main;
+
+i32 count_multiples(i32 limit, i32 step) {
+    i32 count = 0;
+    for i32 i in 1..limit {
+        if i % step == 0 {
+            count += 1;
+        }
+    }
+    return count;
+}
+
+public Status(Error) main() {
+    println("{}", count_multiples(10, 5))?;
+    return Status::Ok;
+}
+"""
+lines = [6]
+fixed = """
+module main;
+
+i32 count_multiples(i32 limit, i32 step) {
+    i32 count = 0;
+    for i32 i in 1..=limit {
+        if i % step == 0 {
+            count += 1;
+        }
+    }
+    return count;
+}
+
+public Status(Error) main() {
+    println("{}", count_multiples(10, 5))?;
+    return Status::Ok;
+}
+"""
+expect = "2\n"
+explanation = "`1..limit` stops before 10, so the multiple 10 is never tested. `1..=limit` includes it. The symptom, one too few, is the typical sign of an excluded end."
+
+[[questions]]
+id = "first-step"
+type = "choice"
+prompt = "A check prints `sum_to(5): expected 15, got 10`. What is the best first step?"
+choices = [
+    "Rewrite the whole function from scratch",
+    "Trace `sum_to(5)` by hand and compare each pass with what the code does",
+    "Change the loop bound at random until the output matches",
+    "Ignore the check and trust the code",
+]
+answer = 2
+why = [
+    "That throws away the information in the failure. The loop is probably nearly right.",
+    "",
+    "Guessing may pass this one check and break another. Find the reason first.",
+    "The check found a real difference between the code and the task.",
+]
+explanation = "A trace table shows where the code and your expectation part ways. Here 10 = 1 + 2 + 3 + 4 shows the last pass is missing."
+
+[[questions]]
+id = "print-debug"
+type = "predict"
+prompt = "What does the program print? Trace the loop, one row per pass."
+example = "print_debugging"
+expect = """
+step 1: n = 33
+step 2: n = 11
+step 3: n = 3
+step 4: n = 1
+4 steps
+"""
+explanation = "Integer division drops the fraction: 100 / 3 is 33, then 11, 3 and 1. When n is 1 the condition `n > 1` is false and the loop ends after 4 passes."
+
+[[cards]]
+id = "trace-table"
+front = "What does a trace table contain?"
+back = "One column per variable and one row per pass of the loop. Fill it in by following the code literally."
+
+[[cards]]
+id = "range-ends"
+front = "How many passes do `0..5` and `0..=5` make?"
+back = "`0..5` makes 5 (0 to 4, the end is excluded); `0..=5` makes 6 (0 to 5)."
+
+[[cards]]
+id = "expected-got"
+front = "How do you use `expected X, got Y` from a failing check?"
+back = "Trace the smallest failing input and look at the size of the difference: always one short points at a loop bound."

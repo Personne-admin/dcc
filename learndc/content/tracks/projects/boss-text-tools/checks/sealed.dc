@@ -1,0 +1,31 @@
+module sealed;
+
+import words;
+import stats;
+using words::*;
+using stats::*;
+
+bool is_separator(char c) {
+    return c == 'x';
+}
+
+u32 add_one(u32 n) {
+    return n + 100;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if is_separator('x') && !is_separator(' ') {
+        println("ok    words keeps is_separator to itself");
+    } else {
+        println("FAIL  is_separator is public in words");
+        failures += 1;
+    }
+    if add_one(1) == 101 {
+        println("ok    stats keeps add_one to itself");
+    } else {
+        println("FAIL  add_one is public in stats");
+        failures += 1;
+    }
+    return failures;
+}

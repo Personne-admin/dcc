@@ -1,0 +1,27 @@
+module perfect_checks;
+
+import oracle;
+using oracle::*;
+
+bool expect(i32 n, bool want) {
+    bool got = is_perfect(n);
+    if got == want {
+        println("ok    is_perfect({})", n);
+        return true;
+    }
+    println("FAIL  is_perfect({}): expected {}, got {}", n, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect(1, false) { failures += 1; }
+    if !expect(6, true) { failures += 1; }
+    if !expect(12, false) { failures += 1; }
+    if !expect(28, true) { failures += 1; }
+    if !expect(30, false) { failures += 1; }
+    if !expect(496, true) { failures += 1; }
+    if !expect(8128, true) { failures += 1; }
+    if !expect(8129, false) { failures += 1; }
+    return failures;
+}

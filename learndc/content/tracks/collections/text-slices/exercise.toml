@@ -1,21 +1,21 @@
 schema = 1
 id = "collections/text-slices"
-revision = 1
+revision = 2
 title = "Search and slice text"
-summary = "Implement counting, searching and sub-slicing over []const char."
+summary = "Walk text with an index loop to count characters, look for one and cut out the first word."
 kind = "implement-function"
 difficulty = "beginner"
 estimated_minutes = 15
-concepts = ["[]const char", "slices", "Optional", "loops", "sub-range"]
+concepts = ["[]const char", "slices", "for loop", "index", "early return", "sub-range"]
 tags = ["text", "slices"]
 objectives = [
-    "Walk a []const char with an index loop and compare its characters",
-    "Return Optional(usize) for a search that may find nothing",
+    "Walk a []const char with a C-style for loop and compare its characters",
+    "Return early from inside a loop when the answer is known",
     "Return a sub-slice such as text[0..i] without copying",
 ]
 entry_file = "src/main.dc"
 product = "words"
-prerequisites = ["library/formatting"]
+prerequisites = ["collections/arrays-and-slices"]
 requires = ["dcc", "dpm"]
 min_dcc = "0.6.0"
 platforms = ["linux", "windows"]
@@ -32,7 +32,8 @@ name = "Demo program output"
 expect_stdout = """
 text: the quick brown fox
 spaces: 3
-first q at: 4
+has q: true
+has z: false
 first word: the
 """
 expect_exit = 0
@@ -49,11 +50,11 @@ hint = "Count each position where the character equals target; an empty text has
 
 [[checks]]
 kind = "harness"
-name = "find_char returns the first position or None"
-harness = "checks/find_char_check.dc"
+name = "has_char says whether a character occurs"
+harness = "checks/has_char_check.dc"
 expect_exit = 0
 max_seconds = 10
-hint = "Return Optional::Some(i) at the first match and Optional::None only after the loop."
+hint = "Return true from inside the loop at the first match and false only after the loop."
 
 [[checks]]
 kind = "harness"

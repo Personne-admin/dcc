@@ -1,0 +1,179 @@
+schema = 1
+id = "first-steps/first-steps-drill"
+revision = 1
+kind = "drill"
+title = "First steps drill"
+summary = "Predict output, read error messages, order statements and find a bug in a few lines of printing code."
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["println", "print", "placeholder", "compile error", "semicolon", "string"]
+tags = ["drill", "basics"]
+objectives = [
+    "Predict the exact output of println and print calls",
+    "Say what a compiler message about a missing semicolon or quote really means",
+    "Find arguments that are in the wrong order",
+]
+prerequisites = ["first-steps/placeholders"]
+
+[[examples]]
+name = "trip"
+expect_stdout = """
+Packing
+Boarding
+Flying
+"""
+
+[[questions]]
+id = "predict-placeholders"
+type = "predict"
+prompt = "What does this program print? Type every line."
+code = """
+module main;
+
+public Status(Error) main() {
+    println("{} + {} = {}", 4, 5, 9)?;
+    println("Hi, {}!", "Sam")?;
+    println("{}{}", "ab", "cd")?;
+    return Status::Ok;
+}
+"""
+expect = """
+4 + 5 = 9
+Hi, Sam!
+abcd
+"""
+explanation = "Each `{}` is replaced by the next argument, from left to right. The last call has two holes next to each other with no space between them, so the two pieces of text join."
+
+[[questions]]
+id = "predict-print"
+type = "predict"
+prompt = "What does this program print? Mind where the lines end."
+code = """
+module main;
+
+public Status(Error) main() {
+    print("A")?;
+    print("B")?;
+    println("C")?;
+    print("D")?;
+    println("E")?;
+    return Status::Ok;
+}
+"""
+expect = """
+ABC
+DE
+"""
+explanation = "`print` leaves the cursor where it is, so `A`, `B` and `C` end up on one line. Only `println` ends a line, which is why `D` starts a new one."
+
+[[questions]]
+id = "missing-semicolon"
+type = "error"
+prompt = "The compiler reports an error pointing at the line with `return`. What is the real mistake?"
+code = """
+module main;
+
+public Status(Error) main() {
+    println("Hello")?
+    return Status::Ok;
+}
+"""
+diagnostic = "expected ';' or '}' after expression"
+choices = [
+    "`return` is not allowed in `main`",
+    "The `println` line above it is missing its semicolon",
+    "`Hello` should not be in quotes",
+    "`main` needs a second `println`",
+]
+answer = 2
+why = [
+    "`return Status::Ok;` is exactly how `main` is supposed to end.",
+    "",
+    "Text always goes in quotes.",
+    "A program can have any number of `println` calls, including one.",
+]
+explanation = "The compiler only notices a missing `;` when it reaches the next statement and finds it starting before the previous one ended. That is why the arrow points at `return`: the fix goes on the line above."
+
+[[questions]]
+id = "open-string"
+type = "error"
+prompt = "This program fails to build. Which mistake does the compiler's note describe?"
+code = """
+module main;
+
+public Status(Error) main() {
+    println("Hello)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "unterminated string literal"
+choices = [
+    "The string has no closing double quote",
+    "`println` is spelled wrong",
+    "The `?` must come before the semicolon",
+    "`Hello` is not a valid word",
+]
+answer = 1
+why = [
+    "",
+    "The name `println` is correct here; an unknown name would be reported as such.",
+    "`?;` at the end of the line is already in the right order.",
+    "Text inside quotes can be any characters.",
+]
+explanation = "A string starts and ends with a double quote. Here the second quote is missing, so the compiler reads on to the end of the line and then complains. Later error messages are often only a result of the first one."
+
+[[questions]]
+id = "arguments-order"
+type = "bug"
+prompt = "This program should print `Total: 9 coins`, but it prints `Total: coins 9`. Which line has the bug?"
+code = """
+module main;
+
+public Status(Error) main() {
+    println("Total: {} {}", "coins", 9)?;
+    return Status::Ok;
+}
+"""
+lines = [4]
+fixed = """
+module main;
+
+public Status(Error) main() {
+    println("Total: {} {}", 9, "coins")?;
+    return Status::Ok;
+}
+"""
+expect = """
+Total: 9 coins
+"""
+explanation = "The arguments fill the holes in order, so the first hole got `\"coins\"` and the second got `9`. Swap the arguments, or move the words out of the arguments and write `\"Total: {} coins\", 9`."
+
+[[questions]]
+id = "order-the-trip"
+type = "order"
+prompt = "Put the lines of `main` in order so that the program prints Packing, then Boarding, then Flying, and ends with the line that reports success."
+example = "trip"
+code = """
+    println("Packing")?;
+    println("Boarding")?;
+    println("Flying")?;
+    return Status::Ok;
+"""
+explanation = "Statements run from top to bottom, so the order of the lines is the order of the output. `return Status::Ok;` ends `main`, so it comes last."
+
+[[questions]]
+id = "statement-end"
+type = "short"
+prompt = "What does every statement in DC end with? Name the character or its name."
+accept = ["semicolon", ";", "a semicolon"]
+explanation = "Statements end with a semicolon. A missing one is the most common first error in any language that uses them."
+
+[[cards]]
+id = "arguments-in-order"
+front = "How do the arguments after a format string fill the `{}` holes?"
+back = "From left to right, one argument per hole, in the order written."
+
+[[cards]]
+id = "print-vs-println"
+front = "What is the difference between `print` and `println`?"
+back = "`println` ends the line after printing, `print` does not."

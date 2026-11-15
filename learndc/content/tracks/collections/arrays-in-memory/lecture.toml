@@ -1,0 +1,121 @@
+schema = 1
+id = "collections/arrays-in-memory"
+revision = 1
+title = "Arrays and slices in memory"
+summary = "How a fixed array is laid out in memory, what a slice really is and what an index check protects you from."
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["fixed array", "index", "slice", "len", "bounds check", "memory layout"]
+tags = ["lecture", "arrays", "slices"]
+objectives = [
+    "Describe an array as boxes in a row numbered from 0",
+    "Say what a slice contains and why it copies nothing",
+    "Predict what happens when an index is outside the array",
+]
+prerequisites = ["loops/boss-number-oracle"]
+
+[[examples]]
+name = "array_basics"
+expect_stdout = """
+first: 12
+day 0: 12
+day 1: 15
+day 2: 11
+day 3: 14
+"""
+
+[[examples]]
+name = "slice_window"
+expect_stdout = """
+all has 5 values
+middle has 3 values, first is 15
+15
+9
+14
+4 primes, last 7
+"""
+
+[[questions]]
+id = "last-index"
+type = "choice"
+prompt = "A program declares `i32[6] marks`. Which index reads the last element?"
+choices = ["6", "5", "7", "There is no valid index"]
+answer = 2
+why = [
+    "Counting starts at 0, so index 6 is the seventh box.",
+    "",
+    "That is two boxes past the end.",
+    "Every array with at least one element has a last index.",
+]
+explanation = "Indexes run from 0 to N - 1. An array of six boxes has the indexes 0, 1, 2, 3, 4 and 5."
+
+[[questions]]
+id = "window-effect"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+public Status(Error) main() {
+    i32[4] values = { 10, 20, 30, 40 };
+    []const i32 window = values[1..3];
+    values[2] = 99;
+    println("{} {}", window.len, window[1])?;
+    return Status::Ok;
+}
+"""
+expect = "2 99\n"
+explanation = "The slice `values[1..3]` has two elements and borrows the array's own boxes. Changing `values[2]` is visible through the window, because nothing was copied."
+
+[[questions]]
+id = "slice-contents"
+type = "multi"
+prompt = "Which of these does a slice such as `[]const i32` hold?"
+choices = [
+    "A pointer to its first element",
+    "A copy of every element",
+    "The number of elements",
+    "The name of the array it came from",
+]
+answers = [1, 3]
+why = [
+    "",
+    "A slice copies nothing; it points at values stored elsewhere.",
+    "",
+    "A slice knows only an address and a length, not where it came from.",
+]
+explanation = "A slice is a pointer plus a length: two small values, however many elements it covers."
+
+[[questions]]
+id = "past-the-end"
+type = "choice"
+prompt = "A `dpm` build runs `i32[3] a = { 1, 2, 3 }; println(\"{}\", a[3])?;`. What happens?"
+choices = [
+    "It prints 3",
+    "It prints 0",
+    "The program stops with `panic: array index out of bounds`",
+    "The compiler silently adds a fourth element",
+]
+answer = 3
+why = [
+    "3 is the last value, but it sits at index 2. Index 3 does not exist.",
+    "Nothing is read from memory that is not part of the array.",
+    "",
+    "The size of an array never changes.",
+]
+explanation = "Every index is checked. Index 3 is outside `i32[3]`, so the program stops with a panic that names the line, instead of reading whatever is stored next to the array."
+
+[[cards]]
+id = "array-index"
+front = "Which index does the first element of an array have, and which the last?"
+back = "The first is 0 and the last is N - 1 for an array of N elements."
+
+[[cards]]
+id = "slice-parts"
+front = "What is a slice?"
+back = "A pointer to the first element plus a length: a window onto values stored elsewhere. It copies and owns nothing."
+
+[[cards]]
+id = "range-end"
+front = "Which elements does `values[1..4]` cover?"
+back = "Indexes 1, 2 and 3. The end of a range is not included."

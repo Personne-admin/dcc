@@ -1,0 +1,35 @@
+module main;
+
+import stack;
+using stack::Stack;
+
+public Status(Error) main() {
+    Stack(i32) numbers = {};
+    usize accepted = 0;
+    for i32 n in 1..=10 {
+        if numbers.push(n) {
+            accepted += 1;
+        }
+    }
+    println("accepted {} of 10, size {}", accepted, numbers.size())?;
+
+    print("popped:")?;
+    for usize i in 0..3 {
+        print(" {}", numbers.pop().unwrap_some())?;
+    }
+    println("")?;
+    println("top is {}, size {}", numbers.peek().unwrap_some(), numbers.size())?;
+
+    Stack(char) letters = {};
+    []const char word = "stack";
+    for char c in word {
+        letters.push(c);
+    }
+    print("reversed: ")?;
+    while letters.size() > 0 {
+        print("{}", letters.pop().unwrap_some())?;
+    }
+    println("")?;
+    println("empty pop is none: {}", letters.pop().is_none())?;
+    return Status::Ok;
+}

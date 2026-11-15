@@ -15,7 +15,7 @@ objectives = [
 ]
 entry_file = "src/main.dc"
 product = "branches"
-prerequisites = ["functions/four-functions"]
+prerequisites = ["decisions/booleans"]
 requires = ["dcc", "dpm"]
 min_dcc = "0.6.0"
 platforms = ["linux", "windows"]

@@ -1,0 +1,7 @@
+module report;
+
+import stats;
+
+public Status(Error) print_summary(const Array([]const char)* words) {
+    return Status::Ok;
+}

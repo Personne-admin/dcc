@@ -1,0 +1,41 @@
+schema = 1
+id = "values/arithmetic"
+revision = 1
+title = "Arithmetic with whole numbers"
+summary = "Convert minutes to hours and minutes, share a bill and see how parentheses change a result."
+kind = "complete-program"
+chapter = "values"
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["arithmetic", "integer division", "remainder", "precedence", "parentheses"]
+tags = ["arithmetic", "operators"]
+objectives = [
+    "Use + - * / and % on whole numbers",
+    "Explain that integer division drops the fraction and % gives what is left",
+    "Use parentheses to control the order of evaluation",
+]
+entry_file = "src/main.dc"
+product = "arithmetic"
+prerequisites = ["values/variables"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the four results"
+expect_stdout = """
+135 minutes = 2 h 15 min
+100 shared by 7 = 14 each, 2 left over
+(8 + 4) * 3 = 36
+8 + 4 * 3 = 20
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Compute hours and each with /, minutes and left_over with %, and write the parentheses exactly where the output shows them."

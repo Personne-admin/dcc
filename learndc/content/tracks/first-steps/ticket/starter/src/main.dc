@@ -1,0 +1,8 @@
+module main;
+
+public Status(Error) main() {
+    // Stage 1: the heading and the journey
+    // Stage 2: seat and price
+    // Stage 3: the farewell and the closing line
+    return Status::Ok;
+}

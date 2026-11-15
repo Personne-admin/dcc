@@ -1,0 +1,16 @@
+module main;
+
+public Status(Error) main() {
+    i32 sections = 5;
+    i32 rails = 0;
+    for i32 s in 0..sections {
+        rails += 1;
+    }
+    i32 posts = 0;
+    for i32 p in 0..=sections {
+        posts += 1;
+    }
+    println("rails: {}", rails)?;
+    println("posts: {}", posts)?;
+    return Status::Ok;
+}

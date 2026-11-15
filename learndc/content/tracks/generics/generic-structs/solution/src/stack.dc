@@ -1,0 +1,36 @@
+module stack;
+
+public using usize CAPACITY = 8;
+
+public struct Stack(T) {
+    T[CAPACITY] items;
+    usize len;
+}
+
+public bool push(T)(Stack(T)* self, T value) {
+    if self.len == CAPACITY {
+        return false;
+    }
+    self.items[self.len] = value;
+    self.len += 1;
+    return true;
+}
+
+public Optional(T) pop(T)(Stack(T)* self) {
+    if self.len == 0 {
+        return Optional::None;
+    }
+    self.len -= 1;
+    return Optional::Some(self.items[self.len]);
+}
+
+public Optional(T) peek(T)(const Stack(T)* self) {
+    if self.len == 0 {
+        return Optional::None;
+    }
+    return Optional::Some(self.items[self.len - 1]);
+}
+
+public usize size(T)(const Stack(T)* self) {
+    return self.len;
+}

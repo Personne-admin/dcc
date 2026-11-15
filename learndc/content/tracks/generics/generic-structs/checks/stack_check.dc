@@ -1,0 +1,43 @@
+module stack_check;
+
+import stack;
+using stack::Stack;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    Stack(f64) reals = {};
+    expect(reals.size() == 0, "a new stack is empty", &failures);
+    expect(reals.pop().is_none(), "pop on an empty stack is none", &failures);
+    expect(reals.peek().is_none(), "peek on an empty stack is none", &failures);
+    expect(reals.push(1.5) && reals.push(2.5), "push accepts values", &failures);
+    expect(reals.size() == 2, "size counts the pushed values", &failures);
+    expect(reals.peek().is_some() && reals.peek().unwrap_some() == 2.5, "peek shows the last value", &failures);
+    expect(reals.size() == 2, "peek does not remove", &failures);
+    expect(reals.pop().unwrap_some() == 2.5, "pop returns the last value", &failures);
+    expect(reals.pop().unwrap_some() == 1.5, "pop returns the earlier value next", &failures);
+    expect(reals.pop().is_none(), "a drained stack pops none", &failures);
+
+    Stack(u8) bytes = {};
+    bool all_fit = true;
+    for u8 b in 0..8 {
+        if !bytes.push(b) {
+            all_fit = false;
+        }
+    }
+    expect(all_fit, "eight pushes fit", &failures);
+    expect(!bytes.push(99), "the ninth push is refused", &failures);
+    expect(bytes.size() == 8, "a refused push changes nothing", &failures);
+    expect(bytes.pop().unwrap_some() == 7, "the refused value was not stored", &failures);
+    expect(bytes.push(42) && bytes.peek().unwrap_some() == 42, "room again after a pop", &failures);
+    return failures;
+}

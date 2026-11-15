@@ -1,0 +1,35 @@
+module counting_check;
+
+import toolkit;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    i32[6] numbers = { 12, -4, 31, 25, 8, 22 };
+    expect(toolkit::count_above(numbers, 20) == 3, "count_above counts 31, 25 and 22", &failures);
+    expect(toolkit::count_above(numbers, 31) == 0, "count_above is strict", &failures);
+    expect(toolkit::count_above(numbers, -100) == 6, "count_above can count everything", &failures);
+    expect(toolkit::count_between(numbers, 10, 25) == 3, "count_between counts 12, 25 and 22", &failures);
+    expect(toolkit::count_between(numbers, 8, 8) == 1, "count_between includes both ends", &failures);
+    expect(toolkit::count_between(numbers, 40, 50) == 0, "count_between can find nothing", &failures);
+
+    f64[4] prices = { 2.5, 9.5, 0.75, 6.0 };
+    expect(toolkit::count_above(prices, 5.0) == 2, "count_above works for f64", &failures);
+    expect(toolkit::count_between(prices, 0.75, 6.0) == 3, "count_between works for f64", &failures);
+
+    u8[4] bytes = { 200, 7, 255, 0 };
+    expect(toolkit::count_above!u8(bytes, 100) == 2, "count_above works for u8 above 127", &failures);
+
+    i32[1] one = { 0 };
+    expect(toolkit::count_above(one[0..0], 1) == 0, "an empty slice has nothing above", &failures);
+    return failures;
+}

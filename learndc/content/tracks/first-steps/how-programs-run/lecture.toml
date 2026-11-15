@@ -1,0 +1,97 @@
+schema = 1
+id = "first-steps/how-programs-run"
+revision = 1
+title = "How a program runs"
+summary = "What source code, the compiler and an executable are, how you work in learndc, and what every line of a tiny program means."
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["source code", "compiler", "executable", "main", "println", "Status", "?"]
+tags = ["lecture", "basics"]
+objectives = [
+    "Say what source code, the compiler and an executable are",
+    "Describe the edit, build, read loop you will repeat in every lesson",
+    "Name the job of each line of a minimal DC program",
+]
+prerequisites = []
+
+[[examples]]
+name = "hello"
+expect_stdout = """
+Hello, world!
+"""
+
+[[examples]]
+name = "top_to_bottom"
+expect_stdout = """
+first
+second
+third
+"""
+
+[[examples]]
+name = "greeting"
+expect_stdout = """
+Good morning, Grace!
+"""
+
+[[questions]]
+id = "compiler-job"
+type = "choice"
+prompt = "What does the compiler do?"
+choices = [
+    "It runs your program line by line",
+    "It translates your source code into an executable the computer can run",
+    "It writes the source code for you",
+    "It saves your file",
+]
+answer = 2
+why = [
+    "Running is done later, by the computer, on the executable the compiler produced.",
+    "",
+    "You write the source code; the compiler only reads it.",
+    "Saving is the job of your editor.",
+]
+explanation = "Source code is for people. The compiler translates it into an executable, which is the file the computer can actually run. If the source breaks a rule, the compiler stops and tells you instead."
+
+[[questions]]
+id = "order-of-lines"
+type = "predict"
+prompt = "What does this program print? Type every line."
+code = """
+module main;
+
+public Status(Error) main() {
+    println("one")?;
+    println("two")?;
+    println("{}", "three")?;
+    return Status::Ok;
+}
+"""
+expect = """
+one
+two
+three
+"""
+explanation = "A program runs its statements from top to bottom, one after the other. Each `println` prints its text and then moves to a new line. The `{}` in the last call is replaced by the text after the comma."
+
+[[questions]]
+id = "program-start"
+type = "short"
+prompt = "Which function does every program start in?"
+accept = ["main", "main()"]
+explanation = "Execution begins at `main`. Everything else in a program is reached from there."
+
+[[cards]]
+id = "source-vs-executable"
+front = "Source code, compiler, executable: how do they fit together?"
+back = "You write source code. The compiler translates it. The result is an executable that the computer runs."
+
+[[cards]]
+id = "main-return"
+front = "What does `return Status::Ok;` at the end of `main` say?"
+back = "The program finished without a problem."
+
+[[cards]]
+id = "question-mark"
+front = "What does the `?` after `println(...)` do?"
+back = "If printing failed, `main` stops there and reports the problem. If it worked, the program goes on."

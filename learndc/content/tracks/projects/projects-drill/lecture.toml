@@ -1,0 +1,131 @@
+schema = 1
+id = "projects/projects-drill"
+revision = 1
+kind = "drill"
+title = "Modules and projects drills"
+summary = "Read the diagnostic of a private function, place a module file, order a manifest, sort visibility rules and predict qualified calls."
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = ["module", "public", "private", "import", "using", "project.dcon", "diagnostics"]
+tags = ["drill", "modules", "projects"]
+objectives = [
+    "Explain an unknown path diagnostic caused by a private declaration",
+    "Say which file path a qualified module name stands for",
+    "Order a project.dcon and apply the visibility rules",
+]
+prerequisites = ["projects/tally"]
+
+[[examples]]
+name = "using_mix"
+expect_stdout = """
+12 12
+1036
+"""
+
+[[questions]]
+id = "private-in-std"
+type = "error"
+prompt = "`std::math::gcd` is public and works. This program calls another function of the same module and does not compile. What does the diagnostic tell you?"
+code = """
+module main;
+
+import std::math;
+
+public Status(Error) main() {
+    println("{}", std::math::math_checked_next_power_of_two(5).unwrap_some())?;
+    return Status::Ok;
+}
+"""
+diagnostic = "unknown path `std::math::math_checked_next_power_of_two`"
+choices = [
+    "The `import std::math;` line is missing",
+    "The function exists but is not `public`, so no other module can reach it",
+    "The function needs a second argument",
+    "Names inside `std::math` must be written without the module path",
+]
+answer = 2
+why = [
+    "The import is on line 3, and `gcd` through the same import works.",
+    "",
+    "A wrong argument count gives a different message, about arguments. This one is about the path.",
+    "The qualified form is exactly what works for the public functions of this module.",
+]
+explanation = "`unknown path` is the message for both a missing import and a private declaration, so check the import first and then the `public` keyword. Here the import is there; the function is a private helper of std::math and a caller is not meant to use it."
+
+[[questions]]
+id = "module-path"
+type = "choice"
+prompt = "A file starts with `module text::words;`. Where must it be, relative to the `src` folder, and how does `main` call its public `count`?"
+choices = [
+    "src/words.dc, called as `words::count(...)`",
+    "src/text/words.dc, after `import text::words;`, called as `text::words::count(...)`",
+    "src/text.dc, called as `text::count(...)`",
+    "Anywhere in src, after `import words;`",
+]
+answer = 2
+why = [
+    "The folder is part of the module path, so the file would be `module words;`.",
+    "",
+    "That file would be the module `text`, not `text::words`.",
+    "The module line has to match the path of the file; the compiler rejects a mismatch.",
+]
+explanation = "A module path mirrors the folders: `text::words` is the file `src/text/words.dc`. Import it with the whole path and write the whole path in front of the name."
+
+[[questions]]
+id = "manifest-order"
+type = "order"
+prompt = "Put the lines of a `project.dcon` in order: the package name comes first, then the version, then the products with the entry file inside the braces."
+code = """
+dpm::v1::Project {
+    name = "grades",
+    version = "0.1.0",
+    products = {
+        { name = "grades", entry = "src/main.dc" },
+    },
+}
+"""
+explanation = "The manifest is one `dpm::v1::Project` value. Its fields are the package name and version and the list of products; each product has a name and the entry file that holds `main`."
+
+[[questions]]
+id = "visibility-rules"
+type = "multi"
+prompt = "Which statements about modules hold?"
+choices = [
+    "A declaration without `public` can only be used inside its own module",
+    "`import grades;` makes the private functions of `grades` callable as `grades::name`",
+    "`using grades::*;` lets you write a public name of `grades` without the prefix",
+    "`public import m;` is needed when a public signature mentions a type from `m`",
+    "The `module` line may use any name as long as the file ends in .dc",
+]
+answers = [1, 3, 4]
+why = [
+    "",
+    "An import never opens private declarations; it only makes the public ones reachable.",
+    "",
+    "",
+    "The module line has to match the path of the file below src.",
+]
+explanation = "Visibility is decided by `public` in the declaring module, not by the importer. `using` only shortens names, and `public import` re-exports the types that your own public signatures expose."
+
+[[questions]]
+id = "qualified-and-using"
+type = "predict"
+prompt = "What does this program print? Type both lines. `gcd` is the greatest common divisor, `lcm` the least common multiple and `ipow(b, e)` is b to the power e."
+example = "using_mix"
+expect = """
+12 12
+1036
+"""
+explanation = "gcd(84, 36) is 12 and lcm(4, 6) is 12. `ipow(2, 10)` is 1024, plus a (12) is 1036. The bare names and the qualified `std::math::lcm` reach the same functions."
+
+[[questions]]
+id = "the-keyword"
+type = "short"
+prompt = "Which keyword, written first in a declaration, lets other modules use it?"
+accept = ["public"]
+explanation = "Declarations are private by default. `public` publishes one function, struct, enum or constant to the modules that import this one."
+
+[[cards]]
+id = "unknown-path"
+front = "You see `unknown path `m::f``. What do you check?"
+back = "That the file imports `m`, that the module path is written in full, and that `f` is declared `public` in m."

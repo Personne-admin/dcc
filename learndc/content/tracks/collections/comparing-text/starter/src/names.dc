@@ -1,0 +1,24 @@
+module names;
+
+public bool is_admin([]const char name) {
+    return name == "admin";
+}
+
+public usize count_name([]const []const char names, []const char who) {
+    usize total = 0;
+    for name in names {
+        if name == who {
+            total++;
+        }
+    }
+    return total;
+}
+
+public bool has_name([]const []const char names, []const char who) {
+    for name in names {
+        if name == who {
+            return true;
+        }
+    }
+    return false;
+}

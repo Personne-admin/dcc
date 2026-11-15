@@ -1,0 +1,194 @@
+schema = 1
+id = "library/library-drill"
+revision = 1
+kind = "drill"
+title = "Library drills"
+summary = "Predict format specs, sorting and searching, find a binary search on unsorted data and recall what the library helpers do."
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["format specs", "std::sort", "std::slice", "binary search", "import"]
+tags = ["drill", "library"]
+objectives = [
+    "Predict the exact text a combination of width, alignment, fill and base specs prints",
+    "Predict what sorting, reversing and counting leave in a slice",
+    "Explain why a binary search needs sorted data and what a missing import reports",
+]
+prerequisites = ["library/sort-and-search"]
+
+[[questions]]
+id = "spec-table"
+type = "predict"
+prompt = "What does this program print? Type every line exactly; spaces count."
+code = """
+module main;
+
+public Status(Error) main() {
+    println("[{:>6}] [{:<6}] [{:^6}]", 42, 42, 42)?;
+    println("{:04} {:x} {:X} {:b}", 7, 255, 255, 5)?;
+    println("{:.1} {:6.2}|", 3.14159, 2.0)?;
+    println("{:*>5} {:+}", "ab", 9)?;
+    return Status::Ok;
+}
+"""
+expect = """
+[    42] [42    ] [  42  ]
+0007 ff FF 101
+3.1   2.00|
+***ab +9
+"""
+explanation = "Width 6 pads 42 to six columns; `>` pushes it right, `<` left and `^` centers it with two spaces on each side. `{:04}` zero-pads to 4 digits, `{:x}` and `{:X}` print 255 in lower- and upper-case hexadecimal and `{:b}` prints 5 as 101. `{:.1}` keeps one decimal, and `{:6.2}` keeps two decimals in six columns, so 2.00 gets two spaces in front. `{:*>5}` right-aligns \"ab\" in five columns filled with stars, and `{:+}` always shows the sign."
+
+[[questions]]
+id = "sort-reverse-count"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+import std::sort;
+import std::slice;
+
+public Status(Error) main() {
+    i32[6] data = { 5, 3, 8, 3, 1, 3 };
+    []i32 view = data;
+    std::sort::sort(view);
+    std::slice::reverse(view);
+    println("{} {}", view[0], view[5])?;
+    println("{}", std::slice::count(view, 3))?;
+    println("{}", std::slice::index_of(view, 5).unwrap_some())?;
+    return Status::Ok;
+}
+"""
+expect = """
+8 1
+3
+1
+"""
+explanation = "Sorting gives 1 3 3 3 5 8 and reversing gives 8 5 3 3 3 1, so the first element is 8 and the last is 1. Three elements equal 3. `index_of` returns the position of the first match, and 5 now sits at index 1."
+
+[[questions]]
+id = "unsorted-search"
+type = "bug"
+prompt = "`has_score` should report whether a score is on the board, but it answers `false` for 20 even though 20 is in the data. Which line is the bug?"
+code = """
+module main;
+import std::sort;
+
+bool has_score(i32[5] data, i32 score) {
+    []i32 view = data;
+    return std::sort::binary_search(view, score).is_some();
+}
+
+public Status(Error) main() {
+    i32[5] data = { 40, 10, 30, 20, 50 };
+    println("{}", has_score(data, 20))?;
+    return Status::Ok;
+}
+"""
+lines = [6]
+fixed = """
+module main;
+import std::sort;
+
+bool has_score(i32[5] data, i32 score) {
+    []i32 view = data;
+    std::sort::sort(view);
+    return std::sort::binary_search(view, score).is_some();
+}
+
+public Status(Error) main() {
+    i32[5] data = { 40, 10, 30, 20, 50 };
+    println("{}", has_score(data, 20))?;
+    return Status::Ok;
+}
+"""
+expect = "true\n"
+explanation = "`binary_search` compares with the middle element and throws half of the range away, which is only correct when the slice is sorted ascending. On 40 10 30 20 50 it discards the half that holds 20. Sort first (or use `std::slice::contains`, which checks every element and needs no order)."
+
+[[questions]]
+id = "missing-import"
+type = "error"
+prompt = "The compiler rejects this program. What is the real cause?"
+code = """
+module main;
+
+public Status(Error) main() {
+    i32[3] data = { 3, 1, 2 };
+    std::sort::sort(data);
+    return Status::Ok;
+}
+"""
+diagnostic = "unknown path `std::sort::sort`"
+choices = [
+    "`sort` only works on `f64` values",
+    "The module `std::sort` was never imported",
+    "A fixed array can never be sorted",
+    "`sort` must be written without the module name",
+]
+answer = 2
+why = [
+    "`sort` works for every element type that can be ordered, including `i32`.",
+    "",
+    "A fixed array converts to a slice at the call, and sort works on slices.",
+    "The library function lives in its module; the qualified path is how you reach it once the module is imported.",
+]
+explanation = "Library modules outside the prelude must be imported before their names exist. Add `import std::sort;` below the module line and the same call compiles."
+
+[[questions]]
+id = "first-match"
+type = "trace"
+prompt = "Which index does this program print? Remember what `index_of` returns when the value occurs more than once."
+code = """
+module main;
+import std::slice;
+
+public Status(Error) main() {
+    i32[6] data = { 4, 9, 7, 9, 2, 9 };
+    Optional(usize) at = std::slice::index_of(data, 9);
+    println("{}", at.unwrap_some())?;
+    return Status::Ok;
+}
+"""
+accept = ["1", "one"]
+expect = "1\n"
+explanation = "`index_of` scans from the front and stops at the first match, which is index 1. `std::slice::last_index_of` scans from the back and would answer 5."
+
+[[questions]]
+id = "which-helper"
+type = "multi"
+prompt = "Which statements about these library helpers hold?"
+choices = [
+    "`std::sort::sort` changes the order of the elements in the slice you pass",
+    "`std::slice::count(items, x)` returns how many elements equal `x`",
+    "`std::sort::binary_search` works on any slice, sorted or not",
+    "`std::slice::index_of_max` returns an `Optional(usize)` because the slice may be empty",
+]
+answers = [1, 2, 4]
+why = [
+    "",
+    "",
+    "It only gives correct answers on a slice sorted ascending.",
+    "",
+]
+explanation = "Sorting works in place on the caller's elements. Counting reads only. Binary search needs ascending order. A search or an extreme of an empty slice has no index to return, so the library answers with an Optional and you decide what none means."
+
+[[questions]]
+id = "missing-result"
+type = "short"
+prompt = "What type does a library search return so that it can say \"not found\" without inventing a fake index? One word."
+accept = ["optional"]
+explanation = "`Optional(usize)` is either `Optional::Some(index)` or `Optional::None`. Test with `is_some()` before you call `unwrap_some()`."
+
+[[cards]]
+id = "binary-needs-sorted"
+front = "What must be true of a slice before `std::sort::binary_search`?"
+back = "It must be sorted ascending. The search discards half of the range at every step and only the right half to discard is known when the order holds."
+
+[[cards]]
+id = "sort-descending"
+front = "How do you sort a slice from high to low with the library?"
+back = "`std::sort::sort(items);` then `std::slice::reverse(items);`. Both work in place."
+
+[[cards]]
+id = "width-align"
+front = "What do `{:>8}`, `{:<8}`, `{:^8}`, `{:08}` and `{:.2}` do?"
+back = "Right-align, left-align and center in 8 columns; zero-pad to 8 digits; keep two decimals of a float."

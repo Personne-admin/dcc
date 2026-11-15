@@ -1,0 +1,68 @@
+module config;
+
+import std::slice;
+
+public struct Settings {
+    []const char name;
+    u32 port;
+    bool verbose;
+}
+
+public struct Pair {
+    []const char key;
+    []const char value;
+}
+
+public enum NumberError {
+    Empty,
+    NotADigit,
+    TooLarge,
+}
+
+public enum Problem {
+    NoEquals,
+    UnknownKey,
+    BadPort(NumberError),
+    BadFlag,
+}
+
+public struct LoadError {
+    usize line;
+    Problem problem;
+}
+
+public Settings default_settings() {
+    return Settings { name = "unnamed", port = 80, verbose = false };
+}
+
+public []const char trim([]const char text) {
+    usize start = 0;
+    usize end = text.len;
+    while start < end && text[start] == ' ' {
+        start += 1;
+    }
+    while end > start && text[end - 1] == ' ' {
+        end -= 1;
+    }
+    return text[start..end];
+}
+
+public Optional(Pair) split_line([]const char line) {
+    return Optional::None;
+}
+
+public Result(u32, NumberError) parse_port([]const char text) {
+    return Result::Err(NumberError::Empty);
+}
+
+public Optional(bool) parse_flag([]const char text) {
+    return Optional::None;
+}
+
+public Status(Problem) apply_line(Settings* settings, []const char line) {
+    return Problem::NoEquals;
+}
+
+public Result(Settings, LoadError) load([]const char text) {
+    return Result::Ok(default_settings());
+}

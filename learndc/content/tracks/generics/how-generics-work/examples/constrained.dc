@@ -1,0 +1,21 @@
+module main;
+
+using Addable(T) = compiles(T a, T b) {
+    a + b;
+};
+
+T total(T)([]const T items) if Addable(T) {
+    T sum = items[0];
+    for usize i = 1; i < items.len; i++ {
+        sum = sum + items[i];
+    }
+    return sum;
+}
+
+public Status(Error) main() {
+    i32[4] counts = { 4, 8, 15, 16 };
+    f64[3] weights = { 0.5, 0.25, 1.0 };
+    println("{}", total(counts))?;
+    println("{}", total(weights))?;
+    return Status::Ok;
+}

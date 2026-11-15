@@ -1,0 +1,22 @@
+module main;
+
+u64 factorial(u64 n) {
+    u64 result = 1;
+    for u64 i = 2; i <= n; i++ {
+        result *= i;
+    }
+    return result;
+}
+
+u32 triple(u32 n) {
+    return n * 3;
+}
+
+using u64 FACTORIAL_10 = factorial(10);
+
+public Status(Error) main() {
+    i32[triple(2)] buffer = {};
+    println("10! = {}", FACTORIAL_10)?;
+    println("buffer holds {} bytes", sizeof(buffer))?;
+    return Status::Ok;
+}

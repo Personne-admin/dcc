@@ -1,0 +1,128 @@
+schema = 1
+id = "functions/what-functions-do"
+revision = 1
+title = "What functions do"
+summary = "Why code gets a name, how to read a signature, how a call flows and why parameters are copies."
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["function", "signature", "parameter", "argument", "return value", "call"]
+tags = ["lecture", "functions"]
+objectives = [
+    "Name the four parts of a function signature",
+    "Follow a call chain and say which value each return sends back",
+    "Explain why changing a parameter does not change the caller's variable",
+]
+prerequisites = ["values/values-drill"]
+
+[[examples]]
+name = "repeat_work"
+expect_stdout = """
+small box: 24
+big box: 1000
+flat box: 64
+"""
+
+[[examples]]
+name = "call_flow"
+expect_stdout = """
+a = 11
+again: 13
+"""
+
+[[examples]]
+name = "copies"
+expect_stdout = """
+score 50, better 60
+"""
+
+[[questions]]
+id = "what-return-does"
+type = "choice"
+prompt = "What does `return value;` do inside a function?"
+choices = [
+    "It prints the value on the screen",
+    "It ends the function at once and hands the value to the caller",
+    "It stores the value in a variable of the caller",
+    "It marks the function as `public`",
+]
+answer = 2
+why = [
+    "Printing is a separate job, done with println. A function can return a value without printing anything.",
+    "",
+    "The caller decides what to do with the value: store it, print it or pass it on.",
+    "Visibility is written with `public` in the signature; return has nothing to do with it.",
+]
+explanation = "return leaves the function immediately and the call expression becomes that value. Whatever the caller wants to do with it is the caller's business."
+
+[[questions]]
+id = "nested-calls"
+type = "predict"
+prompt = "What does this program print? Work out the inner calls first."
+code = """
+module main;
+
+i32 add(i32 a, i32 b) {
+    return a + b;
+}
+
+public Status(Error) main() {
+    println("{}", add(add(1, 2), add(3, 4)))?;
+    return Status::Ok;
+}
+"""
+expect = "10\n"
+explanation = "The arguments are evaluated first: add(1, 2) is 3 and add(3, 4) is 7. The outer call then computes 3 + 7."
+
+[[questions]]
+id = "missing-return"
+type = "error"
+prompt = "The compiler rejects this function. What is the real cause?"
+code = """
+module main;
+
+i32 twice(i32 n) {
+    i32 result = n * 2;
+}
+
+public Status(Error) main() {
+    println("{}", twice(4))?;
+    return Status::Ok;
+}
+"""
+diagnostic = "missing return in function `twice`"
+choices = [
+    "`n * 2` is not allowed inside a function",
+    "The function computes a value but never returns it",
+    "A function may not declare local variables",
+    "`twice` is a reserved word",
+]
+answer = 2
+why = [
+    "Arithmetic works anywhere; the line declares `result` without trouble.",
+    "",
+    "Local variables are normal in function bodies; this function has one.",
+    "`twice` is a normal name, it is used the same way in the lecture example.",
+]
+explanation = "The signature promises an i32, but the body ends without a `return`. Writing `return result;` (or `return n * 2;`) keeps the promise."
+
+[[questions]]
+id = "return-type"
+type = "short"
+prompt = "What is the return type of `bool is_adult(i32 age)`? Type the type name."
+accept = ["bool"]
+explanation = "The return type is written first in the signature, before the name. Here it is bool."
+
+[[cards]]
+id = "signature-parts"
+front = "What are the parts of a function signature, in order?"
+back = "Return type, name, then the parameter list in parentheses: `i32 box_volume(i32 width, i32 height)`. The body follows in braces."
+
+[[cards]]
+id = "parameters-copies"
+front = "A function changes its parameter. What happens to the caller's variable?"
+back = "Nothing. The parameter is a copy of the argument; return the new value and let the caller store it."
+
+[[cards]]
+id = "call-evaluation"
+front = "In `f(g(3))`, which call runs first?"
+back = "g(3). Arguments are evaluated before the function that receives them is called."

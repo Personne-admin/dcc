@@ -1,0 +1,34 @@
+module parse_flag;
+
+import config;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+void expect_flag([]const char text, bool want, i32* failures) {
+    match config::parse_flag(text) {
+        Optional::Some(flag) => expect(flag == want, text, failures),
+        Optional::None => expect(false, text, failures),
+    }
+}
+
+void expect_none([]const char text, i32* failures) {
+    expect(config::parse_flag(text).is_none(), text, failures);
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect_flag("true", true, &failures);
+    expect_flag("false", false, &failures);
+    expect_none("yes", &failures);
+    expect_none("True", &failures);
+    expect_none("", &failures);
+    expect_none("truee", &failures);
+    return failures;
+}

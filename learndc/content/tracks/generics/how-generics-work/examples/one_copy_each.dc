@@ -1,0 +1,15 @@
+module main;
+
+usize bytes_used(T)(T value) {
+    return sizeof(T);
+}
+
+public Status(Error) main() {
+    u8 small = 7;
+    i32 medium = 7;
+    f64 large = 7.0;
+    println("u8 copy: {} byte", bytes_used(small))?;
+    println("i32 copy: {} bytes", bytes_used(medium))?;
+    println("f64 copy: {} bytes", bytes_used(large))?;
+    return Status::Ok;
+}

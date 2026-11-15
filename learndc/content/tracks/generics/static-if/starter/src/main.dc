@@ -1,0 +1,15 @@
+module main;
+
+import kinds;
+
+public Status(Error) main() {
+    println("{:<6}{:<10}{}", "type", "kind", "size")?;
+    println("{:<6}{:<10}{}", "i32", kinds::kind_of!i32(), kinds::size_class!i32())?;
+    println("{:<6}{:<10}{}", "u8", kinds::kind_of!u8(), kinds::size_class!u8())?;
+    println("{:<6}{:<10}{}", "i64", kinds::kind_of!i64(), kinds::size_class!i64())?;
+    println("{:<6}{:<10}{}", "f32", kinds::kind_of!f32(), kinds::size_class!f32())?;
+    println("{:<6}{:<10}{}", "f64", kinds::kind_of!f64(), kinds::size_class!f64())?;
+    println("{:<6}{:<10}{}", "bool", kinds::kind_of!bool(), kinds::size_class!bool())?;
+    println("{:<6}{:<10}{}", "char", kinds::kind_of!char(), kinds::size_class!char())?;
+    return Status::Ok;
+}

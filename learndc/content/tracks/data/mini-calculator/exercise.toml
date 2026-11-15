@@ -15,7 +15,7 @@ objectives = [
 ]
 entry_file = "src/main.dc"
 product = "calculator"
-prerequisites = ["functions/reading-errors"]
+prerequisites = ["data/tagged-enums"]
 requires = ["dcc", "dpm"]
 min_dcc = "0.6.0"
 platforms = ["linux", "windows"]

@@ -1,0 +1,176 @@
+schema = 1
+id = "functions/functions-drill"
+revision = 1
+kind = "drill"
+title = "Functions drills"
+summary = "Trace call chains, predict copies, read a mismatched call, fix a precedence bug and recall the parts of a function."
+difficulty = "beginner"
+estimated_minutes = 12
+concepts = ["function", "call", "parameter", "return", "diagnostics", "precedence"]
+tags = ["drill", "functions"]
+objectives = [
+    "Follow nested calls and say what each one returns",
+    "Predict what a function can and cannot change in its caller",
+    "Recognise a call whose arguments do not fit the signature",
+]
+prerequisites = ["functions/printing-functions"]
+
+
+[[questions]]
+id = "chain"
+type = "trace"
+prompt = "What does `h(4)` return? Evaluate the inner calls first and write the number."
+code = """
+module main;
+
+i32 f(i32 x) {
+    return x + 1;
+}
+
+i32 g(i32 x) {
+    return f(x) * 2;
+}
+
+i32 h(i32 x) {
+    return g(f(x)) - 3;
+}
+
+public Status(Error) main() {
+    println("{}", h(4))?;
+    return Status::Ok;
+}
+"""
+accept = ["9", "nine"]
+expect = "9\n"
+explanation = "h(4) first needs f(4), which is 5. Then g(5) computes f(5) * 2, which is 6 * 2 = 12. Finally 12 - 3 is 9."
+
+[[questions]]
+id = "copies"
+type = "predict"
+prompt = "What does this program print? Remember what a parameter is."
+code = """
+module main;
+
+i32 bump(i32 n) {
+    n += 1;
+    return n;
+}
+
+public Status(Error) main() {
+    i32 a = 5;
+    bump(a);
+    i32 b = bump(a);
+    println("{} {}", a, b)?;
+    return Status::Ok;
+}
+"""
+expect = "5 6\n"
+explanation = "Each call changes only its own copy of `n`. The first call's result is thrown away and `a` stays 5. The second call's result is stored in `b`, which is 6."
+
+[[questions]]
+id = "wrong-argument"
+type = "error"
+prompt = "The compiler rejects this program. What is the real cause?"
+code = """
+module main;
+
+i32 square(i32 n) {
+    return n * n;
+}
+
+public Status(Error) main() {
+    println("{}", square("5"))?;
+    return Status::Ok;
+}
+"""
+diagnostic = "no matching call for `square`"
+choices = [
+    "`square` is not declared anywhere",
+    "The argument is text, but `square` expects an `i32`",
+    "`square` needs two arguments",
+    "`println` cannot print the result of a function",
+]
+answer = 2
+why = [
+    "It is declared above `main`. The note under the error even prints its signature.",
+    "",
+    "The candidate shown in the note is `square(i32)`: one parameter.",
+    "println prints any value, including the result of a call.",
+]
+explanation = "The candidate note says: cannot convert argument 1, expected `i32`, found `[]const char`. \"5\" in quotes is text. Write the number 5 without quotes."
+
+[[questions]]
+id = "average-bug"
+type = "bug"
+prompt = "`average(4, 8)` should be 6 but the program prints 8. Which line is the bug?"
+code = """
+module main;
+
+i32 average(i32 a, i32 b) {
+    return a + b / 2;
+}
+
+public Status(Error) main() {
+    println("{}", average(4, 8))?;
+    return Status::Ok;
+}
+"""
+lines = [4]
+fixed = """
+module main;
+
+i32 average(i32 a, i32 b) {
+    return (a + b) / 2;
+}
+
+public Status(Error) main() {
+    println("{}", average(4, 8))?;
+    return Status::Ok;
+}
+"""
+expect = "6\n"
+explanation = "Division binds tighter than addition, so `a + b / 2` is 4 + (8 / 2) = 8. Parentheses make the sum happen first: (4 + 8) / 2 = 6."
+
+[[questions]]
+id = "order-body"
+type = "order"
+prompt = "Put the lines in order so that `with_tax` returns the price plus 10 percent tax. Each line may only use names that already exist."
+code = """
+i32 with_tax(i32 price) {
+    i32 tax = price / 10;
+    i32 total = price + tax;
+    return total;
+}
+"""
+explanation = "The signature comes first and the closing brace last. `total` uses `tax`, so `tax` must be declared before it, and `return` leaves the function once the value is ready."
+
+[[questions]]
+id = "signature-facts"
+type = "multi"
+prompt = "Which statements about `bool in_range(i32 n, i32 low, i32 high)` are true?"
+choices = [
+    "It takes three arguments",
+    "It returns a `bool`",
+    "`low` and `high` are the names of two functions",
+    "`in_range(5, 1)` is a valid call",
+]
+answers = [1, 2]
+why = [
+    "",
+    "",
+    "They are parameters: local variables that receive the caller's values.",
+    "The call has two arguments for three parameters; the compiler reports `no matching call`.",
+]
+explanation = "The leading `bool` is the return type and the parentheses list three typed parameters. A call must supply one argument for each of them."
+
+[[questions]]
+id = "return-keyword"
+type = "short"
+prompt = "Which keyword ends a function and hands a value to its caller?"
+accept = ["return"]
+explanation = "`return value;` leaves the function immediately and the call becomes that value."
+
+[[cards]]
+id = "functions-reuse"
+front = "Why call `square` from `sum_of_squares` instead of repeating `n * n`?"
+back = "The recipe lives in one place. A fix or improvement to `square` helps every caller."

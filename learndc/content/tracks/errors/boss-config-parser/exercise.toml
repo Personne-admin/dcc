@@ -1,0 +1,179 @@
+schema = 1
+id = "errors/boss-config-parser"
+revision = 1
+title = "The Config Parser"
+summary = "Load a small key = value configuration from text: split lines, parse numbers and flags, and report the first problem with its line number."
+kind = "challenge"
+difficulty = "intermediate"
+estimated_minutes = 60
+concepts = ["Optional", "Result", "Status", "?", "error enum", "match", "slices", "structs"]
+tags = ["boss", "errors", "structs", "enums"]
+objectives = [
+    "Choose Optional, Result or Status for each step of a small parser",
+    "Describe failures with enums and carry the failing line number in a struct",
+    "Turn every failure into a clear message without ever guessing a value"
+]
+entry_file = "src/main.dc"
+product = "config_loader"
+prerequisites = ["errors/errors-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 3
+story = """
+The new game server reads its settings from a text file, and the old loader
+turned every typo into a quiet zero: port 80x started on port 0 and nobody
+knew why. The operators want a loader that says exactly which line is wrong
+and why. Build it piece by piece, from one line of text up to the report.
+"""
+
+[[stages]]
+id = "old-loader"
+title = "Read the old loader"
+summary = "Find the line in the retired loader that hides bad input."
+questions = ["old-parse-port"]
+hints = ["The loader returns a plain u32. What number does a caller see when the text is not a number at all?"]
+
+[[stages]]
+id = "split-line"
+title = "Split a line"
+summary = "split_line cuts one line at the first = into a trimmed key and value, or says there is no =."
+hints = [
+    "There is no answer when the line has no =, and no reason is needed: that is an Optional. Return Optional::None for it.",
+    "Walk the line with an index loop until line[i] == '='. Then Pair { key = ..., value = ... } is built from the slices line[0..i] and line[i + 1..line.len], each passed through the provided trim.",
+]
+
+[[stages]]
+id = "parse-port"
+title = "Parse a port number"
+summary = "parse_port turns decimal text into a u32 of at most 65535 and says why when it cannot."
+hints = [
+    "Here the reason matters (empty, wrong character, too big), so the return type is a Result with the NumberError enum. Check the empty text first.",
+    "Loop over the characters. A character outside '0' to '9' returns Result::Err(NumberError::NotADigit). Otherwise value = value * 10 + digit, and stop with TooLarge as soon as value passes 65535, before the number can overflow.",
+]
+
+[[stages]]
+id = "parse-flag"
+title = "Parse true or false"
+summary = "parse_flag returns Some(true) for the text true, Some(false) for false and None for anything else."
+hints = [
+    "Only two texts are valid and nothing else needs explaining, so Optional(bool) is enough.",
+    "Text is compared with std::slice::eq(text, \"true\"), not with ==.",
+]
+
+[[stages]]
+id = "apply-line"
+title = "Apply one line"
+summary = "apply_line splits a line and updates the matching field of Settings, or fails with a Problem."
+hints = [
+    "Start with split_line: when it is None return Problem::NoEquals. Otherwise unwrap the pair and compare pair.key with std::slice::eq against \"name\", \"port\" and \"verbose\".",
+    "For the port, match on parse_port(pair.value): Ok stores the number in settings.port, Err wraps the NumberError as Problem::BadPort(why). Build the problem in a local variable first and return that variable. An unknown key returns Problem::UnknownKey.",
+]
+
+[[stages]]
+id = "load-and-report"
+title = "Load the file and report"
+summary = "load applies every line and fails with the line number of the first problem; main prints the settings or the error."
+hints = [
+    "Walk the text with an index loop. Each time you reach a '\\n' (or the end of the text) you have a line, text[start..i]. Keep a line counter that starts at 1.",
+    "Call apply_line(&settings, line) and match on it: Status::Err(problem) returns Result::Err(LoadError { line = number, problem = problem }). After the loop return Result::Ok(settings). Skip the empty piece after a final newline.",
+    "report matches on load: Ok prints the three settings lines, Err prints \"line N: \" with print and then calls describe, which matches Problem and, for BadPort, a second match on the NumberError. Print inside the arms."
+]
+
+[[stages]]
+id = "comments"
+title = "Bonus: comments and blank lines"
+summary = "load skips blank lines and lines starting with # but still counts them."
+optional = true
+hints = ["After trimming the line, skip it when its length is 0 or its first character is '#'. Do not skip the line counter."]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "split_line trims and finds the first ="
+stage = "split-line"
+harness = "checks/split_line.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "parse_port reads numbers and reports why not"
+stage = "parse-port"
+harness = "checks/parse_port.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "parse_flag accepts only true and false"
+stage = "parse-flag"
+harness = "checks/parse_flag.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "apply_line updates one field or fails"
+stage = "apply-line"
+harness = "checks/apply_line.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "load reports the line of the first problem"
+stage = "load-and-report"
+harness = "checks/load.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "The loader report"
+stage = "load-and-report"
+expect_stdout = """
+loaded tiny-server
+  port: 8080
+  verbose: true
+line 2: port is too large
+line 2: verbose must be true or false
+line 2: unknown key
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Each file prints either three settings lines or one error line that starts with the line number. Compare the exact wording with the README."
+
+[[checks]]
+kind = "harness"
+name = "load skips comments and blank lines"
+stage = "comments"
+harness = "checks/bonus.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[questions]]
+id = "old-parse-port"
+type = "bug"
+prompt = "The retired loader read `port = 80x` as port 0 and started without a word. Which line is to blame?"
+code = """
+u32 parse_port([]const char text) {
+    u32 value = 0;
+    for c in text {
+        if c < '0' || c > '9' {
+            return 0;
+        }
+        value = value * 10 + ((c as u32) - ('0' as u32));
+    }
+    return value;
+}
+"""
+lines = [5]
+explanation = "Line 5 returns 0 for text that is not a number, and 0 is also what the text `0` parses to. The caller cannot tell a failure from a real zero. Your parse_port returns a Result, so the failure has its own variant and cannot be mistaken for a number."

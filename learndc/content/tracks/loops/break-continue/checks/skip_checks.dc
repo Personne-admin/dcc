@@ -1,0 +1,24 @@
+module skip_checks;
+
+import search;
+using search::*;
+
+bool expect(i32 n, i32 want) {
+    i32 got = sum_skipping_threes(n);
+    if got == want {
+        println("ok    sum_skipping_threes({})", n);
+        return true;
+    }
+    println("FAIL  sum_skipping_threes({}): expected {}, got {}", n, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect(0, 0) { failures += 1; }
+    if !expect(2, 3) { failures += 1; }
+    if !expect(3, 3) { failures += 1; }
+    if !expect(10, 37) { failures += 1; }
+    if !expect(30, 300) { failures += 1; }
+    return failures;
+}

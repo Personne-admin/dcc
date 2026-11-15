@@ -1,0 +1,49 @@
+schema = 1
+id = "generics/generic-structs"
+revision = 1
+title = "A generic stack"
+summary = "Add pop, peek and size to a fixed-capacity Stack(T) so the same struct holds integers, characters or anything else."
+kind = "complete-program"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["struct template", "generic functions on structs", "Optional(T)", "fixed capacity"]
+tags = ["generics", "structs"]
+objectives = [
+    "Read a struct template such as Stack(T) and instantiate it as Stack(i32) or Stack(char)",
+    "Write generic functions that take Stack(T)* and return Optional(T)",
+    "Keep a length counter that guards a fixed array",
+]
+entry_file = "src/main.dc"
+product = "stacks"
+prerequisites = ["generics/generic-functions"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Stacks of integers and characters"
+expect_stdout = """
+accepted 8 of 10, size 8
+popped: 8 7 6
+top is 5, size 5
+reversed: kcats
+empty pop is none: true
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "pop must decrease the length before it reads the element, and peek must read the same element without changing the length."
+
+[[checks]]
+kind = "harness"
+name = "Stack works for floats and bytes, empty and full"
+harness = "checks/stack_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Return Optional::None when len is 0, and make sure a refused push leaves len alone."

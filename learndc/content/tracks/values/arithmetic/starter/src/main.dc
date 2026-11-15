@@ -1,0 +1,21 @@
+module main;
+
+public Status(Error) main() {
+    i32 total_minutes = 135;
+    i32 hours = 0;
+    i32 minutes = 0;
+
+    i32 bill = 100;
+    i32 friends = 7;
+    i32 each = 0;
+    i32 left_over = 0;
+
+    i32 grouped = 0;
+    i32 plain = 0;
+
+    println("{} minutes = {} h {} min", total_minutes, hours, minutes)?;
+    println("{} shared by {} = {} each, {} left over", bill, friends, each, left_over)?;
+    println("(8 + 4) * 3 = {}", grouped)?;
+    println("8 + 4 * 3 = {}", plain)?;
+    return Status::Ok;
+}

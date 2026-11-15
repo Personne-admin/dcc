@@ -1,0 +1,18 @@
+module main;
+
+import oracle;
+using oracle::*;
+
+public Status(Error) main() {
+    println("number oracle")?;
+    println("  n digit sum  prime  collatz  gcd(n, 12)")?;
+    i32 primes = 0;
+    for i32 n in 1..=15 {
+        println("{:>3} {:>9} {:>6} {:>8} {:>11}", n, digit_sum(n), is_prime(n), collatz_steps(n), gcd(n, 12))?;
+        if is_prime(n) {
+            primes += 1;
+        }
+    }
+    println("primes up to 15: {}", primes)?;
+    return Status::Ok;
+}

@@ -1,0 +1,6 @@
+module main;
+
+public Status(Error) main() {
+    println("Good morning, {}!", "Grace")?;
+    return Status::Ok;
+}

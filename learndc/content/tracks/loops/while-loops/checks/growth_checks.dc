@@ -1,0 +1,28 @@
+module growth_checks;
+
+import counting;
+using counting::*;
+
+bool expect([]const char call, i32 got, i32 want) {
+    if got == want {
+        println("ok    {}", call);
+        return true;
+    }
+    println("FAIL  {}: expected {}, got {}", call, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect("years_to_double(1000, 10)", years_to_double(1000, 10), 8) { failures += 1; }
+    if !expect("years_to_double(100, 1)", years_to_double(100, 1), 100) { failures += 1; }
+    if !expect("years_to_double(500, 50)", years_to_double(500, 50), 2) { failures += 1; }
+    if !expect("years_to_double(100, 100)", years_to_double(100, 100), 1) { failures += 1; }
+    if !expect("years_to_double(2000, 7)", years_to_double(2000, 7), 11) { failures += 1; }
+    if !expect("first_multiple_above(7, 50)", first_multiple_above(7, 50), 56) { failures += 1; }
+    if !expect("first_multiple_above(7, 49)", first_multiple_above(7, 49), 56) { failures += 1; }
+    if !expect("first_multiple_above(7, 0)", first_multiple_above(7, 0), 7) { failures += 1; }
+    if !expect("first_multiple_above(3, 8)", first_multiple_above(3, 8), 9) { failures += 1; }
+    if !expect("first_multiple_above(10, 100)", first_multiple_above(10, 100), 110) { failures += 1; }
+    return failures;
+}

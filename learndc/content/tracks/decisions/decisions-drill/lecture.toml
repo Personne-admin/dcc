@@ -1,0 +1,154 @@
+schema = 1
+id = "decisions/decisions-drill"
+revision = 1
+kind = "drill"
+title = "Decisions drills"
+summary = "Find a boundary bug, trace an if chain, predict combined conditions and read an if-expression error."
+difficulty = "beginner"
+estimated_minutes = 12
+concepts = ["bool", "comparison", "else if", "if expression", "boundary", "&&", "||"]
+tags = ["drill", "decisions"]
+objectives = [
+    "Spot a comparison that mishandles its boundary value",
+    "Follow an else-if chain and see why test order matters",
+    "Choose conditions that mean the same thing",
+]
+prerequisites = ["decisions/if-expressions"]
+
+[[questions]]
+id = "boundary"
+type = "bug"
+prompt = "Children of 120 cm or taller may ride, but `can_ride(120)` prints false. Which line is the bug?"
+code = """
+module main;
+
+bool can_ride(i32 height) {
+    return height > 120;
+}
+
+public Status(Error) main() {
+    println("{}", can_ride(120))?;
+    return Status::Ok;
+}
+"""
+lines = [4]
+fixed = """
+module main;
+
+bool can_ride(i32 height) {
+    return height >= 120;
+}
+
+public Status(Error) main() {
+    println("{}", can_ride(120))?;
+    return Status::Ok;
+}
+"""
+expect = "true\n"
+explanation = "`>` excludes the boundary value itself. \"120 cm or taller\" includes 120, so the comparison is `>=`. Always test the value exactly on the boundary and one on each side."
+
+[[questions]]
+id = "order-matters"
+type = "trace"
+prompt = "What does the program print? Test the conditions top to bottom and stop at the first true one."
+code = """
+module main;
+
+[]const char size(i32 n) {
+    if n > 10 {
+        return "big";
+    } else if n > 100 {
+        return "huge";
+    }
+    return "small";
+}
+
+public Status(Error) main() {
+    println("{}", size(500))?;
+    return Status::Ok;
+}
+"""
+accept = ["big"]
+expect = "big\n"
+explanation = "500 is greater than 10, so the first branch wins and the `huge` branch can never run. Put the most specific test first: `n > 100` before `n > 10`."
+
+[[questions]]
+id = "combined"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+public Status(Error) main() {
+    i32 a = 7;
+    i32 b = 12;
+    bool x = a > 5 && b < 10;
+    bool y = a > 5 || b < 10;
+    i32 z = if x { 1 } else if y { 2 } else { 3 };
+    println("{} {} {}", x, y, z)?;
+    return Status::Ok;
+}
+"""
+expect = "false true 2\n"
+explanation = "`a > 5` is true and `b < 10` is false. With && both must hold, so x is false. With || one is enough, so y is true. The if expression skips the first branch and takes the second: 2."
+
+[[questions]]
+id = "equivalent"
+type = "multi"
+prompt = "Which conditions mean \"n is NOT between 1 and 10, both ends included\"?"
+choices = [
+    "n < 1 || n > 10",
+    "!(n >= 1 && n <= 10)",
+    "n < 1 && n > 10",
+    "n <= 1 || n >= 10",
+]
+answers = [1, 2]
+why = [
+    "",
+    "",
+    "No number is below 1 and above 10 at the same time, so this is always false.",
+    "This also rejects 1 and 10, which are inside the range.",
+]
+explanation = "Outside the range means below the low end or above the high end (`||`), which is the same as negating the inside test. Joining the two outside tests with && can never be true."
+
+[[questions]]
+id = "semicolon-value"
+type = "error"
+prompt = "The compiler rejects this program. What is the real cause?"
+code = """
+module main;
+
+public Status(Error) main() {
+    i32 a = 3;
+    i32 m = if a > 2 { a; } else { 0 };
+    println("{}", m)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "initializer type mismatch"
+choices = [
+    "An if expression cannot be used as an initializer",
+    "The semicolon after `a` turns the first block into a statement, so it produces no value",
+    "`m` must be declared before the if",
+    "`else { 0 }` is missing a semicolon",
+]
+answer = 2
+why = [
+    "It can; the lesson did exactly that. The problem is inside the block.",
+    "",
+    "A declaration with an initializer is fine; the value is what is wrong.",
+    "A value block must not end in a semicolon; adding one would break the other branch too.",
+]
+explanation = "The value of a block is its last expression without a semicolon. `{ a; }` produces nothing (void), which cannot initialize an i32. Write `{ a }`."
+
+[[questions]]
+id = "and-operator"
+type = "short"
+prompt = "Which operator is true only when both of its sides are true?"
+accept = ["&&"]
+explanation = "`a && b` is true when both are true. `a || b` needs only one, and `!a` flips a single value."
+
+[[cards]]
+id = "boundary-rule"
+front = "How do you catch a boundary bug such as `>` instead of `>=`?"
+back = "Test the value exactly on the boundary and one just on each side."

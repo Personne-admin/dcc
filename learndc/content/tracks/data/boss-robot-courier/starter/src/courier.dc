@@ -1,0 +1,71 @@
+module courier;
+
+public enum Facing {
+    North,
+    East,
+    South,
+    West,
+}
+
+public struct Robot {
+    i32 x;
+    i32 y;
+    Facing facing;
+}
+
+public enum Command {
+    Forward(i32),
+    Left,
+    Right,
+}
+
+public struct Grid {
+    i32 width;
+    i32 height;
+}
+
+public Facing turn_left(Facing facing) {
+    return facing;
+}
+
+public Facing turn_right(Facing facing) {
+    return facing;
+}
+
+public Robot forward(Robot robot, i32 distance) {
+    return robot;
+}
+
+public Robot apply(Robot robot, Command command) {
+    return robot;
+}
+
+public Robot run(Robot robot, []const Command program) {
+    return robot;
+}
+
+public bool inside(Grid grid, i32 x, i32 y) {
+    return false;
+}
+
+public Robot apply_in_grid(Robot robot, Grid grid, Command command, i32* bumps) {
+    return robot;
+}
+
+public Robot run_in_grid(Robot robot, Grid grid, []const Command program, i32* bumps) {
+    return robot;
+}
+
+public bool back_home(Robot start, Grid grid, []const Command program) {
+    return false;
+}
+
+public Status(Error) print_facing(Facing facing) {
+    match facing {
+        Facing::North => print("North")?,
+        Facing::East => print("East")?,
+        Facing::South => print("South")?,
+        Facing::West => print("West")?,
+    }
+    return Status::Ok;
+}

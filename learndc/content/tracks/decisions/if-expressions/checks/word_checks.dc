@@ -1,0 +1,24 @@
+module word_checks;
+
+import std::mem;
+import pick;
+using pick::*;
+
+bool expect(i32 count, []const char want) {
+    []const char got = item_word(count);
+    if std::mem::equal(got, want) {
+        println("ok    item_word({})", count);
+        return true;
+    }
+    println("FAIL  item_word({}): expected \"{}\", got \"{}\"", count, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect(0, "items") { failures += 1; }
+    if !expect(1, "item") { failures += 1; }
+    if !expect(2, "items") { failures += 1; }
+    if !expect(100, "items") { failures += 1; }
+    return failures;
+}

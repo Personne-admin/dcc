@@ -1,0 +1,140 @@
+module config;
+
+import std::slice;
+
+public struct Settings {
+    []const char name;
+    u32 port;
+    bool verbose;
+}
+
+public struct Pair {
+    []const char key;
+    []const char value;
+}
+
+public enum NumberError {
+    Empty,
+    NotADigit,
+    TooLarge,
+}
+
+public enum Problem {
+    NoEquals,
+    UnknownKey,
+    BadPort(NumberError),
+    BadFlag,
+}
+
+public struct LoadError {
+    usize line;
+    Problem problem;
+}
+
+public Settings default_settings() {
+    return Settings { name = "unnamed", port = 80, verbose = false };
+}
+
+public []const char trim([]const char text) {
+    usize start = 0;
+    usize end = text.len;
+    while start < end && text[start] == ' ' {
+        start += 1;
+    }
+    while end > start && text[end - 1] == ' ' {
+        end -= 1;
+    }
+    return text[start..end];
+}
+
+public Optional(Pair) split_line([]const char line) {
+    for usize i = 0; i < line.len; i++ {
+        if line[i] == '=' {
+            return Optional::Some(Pair {
+                key = trim(line[0..i]),
+                value = trim(line[i + 1..line.len]),
+            });
+        }
+    }
+    return Optional::None;
+}
+
+public Result(u32, NumberError) parse_port([]const char text) {
+    if text.len == 0 {
+        return Result::Err(NumberError::Empty);
+    }
+    u32 value = 0;
+    for c in text {
+        if c < '0' || c > '9' {
+            return Result::Err(NumberError::NotADigit);
+        }
+        value = value * 10 + ((c as u32) - ('0' as u32));
+        if value > 65535 {
+            return Result::Err(NumberError::TooLarge);
+        }
+    }
+    return Result::Ok(value);
+}
+
+public Optional(bool) parse_flag([]const char text) {
+    if std::slice::eq(text, "true") {
+        return Optional::Some(true);
+    }
+    if std::slice::eq(text, "false") {
+        return Optional::Some(false);
+    }
+    return Optional::None;
+}
+
+public Status(Problem) apply_line(Settings* settings, []const char line) {
+    Optional(Pair) split = split_line(line);
+    if split.is_none() {
+        return Problem::NoEquals;
+    }
+    Pair pair = split.unwrap_some();
+    if std::slice::eq(pair.key, "name") {
+        settings.name = pair.value;
+        return Status::Ok;
+    }
+    if std::slice::eq(pair.key, "port") {
+        match parse_port(pair.value) {
+            Result::Ok(port) => settings.port = port,
+            Result::Err(why) => {
+                Problem problem = Problem::BadPort(why);
+                return problem;
+            },
+        }
+        return Status::Ok;
+    }
+    if std::slice::eq(pair.key, "verbose") {
+        match parse_flag(pair.value) {
+            Optional::Some(flag) => settings.verbose = flag,
+            Optional::None => return Problem::BadFlag,
+        }
+        return Status::Ok;
+    }
+    return Problem::UnknownKey;
+}
+
+public Result(Settings, LoadError) load([]const char text) {
+    Settings settings = default_settings();
+    usize start = 0;
+    usize number = 1;
+    for usize i = 0; i <= text.len; i++ {
+        if i == text.len || text[i] == '\n' {
+            if i > start || i < text.len {
+                []const char line = trim(text[start..i]);
+                bool skip = line.len == 0 || line[0] == '#';
+                if !skip {
+                    match apply_line(&settings, line) {
+                        Status::Ok => {},
+                        Status::Err(problem) => return Result::Err(LoadError { line = number, problem = problem }),
+                    }
+                }
+            }
+            start = i + 1;
+            number += 1;
+        }
+    }
+    return Result::Ok(settings);
+}

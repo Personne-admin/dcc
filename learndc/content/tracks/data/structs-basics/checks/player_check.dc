@@ -1,0 +1,47 @@
+module player_check;
+
+import std::slice;
+import player;
+
+i32 expect_eq([]const char label, i32 expected, i32 got) {
+    if expected == got {
+        return 0;
+    }
+    println("{}: expected {}, got {}", label, expected, got);
+    return 1;
+}
+
+i32 expect_true([]const char label, bool expected, bool got) {
+    if expected == got {
+        return 0;
+    }
+    println("{}: expected {}, got {}", label, expected, got);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    player::Player a = player::new_player("Ada");
+    failures += expect_true("new_player keeps the name", true, std::slice::eq(a.name, "Ada"));
+    failures += expect_eq("new_player health", 100, a.health);
+    failures += expect_eq("new_player score", 0, a.score);
+
+    player::Player b = player::award(a, 25);
+    failures += expect_eq("award adds the points", 25, b.score);
+    failures += expect_eq("award leaves the health alone", 100, b.health);
+    failures += expect_eq("award does not change the original", 0, a.score);
+
+    player::Player c = player::hit(a, 30);
+    failures += expect_eq("hit lowers the health", 70, c.health);
+    failures += expect_eq("hit does not change the original", 100, a.health);
+    failures += expect_true("hit keeps the name", true, std::slice::eq(c.name, "Ada"));
+
+    player::Player d = player::hit(c, 500);
+    failures += expect_eq("health never goes below 0", 0, d.health);
+    failures += expect_eq("hit keeps the score", 0, d.score);
+
+    failures += expect_true("a fresh player is alive", true, player::is_alive(a));
+    failures += expect_true("1 health is alive", true, player::is_alive(player::hit(a, 99)));
+    failures += expect_true("0 health is not alive", false, player::is_alive(d));
+    return failures;
+}

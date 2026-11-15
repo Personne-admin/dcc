@@ -1,0 +1,41 @@
+module lengths;
+
+import words;
+import stats;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+Status(Error) run(i32* failures) {
+    Array([]const char) out = {};
+    defer out.deinit();
+    stats::LengthStats none = stats::length_stats(&out)?;
+    expect(none.used == 0 && none.common == 0 && none.common_count == 0, "no words: all zero", failures);
+    words::split(&out, "a bb cc ddd e ff gg hh")?;
+    stats::LengthStats ls = stats::length_stats(&out)?;
+    expect(ls.used == 3, "three different lengths are used", failures);
+    expect(ls.common == 2, "length 2 is the most common", failures);
+    expect(ls.common_count == 5, "five words have length 2", failures);
+    Array([]const char) tie = {};
+    defer tie.deinit();
+    words::split(&tie, "b c dd ee aaa")?;
+    stats::LengthStats tied = stats::length_stats(&tie)?;
+    expect(tied.common == 1 || tied.common == 2, "a tie picks one of the tied lengths", failures);
+    expect(tied.common_count == 2, "the tie count is 2", failures);
+    expect(tied.used == 3, "tie: three lengths used", failures);
+    return Status::Ok;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !run(&failures).is_ok() {
+        failures += 1;
+    }
+    return failures;
+}

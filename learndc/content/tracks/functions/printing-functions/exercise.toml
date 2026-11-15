@@ -1,0 +1,62 @@
+schema = 1
+id = "functions/printing-functions"
+revision = 1
+title = "Functions that print"
+summary = "Write functions that print and return a Status, and pass a failure on with ?."
+kind = "implement-function"
+difficulty = "beginner"
+estimated_minutes = 15
+concepts = ["Status", "?", "println", "error propagation", "function calls"]
+tags = ["functions", "printing", "status"]
+objectives = [
+    "Declare a function that prints with the return type Status(Error)",
+    "Pass a failed print on to the caller with ?",
+    "Build a bigger printing function out of smaller ones",
+]
+entry_file = "src/main.dc"
+product = "printing_functions"
+prerequisites = ["functions/reading-errors"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Two receipts"
+expect_stdout = """
+== Corner Shop ==
+bread: 3
+milk: 2
+total: 5
+---
+== Corner Shop ==
+bread: 10
+milk: 0
+total: 10
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The three functions in src/report.dc print nothing yet."
+
+[[checks]]
+kind = "harness"
+name = "Each function prints exactly its own lines"
+harness = "checks/print_checks.dc"
+expect_stdout = """
+== Test ==
+tea: 4
+empty: 0
+== Corner Shop ==
+bread: 1
+milk: 1
+total: 2
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "print_banner prints `== text ==`, print_item prints `name: price` and print_receipt prints the banner, both items and the total."

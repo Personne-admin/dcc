@@ -1,6 +1,6 @@
 schema = 1
 id = "decisions"
 title = "Making Decisions"
-summary = "Let a program choose between paths with conditions, if and else."
-goal = "Combine conditions and write if/else chains that treat every boundary case correctly."
-exercises = ["branches"]
+summary = "Let a program choose between paths: bool values, if and else, and if as an expression."
+goal = "Combine conditions with &&, || and !, write if/else chains and if expressions, and treat every boundary case correctly."
+exercises = ["booleans", "branches", "if-expressions", "decisions-drill"]

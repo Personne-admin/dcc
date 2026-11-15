@@ -3,4 +3,4 @@ id = "projects"
 title = "Modules and Projects"
 summary = "Split a program into modules, read project diagnostics and build a multi-module tool."
 goal = "Organize code across files and modules, fix broken dpm projects and design a small tool."
-exercises = ["local-modules", "broken-project", "tally"]
+exercises = ["modules-and-projects", "local-modules", "broken-project", "module-design", "tally", "projects-drill", "boss-text-tools"]

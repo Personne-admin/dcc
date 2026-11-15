@@ -1,0 +1,32 @@
+module calendar_checks;
+
+import rules;
+using rules::*;
+
+bool expect([]const char call, bool got, bool want) {
+    if got == want {
+        println("ok    {}", call);
+        return true;
+    }
+    println("FAIL  {}: expected {}, got {}", call, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect("is_weekend(5)", is_weekend(5), false) { failures += 1; }
+    if !expect("is_weekend(6)", is_weekend(6), true) { failures += 1; }
+    if !expect("is_weekend(7)", is_weekend(7), true) { failures += 1; }
+    if !expect("is_weekend(1)", is_weekend(1), false) { failures += 1; }
+    if !expect("is_working_day(1)", is_working_day(1), true) { failures += 1; }
+    if !expect("is_working_day(5)", is_working_day(5), true) { failures += 1; }
+    if !expect("is_working_day(6)", is_working_day(6), false) { failures += 1; }
+    if !expect("is_working_day(0)", is_working_day(0), false) { failures += 1; }
+    if !expect("is_working_day(8)", is_working_day(8), false) { failures += 1; }
+    if !expect("is_leap_year(2024)", is_leap_year(2024), true) { failures += 1; }
+    if !expect("is_leap_year(2023)", is_leap_year(2023), false) { failures += 1; }
+    if !expect("is_leap_year(1900)", is_leap_year(1900), false) { failures += 1; }
+    if !expect("is_leap_year(2000)", is_leap_year(2000), true) { failures += 1; }
+    if !expect("is_leap_year(2100)", is_leap_year(2100), false) { failures += 1; }
+    return failures;
+}

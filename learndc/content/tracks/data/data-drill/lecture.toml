@@ -1,0 +1,254 @@
+schema = 1
+id = "data/data-drill"
+revision = 1
+kind = "drill"
+title = "Data drill"
+summary = "Predict struct and pointer code, trace a tagged enum program, repair a lost update and read the match errors."
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["struct", "pointer", "enum", "tagged enum", "match", "exhaustiveness"]
+tags = ["drill", "data"]
+objectives = [
+    "Predict the result of code that mixes structs, pointers and match",
+    "Trace a list of tagged-enum commands over a running value",
+    "Find a change that is thrown away because a copy was modified",
+]
+prerequisites = ["data/mini-calculator"]
+
+[[questions]]
+id = "hero-steps"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+enum Mode {
+    Walk,
+    Run,
+}
+
+struct Hero {
+    i32 x;
+    Mode mode;
+}
+
+i32 speed(Mode mode) {
+    return match mode {
+        Mode::Walk => 1,
+        Mode::Run => 3,
+    };
+}
+
+void step(Hero* h) {
+    h.x += speed(h.mode);
+}
+
+public Status(Error) main() {
+    Hero hero = Hero { x = 0, mode = Mode::Walk };
+    hero.step();
+    hero.mode = Mode::Run;
+    hero.step();
+    hero.step();
+    println("{}", hero.x)?;
+    return Status::Ok;
+}
+"""
+expect = "7\n"
+explanation = "The first step walks 1. After the mode changes to `Run` each step moves 3, and two steps add 6. 1 + 6 = 7. `hero.step()` passes the address of `hero`, so every step changes the real hero."
+
+[[questions]]
+id = "run-the-ops"
+type = "trace"
+prompt = "What is the final value of `acc`?"
+code = """
+module main;
+
+enum Op {
+    Add(i32),
+    Mul(i32),
+}
+
+public Status(Error) main() {
+    []const Op ops = { Op::Add(5), Op::Mul(3), Op::Add(-2), Op::Mul(2) };
+    i32 acc = 0;
+    for op in ops {
+        acc = match op {
+            Op::Add(n) => acc + n,
+            Op::Mul(n) => acc * n,
+        };
+    }
+    println("{}", acc)?;
+    return Status::Ok;
+}
+"""
+accept = ["26", "twenty-six"]
+expect = "26\n"
+explanation = "The value goes 0 -> 5 -> 15 -> 13 -> 26. Each arm binds the number carried by its variant and uses it with the running value."
+
+[[questions]]
+id = "lost-update"
+type = "bug"
+prompt = "The program should print `health 70` but prints `health 100`. Which line is the bug?"
+code = """
+module main;
+
+struct Hero {
+    i32 health;
+}
+
+Hero hit(Hero h, i32 damage) {
+    h.health -= damage;
+    return h;
+}
+
+public Status(Error) main() {
+    Hero hero = Hero { health = 100 };
+    hit(hero, 30);
+    println("health {}", hero.health)?;
+    return Status::Ok;
+}
+"""
+lines = [14]
+fixed = """
+module main;
+
+struct Hero {
+    i32 health;
+}
+
+Hero hit(Hero h, i32 damage) {
+    h.health -= damage;
+    return h;
+}
+
+public Status(Error) main() {
+    Hero hero = Hero { health = 100 };
+    hero = hit(hero, 30);
+    println("health {}", hero.health)?;
+    return Status::Ok;
+}
+"""
+expect = "health 70\n"
+explanation = "`hit` works on a copy and returns the changed copy. Line 14 throws the returned value away, so `hero` is untouched. Store it with `hero = hit(hero, 30);`."
+
+[[questions]]
+id = "missing-yellow"
+type = "error"
+prompt = "The compiler rejects this program. What does it want you to do?"
+code = """
+module main;
+
+enum Light {
+    Red,
+    Yellow,
+    Green,
+}
+
+i32 seconds(Light light) {
+    return match light {
+        Light::Red => 30,
+        Light::Green => 25,
+    };
+}
+
+public Status(Error) main() {
+    println("{}", seconds(Light::Red))?;
+    return Status::Ok;
+}
+"""
+diagnostic = "match expression not exhaustive: missing case `Light::Yellow`"
+choices = [
+    "Add an arm for `Light::Yellow`, because a match must handle every variant",
+    "Remove `Light::Yellow` from the enum",
+    "Declare `seconds` as `void`",
+    "Put the match inside an `if`",
+]
+answer = 1
+why = [
+    "",
+    "That would hide the problem. The enum describes real states; the match is what is incomplete.",
+    "The function returns a number, and `void` would remove the result instead of fixing the arms.",
+    "An `if` does not change which variants the `match` covers.",
+]
+explanation = "A `match` must be exhaustive. The error names the missing variant, so adding `Light::Yellow => 5,` fixes it. Because there is no wildcard arm, adding a fourth light later makes the compiler point at this match again."
+
+[[questions]]
+id = "payload-required"
+type = "error"
+prompt = "Why does the compiler reject `Command c = Command::Forward;`?"
+code = """
+module main;
+
+enum Command {
+    Forward(i32),
+    Left,
+}
+
+public Status(Error) main() {
+    Command c = Command::Forward;
+    return Status::Ok;
+}
+"""
+diagnostic = "requires a payload argument"
+choices = [
+    "`Forward` carries an `i32`, so a value is written `Command::Forward(3)`",
+    "`Forward` is a reserved word",
+    "An enum value must be declared with `const`",
+    "`Left` has to be written first",
+]
+answer = 1
+why = [
+    "",
+    "Any name can be a variant; this one is fine as long as its payload is given.",
+    "Enum values are ordinary values and need no `const`.",
+    "The order of the variants does not matter.",
+]
+explanation = "A variant that carries data needs the data wherever it is built: `Command::Forward(3)`. A variant without a payload, such as `Command::Left`, is written without parentheses."
+
+[[questions]]
+id = "pointer-order"
+type = "order"
+prompt = "Put the lines in an order that prints 6. The pointer must exist before it is used, and the change must happen before the print."
+code = """
+    i32 energy = 10;
+    i32* p = &energy;
+    *p -= 4;
+    println("{}", energy)?;
+"""
+explanation = "`energy` has to exist before its address is taken, the pointer before it is dereferenced, and the subtraction before the print: 10 - 4 = 6. Writing through the pointer changed `energy` itself."
+
+[[questions]]
+id = "data-facts"
+type = "multi"
+prompt = "Which statements are true?"
+choices = [
+    "A function with a `Player p` parameter changes the caller's player when it assigns to `p.health`",
+    "A `match` on an enum without a wildcard arm must cover every variant",
+    "A variant of a tagged enum can carry one value, which may itself be a struct",
+    "`c.add(4)` calls a different function than `add(&c, 4)`",
+]
+answers = [2, 3]
+why = [
+    "A by-value parameter is a copy; only a pointer parameter reaches the caller's variable.",
+    "",
+    "",
+    "It is the same function; dot syntax only changes the spelling of the call.",
+]
+explanation = "Matching is exhaustive and tagged variants carry a single payload, which can be a struct when several values belong together. Copies and dot syntax are the two details most often misread."
+
+[[questions]]
+id = "address-operator"
+type = "short"
+prompt = "Which operator gives the address of a variable? Type the one character."
+accept = ["&"]
+explanation = "`&n` is the address of `n` and has the type `i32*`."
+
+[[cards]]
+id = "struct-vs-enum"
+front = "When do you reach for a struct, and when for an enum?"
+back = "A struct holds several values at once (a position has x and y). An enum is exactly one of several variants (a facing is North or East or South or West)."
+
+[[cards]]
+id = "tagged-card"
+front = "How do you read the data of a tagged-enum variant?"
+back = "Name it in a match arm: `Command::Forward(n) => ...` binds the carried value to `n`; arms without data need no parentheses."

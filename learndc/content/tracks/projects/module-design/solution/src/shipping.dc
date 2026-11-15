@@ -1,0 +1,26 @@
+module shipping;
+
+i32 weight_class(i32 grams) {
+    if grams <= 500 {
+        return 1;
+    }
+    if grams <= 2000 {
+        return 2;
+    }
+    if grams <= 10000 {
+        return 3;
+    }
+    return 4;
+}
+
+i32 surcharge(i32 base) {
+    return base / 2;
+}
+
+public i32 shipping_cost(i32 grams, bool express) {
+    i32 base = 200 + 150 * weight_class(grams);
+    if express {
+        return base + surcharge(base);
+    }
+    return base;
+}

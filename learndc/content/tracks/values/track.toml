@@ -3,4 +3,4 @@ id = "values"
 title = "Values and Variables"
 summary = "Name values, calculate with them and pick a fitting type for each one."
 goal = "Store and change values in typed variables and compute results with integer and decimal arithmetic."
-exercises = ["variables"]
+exercises = ["values-and-types", "variables", "arithmetic", "changing-values", "decimals", "values-drill"]

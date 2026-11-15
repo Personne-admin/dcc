@@ -1,0 +1,42 @@
+schema = 1
+id = "values/decimals"
+revision = 1
+title = "Decimals and conversions"
+summary = "Compute an average as an f64 with as, and print decimals with {:.2}."
+kind = "complete-program"
+chapter = "values"
+difficulty = "beginner"
+estimated_minutes = 12
+concepts = ["f64", "as", "conversion", "format precision", "average"]
+tags = ["types", "arithmetic", "decimals"]
+objectives = [
+    "Explain why the average of whole numbers computed with / loses its fraction",
+    "Convert an integer to f64 with as before dividing",
+    "Print a decimal with a fixed number of digits using {:.2}",
+]
+entry_file = "src/main.dc"
+product = "decimals"
+prerequisites = ["values/changing-values"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Totals, averages and the tea bill"
+expect_stdout = """
+Scores: 7, 8, 8
+Total: 23
+Integer average: 7
+Average: 7.67
+Tea costs 2.50, 3 cups cost 7.50
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "total is the sum of the three scores; average must divide a converted total by 3.0; cost is price times the cup count converted with as f64."

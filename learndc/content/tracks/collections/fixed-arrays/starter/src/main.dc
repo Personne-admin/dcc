@@ -1,0 +1,19 @@
+module main;
+
+const usize DAYS = 5;
+
+public Status(Error) main() {
+    i32[DAYS] steps = { 4000, 6500, 3000, 8000, 5500 };
+
+    // Task 1: day 2 was counted wrongly. Change it to 7200.
+
+    // Task 2: print one line per day, for example "day 1: 4000".
+
+    // Task 3: add up all the days and print "total: ...".
+
+    // Task 4: print "last day: ..." using DAYS - 1 as the index.
+
+    // Task 5: print "best day: N", the number of the day with most steps.
+
+    return Status::Ok;
+}

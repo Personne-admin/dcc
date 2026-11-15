@@ -1,0 +1,13 @@
+module report;
+
+public Status(Error) print_banner([]const char text) {
+    return Status::Ok;
+}
+
+public Status(Error) print_item([]const char name, i32 price) {
+    return Status::Ok;
+}
+
+public Status(Error) print_receipt(i32 bread, i32 milk) {
+    return Status::Ok;
+}

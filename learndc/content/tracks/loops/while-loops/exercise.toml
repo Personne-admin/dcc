@@ -1,0 +1,60 @@
+schema = 1
+id = "loops/while-loops"
+revision = 1
+title = "Repeating with while"
+summary = "Count digits, grow a balance until it doubles and find the next multiple with while loops."
+kind = "implement-function"
+difficulty = "beginner"
+estimated_minutes = 15
+concepts = ["while", "loop condition", "counter", "accumulator", "infinite loop"]
+tags = ["loops", "while"]
+objectives = [
+    "Write a while loop with a starting state, a condition and an update",
+    "Stop a loop when a goal is reached instead of after a fixed count",
+    "Recognise a loop that can never end",
+]
+entry_file = "src/main.dc"
+product = "while_loops"
+prerequisites = ["decisions/decisions-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Program prints the results"
+expect_stdout = """
+digits in 0: 1
+digits in 7: 1
+digits in 12345: 5
+digits in 1000000: 7
+1000 at 10 percent doubles after 8 years
+100 at 1 percent doubles after 100 years
+first multiple of 7 above 50: 56
+first multiple of 5 above 25: 30
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The three functions in src/counting.dc still return 0."
+
+[[checks]]
+kind = "harness"
+name = "count_digits"
+harness = "checks/digit_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "0 has one digit. Divide by 10 while at least two digits remain, and count each division."
+
+[[checks]]
+kind = "harness"
+name = "years_to_double and first_multiple_above"
+harness = "checks/growth_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "If this check times out, your loop never ends: make sure the variable in the condition changes inside the body."

@@ -1,0 +1,174 @@
+schema = 1
+id = "data/copies-and-pointers"
+revision = 1
+title = "Copies and pointers"
+summary = "Why a function changes only its own copy, how a pointer lets it change the caller's variable and what dot syntax really is."
+difficulty = "beginner"
+estimated_minutes = 12
+concepts = ["copy", "pointer", "address-of", "dereference", "pointer parameter", "UFCS"]
+tags = ["lecture", "structs", "pointers"]
+objectives = [
+    "Explain why changing a by-value parameter does not change the caller's variable",
+    "Read &x and *p and write a function that changes its argument through a pointer",
+    "Say that c.add(4) is the same call as add(&c, 4)",
+]
+prerequisites = ["data/structs-basics"]
+
+[[examples]]
+name = "copy_demo"
+expect_stdout = """
+a 5 b 50
+inside: 6
+outside: 5
+"""
+
+[[examples]]
+name = "pointer_demo"
+expect_stdout = """
+through p: 5
+n is now 9
+after two calls: 11
+"""
+
+[[examples]]
+name = "dot_syntax"
+expect_stdout = """
+value 8
+16 16
+"""
+
+[[questions]]
+id = "address-of"
+type = "choice"
+prompt = "`i32 n = 4;` is declared. What is `&n`?"
+choices = [
+    "The value 4 again",
+    "The address of `n`, with the type `i32*`",
+    "A copy of `n`",
+    "The number of bytes in `n`",
+]
+answer = 2
+why = [
+    "That would be just `n`. The `&` asks for where `n` lives, not what it holds.",
+    "",
+    "Copying is what happens without `&`.",
+    "The size of a type is a different question.",
+]
+explanation = "`&n` is the address of the variable `n`. A function that receives this address can read and change `n` itself."
+
+[[questions]]
+id = "copy-or-original"
+type = "predict"
+prompt = "What does this program print? Type every line."
+code = """
+module main;
+
+struct Box {
+    i32 items;
+}
+
+void fill_copy(Box b) {
+    b.items = 10;
+}
+
+void fill(Box* b) {
+    b.items = 20;
+}
+
+public Status(Error) main() {
+    Box box = Box { items = 1 };
+    fill_copy(box);
+    println("{}", box.items)?;
+    fill(&box);
+    println("{}", box.items)?;
+    box.fill();
+    println("{}", box.items)?;
+    return Status::Ok;
+}
+"""
+expect = """
+1
+20
+20
+"""
+explanation = "`fill_copy` changes its own copy, so `box.items` is still 1. `fill` writes through the pointer and sets 20. `box.fill()` is the same call as `fill(&box)`, so the value stays 20."
+
+[[questions]]
+id = "forgotten-pointer"
+type = "bug"
+prompt = "The program should print 2 but prints 1. Which line is the bug?"
+code = """
+module main;
+
+struct Lives {
+    i32 left;
+}
+
+void lose_one(Lives l) {
+    l.left -= 1;
+}
+
+public Status(Error) main() {
+    Lives lives = Lives { left = 3 };
+    lose_one(lives);
+    lose_one(lives);
+    println("{}", lives.left)?;
+    return Status::Ok;
+}
+"""
+lines = [7]
+fixed = """
+module main;
+
+struct Lives {
+    i32 left;
+}
+
+void lose_one(Lives* l) {
+    l.left -= 1;
+}
+
+public Status(Error) main() {
+    Lives lives = Lives { left = 3 };
+    lose_one(&lives);
+    lose_one(&lives);
+    println("{}", lives.left)?;
+    return Status::Ok;
+}
+"""
+expect = "1\n"
+explanation = "`lose_one` takes `Lives` by value, so it lowers the life count of a copy and the caller never sees it. Taking `Lives* l` and passing `&lives` changes the real variable."
+
+[[questions]]
+id = "dot-or-not"
+type = "choice"
+prompt = "`void add(Counter* c, i32 amount)` exists and `c` is a `Counter` variable. Which statement about `c.add(4)` is true?"
+choices = [
+    "It is a different function from `add(&c, 4)`",
+    "It is the same call as `add(&c, 4)`; the compiler passes the address for you",
+    "It copies `c` and changes the copy",
+    "It only compiles for numbers",
+]
+answer = 2
+why = [
+    "There is one function `add`; the dot only changes how the call is written.",
+    "",
+    "A pointer parameter receives the address of `c`, so the real variable changes.",
+    "Dot syntax works with any first parameter of a matching type, including structs.",
+]
+explanation = "Dot syntax is a spelling of an ordinary call whose first argument is the value in front of the dot. For a pointer parameter the address is taken for you."
+
+[[cards]]
+id = "copy-rule"
+front = "What does a function receive when you pass a variable to a by-value parameter?"
+back = "A copy. Changing it does not change the caller's variable; return the new value or take a pointer instead."
+
+[[cards]]
+id = "address-deref"
+front = "What do `&x` and `*p` mean?"
+back = "`&x` is the address of the variable `x` (type `T*`). `*p` is the variable `p` points at; you can read or assign it."
+
+[[cards]]
+id = "ufcs-card"
+front = "What is `value.f(args)`?"
+back = "The call `f(value, args)`, or `f(&value, args)` when `f` takes a pointer. Dot syntax is only a spelling."

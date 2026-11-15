@@ -14,7 +14,7 @@ objectives = [
 ]
 entry_file = "src/main.dc"
 product = "hello"
-prerequisites = []
+prerequisites = ["first-steps/how-programs-run"]
 requires = ["dcc", "dpm"]
 min_dcc = "0.6.0"
 platforms = ["linux", "windows"]

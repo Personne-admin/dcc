@@ -1,0 +1,23 @@
+module has_char_check;
+
+import words;
+
+i32 expect([]const char text, char target, bool want) {
+    bool got = words::has_char(text, target);
+    if got == want {
+        return 0;
+    }
+    println("has_char(\"{}\", '{}'): expected {}, got {}", text, target, want, got).unwrap();
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    failures += expect("banana", 'b', true);
+    failures += expect("banana", 'n', true);
+    failures += expect("banana", 'a', true);
+    failures += expect("banana", 'z', false);
+    failures += expect("", 'a', false);
+    failures += expect("a b", ' ', true);
+    return if failures == 0 { 0 } else { 1 };
+}

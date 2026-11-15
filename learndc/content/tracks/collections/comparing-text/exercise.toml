@@ -1,0 +1,50 @@
+schema = 1
+id = "collections/comparing-text"
+revision = 1
+title = "Comparing text"
+summary = "Read the compiler's refusal to compare two slices with == and compare the characters with std::slice::eq."
+kind = "repair-compilation"
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["slice", "equality", "std::slice::eq", "import", "diagnostics"]
+tags = ["text", "slices", "diagnostics"]
+objectives = [
+    "Explain why == does not compare the contents of two slices",
+    "Import std::slice and compare two texts with std::slice::eq",
+    "Use eq inside a counting loop and an early-return search",
+]
+entry_file = "src/main.dc"
+product = "guest_list"
+prerequisites = ["collections/text-slices"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the guest list answers"
+expect_stdout = """
+admin: true
+guest: false
+ann appears 2 times
+zed appears 0 times
+bob is on the list: true
+zed is on the list: false
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "All three functions in src/names.dc compare with ==; each comparison needs std::slice::eq."
+
+[[checks]]
+kind = "harness"
+name = "names compare by characters"
+harness = "checks/names_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "std::slice::eq(a, b) is true only when both texts have the same length and the same characters."

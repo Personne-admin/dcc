@@ -1,0 +1,28 @@
+module range_checks;
+
+import rules;
+using rules::*;
+
+bool expect([]const char call, bool got, bool want) {
+    if got == want {
+        println("ok    {}", call);
+        return true;
+    }
+    println("FAIL  {}: expected {}, got {}", call, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect("can_vote(0)", can_vote(0), false) { failures += 1; }
+    if !expect("can_vote(17)", can_vote(17), false) { failures += 1; }
+    if !expect("can_vote(18)", can_vote(18), true) { failures += 1; }
+    if !expect("can_vote(90)", can_vote(90), true) { failures += 1; }
+    if !expect("in_range(5, 1, 10)", in_range(5, 1, 10), true) { failures += 1; }
+    if !expect("in_range(1, 1, 10)", in_range(1, 1, 10), true) { failures += 1; }
+    if !expect("in_range(10, 1, 10)", in_range(10, 1, 10), true) { failures += 1; }
+    if !expect("in_range(0, 1, 10)", in_range(0, 1, 10), false) { failures += 1; }
+    if !expect("in_range(11, 1, 10)", in_range(11, 1, 10), false) { failures += 1; }
+    if !expect("in_range(-3, -5, -1)", in_range(-3, -5, -1), true) { failures += 1; }
+    return failures;
+}

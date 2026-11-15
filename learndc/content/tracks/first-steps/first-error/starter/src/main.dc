@@ -1,0 +1,7 @@
+module main;
+
+public Status(Error) main() {
+    printn("Reading the first error")?;
+    println("Every error has a line number")?
+    return Status::Ok;
+}

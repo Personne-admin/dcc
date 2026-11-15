@@ -1,0 +1,28 @@
+module number_checks;
+
+import pick;
+using pick::*;
+
+bool expect([]const char call, i32 got, i32 want) {
+    if got == want {
+        println("ok    {}", call);
+        return true;
+    }
+    println("FAIL  {}: expected {}, got {}", call, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect("max_of(1, 2)", max_of(1, 2), 2) { failures += 1; }
+    if !expect("max_of(2, 1)", max_of(2, 1), 2) { failures += 1; }
+    if !expect("max_of(5, 5)", max_of(5, 5), 5) { failures += 1; }
+    if !expect("max_of(-3, -9)", max_of(-3, -9), -3) { failures += 1; }
+    if !expect("abs_of(7)", abs_of(7), 7) { failures += 1; }
+    if !expect("abs_of(-7)", abs_of(-7), 7) { failures += 1; }
+    if !expect("abs_of(0)", abs_of(0), 0) { failures += 1; }
+    if !expect("sign(-100)", sign(-100), -1) { failures += 1; }
+    if !expect("sign(0)", sign(0), 0) { failures += 1; }
+    if !expect("sign(100)", sign(100), 1) { failures += 1; }
+    return failures;
+}

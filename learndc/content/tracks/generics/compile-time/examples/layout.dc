@@ -1,0 +1,22 @@
+module main;
+
+struct Loose {
+    u8 flag;
+    u32 count;
+    u8 tag;
+}
+
+struct Tight {
+    u32 count;
+    u8 flag;
+    u8 tag;
+}
+
+public Status(Error) main() {
+    println("sizes: {} {} {} {}", sizeof(u8), sizeof(u16), sizeof(i32), sizeof(f64))?;
+    println("Loose: size {}, align {}", sizeof(Loose), alignof(Loose))?;
+    println("Loose offsets: {} {} {}", offsetof(Loose, flag), offsetof(Loose, count), offsetof(Loose, tag))?;
+    println("Tight: size {}, align {}", sizeof(Tight), alignof(Tight))?;
+    println("Tight offsets: {} {} {}", offsetof(Tight, count), offsetof(Tight, flag), offsetof(Tight, tag))?;
+    return Status::Ok;
+}

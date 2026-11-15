@@ -1,0 +1,22 @@
+module main;
+
+struct Counter {
+    i32 value;
+}
+
+void add(Counter* c, i32 amount) {
+    c.value += amount;
+}
+
+i32 doubled(Counter c) {
+    return c.value * 2;
+}
+
+public Status(Error) main() {
+    Counter c = Counter { value = 1 };
+    add(&c, 3);
+    c.add(4);
+    println("value {}", c.value)?;
+    println("{} {}", doubled(c), c.doubled())?;
+    return Status::Ok;
+}

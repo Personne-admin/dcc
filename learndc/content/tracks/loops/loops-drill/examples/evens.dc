@@ -1,0 +1,11 @@
+module main;
+
+public Status(Error) main() {
+    i32 total = 0;
+    for i32 i in 1..=10 {
+        if i % 2 != 0 { continue; }
+        total += i;
+    }
+    println("{}", total)?;
+    return Status::Ok;
+}

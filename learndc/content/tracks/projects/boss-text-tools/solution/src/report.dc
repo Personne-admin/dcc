@@ -1,0 +1,13 @@
+module report;
+
+import stats;
+
+public Status(Error) print_summary(const Array([]const char)* words) {
+    println("words: {}", words.len())?;
+    println("letters: {}", stats::total_letters(words))?;
+    println("longest: {}", stats::longest(words))?;
+    stats::LengthStats ls = stats::length_stats(words)?;
+    println("lengths used: {}", ls.used)?;
+    println("most common length: {} ({} words)", ls.common, ls.common_count)?;
+    return Status::Ok;
+}

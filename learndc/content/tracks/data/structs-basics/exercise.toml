@@ -1,0 +1,49 @@
+schema = 1
+id = "data/structs-basics"
+revision = 1
+title = "Your first struct"
+summary = "Group a name, health and score into a Player struct, build one with a struct literal and write functions that take and return it."
+kind = "implement-function"
+difficulty = "beginner"
+estimated_minutes = 12
+concepts = ["struct", "field", "struct literal", "field access", "struct parameter", "return a struct"]
+tags = ["structs", "functions"]
+objectives = [
+    "Build a struct value with a struct literal that names every field",
+    "Read and change fields of a struct parameter with dot syntax",
+    "Return a changed struct and store it in the caller's variable",
+]
+entry_file = "src/main.dc"
+product = "player_card"
+prerequisites = ["collections/collections-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the player card after each event"
+expect_stdout = """
+Ada: health 100, score 0
+Ada: health 70, score 50
+alive: true
+Ada: health 0, score 50
+alive: false
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "hit must lower the health but never below 0, and award must add to the score."
+
+[[checks]]
+kind = "harness"
+name = "new_player, award, hit and is_alive behave as specified"
+harness = "checks/player_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Each function receives its own copy of the Player: change the copy and return it, the original must stay as it was."

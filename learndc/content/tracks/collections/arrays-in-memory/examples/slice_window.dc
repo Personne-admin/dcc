@@ -1,0 +1,15 @@
+module main;
+
+public Status(Error) main() {
+    i32[5] temps = { 12, 15, 9, 14, 20 };
+    []const i32 all = temps;
+    []const i32 middle = temps[1..4];
+    println("all has {} values", all.len)?;
+    println("middle has {} values, first is {}", middle.len, middle[0])?;
+    for t in middle {
+        println("{}", t)?;
+    }
+    []const i32 primes = { 2, 3, 5, 7 };
+    println("{} primes, last {}", primes.len, primes[3])?;
+    return Status::Ok;
+}

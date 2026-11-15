@@ -1,0 +1,21 @@
+module oracle;
+
+public i32 digit_sum(i32 n) {
+    return 0;
+}
+
+public bool is_prime(i32 n) {
+    return false;
+}
+
+public i32 collatz_steps(i32 n) {
+    return 0;
+}
+
+public i32 gcd(i32 a, i32 b) {
+    return 0;
+}
+
+public bool is_perfect(i32 n) {
+    return false;
+}

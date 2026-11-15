@@ -1,0 +1,23 @@
+module main;
+
+public Status(Error) main() {
+    const i32 SWEET = 5;
+    i32 coins = 20;
+    println("start: {}", coins)?;
+
+    coins += 30;
+    println("birthday: {}", coins)?;
+
+    coins -= 15;
+    println("book: {}", coins)?;
+
+    coins *= 2;
+    println("doubled: {}", coins)?;
+
+    coins++;
+    println("found: {}", coins)?;
+
+    coins -= SWEET;
+    println("sweet: {}", coins)?;
+    return Status::Ok;
+}

@@ -1,0 +1,48 @@
+module split_words;
+
+import std::slice;
+import words;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+Status(Error) check_text([]const char text, []const char name, usize count, []const char first, []const char last, i32* failures) {
+    Array([]const char) out = {};
+    defer out.deinit();
+    words::split(&out, text)?;
+    expect(out.len() == count, name, failures);
+    if count > 0 && out.len() == count {
+        expect(std::slice::eq(out.items()[0], first), "the first word is right", failures);
+        expect(std::slice::eq(out.items()[count - 1], last), "the last word is right", failures);
+    }
+    return Status::Ok;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !check_text("one two three", "three words", 3, "one", "three", &failures).is_ok() {
+        failures += 1;
+    }
+    if !check_text("  one,   two.\n\tthree  ", "separators of every kind and repeats", 3, "one", "three", &failures).is_ok() {
+        failures += 1;
+    }
+    if !check_text("single", "a word with no separator at all", 1, "single", "single", &failures).is_ok() {
+        failures += 1;
+    }
+    if !check_text("", "empty text has no words", 0, "", "", &failures).is_ok() {
+        failures += 1;
+    }
+    if !check_text(" ,. \n", "only separators has no words", 0, "", "", &failures).is_ok() {
+        failures += 1;
+    }
+    if !check_text("end.", "a final word before a full stop", 1, "end", "end", &failures).is_ok() {
+        failures += 1;
+    }
+    return failures;
+}

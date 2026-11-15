@@ -1,0 +1,41 @@
+module main;
+
+public enum DigitError {
+    NotADigit,
+    Empty,
+}
+
+Optional(u32) find_digit([]const char text) {
+    for c in text {
+        if c >= '0' && c <= '9' {
+            return Optional::Some((c as u32) - ('0' as u32));
+        }
+    }
+    return Optional::None;
+}
+
+Result(u32, DigitError) single_digit([]const char text) {
+    if text.len == 0 {
+        return Result::Err(DigitError::Empty);
+    }
+    char c = text[0];
+    if c < '0' || c > '9' {
+        return Result::Err(DigitError::NotADigit);
+    }
+    return Result::Ok((c as u32) - ('0' as u32));
+}
+
+public Status(Error) main() {
+    match find_digit("room 42") {
+        Optional::Some(d) => println("first digit: {}", d)?,
+        Optional::None => println("no digit")?,
+    }
+    match single_digit("x7") {
+        Result::Ok(d) => println("digit: {}", d)?,
+        Result::Err(reason) => match reason {
+            DigitError::Empty => println("nothing to read")?,
+            DigitError::NotADigit => println("not a digit")?,
+        },
+    }
+    return Status::Ok;
+}

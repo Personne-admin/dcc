@@ -1,0 +1,20 @@
+module main;
+
+public Status(Error) main() {
+    i32 age = 12;
+    u8 level = 255;
+    i64 distance = 3000000000;
+    bool ready = true;
+    char grade = 'A';
+    f64 price = 2.5;
+    []const char name = "Ada";
+
+    println("age: {}", age)?;
+    println("level: {}", level)?;
+    println("distance: {}", distance)?;
+    println("ready: {}", ready)?;
+    println("grade: {}", grade)?;
+    println("price: {}", price)?;
+    println("name: {}", name)?;
+    return Status::Ok;
+}

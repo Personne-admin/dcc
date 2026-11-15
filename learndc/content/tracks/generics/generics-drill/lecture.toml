@@ -1,0 +1,272 @@
+schema = 1
+id = "generics/generics-drill"
+revision = 1
+kind = "drill"
+title = "Generics drills"
+summary = "Predict sizes of generic structs and static if branches, find a bug in a generic pop, read template diagnostics and recall the vocabulary."
+difficulty = "advanced"
+estimated_minutes = 15
+concepts = ["generics", "struct template", "static if", "sizeof", "padding", "template diagnostics"]
+tags = ["drill", "generics"]
+objectives = [
+    "Predict the size of struct template instantiations including padding",
+    "Predict which static if branch each instantiation keeps",
+    "Find the off-by-one in a generic function and read a template diagnostic",
+]
+prerequisites = ["generics/static-if"]
+
+[[questions]]
+id = "template-sizes"
+type = "predict"
+prompt = "What does this program print? Each instantiation of a struct template is its own struct with its own layout."
+code = """
+module main;
+
+struct Pair(T) {
+    T first;
+    T second;
+}
+
+struct Tagged(T) {
+    u8 tag;
+    T value;
+}
+
+public Status(Error) main() {
+    println("{} {} {}", sizeof(Pair(u8)), sizeof(Pair(i32)), sizeof(Pair(f64)))?;
+    println("{} {}", sizeof(Tagged(u16)), sizeof(Tagged(i64)))?;
+    return Status::Ok;
+}
+"""
+expect = """
+2 8 16
+4 16
+"""
+explanation = "`Pair(T)` holds two values of `T`, so it takes twice the size of `T`: 2, 8 and 16 bytes. In `Tagged(u16)` the tag at offset 0 is followed by one padding byte so that the value starts at offset 2, giving 4 bytes. In `Tagged(i64)` the value must start at offset 8, so seven padding bytes follow the tag and the struct is 16 bytes."
+
+[[questions]]
+id = "which-branch"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+struct Pair(T) {
+    T first;
+    T second;
+}
+
+[]const char label(T)() {
+    static if sizeof(T) >= 8 {
+        return "wide";
+    } else {
+        return "narrow";
+    }
+}
+
+public Status(Error) main() {
+    println("{}", label!i64())?;
+    println("{}", label!Pair(i32)())?;
+    println("{}", label!Pair(u8)())?;
+    println("{}", label!u16())?;
+    return Status::Ok;
+}
+"""
+expect = """
+wide
+wide
+narrow
+narrow
+"""
+explanation = "`static if` looks at the size of the whole type argument. `i64` is 8 bytes. `Pair(i32)` is two 4-byte fields, 8 bytes, so it counts as wide too. `Pair(u8)` is 2 bytes and `u16` is 2 bytes: narrow."
+
+[[questions]]
+id = "pop-bug"
+type = "bug"
+prompt = "After pushing 7 and then 3, `pop` should return 3, but the program prints `0`. Which line is the bug?"
+code = """
+module main;
+
+struct Stack(T) {
+    T[4] items;
+    usize len;
+}
+
+bool push(T)(Stack(T)* self, T value) {
+    if self.len == 4 {
+        return false;
+    }
+    self.items[self.len] = value;
+    self.len += 1;
+    return true;
+}
+
+Optional(T) pop(T)(Stack(T)* self) {
+    if self.len == 0 {
+        return Optional::None;
+    }
+    T top = self.items[self.len];
+    self.len -= 1;
+    return Optional::Some(top);
+}
+
+public Status(Error) main() {
+    Stack(i32) numbers = {};
+    numbers.push(7);
+    numbers.push(3);
+    println("{}", numbers.pop().unwrap_some())?;
+    return Status::Ok;
+}
+"""
+lines = [22]
+fixed = """
+module main;
+
+struct Stack(T) {
+    T[4] items;
+    usize len;
+}
+
+bool push(T)(Stack(T)* self, T value) {
+    if self.len == 4 {
+        return false;
+    }
+    self.items[self.len] = value;
+    self.len += 1;
+    return true;
+}
+
+Optional(T) pop(T)(Stack(T)* self) {
+    if self.len == 0 {
+        return Optional::None;
+    }
+    T top = self.items[self.len - 1];
+    self.len -= 1;
+    return Optional::Some(top);
+}
+
+public Status(Error) main() {
+    Stack(i32) numbers = {};
+    numbers.push(7);
+    numbers.push(3);
+    println("{}", numbers.pop().unwrap_some())?;
+    return Status::Ok;
+}
+"""
+expect = "3\n"
+explanation = "With two values on the stack, `len` is 2 and the values sit at indexes 0 and 1. Index 2 is the next free slot, which still holds the zero the stack started with. The last value is at `len - 1`. (Reading index `len` on a full stack would even leave the array.)"
+
+[[questions]]
+id = "missing-argument"
+type = "error"
+prompt = "The compiler rejects this program. What is the real cause?"
+code = """
+module main;
+
+struct Stack(T) {
+    T[4] items;
+    usize len;
+}
+
+public Status(Error) main() {
+    Stack numbers = {};
+    return Status::Ok;
+}
+"""
+diagnostic = "template argument count mismatch for `Stack`"
+choices = [
+    "`Stack` is not a struct",
+    "`Stack(T)` needs its type argument: write `Stack(i32)`",
+    "A struct cannot be created with `{}`",
+    "`len` must be initialized before use",
+]
+answer = 2
+why = [
+    "It is declared with `struct Stack(T)`.",
+    "",
+    "`{}` is the zero value of any struct that allows one.",
+    "Fields without an initializer start at zero with `{}`.",
+]
+explanation = "A struct template is not a type until every type parameter is given. `Stack(i32)` and `Stack(char)` are real types; `Stack` alone names the recipe."
+
+[[questions]]
+id = "bad-constraint"
+type = "error"
+prompt = "The compiler rejects this call. What is the real cause?"
+code = """
+module main;
+
+using Addable(T) = compiles(T a, T b) {
+    a + b;
+};
+
+T total(T)([]const T items) if Addable(T) {
+    T sum = items[0];
+    for usize i = 1; i < items.len; i++ {
+        sum = sum + items[i];
+    }
+    return sum;
+}
+
+public Status(Error) main() {
+    bool[2] flags = { true, false };
+    println("{}", total(flags))?;
+    return Status::Ok;
+}
+"""
+diagnostic = "template constraint not satisfied for `total`"
+choices = [
+    "`total` has no body",
+    "`bool` does not satisfy `Addable`, because `a + b` does not compile for two booleans",
+    "`total` can only be called with explicit `!` types",
+    "`usize i` cannot start at 1",
+]
+answer = 2
+why = [
+    "The body is right there.",
+    "",
+    "Deduction works; the call gets as far as checking the constraint.",
+    "A loop counter can start at any value.",
+]
+explanation = "`if Addable(T)` is checked at the call with `T = bool`. The concept tries `a + b` for two `bool` values, it does not compile, and the call is rejected before the body is even compiled, with a note naming the concept."
+
+[[questions]]
+id = "layout-facts"
+type = "multi"
+prompt = "Which statements about layout and compile-time constants hold?"
+choices = [
+    "Reordering the fields of a struct can change its size",
+    "`using usize SLOTS = 4;` creates a variable that later code may change",
+    "`offsetof(S, field)` is known while compiling",
+    "`sizeof(T)` can be compared in a `static if` inside a generic function",
+]
+answers = [1, 3, 4]
+why = [
+    "",
+    "A value alias is only a name for the value; it is not assignable.",
+    "",
+    "",
+]
+explanation = "Padding depends on the order of the fields. `sizeof`, `alignof` and `offsetof` are compile-time constants, so they may drive `static if` and array lengths. A value alias is a constant, never a variable."
+
+[[questions]]
+id = "offset-keyword"
+type = "short"
+prompt = "Which builtin gives the byte position of a field inside a struct? One word."
+accept = ["offsetof"]
+explanation = "`offsetof(S, field)` is a `usize` constant. Printing it for every field shows exactly where the compiler put the padding."
+
+[[cards]]
+id = "template-instance"
+front = "What is the difference between `Stack` and `Stack(i32)`?"
+back = "`Stack(T)` is a recipe with a type parameter; `Stack(i32)` is the real struct the compiler writes from it, with its own size and layout."
+
+[[cards]]
+id = "last-index"
+front = "Where is the last element of an array-backed stack with `len` elements?"
+back = "At index `len - 1`. Index `len` is the next free slot."
+
+[[cards]]
+id = "static-if-branch"
+front = "Why can a `static if` branch use code that is invalid for some types?"
+back = "Only the branch that applies is compiled for each type, so the others are never type-checked for it."

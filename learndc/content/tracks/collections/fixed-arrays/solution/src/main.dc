@@ -1,0 +1,30 @@
+module main;
+
+const usize DAYS = 5;
+
+public Status(Error) main() {
+    i32[DAYS] steps = { 4000, 6500, 3000, 8000, 5500 };
+
+    steps[1] = 7200;
+
+    for i in 0..DAYS {
+        println("day {}: {}", i + 1, steps[i])?;
+    }
+
+    i32 total = 0;
+    for i in 0..DAYS {
+        total += steps[i];
+    }
+    println("total: {}", total)?;
+
+    println("last day: {}", steps[DAYS - 1])?;
+
+    usize best = 0;
+    for i in 1..DAYS {
+        if steps[i] > steps[best] {
+            best = i;
+        }
+    }
+    println("best day: {}", best + 1)?;
+    return Status::Ok;
+}

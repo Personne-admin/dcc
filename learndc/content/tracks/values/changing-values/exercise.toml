@@ -1,0 +1,43 @@
+schema = 1
+id = "values/changing-values"
+revision = 1
+title = "Changing a value step by step"
+summary = "Keep a running total in one variable with +=, -=, *=, ++ and a const."
+kind = "complete-program"
+chapter = "values"
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["assignment", "+=", "-=", "*=", "++", "const", "running total"]
+tags = ["variables", "operators"]
+objectives = [
+    "Update a variable from its own value with +=, -=, *= and ++",
+    "Read a sequence of updates in order and know the value after each",
+    "Declare a value that never changes with const",
+]
+entry_file = "src/main.dc"
+product = "changing_values"
+prerequisites = ["values/arithmetic"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The coin count after every step"
+expect_stdout = """
+start: 20
+birthday: 50
+book: 35
+doubled: 70
+found: 71
+sweet: 66
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Work from the top: each update starts from the value the previous step left in coins."

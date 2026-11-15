@@ -1,0 +1,28 @@
+module counting;
+
+public i32 count_digits(i32 n) {
+    i32 digits = 1;
+    while n >= 10 {
+        n /= 10;
+        digits += 1;
+    }
+    return digits;
+}
+
+public i32 years_to_double(i32 start, i32 percent) {
+    i32 balance = start;
+    i32 years = 0;
+    while balance < 2 * start {
+        balance += balance * percent / 100;
+        years += 1;
+    }
+    return years;
+}
+
+public i32 first_multiple_above(i32 step, i32 limit) {
+    i32 multiple = step;
+    while multiple <= limit {
+        multiple += step;
+    }
+    return multiple;
+}

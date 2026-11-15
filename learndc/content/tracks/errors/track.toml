@@ -2,5 +2,5 @@ schema = 1
 id = "errors"
 title = "When Things Go Wrong"
 summary = "Represent missing values and failures in the type system and pass errors upward with ?."
-goal = "Choose between Optional, Result and Status, propagate failures with ? and define your own error types."
-exercises = ["optional", "result-match", "status-propagation", "custom-errors"]
+goal = "Choose between Optional, Result and Status for a failing function, pass errors upward with ?, define your own error types and load a small configuration that reports exactly what went wrong."
+exercises = ["error-handling", "optional", "result-match", "status-propagation", "custom-errors", "errors-drill", "boss-config-parser"]

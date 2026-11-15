@@ -1,0 +1,30 @@
+module clamp_check;
+
+import toolkit;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    i32[6] numbers = { 12, -4, 31, 25, 8, 22 };
+    toolkit::clamp_all(numbers, 0, 20);
+    expect(numbers[0] == 12 && numbers[1] == 0 && numbers[2] == 20, "values outside the range move to its ends", &failures);
+    expect(numbers[3] == 20 && numbers[4] == 8 && numbers[5] == 20, "values inside the range stay", &failures);
+
+    f64[3] prices = { 0.5, 12.5, 4.0 };
+    toolkit::clamp_all(prices, 1.0, 10.0);
+    expect(prices[0] == 1.0 && prices[1] == 10.0 && prices[2] == 4.0, "clamp_all works for f64", &failures);
+
+    u8[3] bytes = { 3, 250, 100 };
+    toolkit::clamp_all!u8(bytes, 10, 200);
+    expect(bytes[0] == 10 && bytes[1] == 200 && bytes[2] == 100, "clamp_all works for u8", &failures);
+    return failures;
+}

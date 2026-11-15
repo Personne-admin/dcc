@@ -1,0 +1,50 @@
+schema = 1
+id = "library/sort-and-search"
+revision = 1
+title = "Sort and search a scoreboard"
+summary = "Replace hand-written loops with std::sort and std::slice: sort, reverse, count, find the largest and binary-search."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["std::sort", "std::slice", "sorting", "binary search", "library functions"]
+tags = ["library", "slices", "sorting"]
+objectives = [
+    "Import a library module and call its functions with a qualified path",
+    "Sort a slice in place with std::sort::sort and flip it with std::slice::reverse",
+    "Count, find the maximum and search a sorted slice with std::slice and std::sort::binary_search",
+]
+entry_file = "src/main.dc"
+product = "scoreboard"
+prerequisites = ["library/formatting"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The scoreboard report"
+expect_stdout = """
+leader at index 2
+17 appears 2 times
+ranked: 93 93 65 42 30 17 17 8
+median 42
+65 is at index 5
+50 is missing
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "median sorts the scores ascending in place, so the last search runs on 8 17 17 30 42 65 93 93."
+
+[[checks]]
+kind = "harness"
+name = "The board functions work on other data"
+harness = "checks/board_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Negative scores, repeated maxima and a one-element slice are all tested."

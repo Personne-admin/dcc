@@ -1,0 +1,13 @@
+module main;
+
+using usize SLOTS = 4;
+using u32 SECONDS_PER_DAY = 24 * 60 * 60;
+
+public Status(Error) main() {
+    i32[SLOTS * 2] table = {};
+    println("slots: {}", SLOTS)?;
+    println("seconds per day: {}", SECONDS_PER_DAY)?;
+    println("table bytes: {}", sizeof(table))?;
+    println("table entries: {}", sizeof(table) / sizeof(i32))?;
+    return Status::Ok;
+}

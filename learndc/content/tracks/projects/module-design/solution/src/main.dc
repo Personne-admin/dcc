@@ -1,0 +1,11 @@
+module main;
+
+import shipping;
+
+public Status(Error) main() {
+    i32[4] weights = { 250, 1200, 5000, 20000 };
+    for grams in weights {
+        println("{} g: {} / {}", grams, shipping::shipping_cost(grams, false), shipping::shipping_cost(grams, true))?;
+    }
+    return Status::Ok;
+}

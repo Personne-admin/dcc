@@ -1,0 +1,41 @@
+module parse_port;
+
+import config;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+void expect_value([]const char text, u32 want, i32* failures) {
+    match config::parse_port(text) {
+        Result::Ok(value) => expect(value == want, text, failures),
+        Result::Err(why) => expect(false, text, failures),
+    }
+}
+
+void expect_error([]const char text, config::NumberError want, i32* failures) {
+    match config::parse_port(text) {
+        Result::Ok(value) => expect(false, text, failures),
+        Result::Err(why) => expect(why == want, text, failures),
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect_value("8080", 8080, &failures);
+    expect_value("0", 0, &failures);
+    expect_value("65535", 65535, &failures);
+    expect_value("007", 7, &failures);
+    expect_error("65536", config::NumberError::TooLarge, &failures);
+    expect_error("99999999999", config::NumberError::TooLarge, &failures);
+    expect_error("", config::NumberError::Empty, &failures);
+    expect_error("80a", config::NumberError::NotADigit, &failures);
+    expect_error("-5", config::NumberError::NotADigit, &failures);
+    expect_error(" 5", config::NumberError::NotADigit, &failures);
+    return failures;
+}

@@ -1,0 +1,13 @@
+module main;
+
+public Status(Error) main() {
+    i32 n = 100;
+    i32 steps = 0;
+    while n > 1 {
+        n /= 3;
+        steps += 1;
+        println("step {}: n = {}", steps, n)?;
+    }
+    println("{} steps", steps)?;
+    return Status::Ok;
+}

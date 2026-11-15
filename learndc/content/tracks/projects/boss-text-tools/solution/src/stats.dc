@@ -1,0 +1,66 @@
+module stats;
+
+import std::map;
+
+using Lengths = std::map::Map(usize, u32);
+
+public struct LengthStats {
+    usize used;
+    usize common;
+    u32 common_count;
+}
+
+public usize longest(const Array([]const char)* words) {
+    usize best = 0;
+    for word in words.items() {
+        if word.len > best {
+            best = word.len;
+        }
+    }
+    return best;
+}
+
+public usize total_letters(const Array([]const char)* words) {
+    usize total = 0;
+    for word in words.items() {
+        total += word.len;
+    }
+    return total;
+}
+
+public []const char longest_word(const Array([]const char)* words) {
+    []const char best = "";
+    for word in words.items() {
+        if word.len > best.len {
+            best = word;
+        }
+    }
+    return best;
+}
+
+Status(Error) tally(Lengths* lengths, const Array([]const char)* words) {
+    for word in words.items() {
+        u32 seen = lengths.get(word.len).some_or(0);
+        lengths.put(word.len, add_one(seen))?;
+    }
+    return Status::Ok;
+}
+
+u32 add_one(u32 n) {
+    return n + 1;
+}
+
+public Result(LengthStats, Error) length_stats(const Array([]const char)* words) {
+    Lengths lengths = {};
+    defer lengths.deinit();
+    tally(&lengths, words)?;
+    LengthStats stats = LengthStats { used = lengths.len(), common = 0, common_count = 0 };
+    for usize n = 1; n <= longest(words); n++ {
+        u32 count = lengths.get(n).some_or(0);
+        if count > stats.common_count {
+            stats.common = n;
+            stats.common_count = count;
+        }
+    }
+    return Result::Ok(stats);
+}

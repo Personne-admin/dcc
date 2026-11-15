@@ -1,0 +1,10 @@
+module main;
+
+import oracle;
+using oracle::*;
+
+public Status(Error) main() {
+    println("number oracle")?;
+    println("  n digit sum  prime  collatz  gcd(n, 12)")?;
+    return Status::Ok;
+}

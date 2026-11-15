@@ -1,0 +1,25 @@
+module main;
+
+i32 average(i32 total, i32 count) {
+    if count == 0 {
+        return -1;
+    }
+    return total / count;
+}
+
+Optional(i32) average_opt(i32 total, i32 count) {
+    if count == 0 {
+        return Optional::None;
+    }
+    return Optional::Some(total / count);
+}
+
+public Status(Error) main() {
+    i32 bonus = average(0, 0) + 10;
+    println("bonus with a sentinel: {}", bonus)?;
+    match average_opt(0, 0) {
+        Optional::Some(avg) => println("bonus: {}", avg + 10)?,
+        Optional::None => println("no ratings yet, no bonus")?,
+    }
+    return Status::Ok;
+}

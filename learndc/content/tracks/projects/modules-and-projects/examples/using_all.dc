@@ -1,0 +1,9 @@
+module main;
+
+import std::math;
+using std::math::*;
+
+public Status(Error) main() {
+    println("{} {}", gcd(12, 18), lcm(4, 6))?;
+    return Status::Ok;
+}

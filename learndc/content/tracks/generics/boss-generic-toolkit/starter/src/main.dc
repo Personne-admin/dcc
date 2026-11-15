@@ -1,0 +1,14 @@
+module main;
+
+import std::sort;
+import stack;
+import toolkit;
+using stack::Stack;
+
+public Status(Error) main() {
+    i32[6] temperatures = { 12, -4, 31, 25, 8, 22 };
+    f64[4] prices = { 2.5, 9.5, 0.75, 6.0 };
+
+    println("report not written yet")?;
+    return Status::Ok;
+}

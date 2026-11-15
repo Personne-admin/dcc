@@ -1,0 +1,12 @@
+module main;
+
+import std::math;
+using std::math::*;
+
+public Status(Error) main() {
+    u64 a = gcd(84, 36);
+    u64 b = std::math::lcm(4, 6);
+    println("{} {}", a, b)?;
+    println("{}", ipow(2, 10) + a)?;
+    return Status::Ok;
+}

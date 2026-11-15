@@ -1,0 +1,10 @@
+module main;
+
+public Status(Error) main() {
+    i32 total = 0;
+    for i32 i in 1..=4 {
+        total += i * i;
+    }
+    println("total = {}", total)?;
+    return Status::Ok;
+}

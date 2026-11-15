@@ -1,0 +1,47 @@
+module stack_check;
+
+import stack;
+using stack::Stack;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    Stack(i32) numbers = {};
+    expect(numbers.size() == 0, "a new stack is empty", &failures);
+    expect(numbers.pop().is_none(), "pop on an empty stack is none", &failures);
+    expect(numbers.push(10) && numbers.push(20) && numbers.push(30), "push accepts values", &failures);
+    expect(numbers.size() == 3, "size counts the values", &failures);
+    expect(numbers.pop().unwrap_some() == 30, "pop returns the last value", &failures);
+    expect(numbers.pop().unwrap_some() == 20, "pop returns the earlier value next", &failures);
+    expect(numbers.size() == 1, "size shrinks with pop", &failures);
+
+    Stack(i32) full = {};
+    bool all_fit = true;
+    for i32 n in 1..=8 {
+        if !full.push(n) {
+            all_fit = false;
+        }
+    }
+    expect(all_fit, "eight pushes fit", &failures);
+    expect(!full.push(9), "the ninth push is refused", &failures);
+    expect(full.size() == 8, "a refused push changes nothing", &failures);
+    expect(full.pop().unwrap_some() == 8, "the refused value was not stored", &failures);
+
+    Stack(f64) reals = {};
+    expect(reals.push(0.5) && reals.push(1.5), "the same Stack works for f64", &failures);
+    expect(reals.pop().unwrap_some() == 1.5, "a stack of f64 pops its last value", &failures);
+
+    Stack(char) letters = {};
+    expect(letters.push('a') && letters.push('b'), "the same Stack works for char", &failures);
+    expect(letters.pop().unwrap_some() == 'b', "a stack of char pops its last value", &failures);
+    return failures;
+}

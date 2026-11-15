@@ -1,0 +1,23 @@
+module main;
+
+import player;
+
+Status(Error) show(player::Player p) {
+    println("{}: health {}, score {}", p.name, p.health, p.score)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    player::Player hero = player::new_player("Ada");
+    show(hero)?;
+
+    hero = player::award(hero, 50);
+    hero = player::hit(hero, 30);
+    show(hero)?;
+    println("alive: {}", player::is_alive(hero))?;
+
+    hero = player::hit(hero, 200);
+    show(hero)?;
+    println("alive: {}", player::is_alive(hero))?;
+    return Status::Ok;
+}

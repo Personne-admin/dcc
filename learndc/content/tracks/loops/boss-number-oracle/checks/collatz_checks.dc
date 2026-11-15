@@ -1,0 +1,26 @@
+module collatz_checks;
+
+import oracle;
+using oracle::*;
+
+bool expect(i32 n, i32 want) {
+    i32 got = collatz_steps(n);
+    if got == want {
+        println("ok    collatz_steps({})", n);
+        return true;
+    }
+    println("FAIL  collatz_steps({}): expected {}, got {}", n, want, got);
+    return false;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !expect(1, 0) { failures += 1; }
+    if !expect(2, 1) { failures += 1; }
+    if !expect(3, 7) { failures += 1; }
+    if !expect(6, 8) { failures += 1; }
+    if !expect(16, 4) { failures += 1; }
+    if !expect(27, 111) { failures += 1; }
+    if !expect(97, 118) { failures += 1; }
+    return failures;
+}

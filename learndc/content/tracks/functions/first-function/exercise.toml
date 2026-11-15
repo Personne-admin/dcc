@@ -1,0 +1,56 @@
+schema = 1
+id = "functions/first-function"
+revision = 1
+title = "Your first functions"
+summary = "Fill in two function bodies, then write a whole function from its description and call it."
+kind = "implement-function"
+difficulty = "beginner"
+estimated_minutes = 12
+concepts = ["function", "signature", "return", "parameters", "call"]
+tags = ["functions", "arithmetic"]
+objectives = [
+    "Write a function body that returns a computed value",
+    "Write a complete signature from a description",
+    "Call your own function from main and print the result",
+]
+entry_file = "src/main.dc"
+product = "first_function"
+prerequisites = ["functions/what-functions-do"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Program prints the four results"
+expect_stdout = """
+twice(21) = 42
+triple(14) = 42
+area of 6 x 7 = 42
+3 minutes = 180 seconds
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "triple and rectangle_area still return 0, and main has no line for seconds_in yet."
+
+[[checks]]
+kind = "harness"
+name = "triple and rectangle_area"
+harness = "checks/simple_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "triple(n) returns n * 3. rectangle_area(width, height) returns width * height."
+
+[[checks]]
+kind = "harness"
+name = "seconds_in"
+harness = "checks/seconds_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "seconds_in must exist in src/basics.dc as `public i32 seconds_in(i32 minutes)` and return minutes * 60."

@@ -1,0 +1,201 @@
+schema = 1
+id = "generics/boss-generic-toolkit"
+revision = 1
+title = "The Generic Toolkit"
+summary = "Build a small library that works for any element type: extremes, counting, a generic stack and a binary search, then use it with two different types."
+kind = "challenge"
+difficulty = "advanced"
+estimated_minutes = 75
+concepts = ["generic functions", "struct templates", "Optional(T)", "binary search", "std::sort", "type deduction", "compile-time constants"]
+tags = ["boss", "generics", "library"]
+objectives = [
+    "Write generic functions over slices that work for integers, floats and characters",
+    "Design a generic fixed-capacity Stack(T) with its own fields and functions",
+    "Write a generic binary search and use the whole toolkit with two element types",
+]
+entry_file = "src/main.dc"
+product = "toolkit"
+prerequisites = ["generics/generics-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 5
+story = """
+The weather station and the market stall each keep their own `largest`,
+`smallest` and `count` functions, one copy per number type, and nobody dares
+touch them any more. You are given one afternoon to write a single toolkit
+that serves both, and to prove it by producing a combined report from
+temperatures and prices.
+"""
+
+[[stages]]
+id = "old-largest"
+title = "Read the old copy"
+summary = "Find why the station's old generic largest answers 0 for a list of negative balances."
+questions = ["old-largest"]
+hints = ["Look at what `best` holds before the loop sees the first element, and what happens when every element is below that."]
+
+[[stages]]
+id = "extremes"
+title = "Largest and smallest"
+summary = "max_of and min_of work for any element type that can be compared."
+hints = [
+    "Both are generic over a slice: `T max_of(T)([]const T items)`. Start with `T best = items[0];` so that the first element is always a candidate.",
+    "Loop with `for T item in items` and replace `best` when `item > best` (for min_of, `item < best`). Do not start from `{}`: zero can be larger than every element.",
+]
+
+[[stages]]
+id = "counting"
+title = "Counting"
+summary = "count_above counts elements greater than a limit and count_between counts the elements inside an inclusive range."
+hints = [
+    "The limit has the same type `T` as the elements, so one type parameter serves the whole signature.",
+    "Keep a `usize` counter. For count_between use `item >= low && item <= high`.",
+]
+
+[[stages]]
+id = "stack"
+title = "Design a Stack"
+summary = "Define the fields of Stack(T) with room for 8 values, and write push, pop and size."
+hints = [
+    "The stack needs `T[CAPACITY] items;` and a `usize len;`. Declare `public using usize CAPACITY = 8;` above the struct so the array length is a compile-time constant.",
+    "push refuses when `len == CAPACITY` and returns false without changing anything. pop returns `Optional::None` when `len` is 0, otherwise it decreases `len` and returns the element now at index `len`.",
+]
+
+[[stages]]
+id = "search"
+title = "Binary search"
+summary = "find_sorted returns the index of a key in an ascending slice, or none, for any comparable type."
+hints = [
+    "Keep a half-open range `low..high` of candidates. While it is not empty, look at the middle element.",
+    "`mid = low + (high - low) / 2`. If `sorted[mid] == key` return `Optional::Some(mid)`; if `sorted[mid] < key` the answer is above, so `low = mid + 1`; otherwise `high = mid`. When the loop ends, return `Optional::None`.",
+]
+
+[[stages]]
+id = "report"
+title = "The combined report"
+summary = "main uses the toolkit for temperatures and prices, reverses the temperatures with the stack and searches the sorted temperatures."
+hints = [
+    "The data is already in main. Print each line with println and the toolkit functions; prices use {:.2}. Calls like `toolkit::max_of(temperatures)` deduce T from the array.",
+    "For the reversed line push every temperature onto a `Stack(i32)` and pop until `size()` is 0. For the search, copy nothing: `[]i32 ordered = temperatures;` then `std::sort::sort(ordered);` sorts the same elements, then call `find_sorted`.",
+]
+
+[[stages]]
+id = "clamp"
+title = "Bonus: clamp_all"
+summary = "clamp_all moves every element below low up to low and every element above high down to high, in place."
+optional = true
+hints = ["The parameter is a mutable slice `[]T`, so assigning to `items[i]` changes the caller's array. Loop with an index."]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "max_of and min_of work for i32, f64, u8 and char"
+stage = "extremes"
+harness = "checks/extremes_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "count_above and count_between count correctly"
+stage = "counting"
+harness = "checks/counting_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "Stack pushes, pops and refuses when full"
+stage = "stack"
+harness = "checks/stack_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "find_sorted finds every element and misses the rest"
+stage = "search"
+harness = "checks/search_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "The combined report"
+stage = "report"
+expect_stdout = """
+temperatures: max 31, min -4
+prices: max 9.50, min 0.75
+above 20: 3
+above 5.00: 2
+between 10 and 25: 3
+reversed: 22 8 25 31 -4 12
+sorted: -4 8 12 22 25 31
+25 found at 4
+30 not found
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Between 10 and 25 counts 12, 25 and 22. The reversed line pops the stack, so it lists the temperatures from last to first."
+
+[[checks]]
+kind = "harness"
+name = "clamp_all limits every element in place"
+stage = "clamp"
+harness = "checks/clamp_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[questions]]
+id = "old-largest"
+type = "bug"
+prompt = "The station's old `largest` answers `0` for a list of negative balances. Which line is the bug?"
+code = """
+module main;
+
+T largest(T)([]const T items) {
+    T best = {};
+    for T item in items {
+        if item > best {
+            best = item;
+        }
+    }
+    return best;
+}
+
+public Status(Error) main() {
+    i32[3] balances = { -5, -2, -9 };
+    println("{}", largest(balances))?;
+    return Status::Ok;
+}
+"""
+lines = [5]
+fixed = """
+module main;
+
+T largest(T)([]const T items) {
+    T best = items[0];
+    for T item in items {
+        if item > best {
+            best = item;
+        }
+    }
+    return best;
+}
+
+public Status(Error) main() {
+    i32[3] balances = { -5, -2, -9 };
+    println("{}", largest(balances))?;
+    return Status::Ok;
+}
+"""
+expect = "-2\n"
+explanation = "`{}` is the zero value of `T`, and zero is larger than every element of an all-negative list, so no element ever replaces it. A generic function must not assume anything about the values of `T`: start from the first element, which is certainly one of the candidates. (The same slice, empty, has no largest element at all; the toolkit assumes a non-empty slice.)"

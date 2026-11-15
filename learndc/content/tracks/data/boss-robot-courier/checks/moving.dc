@@ -1,0 +1,34 @@
+module moving;
+
+import courier;
+using courier::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Robot north = Robot { x = 2, y = 2, facing = Facing::North };
+    Robot east = Robot { x = 2, y = 2, facing = Facing::East };
+    Robot south = Robot { x = 2, y = 2, facing = Facing::South };
+    Robot west = Robot { x = 2, y = 2, facing = Facing::West };
+    Robot n = forward(north, 3);
+    expect(n.x == 2 && n.y == 5, "North 3 from (2, 2) reaches (2, 5)", &failures);
+    Robot e = forward(east, 3);
+    expect(e.x == 5 && e.y == 2, "East 3 from (2, 2) reaches (5, 2)", &failures);
+    Robot s = forward(south, 3);
+    expect(s.x == 2 && s.y == -1, "South 3 from (2, 2) reaches (2, -1)", &failures);
+    Robot w = forward(west, 3);
+    expect(w.x == -1 && w.y == 2, "West 3 from (2, 2) reaches (-1, 2)", &failures);
+    Robot stay = forward(north, 0);
+    expect(stay.x == 2 && stay.y == 2, "distance 0 stays put", &failures);
+    expect(n.facing == Facing::North && w.facing == Facing::West, "moving keeps the facing", &failures);
+    expect(north.y == 2 && east.x == 2, "the robot passed in is not changed", &failures);
+    return failures;
+}

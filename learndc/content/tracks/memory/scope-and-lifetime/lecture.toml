@@ -12,7 +12,7 @@ objectives = [
     "Explain why an early return can skip cleanup code",
     "Predict the order in which deferred statements run",
 ]
-prerequisites = ["errors/custom-errors"]
+prerequisites = ["errors/boss-config-parser"]
 
 [[examples]]
 name = "block_scope"

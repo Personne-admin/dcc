@@ -1,6 +1,6 @@
 schema = 1
 id = "loops"
 title = "Repetition"
-summary = "Repeat work with while and for, and find the off-by-one mistakes every programmer makes."
-goal = "Write loops that count, accumulate and stop at the right moment, and trace a loop by hand."
-exercises = ["ranges"]
+summary = "Repeat work with while and for, stop and skip with break and continue, and find the off-by-one mistakes every programmer makes."
+goal = "Write loops that count, accumulate and stop at the right moment, trace a loop by hand and combine loops with functions and decisions in the Number Oracle."
+exercises = ["while-loops", "ranges", "break-continue", "tracing-and-debugging", "loops-drill", "boss-number-oracle"]

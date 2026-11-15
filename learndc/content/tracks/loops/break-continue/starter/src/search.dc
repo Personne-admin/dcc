@@ -1,0 +1,13 @@
+module search;
+
+public i32 sum_skipping_threes(i32 n) {
+    return 0;
+}
+
+public i32 terms_to_reach(i32 target) {
+    return 0;
+}
+
+public i32 smallest_divisor(i32 n) {
+    return 0;
+}

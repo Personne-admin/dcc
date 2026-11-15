@@ -8,7 +8,7 @@ that misspelled a variable name:
 error: unknown name `totl`
   --> src/main.dc:5:26
     |
-  4 |     for i in 0..3 { total += i; }
+  4 |     i32 total = price * 3;
   5 |     println("Total: {}", totl)?;
     |                          ^^^^
   6 |     return Status::Ok;

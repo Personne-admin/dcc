@@ -1,0 +1,9 @@
+module main;
+
+public Status(Error) main() {
+    println("u8 takes {} byte", sizeof(u8))?;
+    println("i32 takes {} bytes", sizeof(i32))?;
+    println("i64 takes {} bytes", sizeof(i64))?;
+    println("f64 takes {} bytes", sizeof(f64))?;
+    return Status::Ok;
+}

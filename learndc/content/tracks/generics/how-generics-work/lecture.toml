@@ -1,0 +1,165 @@
+schema = 1
+id = "generics/how-generics-work"
+revision = 1
+title = "How generics work"
+summary = "Type parameters, deduction, explicit type arguments, one compiled copy per type and limiting T with a concept."
+difficulty = "intermediate"
+estimated_minutes = 14
+concepts = ["generics", "type parameter", "type deduction", "monomorphization", "concept", "constraint"]
+tags = ["lecture", "generics"]
+objectives = [
+    "Read a declaration such as T larger(T)(T a, T b) and say what T stands for",
+    "Predict the type the compiler deduces for T and when you must write it with !",
+    "Explain that every type gets its own compiled copy and limit T with a concept",
+]
+prerequisites = ["library/library-drill"]
+
+[[examples]]
+name = "one_function"
+expect_stdout = """
+9
+2.500000
+z
+"""
+
+[[examples]]
+name = "deduction"
+expect_stdout = """
+30
+1.250000
+30
+"""
+
+[[examples]]
+name = "one_copy_each"
+expect_stdout = """
+u8 copy: 1 byte
+i32 copy: 4 bytes
+f64 copy: 8 bytes
+"""
+
+[[examples]]
+name = "constrained"
+expect_stdout = """
+43
+1.750000
+"""
+
+[[questions]]
+id = "what-is-t"
+type = "choice"
+prompt = "In `T smaller(T)(T a, T b)`, what is `T`?"
+choices = [
+    "A type that the compiler fills in from the call, giving one generated function per type",
+    "A variable that holds either a or b",
+    "A keyword that makes the function run at compile time",
+    "A pointer to the first argument",
+]
+answer = 1
+why = [
+    "",
+    "`T` is a type, not a value; the values are `a` and `b`.",
+    "The function still runs at run time; only the choice of the typed copy happens while compiling.",
+    "Pointers are written with `*`; `T` names a type.",
+]
+explanation = "The first parentheses declare the type parameters. Each call binds `T` to a real type and the compiler generates the typed function."
+
+[[questions]]
+id = "mixed-arguments"
+type = "error"
+prompt = "The compiler rejects this call. What is the real cause?"
+code = """
+module main;
+
+T larger(T)(T a, T b) {
+    return if a > b { a } else { b };
+}
+
+public Status(Error) main() {
+    i32 whole = 3;
+    f64 part = 2.5;
+    println("{}", larger(whole, part))?;
+    return Status::Ok;
+}
+"""
+diagnostic = "no matching call for `larger`"
+choices = [
+    "`>` does not work on `f64`",
+    "Both parameters share one `T`, and `i32` and `f64` cannot both be it",
+    "Generic functions cannot be called with variables",
+    "`larger` needs `!` on every call",
+]
+answer = 2
+why = [
+    "`>` works on `f64`; `larger(2.5, 0.5)` compiles.",
+    "",
+    "Variables are the usual way to call a generic function.",
+    "`!` is only needed when the compiler cannot deduce `T` or you want a different one.",
+]
+explanation = "`T` has to be one type for the whole call. The compiler tries `i32` from the first argument, cannot convert the `f64`, and reports no matching candidate. Convert one argument with `as`, or write `larger!f64(whole as f64, part)`."
+
+[[questions]]
+id = "copies-sizes"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+usize bytes_used(T)(T value) {
+    return sizeof(T);
+}
+
+public Status(Error) main() {
+    u8 a = 1;
+    i64 b = 1;
+    println("{} {}", bytes_used(a), bytes_used(b))?;
+    println("{}", bytes_used(2.5))?;
+    return Status::Ok;
+}
+"""
+expect = """
+1 8
+8
+"""
+explanation = "`bytes_used(a)` is the `u8` copy, which reports 1. `bytes_used(b)` is the `i64` copy, 8. The literal 2.5 is an `f64`, so that copy reports 8 as well."
+
+[[questions]]
+id = "count-copies"
+type = "short"
+prompt = "A program calls `larger(1, 2)`, `larger(3, 4)`, `larger(2.5, 1.5)` and `larger('a', 'b')`. How many copies of `larger` does the compiler generate? Type a number."
+accept = ["3", "three"]
+explanation = "Copies are made per type, not per call: one for `i32` (shared by the first two calls), one for `f64` and one for `char`."
+
+[[questions]]
+id = "generic-facts"
+type = "multi"
+prompt = "Which statements about generic functions hold?"
+choices = [
+    "The compiler can deduce `T` from the type of the arguments",
+    "`larger!u8(200, 100)` fixes `T` to `u8` explicitly",
+    "A generic function is slower because the type is checked at run time",
+    "`if Addable(T)` after the parameters rejects types that cannot be added at the call",
+]
+answers = [1, 2, 4]
+why = [
+    "",
+    "",
+    "Types are resolved while compiling; every copy is an ordinary typed function.",
+    "",
+]
+explanation = "Deduction, explicit arguments and constraints are all compile-time features. Nothing about `T` is looked up while the program runs."
+
+[[cards]]
+id = "type-parameter"
+front = "How do you declare and call a generic function that takes two values of the same type?"
+back = "`T larger(T)(T a, T b)` declares it; `larger(3, 9)` lets the compiler deduce T, `larger!u8(200, 100)` writes it."
+
+[[cards]]
+id = "monomorphization"
+front = "What does the compiler do for a generic function used with i32 and f64?"
+back = "It generates two ordinary functions, one with T = i32 and one with T = f64. One copy per type, none for unused types."
+
+[[cards]]
+id = "constraint"
+front = "How do you stop a generic function from accepting types it cannot handle?"
+back = "Define a concept with `using Name(T) = compiles(T a, T b) { a + b; };` and add `if Name(T)` after the parameters."
