@@ -99,13 +99,13 @@ The bundled exercises are in five tracks: Fundamentals (8), Types and memory (5)
 
 Run `learndc` with no command in an interactive terminal (stdin and stdout both a terminal) to open the full-screen interface. In any other situation, `learndc` with no command prints the help text.
 
-Screens: Home (continue where you stopped, the recommended next exercise, progress per path), Learn (every exercise with status, filters and search), Exercise (instructions, files, results), Progress, Bookmarks, Doctor, Settings, Help and a first-run Onboarding. The number keys 1 to 7 switch between the main screens.
+Screens: Home (continue where you stopped, the recommended next lesson, progress per chapter), Learn (every lesson grouped by chapter, with status, filters and search), Lesson (a lecture or drill, or an exercise's instructions, files and results), Progress (the journey through the chapters, bosses and achievements), Bookmarks, Doctor, Settings, Review (flashcards and questions to try again), Help and a first-run Onboarding. The number keys 1 to 8 switch between the main screens.
 
 Each screen follows two rules. The bottom bar is a short recap of the keys that matter in the current context. It stays the same while you move between panes, drops the least important keys (never Tab, `?` and `q`) when the window is narrow, and is empty while a dialog is open because the dialog shows its own choices. A status message such as "Created your files" is shown for a few seconds and disappears as soon as you open a dialog or change screen. The Help screen (`?`) is the complete key reference and lists the keys of the screen you came from. The keymap is written down once, here:
 
 | Key | Where | Action |
 | --- | --- | --- |
-| `1` to `7` | everywhere | Home, Learn, Exercise, Progress, Bookmarks, Doctor, Settings |
+| `1` to `8` | everywhere | Home, Learn, Lesson, Progress, Bookmarks, Doctor, Settings, Review |
 | `?` | everywhere | open Help |
 | `Esc` | everywhere | go back, or close a dialog |
 | `q` | everywhere | quit (asks first while a check is running) |
@@ -114,7 +114,7 @@ Each screen follows two rules. The bottom bar is a short recap of the keys that 
 | `Enter` | lists | open the chosen item |
 | `n` | Home, Exercise | open the recommended or next exercise |
 | `/` | Learn | search; type to filter live, `Enter` keeps the search, `Esc` clears it |
-| `f` `d` `t` `y` | Learn | cycle the status, difficulty, track and kind filters |
+| `f` `d` `t` `y` | Learn | cycle the status, difficulty, chapter and kind filters (kind `lecture` lists every lecture and drill) |
 | `0` | Learn | clear every filter |
 | `b` | Learn, Bookmarks, Exercise | bookmark or remove the bookmark |
 | `Tab` | Exercise | move between Instructions, Files and Results |
@@ -126,6 +126,14 @@ Each screen follows two rules. The bottom bar is a short recap of the keys that 
 | `h` `s` | Exercise | reveal the next hint; show the solution (asks first) |
 | `l` | Exercise | show or hide the raw compiler and program output |
 | `R` | Exercise | reset to the starter files (backup first, asks for a typed `y`) |
+| `a` | Exercise | answer the questions of a multi-stage exercise |
+| `Left` `Right` | Lecture, drill | previous or next page; `[` and `]` work too |
+| `Up` `Down` `Enter` | activity | choose a choice or a line, then check it |
+| `Space` | activity | toggle a choice (pick every answer); pick up or drop a line (ordering) |
+| typing | activity | answers to recall, trace and predict questions; `Esc` stops typing, `Enter` types again; in predict-the-output `Enter` starts a new line and an empty line checks |
+| `Space` `Enter` | Review | turn a flashcard over |
+| `a` `h` `g` `e` | Review | rate the card: again, hard, good, easy |
+| `Tab` | Review | move between the cards and the questions to try again |
 | `r` `t` | Doctor | check again; check again with a real test build |
 
 Exercise screen. The instructions, hints and explanations are rendered from Markdown: headings, wrapped paragraphs, bullet and numbered lists with hanging indents, fenced code blocks (clipped, never re-wrapped), inline code, bold and italic, pipe tables (a table that does not fit the width is shown as stacked `Header: value` lines, keeping the spaces inside code) and links shown as `text (url)`. Inline code is drawn in its own color, and in the `no-color` and `high-contrast` themes in inverse video. The sidebar shrinks to a narrow column of numbers on this screen so the instructions get the width.
@@ -133,6 +141,14 @@ Exercise screen. The instructions, hints and explanations are rendered from Mark
 Watch mode. While watch is on, a banner at the top of the exercise screen shows the watched workspace path and the live state: waiting for changes, change detected and checking, or the time of the last check (the results themselves are in the Results pane). On every other screen, including Help, the header shows `WATCHING` instead, and watch keeps running there. Watch ends when you turn it off with `w` or open a different exercise (a message says so); the banner and the indicator then disappear completely.
 
 Running your program. `r` clears the terminal, prints a one-line header naming the program, runs it with the terminal attached, and returns to learndc after you press Enter.
+
+Chapters and lessons. The lessons are organized into twelve chapters, from First Steps to Generics and Compile Time. A chapter has a goal, lectures that explain one idea per page with examples that were compiled and run when the content was validated, drills that mix short activities, exercises and, at the end of substantial chapters, a Boss Fight. Prerequisites recommend an order but never lock anything: the Learn screen shows "Comes after: ..." for a lesson whose prerequisites you have not completed, and you can open it anyway. Bonus lessons are marked and are not needed to complete a chapter.
+
+Lectures and drills. A lecture is read page by page; its last pages are activities. Every activity gives feedback as soon as you check it: which choice is wrong and why, which output line differs, how many lines are in place, which line is fine. The full explanation appears when you are right or after a second try. A lecture or drill is complete when every activity is answered right; missed activities come back on the Review screen. Activity types: quiz, pick every right answer, predict the output, trace the program, find the bug, explain the error, put the code in order and recall.
+
+Boss Fights. A Boss Fight is marked with a red skull and the words BOSS FIGHT everywhere it appears (with ASCII mode, `[X]`). Its screen shows a difficulty rating, the scope and a short story, and replaces the goals with a list of objectives, one per stage. Each stage is checked on its own and some stages are questions instead of code. The list tells apart a stage that passes with your current files, one that passed before and fails now, one that passed before but has not been checked since you changed your files, and the current objective. Passing a stage records it permanently; changing code never erases an achievement, but only one check in which every required stage passes defeats the boss. Hints (`h`) are given for the current stage first. Bonus stages are optional.
+
+Review. Lectures and drills add flashcards when you complete them. The Review screen shows the cards that are due: recall the answer, turn the card over and rate how well you remembered it. Cards you know well come back after longer and longer intervals (1, 2, 4, 8 and 16 days); a card rated "again" comes back today. Below the cards are the questions whose last answer was wrong; Enter opens one where it lives.
 
 Completing an exercise. When the last failing check of an exercise passes for the first time, a modal dialog titled "Exercise complete" (on whatever screen you are, when watch ran the check) shows the exercise, how many checks passed, how many attempts and hints it took, and the next recommended exercise (or "All exercises complete"). It offers to open the next exercise or stay where you are, and it stays open until you choose; the same dialog appears when a watch run is the one that passes.
 
@@ -163,7 +179,7 @@ Commands that take an optional `id` use the exercise of the current directory's 
 
 | Command | What it does |
 |---|---|
-| `learndc list [--track ID] [--status STATUS] [--difficulty LEVEL] [--kind KIND] [--json]` | List exercises. Status is `not-started`, `in-progress`, `completed` or `unfinished`; difficulty is `beginner`, `intermediate` or `advanced`. |
+| `learndc list [--track ID] [--status STATUS] [--difficulty LEVEL] [--kind KIND] [--json]` | List the lessons grouped by chapter, with their type (lecture, drill, practice, challenge, quest or BOSS). `--track` takes a chapter id. Status is `not-started`, `in-progress`, `completed` or `unfinished`; difficulty is `beginner`, `intermediate` or `advanced`. |
 | `learndc search WORDS... [--json]` | Search ids, titles, summaries, concepts and tags; ranked. |
 | `learndc show ID [--json]` | Instructions, checks and your status. |
 | `learndc start ID [--dir PATH]` | Create the workspace, or resume it. Never overwrites: a directory that is not this exercise's workspace is refused (exit 6). Makes the exercise active. |
@@ -172,10 +188,14 @@ Commands that take an optional `id` use the exercise of the current directory's 
 | `learndc run [ID] [-- ARGS...]` | Build and run your program with its output on your terminal, without comparing anything. Arguments after `--` go to your program. |
 | `learndc check [ID] [--json] [--verbose] [--backend dpm\|llvm\|custom]` | Run the checks. `--verbose` shows full output of every check. The default backend is `dpm`; `llvm` and `custom` call dcc directly with that code generator. |
 | `learndc watch [ID]` | Re-run the checks whenever a file changes. Ctrl+C ends it. |
-| `learndc hint [ID] [--level N]` | Reveal the next hint, or hint N (1 to 3). |
+| `learndc hint [ID] [--level N] [--stage STAGE]` | Reveal the next hint, or hint N (1 to 3); with `--stage`, the hints of that stage of a multi-stage exercise. |
+| `learndc answer ID [CHOICE...]` | Answer a lecture whose questions are all multiple choice, one choice number per question; with no choices, mark a lecture without questions as read. |
+| `learndc answer ID --question Q ANSWER...` | Answer one question of any kind: a choice number, numbers like `1,3`, a line number, the shown line numbers in order, a short answer, or predicted output with `\n` between lines. Prints the feedback; exits 1 while the answer is wrong. |
+| `learndc cards [--json]` | Flashcards due for review and the questions to try again. |
+| `learndc card LESSON#CARD [again\|hard\|good\|easy]` | Show a flashcard, or rate it and schedule its next review. |
 | `learndc solution [ID] --show\|--diff` | Print the reference solution and its explanation, or a unified diff of your files against it. Either marks the solution as viewed. |
 | `learndc reset ID [--yes] [--no-backup]` | Restore the starter files. See [Reset and backups](#reset-and-backups). |
-| `learndc progress [--json]` | Completion by track, the active exercise and recent exercises. |
+| `learndc progress [--json]` | Completion by chapter, bosses and achievements, the active lesson and recent lessons. |
 | `learndc review [--json]` | Exercises worth revisiting: completed after looking at the solution, or whose content has a newer revision than the one you completed. |
 | `learndc bookmark ID [--remove]` | Bookmark an exercise (shown in `list --json` as `bookmarked`). |
 | `learndc config get KEY \| set KEY VALUE \| unset KEY \| list [--json]` | Read and change settings. |
@@ -463,7 +483,7 @@ Writes are atomic and guarded by a lock file (`progress.lock`), and the previous
     learndc import --input progress.json
     learndc import --input progress.json --apply
 
-The export is a JSON file (`"format": "learndc-progress"`, `"schema": 1`, the time, and the progress record). `import` without `--apply` only prints what would change, one line per field. With `--apply` it merges:
+The export is a JSON file (`"format": "learndc-progress"`, `"schema": 2`, the time, and the progress record, including stage results, question attempts and flashcard schedules; exports with schema 1 are still accepted). `import` without `--apply` only prints what would change, one line per field. With `--apply` it merges:
 
 - completed wins over in-progress and not-started;
 - counters (attempts, passes, hint level) take the larger value;
@@ -488,6 +508,8 @@ Importing the same file twice changes nothing the second time. Workspaces and yo
 ## Content revisions
 
 Each exercise has a `revision`. It goes up when the starter or the checks change. Your completion is never lost: an exercise you completed at an older revision stays completed and is listed by `learndc review` and as `needs_revisit` in the JSON output. Your existing workspace is not modified when content changes; to try a new revision, start it again.
+
+Lessons can move between chapters. When one does, learndc moves your progress, bookmarks and workspace path to its new id the first time you start it, keeps your workspace where it is, and saves a one-time copy of an older progress file as `progress.json.schema1.bak` next to it. Old ids keep working on the command line.
 
 ## Watch mode
 

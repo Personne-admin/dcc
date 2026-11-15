@@ -14,6 +14,8 @@ This guide is for people who write exercises for [learndc](learndc.md). An exerc
       tracks/<track>/<name>/starter/...      copied to the learner's workspace
       tracks/<track>/<name>/solution/...     files that differ from the starter (overlay)
       tracks/<track>/<name>/checks/*.dc      harness programs, never copied to the workspace
+      tracks/<track>/<name>/lecture.toml     instead of exercise.toml: a lecture or drill
+      tracks/<track>/<name>/examples/*.dc    lecture examples, compiled and run by validation
 
 The bundled content in `learndc/content/` is the reference. Any other top-level file or directory inside an exercise directory is an error. Two files whose paths differ only by letter case are an error.
 
@@ -53,7 +55,7 @@ Unknown keys are errors. Errors are reported as `file:line:column: message`.
 | `title` | string | required | |
 | `summary` | string | required | one sentence |
 | `kind` | string | required | `repair-compilation`, `fix-behavior`, `implement-function`, `complete-program`, `understand-diagnostics`, `refactor`, `multi-module`, `libdcext` or `challenge` |
-| `chapter` | string | required | free-form grouping label |
+| `chapter` | string | none | optional free-form label used by search |
 | `difficulty` | string | required | `beginner`, `intermediate` or `advanced` |
 | `estimated_minutes` | integer | required | 1 to 1000 |
 | `concepts` | array of strings | required | used by search |
@@ -68,6 +70,8 @@ Unknown keys are errors. Errors are reported as `file:line:column: message`.
 | `backends` | array of strings | required | `llvm`, `custom`: the code generators the solution is validated on |
 | `starter_state` | string | required | `fails-build` or `fails-checks`; validation proves the starter really does that |
 | `build_timeout_seconds` | integer | learner setting | 10 to 600; override for a slow build |
+| `optional` | boolean | false | a bonus lesson, not needed to complete the chapter |
+| `[boss]`, `[[stages]]`, `[[questions]]` | tables | none | see Stages and Boss Fights, and Activities |
 
 At least one `[[checks]]` table is required. If none has `kind = "build"`, learndc inserts a build check named `Compiles` first; a build always runs first anyway. Two checks may not share a name.
 
@@ -101,9 +105,109 @@ Keys by kind (a key from another kind is rejected with `key 'x' is not valid for
 | `expect_exit` | run, harness | integer | 0 | 0 to 255 |
 | `max_seconds` | run, harness | integer | 10 | 1 to 60 |
 | `expect_build` | diagnostic | string | required | `success` or `failure` |
+| `stage` | run, harness, diagnostic | string | none | the stage the check belongs to |
 | `diagnostic_contains` | diagnostic | string | empty | substring of the sanitized compiler diagnostics |
 
 A `diagnostic` check compiles only and asserts on the diagnostics; use it to teach reading compiler errors. Output comparison happens after control sequences are stripped.
+
+## Chapters
+
+A track is a chapter. `catalog.toml` lists the chapters in learning order, and each `track.toml` may add a one-sentence `goal`:
+
+    schema = 1
+    id = "memory"
+    title = "Ownership and Cleanup"
+    summary = "Understand when values live and die, clean up with defer and own growable memory."
+    goal = "Release every resource exactly once with defer, and build, lend and search owning Array and Map values."
+    exercises = ["scope-and-lifetime", "defer-order", "boss-inventory-keeper"]
+
+`exercises` names every lesson directory of the chapter, lectures and drills included. A chapter counts as complete when every lesson that is not `optional = true` is complete. At most one Boss Fight per chapter; put it last.
+
+### Renaming lessons
+
+Lesson ids are the keys of learner progress and workspaces. When a lesson moves, keep its progress by listing the old id in `catalog.toml`:
+
+    [renamed]
+    "types/owned-array" = "memory/filling-arrays"
+
+The old id must no longer exist and the new one must. On start, learndc moves the learner's records, bookmarks, recent list and active lesson to the new id, keeps an existing workspace where it is (its metadata is retargeted and the path remembered) and writes a one-time copy of a schema 1 progress file to `progress.json.schema1.bak`. Commands accept the old id too. A prerequisite that names an old id is an error that names the new one.
+
+## Lectures and drills
+
+A lecture directory holds `lecture.toml`, `README.md` and optional `examples/<name>.dc`; nothing else. Each `## ` heading of the README is a page in the terminal interface. A fenced block whose info string is `dc example=<name>` and whose body is empty is replaced by the example file, so the code a learner reads is exactly the code validation compiles and runs:
+
+    ```dc example=defer_once
+    ```
+
+| Key | Type | Rule |
+|---|---|---|
+| `schema`, `id`, `revision`, `title`, `summary`, `difficulty`, `estimated_minutes`, `concepts`, `objectives`, `prerequisites` | | as in exercise.toml |
+| `tags`, `optional` | | optional, as in exercise.toml |
+| `kind` | string | `lecture` (default) or `drill`; a drill needs at least one question |
+| `[[examples]]` | `name`, `expect_stdout` | every example is compiled and run by validation and must print `expect_stdout` |
+| `[[questions]]` | see below | activities; a lecture is complete when every question has been answered right |
+| `[[cards]]` | `id`, `front`, `back` | flashcards; they join the learner's review once the lesson is complete |
+
+A lecture without questions is completed by marking it as read.
+
+## Activities
+
+Questions appear in lectures, drills and multi-stage exercises. Every question has a slug `id` (default `q1`, `q2`, ...), a `type`, a `prompt` and an `explanation`. The explanation is shown when the answer is right or after the second attempt; until then the learner sees targeted feedback. Grading is deterministic and offline.
+
+| `type` | Extra keys | Graded by |
+|---|---|---|
+| `choice` | `choices` (2 to 6), `answer`, optional `why` | the chosen number |
+| `multi` | `choices`, `answers = [..]`, optional `why` | the exact set; extra picks show their `why` |
+| `predict` | `code` or `example`, `expect` | output lines with trailing spaces and final empty lines ignored |
+| `trace` | `code` or `example`, `accept = [..]`, optional `expect` | a short answer |
+| `bug` | `code`, `lines = [..]`, optional `fixed` and `expect` | the chosen line number |
+| `error` | `code`, `diagnostic`, `choices`, `answer`, optional `why` | the chosen number |
+| `order` | `code` (2 to 14 distinct lines), optional `example` | the exact line order |
+| `short` | `accept = [..]` | lowercase, trimmed, spaces collapsed, surrounding backticks or quotes and a final period removed |
+
+`why` holds one entry per choice, empty for the right one, explaining why each wrong choice is wrong. Keep `short` and `trace` answers to one word, name or number: free text is never graded. An `order` prompt must make the order unique.
+
+Validation runs the code: a `predict` program must print `expect`; a `trace` program with `expect` must print it; an `error` program must fail to compile with `diagnostic` in the compiler output; for a `bug` with `fixed`, the fixed program must print `expect` and the buggy one must not. The code of an `order` question must appear verbatim in its `example`.
+
+Learners answer in the terminal interface (one activity per page), or with `learndc answer ID --question Q ANSWER`. Every attempt is recorded per question; questions whose last attempt was wrong come back on the Review screen and in `learndc cards`. Flashcards are scheduled with five Leitner boxes (again, hard, good and easy move a card between boxes; box intervals are 1, 2, 4, 8 and 16 days).
+
+## Stages and Boss Fights
+
+An exercise can be split into stages that are checked and recorded one by one:
+
+    [[stages]]
+    id = "stock-up"
+    title = "Stock the shelf"
+    summary = "add pushes a new Item for every name, and kinds counts the entries."
+    hints = ["The shelf is an Array(Item) that belongs to the caller."]
+
+    [[checks]]
+    kind = "harness"
+    name = "add and kinds stock new items"
+    stage = "stock-up"
+    harness = "checks/stock_up.dc"
+
+| Stage key | Rule |
+|---|---|
+| `id`, `title`, `summary` | required |
+| `optional` | a bonus stage, never needed for completion |
+| `revision` | raise it when the stage changes; learners who passed an older revision are asked to pass it again |
+| `hints` | up to three, revealed one at a time for the current stage |
+| `questions` | ids of the exercise's own `[[questions]]`; a stage may consist of questions only |
+
+With stages, every check except the build names its stage, every stage has a check or a question, every question belongs to exactly one stage and at least one stage is required. Harness checks of a staged exercise build independently of the main program, so an early stage can pass while a later module is broken: give each stage its own functions and its own harness. An exercise is complete after one check in which every required stage passes and whose required questions are answered.
+
+The progress file keeps, per stage, when it was first passed and the result of the last check, together with a fingerprint of the files that were checked. The interface therefore tells apart a stage that passes with the current files, one that passed before and fails now, and one that passed before but has not been checked since the files changed.
+
+A Boss Fight is a staged exercise with a `[boss]` table:
+
+    [boss]
+    rating = 3
+    story = """
+    The old storekeeper of the night market has retired ...
+    """
+
+It needs at least two stages and a hint for each. Validation requires the starter to fail every stage and the solution to pass every stage, bonus stages included.
 
 ## README.md, hints.md, explanation.md
 
