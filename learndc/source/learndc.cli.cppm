@@ -838,7 +838,6 @@ export namespace learndc::cli
                 auto report = runner::run_checks(ex, root, opt);
                 last = finish_check(s, ex, report, false);
                 s.out().flush();
-                watcher.rebase();
                 if (last == app::exit_toolchain)
                     return last;
             }

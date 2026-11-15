@@ -4904,6 +4904,37 @@ TEST_CASE("cli export refuses to overwrite learndc's own data files")
     CHECK_EQ(f.run({"export", "--output", platform::path_to_utf8(f.temp.path / "ok.json")}).code, 0);
 }
 
+TEST_CASE("cli watch checks again after an edit saved while a check was running")
+{
+    CliFixture f;
+    auto const ws = f.temp.path / "ws";
+    REQUIRE(f.run({"start", "basics/one", "--dir", platform::path_to_utf8(ws)}).code == 0);
+    EnvGuard guard("brief");
+    std::ostringstream out;
+    std::ostringstream err;
+    std::istringstream in;
+    std::atomic<bool> cancel{false};
+    learndc::cli::Io io;
+    io.out = &out;
+    io.err = &err;
+    io.in = &in;
+    io.env = platform::Env{{"PATH", platform::path_to_utf8(f.temp.path / "nowhere")}, {"LANG", "C.UTF-8"}, {"LEARNDC_DPM", g_self}, {"LEARNDC_DCC", g_self}};
+    io.cwd = f.temp.path;
+    io.stdin_tty = false;
+    io.stdout_tty = false;
+    io.stderr_tty = false;
+    io.self_exe = std::nullopt;
+    io.cancel = &cancel;
+    std::vector<std::string> const args = {"--home", platform::path_to_utf8(f.home), "--content-dir", platform::path_to_utf8(f.content), "watch", "basics/one"};
+    std::thread runner_thread([&] { (void)learndc::cli::run(args, io); });
+    std::this_thread::sleep_for(500ms);
+    write_file(ws / "src" / "main.dc", "edited while the first check runs\n");
+    std::this_thread::sleep_for(5s);
+    cancel = true;
+    runner_thread.join();
+    CHECK(out.str().find("changed; checking again") != std::string::npos);
+}
+
 TEST_CASE("cli hints and solutions do not start an exercise")
 {
     CliFixture f;
@@ -6074,6 +6105,11 @@ int main(int argc, char** argv)
                     std::abort();
                 if (kind == "sleep")
                     std::this_thread::sleep_for(std::chrono::seconds(60));
+                if (kind == "brief")
+                {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+                    return 1;
+                }
                 if (kind == "reject")
                 {
                     std::cerr << "error: initializer type mismatch\n   | \n 4 | println(\"undefined symbol\")\n";
