@@ -1,4 +1,4 @@
-  1  2  3 Exercise  4  5  6  7
+  1  2  3 Lesson  4  5  6  7
 ╭─ Solution: Variables and mutation ───────────────────────╮
 │ src/main.dc                                              │
 │ --- your src/main.dc                                     │

@@ -11,12 +11,12 @@
                    ╭─ Exercise complete ────────────────────────────────────────╮
                    │ Variables and mutation                                     │
                    │ 3 of 3 checks passed, 1 attempt, no hints used             │
-                   │ All exercises complete                                     │
+                   │ Chapter 1 complete: Fundamentals                           │
+                   │ Every lesson that is open to you is complete               │
                    │                                                            │
                    │ › Review your progress                                     │
                    │   Stay here                                                │
                    ╰────────────────────────────────────────────────────────────╯
-
 
 
 

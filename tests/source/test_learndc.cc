@@ -6892,13 +6892,13 @@ TEST_CASE("tui exercise complete opens a modal that stays until dismissed")
     CHECK_EQ(m.dialog.body[0], "Variables and mutation");
     CHECK_EQ(m.dialog.body[1], "3 of 3 checks passed, 3 attempts, 1 hint used");
     CHECK_EQ(m.dialog.body[2], "Next: Making decisions with if");
-    CHECK_EQ(m.dialog.labels, (std::vector<std::string>{"Next exercise", "Stay here"}));
+    CHECK_EQ(m.dialog.labels, (std::vector<std::string>{"Next lesson", "Stay here"}));
     CHECK(m.toasts.empty());
     snap(m, "dialog-complete", {{100, 30}, {80, 24}, {60, 20}});
     m.handle(tm::Resize{100, 30});
     auto const shown = learndc::tui::render_snapshot(m, 100, 30);
     CHECK(shown.find("Exercise complete") != std::string::npos);
-    CHECK(shown.find("Next exercise") != std::string::npos);
+    CHECK(shown.find("Next lesson") != std::string::npos);
     CHECK(shown.find("Stay here") != std::string::npos);
     for (std::int64_t t = 10000; t <= 1000000; t += 200000)
         m.handle(tm::Tick{t});
@@ -7002,7 +7002,7 @@ TEST_CASE("tui exercise complete waits behind an open dialog and reports a finis
     press(last, "c");
     last.handle(tm::CheckDone{pass});
     REQUIRE(last.dialog.kind == tm::DialogKind::Complete);
-    CHECK_EQ(last.dialog.body.back(), "All exercises complete");
+    CHECK_EQ(last.dialog.body.back(), "Every lesson that is open to you is complete");
     CHECK_EQ(last.dialog.labels.size(), 2u);
     CHECK_EQ(last.dialog.labels[1], "Stay here");
     snap(last, "dialog-complete-all", {{100, 30}});
@@ -7722,6 +7722,7 @@ harness = "checks/bonus_check.dc"
             c.stage_id = std::move(stage);
             c.kind = catalog::CheckKind::Harness;
             c.verdict = pass ? runner::Verdict::Pass : runner::Verdict::Fail;
+            c.stage = pass ? runner::Stage::Passed : runner::Stage::Harness;
             return c;
         };
         runner::CheckResult build;
@@ -8245,4 +8246,162 @@ TEST_CASE("academy cli lists chapters shows lectures and answers them")
     auto const* tracks = pj->find("tracks")->as_array();
     REQUIRE(tracks != nullptr);
     CHECK_EQ((*tracks)[1].find("boss")->as_string().value(), "more/boss");
+}
+
+namespace
+{
+    struct AcademyWorld
+    {
+        TempDir temp;
+        std::optional<learndc::app::Context> ctx;
+
+        AcademyWorld()
+        {
+            write_source(academy_source(), temp.path / "content");
+            learndc::app::OpenOptions oo;
+            oo.home = temp.path / "home";
+            oo.content_dir = temp.path / "content";
+            oo.env = platform::Env{{"PATH", ""}, {"LANG", "C.UTF-8"}};
+            auto opened = learndc::app::open(oo);
+            REQUIRE(opened.has_value());
+            ctx.emplace(std::move(*opened));
+            ctx->settings.onboarding_done = true;
+            ctx->settings.ui_open_continue = false;
+        }
+    };
+} // namespace
+
+TEST_CASE("tui lectures page through sections and complete with the quiz")
+{
+    AcademyWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    m.open_exercise("basics/intro");
+    REQUIRE(m.lecture_open());
+    REQUIRE(m.exercise.sections.size() == 2u);
+    CHECK_EQ(m.exercise.sections[0].title, "First");
+    CHECK(m.exercise.sections[0].body.find("public i32 main()") != std::string::npos);
+    CHECK_EQ(m.lecture_pages(), 3u);
+    CHECK(!m.on_quiz_page());
+    auto const first = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(first.find("page 1 of 3") != std::string::npos);
+    CHECK(first.find("Contents") != std::string::npos);
+    snap(m, "lecture", {{100, 30}, {60, 20}});
+    m.handle(tm::Resize{100, 30});
+    press(m, "Left");
+    CHECK_EQ(m.exercise.lecture.page, 0u);
+    press(m, "Right");
+    press(m, "Enter");
+    REQUIRE(m.on_quiz_page());
+    press(m, "Right");
+    CHECK_EQ(m.exercise.lecture.page, 2u);
+    CHECK_EQ(m.quiz_rows().size(), 5u);
+    press(m, "Enter");
+    CHECK_EQ(m.exercise.lecture.answers[0], 1);
+    CHECK_EQ(m.exercise.lecture.cursor, 3u);
+    press(m, "Enter");
+    CHECK_EQ(m.exercise.lecture.answers[1], 1);
+    REQUIRE(m.quiz_rows().size() == 6u);
+    CHECK_EQ(m.exercise.lecture.cursor, 5u);
+    press(m, "Enter");
+    CHECK(m.exercise.lecture.submitted);
+    CHECK(!m.exercise.lecture.right[0]);
+    CHECK(m.exercise.lecture.right[1]);
+    CHECK(!m.dialog.open());
+    CHECK(m.status_of("basics/intro") == progress::Status::InProgress);
+    auto const wrong = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(wrong.find("not quite: Two is right.") != std::string::npos);
+    for (int i = 0; i < 5; ++i)
+        press(m, "Up");
+    press(m, "Down");
+    press(m, "Enter");
+    CHECK_EQ(m.exercise.lecture.answers[0], 2);
+    press(m, "Enter");
+    CHECK_EQ(m.exercise.lecture.cursor, 5u);
+    press(m, "Enter");
+    REQUIRE(m.dialog.open());
+    CHECK(m.dialog.kind == tm::DialogKind::Complete);
+    CHECK_EQ(m.dialog.title, "Lecture complete");
+    CHECK(!m.dialog.boss);
+    CHECK(m.status_of("basics/intro") == progress::Status::Completed);
+    snap(m, "dialog-lecture", {{100, 30}});
+    m.handle(tm::Key{"Esc"});
+    CHECK(std::ranges::any_of(m.key_hints(), [](tm::KeyHint const& k) { return k.key == "Left Right"; }));
+    press(m, "?");
+    CHECK(std::ranges::any_of(m.help(), [](tm::HelpSection const& s) { return s.title == "Keys in a lecture"; }));
+}
+
+TEST_CASE("tui boss fights show objectives stage hints stage clears and the victory")
+{
+    AcademyWorld w;
+    auto const* boss = w.ctx->catalog.find("more/boss");
+    REQUIRE(boss != nullptr);
+    auto started = learndc::app::start_exercise(*w.ctx, *boss, std::nullopt);
+    REQUIRE(started.has_value());
+    auto const fp = runner::workspace_fingerprint(started->root);
+    tm::Model m(*w.ctx, {100, 30});
+    m.open_exercise("more/boss");
+    REQUIRE(m.exercise.ws.has_value());
+    CHECK_EQ(m.exercise.fingerprint, fp);
+    auto views = m.stage_views();
+    REQUIRE(views.size() == 3u);
+    CHECK(views[0].state == learndc::app::StageState::Current);
+    auto const fresh = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(fresh.find("BOSS FIGHT") != std::string::npos);
+    CHECK(fresh.find("Objectives  0 of 2 required stages passing") != std::string::npos);
+    CHECK(fresh.find("Difficulty") != std::string::npos);
+
+    m.handle(tm::CheckDone{staged_report(true, false, false, fp)});
+    CHECK(!m.dialog.open());
+    REQUIRE(!m.toasts.empty());
+    CHECK_EQ(m.toasts.back().text, "Stage cleared: First stage");
+    CHECK(m.toasts.back().important);
+    views = m.stage_views();
+    CHECK(views[0].state == learndc::app::StageState::Verified);
+    CHECK(views[1].state == learndc::app::StageState::Current);
+    press(m, "h");
+    auto p = learndc::app::load_progress(*w.ctx);
+    REQUIRE(p);
+    CHECK_EQ(p->exercises.at("more/boss").stages.at("second").hint_level, 1);
+    CHECK_EQ(p->exercises.at("more/boss").hint_level, 0);
+    auto const hinted = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(hinted.find("Hint 1 of 1: only hint") != std::string::npos);
+    CHECK(hinted.find("Stage 1") != std::string::npos);
+    snap(m, "boss", {{100, 30}, {80, 24}, {60, 20}});
+    m.handle(tm::Resize{100, 30});
+    press(m, "h");
+    p = learndc::app::load_progress(*w.ctx);
+    REQUIRE(p);
+    CHECK_EQ(p->exercises.at("more/boss").hint_level, 1);
+
+    write_file(started->root / "src" / "main.dc", "module main;\n// changed\n");
+    m.handle(tm::FilesChanged{});
+    CHECK(m.stage_views()[0].state == learndc::app::StageState::Unverified);
+
+    auto const fp2 = runner::workspace_fingerprint(started->root);
+    m.handle(tm::CheckDone{staged_report(true, true, false, fp2)});
+    REQUIRE(m.dialog.open());
+    CHECK(m.dialog.boss);
+    CHECK_EQ(m.dialog.title, "Boss defeated");
+    CHECK(std::ranges::any_of(m.dialog.body, [](std::string const& b) { return b.find("2 required stages cleared") != std::string::npos; }));
+    CHECK(std::ranges::any_of(m.dialog.body, [](std::string const& b) { return b == "Chapter 2 complete: More"; }) == false);
+    auto const victory = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(victory.find("BOSS DEFEATED") != std::string::npos);
+    snap(m, "dialog-boss", {{100, 30}, {60, 20}});
+}
+
+TEST_CASE("tui learn lists chapters bosses lectures and progress shows the journey")
+{
+    AcademyWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    press(m, "2");
+    auto const learn = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(learn.find("Chapter 1  Basics") != std::string::npos);
+    CHECK(learn.find("Chapter 2  More") != std::string::npos);
+    CHECK(learn.find("BOSS The Keeper") != std::string::npos);
+    CHECK(learn.find("How things work (lecture)") != std::string::npos);
+    press(m, "4");
+    auto const prog = learndc::tui::render_snapshot(m, 100, 30);
+    CHECK(prog.find("Journey") != std::string::npos);
+    CHECK(prog.find("boss ahead") != std::string::npos);
+    CHECK(prog.find("Achievements") != std::string::npos);
 }

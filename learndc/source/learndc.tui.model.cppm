@@ -41,7 +41,7 @@ export namespace learndc::tui::model
             case Screen::Learn:
                 return "Learn";
             case Screen::Exercise:
-                return "Exercise";
+                return "Lesson";
             case Screen::Progress:
                 return "Progress";
             case Screen::Bookmarks:
@@ -173,7 +173,7 @@ export namespace learndc::tui::model
 
     inline constexpr std::array<catalog::Difficulty, 3> all_difficulties = {catalog::Difficulty::Beginner, catalog::Difficulty::Intermediate,
                                                                             catalog::Difficulty::Advanced};
-    inline constexpr std::array<catalog::ExerciseKind, 9> all_kinds = {catalog::ExerciseKind::RepairCompilation,
+    inline constexpr std::array<catalog::ExerciseKind, 10> all_kinds = {catalog::ExerciseKind::RepairCompilation,
                                                                        catalog::ExerciseKind::FixBehavior,
                                                                        catalog::ExerciseKind::ImplementFunction,
                                                                        catalog::ExerciseKind::CompleteProgram,
@@ -181,7 +181,8 @@ export namespace learndc::tui::model
                                                                        catalog::ExerciseKind::Refactor,
                                                                        catalog::ExerciseKind::MultiModule,
                                                                        catalog::ExerciseKind::Libdcext,
-                                                                       catalog::ExerciseKind::Challenge};
+                                                                       catalog::ExerciseKind::Challenge,
+                                                                       catalog::ExerciseKind::Lecture};
 
     struct Filters
     {
@@ -298,6 +299,7 @@ export namespace learndc::tui::model
     {
         std::string text;
         bool error = false;
+        bool important = false;
         std::int64_t duration_ms = 4000;
         std::int64_t shown_ms = -1;
         std::uint64_t seq = 0;
@@ -325,6 +327,7 @@ export namespace learndc::tui::model
         std::string target;
         std::string yes_label;
         std::string no_label;
+        bool boss = false;
 
         [[nodiscard]] bool open() const { return kind != DialogKind::None; }
     };
@@ -350,6 +353,61 @@ export namespace learndc::tui::model
         std::string explanation;
         bool has_workspace = false;
         int scroll = 0;
+    };
+
+    struct LectureSection
+    {
+        std::string title;
+        std::string body;
+    };
+
+    [[nodiscard]] inline std::vector<LectureSection> lecture_sections(catalog::Exercise const& ex)
+    {
+        std::vector<LectureSection> out;
+        LectureSection current;
+        current.title = ex.title;
+        bool fenced = false;
+        bool title_skipped = false;
+        for (auto const& line : text::split_lines(ex.readme))
+        {
+            auto const trimmed = text::trim(line);
+            if (trimmed.starts_with("```") || trimmed.starts_with("~~~"))
+                fenced = !fenced;
+            if (!fenced && !title_skipped && line.starts_with("# "))
+            {
+                title_skipped = true;
+                continue;
+            }
+            if (!fenced && line.starts_with("## "))
+            {
+                if (!text::trim(current.body).empty() || !out.empty())
+                    out.push_back(std::move(current));
+                current = LectureSection{};
+                current.title = std::string(text::trim(line.substr(3)));
+                continue;
+            }
+            current.body += line;
+            current.body += '\n';
+        }
+        if (!text::trim(current.body).empty() || out.empty())
+            out.push_back(std::move(current));
+        return out;
+    }
+
+    struct QuizRow
+    {
+        int question = -1;
+        int choice = -1;
+    };
+
+    struct LectureState
+    {
+        std::size_t page = 0;
+        int scroll = 0;
+        std::vector<int> answers;
+        std::size_t cursor = 0;
+        bool submitted = false;
+        std::vector<bool> right;
     };
 
     struct ExerciseState
@@ -379,6 +437,9 @@ export namespace learndc::tui::model
         std::string preview_note;
         std::optional<SolutionView> solution;
         std::string entry_missing;
+        std::string fingerprint;
+        LectureState lecture;
+        std::vector<LectureSection> sections;
     };
 
     enum class HomeKind
@@ -490,7 +551,7 @@ export namespace learndc::tui::model
         }
     } // namespace detail
 
-    [[nodiscard]] inline std::vector<HelpSection> help_sections(Screen context)
+    [[nodiscard]] inline std::vector<HelpSection> help_sections(Screen context, bool lecture = false)
     {
         std::vector<HelpSection> out;
         HelpSection here;
@@ -505,11 +566,21 @@ export namespace learndc::tui::model
                 here.lines = {"Up Down       move through the exercises",
                               "Enter         open the exercise",
                               "/             search; type to filter live, Enter keeps it, Esc clears it",
-                              "f d t y       cycle the status, difficulty, track and kind filters",
+                              "f d t y       cycle the status, difficulty, chapter and kind filters",
                               "0             clear every filter",
                               "b             bookmark the exercise"};
                 break;
             case Screen::Exercise:
+                if (lecture)
+                {
+                    here.title = "Keys in a lecture";
+                    here.lines = {"Left Right    previous or next page ([ and ] work too)",
+                                  "Up Down       scroll the page; on the last page choose an answer",
+                                  "Enter         pick the chosen answer, then submit when every question has one",
+                                  "n             go to the next lesson",
+                                  "b             bookmark this lecture"};
+                    break;
+                }
                 here.lines = {"Tab           move between instructions, files and results",
                               "Up Down       scroll, or choose a file when the files pane is focused",
                               "e / Enter     start the exercise, then edit the chosen file in your editor",
@@ -518,7 +589,7 @@ export namespace learndc::tui::model
                               "x             cancel the running check",
                               "r             build and run your program",
                               "w             watch: run the checks whenever a file changes",
-                              "h             reveal the next hint",
+                              "h             reveal the next hint (in a multi-stage lesson: for the current stage first)",
                               "s             show the reference solution (asks first)",
                               "l             show or hide the raw compiler and program output",
                               "n             go to the next exercise",
@@ -546,9 +617,15 @@ export namespace learndc::tui::model
         }
         out.push_back(std::move(here));
         out.push_back({"Everywhere",
-                       {"1 .. 7        Home, Learn, Exercise, Progress, Bookmarks, Doctor, Settings", "?             this help",
+                       {"1 .. 7        Home, Learn, Lesson, Progress, Bookmarks, Doctor, Settings", "?             this help",
                         "Esc           go back or close a dialog", "q             quit (asks first while a check runs)",
                         "Ctrl+C       cancel a running check; with none running, quit"}});
+        if (context == Screen::Exercise && !lecture)
+            out.push_back({"Stages and boss fights",
+                           {"A multi-stage lesson lists its stages as objectives. Each one is checked on its own.",
+                            "A check mark means the stage passes with your current files. A half circle means it passed before but your files changed since.",
+                            "An exclamation mark means it passed before and fails now. Your record of earlier passes is never lost.",
+                            "A boss fight is defeated by one check in which every required stage passes. Bonus stages are optional."}});
         out.push_back(
             {"Reading check results",
              {"Each check shows pass or FAIL with the stage where it stopped: build, run, compare, harness or timeout.",
@@ -812,6 +889,35 @@ export namespace learndc::tui::model
             }
         }
 
+        [[nodiscard]] bool lecture_open() const { return exercise.ex != nullptr && exercise.ex->is_lecture(); }
+
+        [[nodiscard]] std::vector<HelpSection> help() const { return help_sections(help_from, help_from == Screen::Exercise && lecture_open()); }
+
+        [[nodiscard]] std::vector<app::StageView> stage_views() const
+        {
+            if (!exercise.ex || !exercise.ex->staged())
+                return {};
+            return app::stage_views(*exercise.ex, prog, exercise.fingerprint);
+        }
+
+        [[nodiscard]] std::size_t lecture_pages() const { return exercise.sections.size() + 1; }
+
+        [[nodiscard]] bool on_quiz_page() const { return lecture_open() && exercise.lecture.page + 1 == lecture_pages(); }
+
+        [[nodiscard]] std::vector<QuizRow> quiz_rows() const
+        {
+            std::vector<QuizRow> rows;
+            if (!exercise.ex)
+                return rows;
+            auto const& qs = exercise.ex->questions;
+            for (std::size_t q = 0; q < qs.size(); ++q)
+                for (std::size_t c = 0; c < qs[q].choices.size(); ++c)
+                    rows.push_back({static_cast<int>(q), static_cast<int>(c)});
+            if (qs.empty() || std::ranges::all_of(exercise.lecture.answers, [](int a) { return a > 0; }))
+                rows.push_back({});
+            return rows;
+        }
+
         [[nodiscard]] std::string selected_file() const
         {
             if (exercise.file_sel < exercise.files.size())
@@ -840,7 +946,9 @@ export namespace learndc::tui::model
                     k = {{"Enter", "open"}, {"/", "search"}, {"f d t y", "filter"}, {"b", "bookmark"}};
                     break;
                 case Screen::Exercise:
-                    if (exercise.solution)
+                    if (lecture_open())
+                        k = {{"Left Right", "page"}, {"Up Down", "move"}, {"Enter", "choose"}, {"n", "next"}, {"b", "bookmark"}};
+                    else if (exercise.solution)
                         k = {{"Up Down", "scroll"}, {"Esc", "close solution"}};
                     else if (!exercise.ws)
                         k = {{"Enter", "start"}, {"h", "hint"}, {"s", "solution"}, {"Tab", "pane"}};
@@ -944,7 +1052,13 @@ export namespace learndc::tui::model
                 }
                 exercise = ExerciseState{};
                 exercise.ex = ex;
-                load_workspace();
+                if (ex->is_lecture())
+                {
+                    exercise.sections = lecture_sections(*ex);
+                    exercise.lecture.answers.assign(ex->questions.size(), 0);
+                }
+                else
+                    load_workspace();
                 if (auto it = prog.exercises.find(ex->id); it != prog.exercises.end())
                     exercise.hints_shown = it->second.hint_level;
             }
@@ -1075,6 +1189,7 @@ export namespace learndc::tui::model
             auto& es = exercise;
             if (!es.ex)
                 return;
+            es.fingerprint = es.ws ? runner::workspace_fingerprint(es.ws->root) : std::string();
             if (!es.ws)
             {
                 es.files.clear();
@@ -1238,6 +1353,14 @@ export namespace learndc::tui::model
                 push_toast(std::format("Could not save your progress: {}", text::sanitize(rec.error().message)), true);
             else if (rec->completed_now)
                 present_completion(*rec, done.report);
+            else if (!rec->stages_achieved.empty())
+            {
+                std::vector<std::string> titles;
+                for (auto const& t : rec->stages_achieved)
+                    titles.push_back(text::sanitize(t));
+                push_toast(std::format("Stage cleared: {}", text::join(titles, ", ")), false, 10000);
+                toasts.back().important = true;
+            }
             if (was_cancelling && es.watching)
             {
                 es.rerun_pending = false;
@@ -1259,22 +1382,51 @@ export namespace learndc::tui::model
                 attempts = it->second.attempts;
             Dialog d;
             d.kind = DialogKind::Complete;
-            d.title = "Exercise complete";
+            d.boss = rec.boss_defeated;
+            d.title = rec.boss_defeated ? "Boss defeated" : es.ex->is_lecture() ? "Lecture complete" : "Exercise complete";
             d.body.push_back(text::sanitize(es.ex->title));
-            d.body.push_back(std::format("{} of {} {} passed, {} {}, {}", report.passed, report.total, report.total == 1 ? "check" : "checks", attempts,
-                                         attempts == 1 ? "attempt" : "attempts",
-                                         es.hints_shown == 0 ? std::string("no hints used")
-                                                             : std::format("{} {} used", es.hints_shown, es.hints_shown == 1 ? "hint" : "hints")));
+            if (es.ex->is_lecture())
+                d.body.push_back(es.ex->questions.empty() ? std::string("Marked as read")
+                                                          : std::format("{} of {} questions answered correctly", es.ex->questions.size(), es.ex->questions.size()));
+            else if (es.ex->staged())
+            {
+                int required = 0;
+                int bonus = 0;
+                int bonus_done = 0;
+                for (auto const& st : report.stages)
+                {
+                    if (!st.optional)
+                        ++required;
+                    else
+                    {
+                        ++bonus;
+                        if (st.passed)
+                            ++bonus_done;
+                    }
+                }
+                std::string line = std::format("{} required {} cleared, {} {}", required, required == 1 ? "stage" : "stages", attempts,
+                                               attempts == 1 ? "attempt" : "attempts");
+                if (bonus > 0)
+                    line += std::format(", bonus {} of {}", bonus_done, bonus);
+                d.body.push_back(std::move(line));
+            }
+            else
+                d.body.push_back(std::format("{} of {} {} passed, {} {}, {}", report.passed, report.total, report.total == 1 ? "check" : "checks", attempts,
+                                             attempts == 1 ? "attempt" : "attempts",
+                                             es.hints_shown == 0 ? std::string("no hints used")
+                                                                 : std::format("{} {} used", es.hints_shown, es.hints_shown == 1 ? "hint" : "hints")));
+            if (rec.chapter_completed)
+                d.body.push_back(std::format("Chapter {} complete: {}", rec.chapter_number, text::sanitize(rec.chapter_title)));
             if (!rec.next_id.empty())
             {
                 d.body.push_back(std::format("Next: {}", text::sanitize(rec.next_title)));
                 d.values = {"next", "stay"};
-                d.labels = {"Next exercise", "Stay here"};
+                d.labels = {"Next lesson", "Stay here"};
                 d.target = rec.next_id;
             }
             else
             {
-                d.body.push_back("All exercises complete");
+                d.body.push_back("Every lesson that is open to you is complete");
                 d.values = {"progress", "stay"};
                 d.labels = {"Review your progress", "Stay here"};
             }
@@ -2051,12 +2203,133 @@ export namespace learndc::tui::model
             return std::nullopt;
         }
 
+        void lecture_key(std::string const& k)
+        {
+            auto& es = exercise;
+            auto& lec = es.lecture;
+            auto const pages = lecture_pages();
+            if (k == "Esc")
+            {
+                go_back();
+                return;
+            }
+            if (k == "Right" || k == "]")
+            {
+                if (lec.page + 1 < pages)
+                {
+                    ++lec.page;
+                    lec.scroll = 0;
+                    lec.cursor = 0;
+                }
+                return;
+            }
+            if (k == "Left" || k == "[")
+            {
+                if (lec.page > 0)
+                {
+                    --lec.page;
+                    lec.scroll = 0;
+                }
+                return;
+            }
+            if (k == "b")
+            {
+                toggle_bookmark(es.ex);
+                return;
+            }
+            if (k == "n")
+            {
+                auto const* next = ctx->catalog.next_recommended(app::completed_predicate(prog), es.ex->id);
+                if (!next || next->id == es.ex->id)
+                    push_toast("Nothing left to recommend right now");
+                else
+                    open_exercise(next->id);
+                return;
+            }
+            if (!on_quiz_page())
+            {
+                if (k == "Enter")
+                {
+                    ++lec.page;
+                    lec.scroll = 0;
+                    lec.cursor = 0;
+                    return;
+                }
+                if (detail::is_down(k))
+                    ++lec.scroll;
+                else if (detail::is_up(k))
+                    lec.scroll = std::max(0, lec.scroll - 1);
+                else if (k == "PageDown" || k == " ")
+                    lec.scroll += std::max(1, size.height - 8);
+                else if (k == "PageUp")
+                    lec.scroll = std::max(0, lec.scroll - std::max(1, size.height - 8));
+                else if (k == "Home")
+                    lec.scroll = 0;
+                return;
+            }
+            auto const rows = quiz_rows();
+            if (rows.empty())
+                return;
+            lec.cursor = std::min(lec.cursor, rows.size() - 1);
+            if (detail::is_down(k))
+            {
+                lec.cursor = std::min(lec.cursor + 1, rows.size() - 1);
+                return;
+            }
+            if (detail::is_up(k))
+            {
+                lec.cursor = lec.cursor == 0 ? 0 : lec.cursor - 1;
+                return;
+            }
+            if (k != "Enter")
+                return;
+            auto const row = rows[lec.cursor];
+            if (row.question >= 0)
+            {
+                lec.answers[static_cast<std::size_t>(row.question)] = row.choice + 1;
+                lec.submitted = false;
+                auto const after = quiz_rows();
+                std::size_t next = lec.cursor;
+                for (std::size_t i = 0; i < after.size(); ++i)
+                    if (after[i].question > row.question || after[i].question < 0)
+                    {
+                        next = i;
+                        break;
+                    }
+                lec.cursor = next;
+                return;
+            }
+            auto out = app::answer_lecture(*ctx, *es.ex, lec.answers);
+            if (!out)
+            {
+                push_toast(text::sanitize(out.error().message), true);
+                return;
+            }
+            lec.submitted = true;
+            lec.right = out->right;
+            refresh_progress();
+            if (out->record.completed_now)
+            {
+                runner::CheckReport none;
+                present_completion(out->record, none);
+            }
+            else if (out->correct < out->total)
+                push_toast(std::format("{} of {} right. The explanations below say what to look at again.", out->correct, out->total), false, 8000);
+            else
+                push_toast("All answers are right");
+        }
+
         void exercise_key(std::string const& k)
         {
             auto& es = exercise;
             if (!es.ex)
             {
                 go_back();
+                return;
+            }
+            if (es.ex->is_lecture())
+            {
+                lecture_key(k);
                 return;
             }
             if (k == "Esc")
@@ -2149,6 +2422,24 @@ export namespace learndc::tui::model
                     fx.push_back(StopWatch{});
                 }
                 return;
+            }
+            if (k == "h" && es.ex->staged())
+            {
+                auto const views = stage_views();
+                if (auto const* focus = app::focus_stage(views); focus != nullptr && focus->hint_level < static_cast<int>(focus->stage->hints.size()))
+                {
+                    auto sh = app::reveal_stage_hint(*ctx, *es.ex, focus->stage->id, std::nullopt);
+                    if (!sh)
+                    {
+                        push_toast(text::sanitize(sh.error().message), true);
+                        return;
+                    }
+                    es.pane = Pane::Instructions;
+                    es.scroll_instructions = 0;
+                    refresh_progress();
+                    push_toast(std::format("Hint {} of {} for stage {}: shown under the stage", sh->level, sh->count, focus->number));
+                    return;
+                }
             }
             if (k == "h")
             {

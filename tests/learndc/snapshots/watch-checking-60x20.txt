@@ -1,4 +1,4 @@
-  1  2  3 Exercise  4  5  6  7
+  1  2  3 Lesson  4  5  6  7
 ╭─ ◉ WATCH ON ─────────────────────────────────────────────╮
 │ /work/learndc/workspaces/fundamentals/variables          │
 │ ⠙ Change detected, checking                              │

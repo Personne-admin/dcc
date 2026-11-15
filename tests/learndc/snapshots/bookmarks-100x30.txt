@@ -2,7 +2,7 @@
 ╭─ Menu ───────────────╮╭──────────────────────────────────────────────────────────────── 1 saved ─╮
 │   1 Home             ││ › ○ Grouping data in structs                   intermediate not started  │
 │   2 Learn            ││                                                                          │
-│   3 Exercise         ││                                                                          │
+│   3 Lesson           ││                                                                          │
 │   4 Progress         ││                                                                          │
 │ › 5 Bookmarks        ││                                                                          │
 │   6 Doctor           ││                                                                          │

@@ -1,6 +1,6 @@
   1  2 Learn  3  4  5  6  7
-╭───────────────────────────────────────────── 1 exercise ─╮
-│ status any  level any  track all  kind any               │
+╭─────────────────────────────────────────────── 1 lesson ─╮
+│ status any  level any  chapter all  kind any             │
 │ search / struct_                                         │
 │──────────────────────────────────────────────────────────│
 │ › ○ Grouping data in structs   intermediate not started  │

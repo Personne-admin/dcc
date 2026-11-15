@@ -1,0 +1,20 @@
+  1  2  3 Lesson  4  5  6  7
+╭─ How things work ──────────────── lecture · page 1 of 3 ─╮
+│ First                                                    │
+│                                                          │
+│ Text.                                                    │
+│                                                          │
+│   module main;                                           │
+│                                                          │
+│   public i32 main() {                                    │
+│       return 0;                                          │
+│   }                                                      │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+╰──────────────────────────────────────────────────────────╯
+ Left Right page  Up Down move  ? help  q quit

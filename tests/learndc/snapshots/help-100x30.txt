@@ -1,8 +1,8 @@
  Learn DC · Help                                                      1 of 6 completed ██░░░░░░░░░░
 ╭─ Menu ───────────────╮╭──────────────────────────────────────────────────────────────────────────╮
-│   1 Home             ││ Keys on the Exercise screen                                              ┃
+│   1 Home             ││ Keys on the Lesson screen                                                ┃
 │   2 Learn            ││   Tab           move between instructions, files and results             ┃
-│ › 3 Exercise         ││   Up Down       scroll, or choose a file when the files pane is focused  ┃
+│ › 3 Lesson           ││   Up Down       scroll, or choose a file when the files pane is focused  ┃
 │   4 Progress         ││   e / Enter     start the exercise, then edit the chosen file in your    ┃
 │   5 Bookmarks        ││                 editor                                                   ┃
 │   6 Doctor           ││   o             open the workspace folder (graphical editors)            ┃
@@ -10,21 +10,21 @@
 │                      ││   x             cancel the running check                                 ┃
 │   ? Help             ││   r             build and run your program                               ┃
 │                      ││   w             watch: run the checks whenever a file changes            ┃
-│                      ││   h             reveal the next hint                                     ┃
+│                      ││   h             reveal the next hint (in a multi-stage lesson: for the   ┃
+│                      ││                 current stage first)                                     ┃
 │                      ││   s             show the reference solution (asks first)                 ┃
 │                      ││   l             show or hide the raw compiler and program output         ┃
-│                      ││   n             go to the next exercise                                  ┃
-│                      ││   b             bookmark this exercise                                   ┃
-│                      ││   R             reset the exercise to its starter files (backup first)   ┃
-│                      ││                                                                          ┃
-│                      ││ Everywhere                                                               ┃
-│                      ││   1 .. 7        Home, Learn, Exercise, Progress, Bookmarks, Doctor,      ┃
-│                      ││                 Settings                                                 ┃
+│                      ││   n             go to the next exercise                                  │
+│                      ││   b             bookmark this exercise                                   │
+│                      ││   R             reset the exercise to its starter files (backup first)   │
+│                      ││                                                                          │
+│                      ││ Everywhere                                                               │
+│                      ││   1 .. 7        Home, Learn, Lesson, Progress, Bookmarks, Doctor,        │
+│                      ││                 Settings                                                 │
 │                      ││   ?             this help                                                │
 │                      ││   Esc           go back or close a dialog                                │
 │                      ││   q             quit (asks first while a check runs)                     │
 │                      ││   Ctrl+C        cancel a running check; with none running, quit          │
-│                      ││                                                                          │
 ╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
 
  Up Down scroll  Esc back

@@ -1,0 +1,30 @@
+ Test · How things work                                               0 of 5 completed ░░░░░░░░░░░░
+╭───╮╭─ How things work ─────────────────────────────────────────────────── lecture · page 1 of 3 ─╮
+│ 1 ││ Contents                  │ First                                                           │
+│ 2 ││ › First                   │                                                                 │
+│ 3 ││   Second                  │ Text.                                                           │
+│ 4 ││   Check your understand…  │                                                                 │
+│ 5 ││                           │   module main;                                                  │
+│ 6 ││                           │                                                                 │
+│ 7 ││                           │   public i32 main() {                                           │
+│   ││                           │       return 0;                                                 │
+│ ? ││                           │   }                                                             │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+│   ││                           │                                                                 │
+╰───╯╰─────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ Left Right page  Up Down move  Enter choose  n next  b bookmark  ? help  q quit

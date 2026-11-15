@@ -1,0 +1,24 @@
+ Test · The Keeper                                0 of 5 completed ░░░░░░░░░░░░
+╭───╮╭─ › Instructions ────────────────────────────────────────────────────────╮
+│ 1 ││  ☠ BOSS FIGHT  The Keeper                                               ┃
+│ 2 ││ Difficulty ████░ 4 of 5                                                 ┃
+│ 3 ││ about 40 min · 3 stages                                                 ┃
+│ 4 ││                                                                         ┃
+│ 5 ││ A keeper guards the shelf.                                              ┃
+│ 6 ││ boss fight · in progress                                                │
+│ 7 ││                                                                         │
+│   ││ Defeat the keeper.                                                      │
+│ ? ││                                                                         │
+│   ││ Objectives  1 of 2 required stages passing                              │
+│   │╰─────────────────────────────────────────────────────────────────────────╯
+│   │ Files   project.dcon  › src/main.dc
+│   │╭─ Results ───────────────────────────────────────────────────────────────╮
+│   ││ ✗ 2 of 4 checks passed · 0.00s                                          ┃
+│   ││   ✓ pass      Compiles                                                  ┃
+│   ││ Stage 1  First stage  passing                                           ┃
+│   ││   ✓ pass      first works                                               ┃
+│   ││ Stage 2  Second stage  failing                                          │
+│   ││   ✗ FAIL      second prints  (harness)                                  │
+╰───╯╰─────────────────────────────────────────────────────────────────────────╯
+ Hint 1 of 1 for stage 2: shown under the stage
+ e edit  c check  r run  h hint  s solution  w watch  Tab pane  ? help  q quit

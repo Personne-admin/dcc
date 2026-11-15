@@ -1,0 +1,20 @@
+  1  2  3 Lesson  4  5  6  7
+ Instructions   Files   Results
+2 of 4 checks passed · 0.00s
+╭─ › Instructions ─────────────────────────────────────────╮
+│  ☠ BOSS FIGHT  The Keeper                                ┃
+│ Difficulty ████░ 4 of 5                                  ┃
+│ about 40 min · 3 stages                                  ┃
+│                                                          ┃
+│ A keeper guards the shelf.                               ┃
+│ boss fight · in progress                                 ┃
+│                                                          ┃
+│ Defeat the keeper.                                       ┃
+│                                                          ┃
+│ Objectives  1 of 2 required stages passing               ┃
+│ ✓ 1. First stage  passing                                ┃
+│ › 2. Second stage  current objective                     │
+│      Do the second part.                                 │
+│      Hint 1 of 1: only hint                              │
+╰──────────────────────────────────────────────────────────╯
+ Hint 1 of 1 for stage 2: shown under the stage

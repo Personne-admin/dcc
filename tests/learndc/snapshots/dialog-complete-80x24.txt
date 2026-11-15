@@ -10,7 +10,7 @@
          │ 3 of 3 checks passed, 3 attempts, 1 hint used              │
          │ Next: Making decisions with if                             │
          │                                                            │
-         │ › Next exercise                                            │
+         │ › Next lesson                                              │
          │   Stay here                                                │
          ╰────────────────────────────────────────────────────────────╯
 

@@ -3,18 +3,18 @@
 │ Overall  ████░░░░░░░░░░░░░░░░░░░░░░                      │
 │ 1 completed · 1 in progress · 4 not started              │
 │                                                          │
-│ By path                                                  │
-│   Fundamentals   ██████░░░░░░░░░░░░░░░░░░  1 of 4        │
-│   Types and data ░░░░░░░░░░░░░░░░░░░░░░░░  0 of 2        │
+│ Journey  0 of 2 chapters complete                        │
+│    1 Fundamentals    █████░░░░░░░░░░░░░░░  1 of 4        │
+│    2 Types and data  ░░░░░░░░░░░░░░░░░░░░  0 of 2        │
+│                                                          │
+│ Achievements                                             │
+│   Complete a chapter or defeat a boss to earn the first  │
 │                                                          │
 │ Worth another look                                       │
 │ › Variables and mut…  last check passed 2 of 3           │
 │                                                          │
 │ Bookmarks (1)                                            │
 │   Grouping data in structs                               │
-│                                                          │
-│                                                          │
-│                                                          │
 │                                                          │
 ╰──────────────────────────────────────────────────────────╯
  Enter open  Up Down move  ? help  q quit

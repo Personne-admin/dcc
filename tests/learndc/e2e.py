@@ -648,7 +648,7 @@ def journey_tui(tmp: Path):
         expect(["config", "set", key, value], 0, env=env)
     session = PtyProcess([LEARNDC], env, 100, 30)
     try:
-        check(session.wait_for(lambda t: "Menu" in t and "Your paths" in t), f"home screen renders\n{session.term.text()}")
+        check(session.wait_for(lambda t: "Menu" in t and "Chapters" in t), f"home screen renders\n{session.term.text()}")
         check(b"\x1b[?1049h" in session.raw, "the alternate screen is entered")
         first = session.term.text().splitlines()
         check(all(len(line) <= 100 for line in first), "no line is wider than the terminal")
@@ -677,7 +677,7 @@ def journey_tui(tmp: Path):
         session.resize(80, 24)
         check(session.wait_for(lambda t: len(t.splitlines()) >= 20 and all(len(line) <= 80 for line in t.splitlines()) and "Results" in t), f"the layout follows a resize to 80x24\n{session.term.text()}")
         session.send("?")
-        check(session.wait_for(lambda t: "Keys on the Exercise screen" in t), f"help opens\n{session.term.text()}")
+        check(session.wait_for(lambda t: "Keys on the Lesson screen" in t), f"help opens\n{session.term.text()}")
         session.send("\x1b")
         check(session.wait_for(lambda t: "Keys on the Exercise screen" not in t and "Results" in t), "escape closes help")
         session.send("q")

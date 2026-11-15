@@ -1,11 +1,11 @@
  Help
 ╭──────────────────────────────────────────────────────────╮
-│ Keys on the Exercise screen                              ┃
+│ Keys on the Lesson screen                                ┃
 │   Tab           move between instructions, files and     ┃
 │                 results                                  ┃
 │   Up Down       scroll, or choose a file when the files  ┃
 │                 pane is focused                          ┃
-│   e / Enter     start the exercise, then edit the chosen ┃
+│   e / Enter     start the exercise, then edit the chosen │
 │                 file in your editor                      │
 │   o             open the workspace folder (graphical     │
 │                 editors)                                 │
@@ -14,7 +14,7 @@
 │   r             build and run your program               │
 │   w             watch: run the checks whenever a file    │
 │                 changes                                  │
-│   h             reveal the next hint                     │
-│   s             show the reference solution (asks first) │
+│   h             reveal the next hint (in a multi-stage   │
+│                 lesson: for the current stage first)     │
 ╰──────────────────────────────────────────────────────────╯
  Up Down scroll  Esc back
