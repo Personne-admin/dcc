@@ -187,7 +187,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	@passed=0; failed=0; \
 	for bin in $(ALL_TEST_BINS); do \
 		name=$$(basename $$bin); \
-		if DCC_TEST_DPM_SCHEMA="$(TOPLEVEL)/dpm/schema" DCC_TEST_DPM_CASES="$(TOPLEVEL)/tests/dpm/manifests" DCC_TEST_DPM_GZIP="$(TOPLEVEL)/tests/dpm/gzip" DCC_TEST_DPM_HELP="$(TOPLEVEL)/tests/dpm/help" DCC_TEST_DPM_TEMPLATES="$(TOPLEVEL)/tests/dpm/templates" DCC_TEST_LIBDCEXT_SRC="$(TOPLEVEL)/libdcext" DCC_TEST_LIBDCEXT_A="$(BUILD_DIR)/lib/libdcext-linux-custom.a" $$bin; then \
+		if DCC_TEST_DPM_SCHEMA="$(TOPLEVEL)/dpm/schema" DCC_TEST_DPM_CASES="$(TOPLEVEL)/tests/dpm/manifests" DCC_TEST_DPM_GZIP="$(TOPLEVEL)/tests/dpm/gzip" DCC_TEST_DPM_HELP="$(TOPLEVEL)/tests/dpm/help" DCC_TEST_DPM_TEMPLATES="$(TOPLEVEL)/tests/dpm/templates" DCC_TEST_LEARNDC_CONTENT="$(TOPLEVEL)/learndc/content" DCC_TEST_LIBDCEXT_SRC="$(TOPLEVEL)/libdcext" DCC_TEST_LIBDCEXT_A="$(BUILD_DIR)/lib/libdcext-linux-custom.a" $$bin; then \
 			passed=$$((passed+1)); \
 		else \
 			failed=$$((failed+1)); \
@@ -362,3 +362,13 @@ $(OBJ_DIR)/tests/source/test_dpm_process.cc.o: $(DPM_PCMS)
 
 $(BUILD_DIR)/bin/tests/test_dpm_process: $(OBJ_DIR)/tests/source/test_dpm_process.cc.o $(DPM_CORE_LIB) $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
+
+LEARNDC_PCMS := $(wildcard $(PCM_DIR)/learndc.*.pcm)
+LEARNDC_CORE_LIB := $(BUILD_DIR)/lib/liblearndc.a
+LEARNDC_TUI_LIB := $(BUILD_DIR)/lib/liblearndc-tui.a
+
+$(OBJ_DIR)/tests/source/test_learndc.cc.o: LOCAL_CXXFLAGS += -isystem $(BUILD_DIR)/learndc/ftxui
+$(OBJ_DIR)/tests/source/test_learndc.cc.o: $(LEARNDC_PCMS) $(LEARNDC_CORE_LIB) $(LEARNDC_TUI_LIB)
+
+$(BUILD_DIR)/bin/tests/test_learndc: $(OBJ_DIR)/tests/source/test_learndc.cc.o $(LEARNDC_TUI_LIB) $(LEARNDC_CORE_LIB) $(OBJ_DIR)/dcc.host.process.pcm.o
+	$(call link-binary,$@,$^,)
