@@ -81,6 +81,9 @@ export namespace dcc::cli
         std::vector<std::string> library_paths;
         std::vector<std::string> libraries;
         std::vector<std::string> linker_args;
+        dcc::backend::LinkMode link_mode{dcc::backend::LinkMode::Auto};
+        std::string dynamic_linker;
+        std::vector<std::string> runtime_paths;
         std::string linker_script;
         std::string entry_symbol;
         bool print_reachability{false};
@@ -567,6 +570,50 @@ export namespace dcc::cli
          "link a library",
          "",
          [](Options& o, bool, std::string_view v, char**) { o.libraries.emplace_back(v); }},
+
+        {"-static",
+         "",
+         {},
+         Arg::None,
+         "",
+         {},
+         Phase::Both,
+         "link the executable statically; never use shared libraries",
+         "static unless a linked library is a shared object",
+         [](Options& o, bool, std::string_view, char**) { o.link_mode = dcc::backend::LinkMode::Static; }},
+
+        {"-dynamic",
+         "",
+         {},
+         Arg::None,
+         "",
+         {},
+         Phase::Both,
+         "link the executable dynamically, preferring lib<name>.so over lib<name>.a (x86_64 Linux)",
+         "",
+         [](Options& o, bool, std::string_view, char**) { o.link_mode = dcc::backend::LinkMode::Dynamic; }},
+
+        {"-dynamic-linker",
+         "",
+         {},
+         Arg::Required,
+         "<path>",
+         {},
+         Phase::Both,
+         "program interpreter of a dynamically linked executable",
+         "/lib64/ld-linux-x86-64.so.2",
+         [](Options& o, bool, std::string_view v, char**) { o.dynamic_linker = v; }},
+
+        {"-rpath",
+         "",
+         {},
+         Arg::Required,
+         "<dir>",
+         {},
+         Phase::Both,
+         "add a runtime library search directory (DT_RUNPATH; $ORIGIN is the executable's directory)",
+         "",
+         [](Options& o, bool, std::string_view v, char**) { o.runtime_paths.emplace_back(v); }},
 
         {"-T",
          "",

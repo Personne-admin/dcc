@@ -55,6 +55,13 @@ export namespace dcc::backend
         std::string entry_symbol;
     };
 
+    enum class LinkMode : std::uint8_t
+    {
+        Auto,
+        Static,
+        Dynamic
+    };
+
     struct BackendOptions
     {
         target::TargetConfig target;
@@ -64,6 +71,9 @@ export namespace dcc::backend
         std::vector<std::string> libraries;
         std::vector<std::string> linker_args;
         bool link_windows_imports{false};
+        LinkMode link_mode{LinkMode::Auto};
+        std::string dynamic_linker;
+        std::vector<std::string> runtime_paths;
         bool emit_debug_info{false};
         bool print_reachability{false};
         DebugFormat debug_format{DebugFormat::Auto};

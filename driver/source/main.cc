@@ -1284,9 +1284,10 @@ namespace
             std::println(std::cerr, "dcc: error: -Wl, linker options are not supported for i8086 final images");
             return false;
         }
-        if (!opts.library_paths.empty() || !opts.libraries.empty())
+        if (!opts.library_paths.empty() || !opts.libraries.empty() || !opts.runtime_paths.empty() || !opts.dynamic_linker.empty() ||
+            opts.link_mode == dcc::backend::LinkMode::Dynamic)
         {
-            std::println(std::cerr, "dcc: error: library search and library options (-L, -l) are not supported for i8086 final images");
+            std::println(std::cerr, "dcc: error: library options (-L, -l, -dynamic, -dynamic-linker, -rpath) are not supported for i8086 final images");
             return false;
         }
         for (auto const& input : opts.input_files)
@@ -1451,6 +1452,9 @@ namespace
         link_options.libraries = opts.libraries;
         link_options.linker_args = explicit_linker_args(opts);
         link_options.link_windows_imports = opts.libdcext && target.os == dcc::target::Os::Windows;
+        link_options.link_mode = opts.link_mode;
+        link_options.dynamic_linker = opts.dynamic_linker;
+        link_options.runtime_paths = opts.runtime_paths;
         auto roots = library_linker_roots(opts, target, prefix);
         if (!roots)
         {
@@ -1822,6 +1826,9 @@ auto main(int argc, char** argv) -> int
             backend_opts.opt_level = opts.opt_level;
             backend_opts.restrict_library_functions = !links_hosted_libc(opts);
             backend_opts.link_windows_imports = opts.libdcext && target.os == dcc::target::Os::Windows;
+            backend_opts.link_mode = opts.link_mode;
+            backend_opts.dynamic_linker = opts.dynamic_linker;
+            backend_opts.runtime_paths = opts.runtime_paths;
             backend_opts.source_manager = &session.source_manager();
 
             for (auto const& dir : opts.library_paths)
