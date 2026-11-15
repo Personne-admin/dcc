@@ -382,6 +382,11 @@ export namespace dcc::target
                                                base->object_format == ObjectFormat::Coff ? "COFF" : "ELF"));
         }
 
+        if (base->arch == Arch::X86)
+            return std::unexpected(std::format("-flibdcext {} is not available for 32-bit target '{}': the libdcext startup, system-call and memory "
+                                               "routines are x86_64-only; build without -flibdcext and define _start",
+                                               os_name(resolved_os), base->triple));
+
         base->os = resolved_os;
         return *base;
     }

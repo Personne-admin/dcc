@@ -133,10 +133,13 @@ def main():
         run([*base, '-fbackend', 'custom', '-c', root / 'helper.dc', '-o', root / 'custom.o'], expect=1,
             contains=("custom backend: target 'x86-elf' has no native code generator",))
         assert not (root / 'custom.o').exists()
+        for target, variant in (('x86-elf', 'linux'), ('x86-elf', 'freestanding'), ('x86-coff', 'windows')):
+            run([dcc, '-target', target, '-flibdcext', variant, main_source, '-o', root / 'hosted'], expect=1,
+                contains=(f"-flibdcext {variant} is not available for 32-bit target '{target}'",))
         run([dcc, '-target', 'x86-coff', root / 'helper.dc', '-o', root / 'pe32.exe'], expect=1,
             contains=('PE executable emission requires x86_64',))
-        assert not (root / 'mixed').exists() and not (root / 'pe32.exe').exists()
-        checks += 4
+        assert not (root / 'mixed').exists() and not (root / 'hosted').exists() and not (root / 'pe32.exe').exists()
+        checks += 7
     print(f'  RESULT  {checks}/{checks} x86 executable checks passed')
 
 
