@@ -1,17 +1,16 @@
 ## Hint 1
 
-A variable declaration in DC puts the type first: `i32 count = 3;`. The type
-of borrowed text such as a string literal is `[]const char`.
+`println` takes a format string first, then one argument for each `{}` in
+it. An argument can be a number such as `5` or text in double quotes such as
+`"Ada"`.
 
 ## Hint 2
 
-Declare the variable before the first `println`, then pass it as the argument
-that fills the `{}` placeholder. Each line of output is its own `println`
-call followed by `?`.
+You need two `println` calls, one per line of output, each followed by `?`.
+Only the first one needs a placeholder.
 
 ## Hint 3
 
-In `src/main.dc`, replace the single `println("Hello, world!")?;` line with
-three lines: a `[]const char name = "Ada";` declaration, a `println` whose
-format string is `"Hello, {}!"` with `name` as its argument, and a second
-`println` for `Welcome to DC.`. Keep `return Status::Ok;` at the end.
+In `src/main.dc`, replace `println("Hello, world!")?;` with
+`println("Hello, {}!", "Ada")?;` and add `println("Welcome to DC.")?;` on the
+next line. Keep `return Status::Ok;` at the end.

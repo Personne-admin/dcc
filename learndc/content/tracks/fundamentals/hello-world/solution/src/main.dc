@@ -1,8 +1,7 @@
 module main;
 
 public Status(Error) main() {
-    []const char name = "Ada";
-    println("Hello, {}!", name)?;
+    println("Hello, {}!", "Ada")?;
     println("Welcome to DC.")?;
     return Status::Ok;
 }

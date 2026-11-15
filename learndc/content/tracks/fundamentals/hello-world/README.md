@@ -22,25 +22,22 @@ next argument after the format string:
 println("{} + {} = {}", 2, 3, 5)?;
 ```
 
+prints `2 + 3 = 5`. Text works as an argument too: write it in double quotes.
+
 ## Your task
 
-Open `src/main.dc`. It still prints `Hello, world!`. Change it so that it:
-
-1. stores the name `Ada` in a variable called `name` of type `[]const char`
-   (borrowed text, which is what a string literal is), and
-2. prints exactly these two lines:
+Open `src/main.dc`. It still prints `Hello, world!`. Change it so that it
+prints exactly these two lines:
 
 ```text
 Hello, Ada!
 Welcome to DC.
 ```
 
-The first line must come from a placeholder and the `name` variable, not
-from typing `Ada` into the format string.
+Produce the first line with a placeholder: the format string is
+`"Hello, {}!"` and the name `"Ada"` is the argument after it.
 
 ## Acceptance criteria
 
-- The project builds with `dpm build`.
+- The project builds.
 - Running the program prints the two lines above and exits with code 0.
-
-Run `learndc check` when you are ready, or `learndc run` to see the output.

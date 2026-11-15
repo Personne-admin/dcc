@@ -1,17 +1,16 @@
 schema = 1
 id = "fundamentals/hello-world"
-revision = 1
+revision = 2
 title = "Your first DC program"
-summary = "Greet someone by name with a formatted println."
+summary = "Greet someone by name with println and a {} placeholder."
 kind = "complete-program"
 chapter = "getting-started"
 difficulty = "beginner"
 estimated_minutes = 5
-concepts = ["main", "println", "format placeholders", "Status"]
+concepts = ["main", "println", "format placeholders", "Status", "?"]
 tags = ["output", "strings"]
 objectives = [
     "Read a hosted main that returns Status(Error)",
-    "Store text in a []const char variable",
     "Print a value with a {} placeholder and propagate errors with ?",
 ]
 entry_file = "src/main.dc"
