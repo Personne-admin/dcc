@@ -1,0 +1,37 @@
+module config_check;
+
+import config;
+
+bool expect_ok(Status(config::ConfigError) got, []const char what) {
+    if got.is_ok() {
+        return true;
+    }
+    println("{}: expected Ok, got an error", what).is_ok();
+    return false;
+}
+
+bool expect_error(Status(config::ConfigError) got, config::ConfigError wanted, []const char what) {
+    return match got {
+        Status::Ok => {
+            println("{}: expected an error, got Ok", what).is_ok();
+            false
+        },
+        Status::Err(found) => {
+            if found != wanted {
+                println("{}: got the wrong kind of error", what).is_ok();
+            }
+            found == wanted
+        },
+    };
+}
+
+public i32 main() {
+    bool ok = true;
+    ok = expect_ok(config::validate_name("server"), "validate_name(server)") && ok;
+    ok = expect_error(config::validate_name(""), config::ConfigError::MissingName, "validate_name(empty)") && ok;
+    ok = expect_ok(config::validate_port(1), "validate_port(1)") && ok;
+    ok = expect_ok(config::validate_port(65535), "validate_port(65535)") && ok;
+    ok = expect_error(config::validate_port(0), config::ConfigError::BadPort, "validate_port(0)") && ok;
+    ok = expect_error(config::validate_port(70000), config::ConfigError::BadPort, "validate_port(70000)") && ok;
+    return if ok { 0 } else { 1 };
+}

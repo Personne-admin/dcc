@@ -1,0 +1,19 @@
+module main;
+
+import safe_math;
+
+Status(Error) show(i32 a, i32 b) {
+    Optional(i32) quotient = safe_math::checked_div(a, b);
+    match quotient {
+        Optional::Some(value) => println("{} / {} = {}", a, b, value)?,
+        Optional::None => println("{} / {} = undefined", a, b)?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    show(7, 2)?;
+    show(5, 0)?;
+    show(-9, 3)?;
+    return Status::Ok;
+}

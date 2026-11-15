@@ -1,0 +1,42 @@
+module safe_math_check;
+
+import safe_math;
+
+bool expect_value(i32 a, i32 b, i32 expected) {
+    Optional(i32) got = safe_math::checked_div(a, b);
+    return match got {
+        Optional::Some(value) => {
+            if value == expected {
+                true
+            } else {
+                println("checked_div({}, {}): expected {}, got {}", a, b, expected, value).is_ok();
+                false
+            }
+        },
+        Optional::None => {
+            println("checked_div({}, {}): expected {}, got none", a, b, expected).is_ok();
+            false
+        },
+    };
+}
+
+bool expect_none(i32 a, i32 b) {
+    Optional(i32) got = safe_math::checked_div(a, b);
+    return match got {
+        Optional::Some(value) => {
+            println("checked_div({}, {}): expected none, got {}", a, b, value).is_ok();
+            false
+        },
+        Optional::None => true,
+    };
+}
+
+public i32 main() {
+    bool ok = true;
+    ok = expect_value(7, 2, 3) && ok;
+    ok = expect_value(-9, 3, -3) && ok;
+    ok = expect_value(0, 5, 0) && ok;
+    ok = expect_none(5, 0) && ok;
+    ok = expect_none(0, 0) && ok;
+    return if ok { 0 } else { 1 };
+}

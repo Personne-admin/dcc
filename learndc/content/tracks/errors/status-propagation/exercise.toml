@@ -1,0 +1,40 @@
+schema = 1
+id = "errors/status-propagation"
+revision = 1
+title = "Passing errors upward with ?"
+summary = "Chain fallible helpers with ? so the first failure stops the program with exit code 1."
+kind = "complete-program"
+chapter = "errors"
+difficulty = "beginner"
+estimated_minutes = 15
+concepts = ["?", "Status(Error)", "Result(T, Error)", "Status::Ok", "exit code"]
+tags = ["result", "status", "propagation"]
+objectives = [
+    "Unwrap a Result value with ? and stop at the first failure",
+    "Chain helper functions that return Status(Error)",
+    "Explain how a Status(Error) main maps to exit codes 0 and 1",
+]
+entry_file = "src/main.dc"
+product = "budget"
+prerequisites = ["errors/result-match"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Stops at the first failed reservation with exit code 1"
+expect_stdout = """
+start: 100 units
+reserved 30, 70 left
+reserved 50, 20 left
+"""
+expect_exit = 1
+max_seconds = 10
+hint = "The third reservation (40 of 20 left) must fail and end the program before it prints anything. Did you propagate with ? and call plan() from main?"

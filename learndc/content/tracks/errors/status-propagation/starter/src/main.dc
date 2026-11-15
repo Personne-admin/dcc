@@ -1,0 +1,18 @@
+module main;
+
+Result(usize, Error) reserve(usize left, usize amount) {
+    if amount > left {
+        return Result::Err(Error::Allocation(AllocError::OutOfMemory));
+    }
+    return Result::Ok(left - amount);
+}
+
+Status(Error) plan() {
+    usize left = 100;
+    println("start: {} units", left)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    return Status::Ok;
+}

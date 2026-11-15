@@ -1,0 +1,17 @@
+module main;
+
+import ages;
+
+Status(Error) report(i32 age) {
+    Result(i32, ages::AgeError) checked = ages::check_age(age);
+    println("{}: not checked yet", age)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    report(30)?;
+    report(-4)?;
+    report(200)?;
+    report(150)?;
+    return Status::Ok;
+}

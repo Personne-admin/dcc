@@ -1,0 +1,10 @@
+module ages;
+
+public enum AgeError {
+    Negative,
+    TooOld,
+}
+
+public Result(i32, AgeError) check_age(i32 age) {
+    return Result::Ok(age);
+}

@@ -1,0 +1,13 @@
+module main;
+
+public import config;
+
+public Status(config::ConfigError) main() {
+    config::validate_name("server")?;
+    println("name ok")?;
+    config::validate_port(8080)?;
+    println("port 8080 ok")?;
+    config::validate_port(70000)?;
+    println("port 70000 ok")?;
+    return Status::Ok;
+}

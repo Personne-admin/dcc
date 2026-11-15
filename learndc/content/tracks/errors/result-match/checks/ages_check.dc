@@ -1,0 +1,45 @@
+module ages_check;
+
+import ages;
+
+bool expect_ok(i32 age) {
+    Result(i32, ages::AgeError) got = ages::check_age(age);
+    return match got {
+        Result::Ok(value) => {
+            if value != age {
+                println("check_age({}): expected Ok({}), got Ok({})", age, age, value).is_ok();
+            }
+            value == age
+        },
+        Result::Err(_) => {
+            println("check_age({}): expected Ok({}), got an error", age, age).is_ok();
+            false
+        },
+    };
+}
+
+bool expect_err(i32 age, ages::AgeError wanted) {
+    Result(i32, ages::AgeError) got = ages::check_age(age);
+    return match got {
+        Result::Ok(value) => {
+            println("check_age({}): expected an error, got Ok({})", age, value).is_ok();
+            false
+        },
+        Result::Err(problem) => {
+            if problem != wanted {
+                println("check_age({}): got the wrong kind of error", age).is_ok();
+            }
+            problem == wanted
+        },
+    };
+}
+
+public i32 main() {
+    bool ok = true;
+    ok = expect_ok(30) && ok;
+    ok = expect_ok(0) && ok;
+    ok = expect_ok(150) && ok;
+    ok = expect_err(-1, ages::AgeError::Negative) && ok;
+    ok = expect_err(151, ages::AgeError::TooOld) && ok;
+    return if ok { 0 } else { 1 };
+}

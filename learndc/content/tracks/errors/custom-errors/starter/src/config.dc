@@ -1,0 +1,13 @@
+module config;
+
+public enum ConfigError {
+    @implicit_construction Print(PrintError),
+}
+
+public Status(ConfigError) validate_name([]const char name) {
+    return Status::Ok;
+}
+
+public Status(ConfigError) validate_port(i32 port) {
+    return Status::Ok;
+}

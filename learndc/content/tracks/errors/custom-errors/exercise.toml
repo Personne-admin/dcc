@@ -1,0 +1,47 @@
+schema = 1
+id = "errors/custom-errors"
+revision = 1
+title = "Your own error type"
+summary = "Define an error enum, return it from validators and use it as the error type of main."
+kind = "multi-module"
+chapter = "errors"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["error enum", "Status(CustomError)", "@implicit_construction", "public import", "exit code"]
+tags = ["errors", "enum", "modules"]
+objectives = [
+    "Declare an error enum with one variant per failure",
+    "Return a user error from Status(CustomError) functions",
+    "Let ? convert a print failure into a variant marked @implicit_construction",
+    "Know that a Status(CustomError) main exits with 0 on success and 1 on failure",
+]
+entry_file = "src/main.dc"
+product = "settings"
+prerequisites = ["errors/status-propagation"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "validators return the right error variants"
+harness = "checks/config_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "Rejects port 70000 with exit code 1"
+expect_stdout = """
+name ok
+port 8080 ok
+"""
+expect_exit = 1
+max_seconds = 10
+hint = "Valid ports are 1 to 65535. The invalid port must stop main before it prints 'port 70000 ok'."

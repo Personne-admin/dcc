@@ -1,0 +1,8 @@
+module safe_math;
+
+public Optional(i32) checked_div(i32 a, i32 b) {
+    if b == 0 {
+        return Optional::None;
+    }
+    return Optional::Some(a / b);
+}

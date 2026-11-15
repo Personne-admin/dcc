@@ -1,0 +1,5 @@
+module safe_math;
+
+public Optional(i32) checked_div(i32 a, i32 b) {
+    return Optional::None;
+}

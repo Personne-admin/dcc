@@ -1,0 +1,21 @@
+module config;
+
+public enum ConfigError {
+    @implicit_construction Print(PrintError),
+    MissingName,
+    BadPort,
+}
+
+public Status(ConfigError) validate_name([]const char name) {
+    if name.len == 0 {
+        return ConfigError::MissingName;
+    }
+    return Status::Ok;
+}
+
+public Status(ConfigError) validate_port(i32 port) {
+    if port < 1 || port > 65535 {
+        return ConfigError::BadPort;
+    }
+    return Status::Ok;
+}

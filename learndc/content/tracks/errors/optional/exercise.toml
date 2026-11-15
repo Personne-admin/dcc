@@ -1,0 +1,47 @@
+schema = 1
+id = "errors/optional"
+revision = 1
+title = "Maybe a value: Optional"
+summary = "Return none when there is no answer, and handle both cases with match."
+kind = "implement-function"
+chapter = "errors"
+difficulty = "beginner"
+estimated_minutes = 10
+concepts = ["Optional", "Optional::Some", "Optional::None", "match"]
+tags = ["optional", "match"]
+objectives = [
+    "Return Optional::None when a function has no answer and Optional::Some(value) otherwise",
+    "Handle both variants of an Optional with a match expression",
+    "Tell a legitimate zero result apart from a missing result",
+]
+entry_file = "src/main.dc"
+product = "safediv"
+prerequisites = ["fundamentals/match"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "checked_div returns the quotient or none"
+harness = "checks/safe_math_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "Prints each division or undefined"
+expect_stdout = """
+7 / 2 = 3
+5 / 0 = undefined
+-9 / 3 = -3
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Print `undefined` for the none case, and the quotient for the value case, in the exact form `a / b = result`."
