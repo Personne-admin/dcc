@@ -2,6 +2,7 @@ import hashlib
 import http.server
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -10,6 +11,7 @@ import threading
 
 DPM = os.path.abspath(sys.argv[1])
 DCC = os.path.abspath(sys.argv[2])
+CC = shlex.split(os.environ["CC"]) if os.environ.get("CC") else [shutil.which("clang") or shutil.which("cc") or shutil.which("gcc") or "clang"]
 ROOT = tempfile.mkdtemp(prefix="dpm_e2e_")
 FAILURES = []
 CHECKS = 0
@@ -782,7 +784,7 @@ def scenario_native_link_requirements():
         source = os.path.join(native, name + ".c")
         obj = os.path.join(native, name + ".o")
         write(source, body + "\n")
-        subprocess.run(["cc", "-c", source, "-o", obj], check=True, timeout=60)
+        subprocess.run([*CC, "-c", source, "-o", obj], check=True, timeout=60)
         subprocess.run(["ar", "rcs", os.path.join(native, "lib" + name + ".a"), obj], check=True, timeout=60)
     leaf = os.path.join(parent, "leaf")
     binding = os.path.join(parent, "binding")
@@ -829,7 +831,7 @@ def scenario_shared_library_product():
 
     def build_shim(offset):
         write(source, "int shim_add(int a, int b) { return a + b + %d; }\n" % offset)
-        subprocess.run(["cc", "-shared", "-fPIC", "-o", os.path.join(native, "libshim.so"), source], check=True, timeout=60)
+        subprocess.run([*CC, "-shared", "-fPIC", "-o", os.path.join(native, "libshim.so"), source], check=True, timeout=60)
 
     build_shim(1000)
     write(os.path.join(app, "src", "main.dc"),
