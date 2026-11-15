@@ -4,6 +4,7 @@ import dcc.help;
 import dpm.build;
 import dpm.cache;
 import dpm.cli;
+import dpm.compdb;
 import dpm.edit;
 import dpm.fetch;
 import dpm.hash;
@@ -208,17 +209,7 @@ namespace
 
     fs::path user_config_path()
     {
-        if (char const* env = std::getenv("DPM_CONFIG"); env && *env)
-            return env;
-#ifdef _WIN32
-        if (char const* local = std::getenv("LOCALAPPDATA"); local && *local)
-            return fs::path{local} / "dpm" / "config.dcon";
-#endif
-        if (char const* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
-            return fs::path{xdg} / "dpm" / "config.dcon";
-        if (char const* home = std::getenv("HOME"); home && *home)
-            return fs::path{home} / ".config" / "dpm" / "config.dcon";
-        return {};
+        return dpm::compdb::user_config_path();
     }
 
     std::optional<int> load_user_config(Session& s)
@@ -1838,6 +1829,65 @@ namespace
         return 0;
     }
 
+    std::string json_string(std::string_view text)
+    {
+        std::string out = "\"";
+        for (char c : text)
+        {
+            auto const u = static_cast<unsigned char>(c);
+            if (c == '"' || c == '\\')
+            {
+                out += '\\';
+                out += c;
+            }
+            else if (c == '\n')
+                out += "\\n";
+            else if (c == '\t')
+                out += "\\t";
+            else if (c == '\r')
+                out += "\\r";
+            else if (u < 0x20)
+                out += std::format("\\u{:04x}", u);
+            else
+                out += c;
+        }
+        out += '"';
+        return out;
+    }
+
+    int cmd_compile_commands(Common common)
+    {
+        if (!fs::is_regular_file(k_project_file))
+        {
+            std::println(std::cerr, "dpm: cannot read {}", k_project_file);
+            return k_exit_manifest;
+        }
+        dpm::compdb::Options options;
+        options.schema_root = schema_root();
+        options.dcc = dcc_path();
+        options.profile = common.profile;
+        options.allow_file_urls = env_flag("DPM_ALLOW_FILE_URLS");
+        auto result = dpm::compdb::plan(fs::current_path(), options);
+        for (auto const& problem : result.problems)
+            std::println(std::cerr, "warning: {}", problem);
+        if (!result.ok)
+            return k_exit_manifest;
+        std::string out = "[";
+        for (std::size_t i = 0; i < result.entries.size(); ++i)
+        {
+            auto const& e = result.entries[i];
+            out += i == 0 ? "\n" : ",\n";
+            out += std::format("  {{\"directory\": {}, \"file\": {}, \"product\": {}, \"arguments\": [", json_string(e.directory.generic_string()),
+                               json_string(e.file.generic_string()), json_string(e.product));
+            for (std::size_t a = 0; a < e.arguments.size(); ++a)
+                out += (a == 0 ? "" : ", ") + json_string(e.arguments[a]);
+            out += "]}";
+        }
+        out += result.entries.empty() ? "]\n" : "\n]\n";
+        std::cout << out;
+        return 0;
+    }
+
     int cmd_tree(Common common)
     {
         Session s;
@@ -2532,6 +2582,8 @@ auto main(int argc, char** argv) -> int
         return cmd_fetch(std::move(common));
     if (command == "tree")
         return cmd_tree(std::move(common));
+    if (command == "compile-commands")
+        return cmd_compile_commands(std::move(common));
     if (command == "why")
         return cmd_why(std::move(common));
     if (command == "build")

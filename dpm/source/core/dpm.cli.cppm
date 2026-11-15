@@ -135,6 +135,7 @@ export namespace dpm::cli
         inline constexpr Opt lock_opts[] = {Opt::ManifestPath, Opt::Check, Opt::Offline, Opt::Refresh};
         inline constexpr Opt fetch_opts[] = {Opt::ManifestPath, Opt::Offline, Opt::Refresh};
         inline constexpr Opt check_opts[] = {Opt::Tree};
+        inline constexpr Opt compdb_opts[] = {Opt::ManifestPath, Opt::Profile};
         inline constexpr Opt build_opts[] = {Opt::ManifestPath, Opt::Profile, Opt::Target, Opt::Optimize, Opt::Offline, Opt::Refresh, Opt::Locked, Opt::Verbose};
         inline constexpr Opt run_opts[] = {Opt::ManifestPath, Opt::Profile, Opt::Target, Opt::Optimize, Opt::Offline, Opt::Refresh, Opt::Locked, Opt::Verbose, Opt::Runner};
         inline constexpr Opt test_opts[] = {Opt::ManifestPath, Opt::Profile, Opt::Target, Opt::Optimize, Opt::Offline, Opt::Refresh, Opt::Locked, Opt::Verbose,
@@ -217,6 +218,11 @@ export namespace dpm::cli
          detail::task_opts, 0, 1, true, detail::codes({0, 1, 2, 3, 4, 5}), false},
         {"clean", "", "remove .dpm/out and .dpm/tasks", "Removes the build output and the task directories and stamps of this package. The cache is not touched; see 'dpm cache clean'.", detail::manifest_only, 0, 0, false,
          detail::codes({0, 1, 2}), false},
+        {"compile-commands", "", "print the dcc commands an editor needs, without building",
+         "Prints, as compile_commands.json entries on stdout, the dcc command dpm build would run for each product, using project.dcon, the existing "
+         "project.lock.dcon and the packages already in the cache. Nothing is resolved, fetched, built or written; problems such as a missing lock or "
+         "an uncached package are printed as warnings.",
+         detail::compdb_opts, 0, 0, false, detail::codes({0, 2}), false},
         {"tree", "", "print the resolved dependency graph", "Resolves the dependencies and prints the build list as a tree, followed by the assets and their pins from project.lock.dcon.", detail::graph_opts, 0, 0, false,
          detail::codes({0, 2, 3, 4, 5}), false},
         {"why", "<location>", "explain why a package is in the build list", "Prints the requirement paths that led to the package.", detail::graph_opts, 1, 1,

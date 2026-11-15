@@ -20,6 +20,8 @@ commands:
   task [<name>] [-- <args>...]
                             run a task declared in project.dcon
   clean                     remove .dpm/out and .dpm/tasks
+  compile-commands          print the dcc commands an editor needs, without
+                            building
   tree                      print the resolved dependency graph
   why <location>            explain why a package is in the build list
   publish                   write the registry entry for the current version

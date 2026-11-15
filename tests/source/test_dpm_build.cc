@@ -1,5 +1,6 @@
 import std;
 import dpm.build;
+import dpm.compdb;
 import dpm.manifest;
 import dpm.settings;
 
@@ -236,4 +237,44 @@ TEST_CASE("package native libraries propagate to products and tests in dependenc
     CHECK(libraries(b::plan_product(r, project.products[0])) == strs({"-lproduct", "-lroot", "-lrepeat", "-lrepeat", "-ldevlib", "-lbinding", "-lleaf"}));
     std::ranges::reverse(r.packages);
     CHECK(libraries(b::plan_test(r, "tests/basic.dc")) == strs({"-lroot", "-lrepeat", "-lrepeat", "-ldevlib", "-lbinding", "-lleaf"}));
+}
+
+SECTION("dpm compile commands");
+
+TEST_CASE("compile commands plan every product before the first lock and write nothing")
+{
+    char const* schema = std::getenv("DCC_TEST_DPM_SCHEMA");
+    REQUIRE(schema != nullptr);
+    auto const root = std::filesystem::temp_directory_path() /
+                      std::format("dpm_compdb_{}_{}", std::chrono::steady_clock::now().time_since_epoch().count(), std::random_device{}());
+    std::filesystem::create_directories(root / "src");
+    {
+        std::ofstream out{root / "project.dcon"};
+        out << "dpm::v1::Project {\n    name = \"app\",\n    version = \"0.1.0\",\n    products = {\n"
+               "        { name = \"app\", entry = \"src/main.dc\" },\n        { name = \"tool\", entry = \"src/tool.dc\" },\n    },\n"
+               "    dependencies = {\n        { location = \"github.com/u/a\", version = \"1.2.0\" },\n    },\n}\n";
+    }
+    dpm::compdb::Options options;
+    options.schema_root = schema;
+    options.cache_root = root / "cache";
+    auto const result = dpm::compdb::plan(root, options);
+    CHECK(result.ok);
+    REQUIRE_EQ(result.entries.size(), std::size_t{2});
+    CHECK_EQ(result.entries[0].product, std::string{"app"});
+    CHECK_EQ(result.entries[1].product, std::string{"tool"});
+    CHECK(result.entries[0].file == root / "src" / "main.dc");
+    CHECK(std::ranges::contains(result.entries[0].arguments, std::string{"-flibdcext"}));
+    CHECK(std::ranges::any_of(result.problems, [](std::string const& p) { return p.find("project.lock.dcon does not exist yet") != std::string::npos; }));
+    CHECK(!dpm::compdb::inputs_changed(result.inputs));
+    std::vector<std::string> names;
+    for (auto const& entry : std::filesystem::directory_iterator{root})
+        names.push_back(entry.path().filename().string());
+    std::ranges::sort(names);
+    CHECK(names == strs({"project.dcon", "src"}));
+    {
+        std::ofstream out{root / "project.lock.dcon"};
+        out << "dpm::v1::Lock {}\n";
+    }
+    CHECK(dpm::compdb::inputs_changed(result.inputs));
+    std::filesystem::remove_all(root);
 }
