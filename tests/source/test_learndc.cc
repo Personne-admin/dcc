@@ -4935,6 +4935,31 @@ TEST_CASE("cli watch checks again after an edit saved while a check was running"
     CHECK(out.str().find("changed; checking again") != std::string::npos);
 }
 
+TEST_CASE("cli edit does not launch a detected terminal editor without a terminal")
+{
+    CliFixture f;
+    auto const ws = f.temp.path / "ws";
+    REQUIRE(f.run({"start", "basics/one", "--dir", platform::path_to_utf8(ws)}).code == 0);
+    make_fake(f.temp.path / "bin", "nvim");
+    std::ostringstream out;
+    std::ostringstream err;
+    std::istringstream in;
+    learndc::cli::Io io;
+    io.out = &out;
+    io.err = &err;
+    io.in = &in;
+    io.env = platform::Env{{"PATH", platform::path_to_utf8(f.temp.path / "bin")}, {"LANG", "C.UTF-8"}};
+    io.cwd = f.temp.path;
+    io.stdin_tty = false;
+    io.stdout_tty = false;
+    io.stderr_tty = false;
+    io.self_exe = std::nullopt;
+    std::vector<std::string> const args = {"--home", platform::path_to_utf8(f.home), "--content-dir", platform::path_to_utf8(f.content), "edit", "basics/one"};
+    CHECK_EQ(learndc::cli::run(args, io), 1);
+    CHECK(err.str().find("needs an interactive session") != std::string::npos);
+    CHECK(err.str().find("main.dc") != std::string::npos);
+}
+
 TEST_CASE("cli hints and solutions do not start an exercise")
 {
     CliFixture f;

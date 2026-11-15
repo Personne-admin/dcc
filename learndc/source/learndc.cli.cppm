@@ -694,6 +694,12 @@ export namespace learndc::cli
             editor::Placeholders ph;
             ph.workspace = platform::path_to_utf8(ws.root);
             ph.file = platform::path_to_utf8(ws.root / platform::path_from_utf8(ex.entry_file));
+            if (!choice.manual() && choice.kind == editor::Kind::Terminal && choice.source == editor::Source::Detected && !(s.io.stdin_tty && s.io.stdout_tty))
+            {
+                std::print(s.err(), "learndc: {} runs in the terminal and needs an interactive session; open {} in your editor, or choose one with --editor or 'learndc config set editor.command'\n",
+                           choice.label, ph.file);
+                return app::exit_failed;
+            }
             editor::LaunchOptions lo;
             lo.folder = s.args.flag("folder");
             lo.cancel = s.io.cancel;
