@@ -235,6 +235,30 @@ def test_link_diagnostics(root):
         check(r.returncode != 0 and "dynamic linking is supported only for x86_64 Linux targets" in r.stderr, f"{triple}: dynamic linking is rejected", r.stderr)
 
 
+def test_pe_import_library(root):
+    dlltool = shutil.which("llvm-dlltool")
+    objdump = shutil.which("llvm-objdump")
+    if dlltool is None or objdump is None:
+        print("  INFO     llvm-dlltool or llvm-objdump not found; the PE import library check was not run")
+        return
+    libdir = root / "pe import libs"
+    libdir.mkdir()
+    (root / "shim.def").write_text("LIBRARY shim.dll\nEXPORTS\n    shim_add\n")
+    r = run([dlltool, "-m", "i386:x86-64", "-d", root / "shim.def", "-l", libdir / "libshim.dll.a"])
+    check(r.returncode == 0, "llvm-dlltool writes an import library", r.stderr)
+    source = root / "pe.dc"
+    source.write_text("module main;\n\n@nomangle extern i32 shim_add(i32 a, i32 b);\n\n@nomangle public void _start() {\n    shim_add(1, 2);\n}\n")
+    for backend in ("llvm", "custom"):
+        exe = root / f"pe-{backend}.exe"
+        r = dcc(source, "-target", "x86_64-coff", f"-fbackend={backend}", "-o", exe, f"-L{libdir}", "-lshim")
+        check(r.returncode == 0, f"{backend}: a PE executable links against a DLL import library", r.stderr)
+        if r.returncode == 0:
+            imports = run([objdump, "-p", exe]).stdout
+            check("DLL Name: shim.dll" in imports, f"{backend}: the PE import table names shim.dll", imports[-800:])
+    r = dcc(source, "-target", "x86_64-coff", "-o", root / "pe-rpath.exe", f"-L{libdir}", "-lshim", "-rpath", "C:/libs")
+    check(r.returncode != 0 and "-rpath is not supported for PE executables" in r.stderr, "-rpath is rejected for PE executables", r.stderr)
+
+
 def sdl3_available():
     for directory in ("/usr/local/lib", "/usr/lib", "/usr/lib64", "/usr/lib/x86_64-linux-gnu", "/lib/x86_64-linux-gnu"):
         if (Path(directory) / "libSDL3.so").exists():
@@ -277,6 +301,7 @@ def main():
         test_consume_shared_library(root)
         test_static_builds_stay_static(root)
         test_link_diagnostics(root)
+        test_pe_import_library(root)
         test_sdl3(root)
     if failures:
         print(f"  FAIL     test_shared_link: {len(failures)} of {checks} checks failed")
