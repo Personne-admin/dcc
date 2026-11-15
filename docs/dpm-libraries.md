@@ -55,8 +55,9 @@ copy DLLs, or run dependency tasks. Install native libraries separately.
 ## Editors
 
 Dependencies are unpacked read-only into DPM's cache (`dpm cache path`, under
-`src/<hash>/`). After `dpm build` writes `compile_commands.json`, Go to
-Definition in VS Code or Neovim opens cached package sources, and dccd analyses
+`src/<hash>/`). As soon as the packages are locked and in the cache (after
+`dpm lock` and `dpm fetch`, or any `dpm build`), Go to Definition in VS Code or
+Neovim opens cached package sources, and dccd analyses
 them with the compile command of the project that imports them: the same
 import roots, transitive packages, target, prelude and allocator settings, and
 unsaved edits. When several open projects use the same cached file, the
@@ -64,8 +65,10 @@ project you navigated from is used; otherwise a project whose analysis
 imports the file, then the first matching project by entry path. A cached
 file that no open project uses resolves its own package's modules from that
 package's `source` directory, and dccd reports that imports of its
-dependencies need the owning project. Run `dpm build` again after changing
-dependencies so the compilation database names the new package hashes.
+dependencies need the owning project. After changing dependencies, `dpm lock`
+(or `dpm build`) updates the lock; dccd notices the new lock and follows the
+new package hashes. `dpm compile-commands` prints the commands dccd derives,
+without building or writing anything.
 
 ## Search paths and shared libraries
 

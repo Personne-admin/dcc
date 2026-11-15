@@ -37,6 +37,10 @@ export namespace dccd
     public:
         [[nodiscard]] bool load(std::filesystem::path const& path, std::ostream& log);
 
+        void assign(std::filesystem::path label, std::vector<CompileCommand> commands);
+
+        [[nodiscard]] bool load_text(std::string_view content, std::filesystem::path const& label, std::ostream& log);
+
         void clear();
 
         [[nodiscard]] CompileCommand const* command_for(std::filesystem::path const& file) const;
@@ -223,8 +227,15 @@ namespace dccd
         }
 
         std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        return load_text(content, path, log);
+    }
 
-        auto json = protocol::JsonValue::parse(content);
+    bool CompilationDatabase::load_text(std::string_view content, std::filesystem::path const& label, std::ostream& log)
+    {
+        clear();
+        m_path = label;
+        auto const& path = label;
+        auto json = protocol::JsonValue::parse(std::string{content});
         if (!json || !json->is_array())
         {
             std::println(log, "[dccd] compilation database: invalid JSON (expected a top-level array): {}", path.string());
@@ -251,6 +262,21 @@ namespace dccd
 
         std::println(log, "[dccd] compilation database: {} commands", m_commands.size());
         return true;
+    }
+
+    void CompilationDatabase::assign(std::filesystem::path label, std::vector<CompileCommand> commands)
+    {
+        clear();
+        m_path = std::move(label);
+        for (auto& cmd : commands)
+        {
+            cmd.directory = detail::normalize_path(cmd.directory, {});
+            cmd.file = detail::normalize_path(cmd.file, cmd.directory);
+            auto key = cmd.file.string();
+            if (!m_first_index.contains(key))
+                m_first_index.emplace(key, m_commands.size());
+            m_commands.push_back(std::move(cmd));
+        }
     }
 
     void CompilationDatabase::clear()

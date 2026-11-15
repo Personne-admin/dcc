@@ -6,7 +6,7 @@ For `project.dcon`, `project.lock.dcon` and other `.dcon` files, `dccd` reports 
 
 Install DCC separately. Windows MSI installations are discovered automatically, including when VS Code was already running at installation time. On Linux, put `dccd` on PATH. You can always set `dcc.serverPath` to an executable path. Language server features require a desktop or remote VS Code extension host; this extension does not run in the browser.
 
-Use `dcc.includePaths` for additional module search paths and `dcc.compilationDatabase` to select a `compile_commands.json`. Inferred type and parameter hints can be configured under `dcc.inlayHints`.
+DPM projects need no setup: open any `.dc` file, with or without its folder as a workspace, and dccd reads the nearest `project.dcon` to derive the compiler settings `dpm build` would use, before the first build. Use `dcc.includePaths` for additional module search paths and `dcc.compilationDatabase` to select a `compile_commands.json`; both take precedence over the derived settings. Inferred type and parameter hints can be configured under `dcc.inlayHints`.
 
 ## Executable discovery
 

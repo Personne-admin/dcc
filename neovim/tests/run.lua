@@ -127,7 +127,11 @@ local function integration()
   check(vim.uv.fs_symlink(dccd, tools .. '/dccd'), 'server symlink')
   check(vim.uv.fs_symlink(repo .. '/build/bin/dcc', tools .. '/dcc'), 'compiler symlink')
   vim.env.PATH = tools .. ':' .. vim.env.PATH
-  plugin.setup({ dpm = dpm, settings = { dcc = { includePaths = { 'src' } } } })
+  plugin.setup({ dpm = dpm })
+  local unrelated = temporary .. '/unrelated cwd'
+  vim.fn.mkdir(unrelated, 'p')
+  vim.cmd('cd ' .. vim.fn.fnameescape(unrelated))
+  check(vim.fn.filereadable(project .. '/compile_commands.json') == 0, 'the project starts without a compilation database')
   local buffer = open(main)
   wait(function() local c = vim.lsp.get_clients({ bufnr = buffer, name = 'dccd' }); return #c == 1 and c[1].initialized end, 'LSP initialize/attachment')
   local client = vim.lsp.get_clients({ bufnr = buffer, name = 'dccd' })[1]
@@ -154,7 +158,9 @@ local function integration()
   check(vim.iter(items):any(function(item) return item.label == 'value' end), 'completion includes local variable')
   local definition = request('textDocument/definition', { textDocument = { uri = uri }, position = { line = 3, character = source[4]:find('twice', 1, true) } })
   if definition.uri then definition = { definition } end
-  check(#definition > 0 and (definition[1].uri or definition[1].targetUri) == vim.uri_from_fname(helper), 'imported definition')
+  check(#definition > 0 and (definition[1].uri or definition[1].targetUri) == vim.uri_from_fname(helper), 'imported definition before any build')
+  check(vim.fn.filereadable(project .. '/compile_commands.json') == 0 and vim.fn.isdirectory(project .. '/.dpm/out') == 0, 'opening the project built nothing')
+  check(vim.fn.getcwd() == unrelated, 'the working directory is left alone')
   local refs = request('textDocument/references', { textDocument = { uri = uri }, position = position, context = { includeDeclaration = true } })
   check(#refs >= 2, 'reference locations')
   local renamed = request('textDocument/rename', { textDocument = { uri = uri }, position = position, newName = 'answer' })

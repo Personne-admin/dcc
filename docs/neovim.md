@@ -110,10 +110,18 @@ the client of the buffer you came from (for example through Go to Definition),
 otherwise the oldest client. dccd then analyses the file with the compile
 command of the project that depends on it.
 
-DPM's compilation database and dccd settings control compiler options. The
-plugin does not invent compiler flags from `project.dcon`. Build the project
-to generate `compile_commands.json`; configure include paths when needed
-before the first build. See [the VS Code integration](../vscode/README.md) for shared dccd settings.
+dccd configures a project by itself, before the first build: for any `.dc`
+file it finds the nearest `project.dcon` and asks DPM's planner for the dcc
+command `dpm build` would run for each product (the same import roots,
+dependencies from `project.lock.dcon` and the package cache, target, prelude
+and allocator settings). Nothing is built, fetched or written. The precedence
+is: explicit dccd settings (`dcc.compilationDatabase`, `dcc.json`), then a
+`compile_commands.json` that is newer than `project.dcon` and
+`project.lock.dcon`, then the settings derived from the manifest, then the
+standalone-file fallback. A module that is not a product entry is analysed
+with the product whose imports reach it. A missing lock or an uncached
+package is explained in a message; run `dpm lock` or `dpm fetch` and the
+project is read again. See [the VS Code integration](../vscode/readme.md) for shared dccd settings.
 
 The server implements diagnostics, hover, completion, definition, references,
 prepare-rename/rename, document/range/on-type formatting, signature help,

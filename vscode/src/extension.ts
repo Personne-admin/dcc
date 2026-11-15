@@ -109,6 +109,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.workspace.createFileSystemWatcher('**/dcc.json'),
         vscode.workspace.createFileSystemWatcher('**/compile_commands.json'),
         vscode.workspace.createFileSystemWatcher('**/project.lock.dcon'),
+        vscode.workspace.createFileSystemWatcher('**/project.dcon'),
     ];
     context.subscriptions.push(...watchers);
 

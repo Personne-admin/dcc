@@ -12,6 +12,9 @@ test('activation wires discovery, diagnostics, restart and startup failure phase
     let launchFailure = false;
     let protocolFailure = false;
     let kills = 0;
+    const watched: string[] = [];
+    const launchDirectories: unknown[] = [];
+    let clientOptions: any;
     const noop: any = new Proxy(function () {}, {
         get: (_target, key) => key === Symbol.iterator ? [][Symbol.iterator].bind([]) : noop,
         apply: () => noop, construct: () => noop,
@@ -19,6 +22,7 @@ test('activation wires discovery, diagnostics, restart and startup failure phase
     const api: any = new Proxy({
         workspace: new Proxy({
             workspaceFolders: [], textDocuments: [],
+            createFileSystemWatcher: (glob: string) => { watched.push(glob); return noop; },
             getConfiguration: () => ({
                 inspect: () => ({ defaultValue: 'dccd', globalValue: override }),
                 get: (name: string, fallback?: unknown) => name === 'serverPath' ? override ?? 'dccd' : fallback,
@@ -38,7 +42,7 @@ test('activation wires discovery, diagnostics, restart and startup failure phase
         private listener: (event: { newState: number }) => void = () => {};
         private running = false;
         private failed = false;
-        constructor(_id: string, _name: string, private server: () => Promise<unknown>) { clients++; }
+        constructor(_id: string, _name: string, private server: () => Promise<unknown>, options: unknown) { clients++; clientOptions = options; }
         onDidChangeState(listener: typeof this.listener) { this.listener = listener; return noop; }
         async start() {
             if (this.failed) throw new Error('cached startup rejection');
@@ -74,8 +78,9 @@ test('activation wires discovery, diagnostics, restart and startup failure phase
             },
         };
         if (name === './serverLaunch') return {
-            launchServer: async (path: string, _cwd: unknown, report: (message: string) => void) => {
+            launchServer: async (path: string, cwd: unknown, report: (message: string) => void) => {
                 launches.push(path);
+                launchDirectories.push(cwd);
                 if (launchFailure) { report('Launch failed: ENOENT'); throw new Error('ENOENT'); }
                 report('Process started; waiting for LSP initialize');
                 return { kill: () => { kills++; } };
@@ -92,6 +97,11 @@ test('activation wires discovery, diagnostics, restart and startup failure phase
     await settle();
     assert.equal(resolutions[0].serverPath, undefined, 'manifest default must not disable MSI discovery');
     assert.equal(launches[0], 'C:\\Program Files\\dcc\\bin\\dccd.exe');
+    assert.equal(launchDirectories[0], undefined, 'without a workspace folder the server starts outside any project');
+    assert.deepEqual(clientOptions.documentSelector, [{ scheme: 'file', language: 'dc' }, { scheme: 'file', language: 'dcon' }],
+        'every dc file is served, inside or outside the workspace folders');
+    assert.ok(['**/project.dcon', '**/project.lock.dcon', '**/compile_commands.json', '**/dcc.json'].every(glob => watched.includes(glob)),
+        'manifest, lock, compilation database and dcc.json changes reach the server');
     commands.get('dcc.showServerDiagnostics')!();
     assert.ok(lines.includes('Server status: Running; LSP initialize succeeded'));
     override = 'D:\\安装 tools\\dccd.exe';

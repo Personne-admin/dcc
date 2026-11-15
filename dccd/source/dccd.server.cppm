@@ -13,6 +13,7 @@ import dccd.inlay_hints;
 import dccd.workspace_index;
 import dccd.format;
 import dccd.compilation_database;
+import dccd.project_config;
 import dcc.query;
 import dcc.lex;
 import dcc.ast;
@@ -224,6 +225,8 @@ export namespace dccd
         };
         std::vector<WorkspaceCompilationDatabase> m_workspace_databases;
         std::map<std::filesystem::path, std::unique_ptr<dccd::CompilationDatabase>> m_discovered_databases;
+        dccd::project::Cache m_projects;
+        std::set<std::string> m_reported_project_problems;
         std::set<std::filesystem::path> m_reported_missing_libdcext;
         std::optional<dcc::config::ResolvedPrefix> m_resolved_prefix;
 
@@ -2520,19 +2523,20 @@ export namespace dccd
             return std::pair{std::string{sf->text()}, std::move(path)};
         }
 
-        void refresh_dcon_documents(protocol::DidChangeWatchedFilesParams const& params)
+        bool refresh_dcon_documents(protocol::DidChangeWatchedFilesParams const& params)
         {
             if (m_open_dcon_uris.empty())
-                return;
+                return false;
             bool changed = false;
             for (auto const& change : params.changes)
                 if (auto path = dcc::sm::SourceManager::parse_file_uri(change.uri))
                     if (path->filename() == "project.lock.dcon" || path->filename() == "project.dcon")
                         changed = true;
             if (!changed)
-                return;
+                return false;
             for (auto const& uri : std::vector<std::string>(m_open_dcon_uris.begin(), m_open_dcon_uris.end()))
                 analyze_dcon_document(uri, true);
+            return true;
         }
 
         void analyze_dcon_document(std::string const& uri, bool publish)
@@ -2586,6 +2590,7 @@ export namespace dccd
             std::filesystem::path entry;
             dccd::CompileCommand const* command{};
             std::string reason;
+            std::vector<std::pair<std::filesystem::path, dccd::CompileCommand const*>> others;
         };
 
         [[nodiscard]] std::vector<dccd::CompilationDatabase const*> known_databases()
@@ -2599,6 +2604,8 @@ export namespace dccd
             for (auto const& [candidate, database] : m_discovered_databases)
                 if (database && std::ranges::find(databases, database.get()) == databases.end())
                     databases.push_back(database.get());
+            for (auto const* database : m_projects.databases())
+                databases.push_back(database);
             return databases;
         }
 
@@ -2617,7 +2624,7 @@ export namespace dccd
                     if (!analysis)
                         continue;
                     if (std::ranges::any_of(analysis->import_roots, [&](std::filesystem::path const& root) { return path_within(norm, normalize_path(root)); }))
-                        candidates.push_back({entry, &command, {}});
+                        candidates.push_back({entry, &command, {}, {}});
                 }
             if (candidates.empty())
                 return std::nullopt;
@@ -2625,6 +2632,9 @@ export namespace dccd
             auto pick = [&](OwnerContext context, std::string reason) {
                 context.reason = std::move(reason);
                 m_dependency_owner.try_emplace(norm.string(), context.entry.string());
+                for (auto const& other : candidates)
+                    if (other.entry != context.entry)
+                        context.others.emplace_back(other.entry, other.command);
                 return context;
             };
             if (auto it = m_dependency_owner.find(norm.string()); it != m_dependency_owner.end())
@@ -2688,6 +2698,18 @@ export namespace dccd
                 std::println(m_log, "[dccd] context: reusing the current analysis of \"{}\"", owner.entry.string());
             else
                 recompile_document(owner_uri, false, trigger);
+            if (!in_graph())
+                for (auto const& [entry, command] : owner.others)
+                {
+                    std::println(m_log, "[dccd] context: \"{}\" does not import \"{}\"; trying \"{}\"", owner.entry.string(), path.string(), entry.string());
+                    recompile_document(uri_for_disk_path(entry), false, trigger);
+                    if (in_graph())
+                    {
+                        m_dependency_owner.insert_or_assign(normalize_path(path).string(), entry.string());
+                        std::println(m_log, "[dccd] context: \"{}\" is analyzed in the context of \"{}\", which imports it", path.string(), entry.string());
+                        break;
+                    }
+                }
             if (!in_graph())
             {
                 std::println(m_log, "[dccd] context: \"{}\" is not imported by \"{}\"; analyzing it as an entry with that project's options", path.string(),
@@ -3208,6 +3230,7 @@ export namespace dccd
         {
             m_workspace_databases.clear();
             m_discovered_databases.clear();
+            m_projects.clear();
 
             for (auto const& root : m_workspace_roots)
             {
@@ -3330,29 +3353,121 @@ export namespace dccd
             return nullptr;
         }
 
+        [[nodiscard]] dccd::project::Settings project_settings()
+        {
+            dccd::project::Settings settings;
+            settings.schema_root = dcon_analyzer().schema_root();
+            auto const bin = active_prefix() / "bin";
+#ifdef _WIN32
+            settings.dcc = bin / "dcc.exe";
+            settings.dpm = bin / "dpm.exe";
+#else
+            settings.dcc = bin / "dcc";
+            settings.dpm = bin / "dpm";
+#endif
+            return settings;
+        }
+
+        [[nodiscard]] static bool database_is_stale(dccd::CompilationDatabase const& database, std::filesystem::path const& project_root)
+        {
+            std::error_code ec;
+            auto const db_time = std::filesystem::last_write_time(database.path(), ec);
+            if (ec)
+                return false;
+            for (auto const* name : {"project.dcon", "project.lock.dcon"})
+            {
+                std::error_code mec;
+                auto const t = std::filesystem::last_write_time(project_root / name, mec);
+                if (!mec && t > db_time)
+                    return true;
+            }
+            return false;
+        }
+
+        [[nodiscard]] dccd::project::Plan const* derived_project(std::filesystem::path const& project_root)
+        {
+            bool replanned = false;
+            auto const* plan = m_projects.get(project_root, project_settings(), m_log, &replanned);
+            if (plan && replanned)
+                for (auto const& problem : plan->problems)
+                    if (m_reported_project_problems.insert(project_root.string() + "\n" + problem).second)
+                    {
+                        auto params = protocol::JsonValue::empty_object();
+                        params.set("type", protocol::JsonValue::integer(3));
+                        params.set("message", protocol::JsonValue::string_val(std::format("dccd: {}: {}", project_root.filename().string(), problem)));
+                        send_message(protocol::build_notification("window/showMessage", params));
+                    }
+            return plan;
+        }
+
+        [[nodiscard]] bool inside_package_cache(std::filesystem::path const& project_root, dccd::project::Plan const* plan) const
+        {
+            auto cache_root = plan && !plan->cache_root.empty() ? plan->cache_root : dccd::project::fallback_cache_root();
+            return !cache_root.empty() && path_within(project_root, normalize_path(cache_root / "src"));
+        }
+
         [[nodiscard]] dccd::CompileCommand const* find_compile_command(std::filesystem::path const& file, bool on_disk)
         {
             auto const norm = normalize_path(file);
-            dccd::CompilationDatabase const* database = nullptr;
             if (auto const* wcd = find_workspace_database_for(norm); wcd && wcd->explicitly_configured)
-                database = &wcd->database;
-            else if (on_disk)
-                database = discover_compilation_database(norm);
-
-            if (!database || database->empty())
             {
-                std::println(m_log, "[dccd] no compilation database with dc entries in \"{}\" or its parent directories", norm.parent_path().string());
-                return nullptr;
+                if (wcd->database.empty())
+                    return nullptr;
+                if (auto const* command = wcd->database.command_for(norm))
+                    return command;
+                return wcd->database.nearest_command_for(norm);
             }
+            if (!on_disk)
+                return nullptr;
 
-            if (auto const* command = database->command_for(norm))
-                return command;
-
-            auto const* nearest = database->nearest_command_for(norm);
-            if (nearest)
-                std::println(m_log, "[dccd] \"{}\" is not listed in {}; using the command for \"{}\"", norm.string(), database->path().string(),
-                             nearest->file.string());
-            return nearest;
+            auto const project_root = dccd::project::find_root(norm);
+            auto const* database = discover_compilation_database(norm);
+            if (database && project_root)
+            {
+                auto const db_dir = normalize_path(database->path().parent_path());
+                bool const inside = path_within(db_dir, *project_root) || db_dir == *project_root;
+                if (!inside && !database->command_for(norm))
+                    database = nullptr;
+                else if (db_dir == *project_root && database_is_stale(*database, *project_root))
+                {
+                    std::println(m_log, "[dccd] project: {} is older than project.dcon or project.lock.dcon; using the settings derived from the manifest",
+                                 database->path().string());
+                    database = nullptr;
+                }
+            }
+            if (database && !database->empty())
+            {
+                if (auto const* command = database->command_for(norm))
+                    return command;
+                auto const* nearest = database->nearest_command_for(norm);
+                if (nearest)
+                    std::println(m_log, "[dccd] \"{}\" is not listed in {}; using the command for \"{}\"", norm.string(), database->path().string(),
+                                 nearest->file.string());
+                return nearest;
+            }
+            if (project_root)
+            {
+                auto const* plan = derived_project(normalize_path(*project_root));
+                if (inside_package_cache(normalize_path(*project_root), plan))
+                {
+                    std::println(m_log, "[dccd] project: \"{}\" is a cached package; it is analyzed in the context of a project that uses it", norm.string());
+                    return nullptr;
+                }
+                if (plan && plan->ok)
+                {
+                    if (auto const* command = plan->database.command_for(norm))
+                    {
+                        std::println(m_log, "[dccd] project: \"{}\" is the entry of a product of {}; using its derived command", norm.string(),
+                                     project_root->string());
+                        return command;
+                    }
+                    std::println(m_log, "[dccd] project: \"{}\" is not a product entry of {}; looking for the product that imports it", norm.string(),
+                                 project_root->string());
+                    return nullptr;
+                }
+            }
+            std::println(m_log, "[dccd] no compilation database with dc entries in \"{}\" or its parent directories", norm.parent_path().string());
+            return nullptr;
         }
 
         [[nodiscard]] dcc::config::ResolvedPrefix resolved_prefix() const
@@ -3406,7 +3521,7 @@ export namespace dccd
             return roots;
         }
 
-        void reconfigure_and_recompile()
+        void reconfigure_and_recompile(bool skip_dcon = false)
         {
             read_global_config();
             read_project_configs();
@@ -3433,7 +3548,8 @@ export namespace dccd
             }
 
             for (auto const& uri : uris)
-                recompile_document(uri, true, "configuration");
+                if (!skip_dcon || !dccd::dcon::is_dcon_uri(uri))
+                    recompile_document(uri, true, "configuration");
         }
 
         void handle_workspace_did_change_configuration(protocol::RpcInfo const& rpc)
@@ -3458,7 +3574,7 @@ export namespace dccd
             std::println(m_log, "[dccd] workspace/didChangeWatchedFiles received");
             auto params = protocol::DidChangeWatchedFilesParams::from_json(rpc.params.value());
 
-            refresh_dcon_documents(params);
+            bool const dcon_refreshed = refresh_dcon_documents(params);
 
             bool reload = false;
             auto global_cfg = global_config_path();
@@ -3495,6 +3611,13 @@ export namespace dccd
                 }
                 if (project_cfg)
                 {
+                    reload = true;
+                    break;
+                }
+
+                if (canonical.filename() == "project.dcon" || canonical.filename() == "project.lock.dcon")
+                {
+                    std::println(m_log, "[dccd] project manifest changed, reloading: {}", canonical.string());
                     reload = true;
                     break;
                 }
@@ -3537,7 +3660,7 @@ export namespace dccd
 
             if (reload)
             {
-                reconfigure_and_recompile();
+                reconfigure_and_recompile(dcon_refreshed);
                 return;
             }
 
