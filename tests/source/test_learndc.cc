@@ -4960,6 +4960,18 @@ TEST_CASE("cli edit does not launch a detected terminal editor without a termina
     CHECK(err.str().find("main.dc") != std::string::npos);
 }
 
+TEST_CASE("cli accepts a global json flag and -V")
+{
+    CliFixture f;
+    auto const before = f.run({"--json", "list"});
+    CHECK_EQ(before.code, 0);
+    CHECK_EQ(before.out, f.run({"list", "--json"}).out);
+    CHECK(before.out.find("\"id\"") != std::string::npos);
+    auto const version = f.run({"-V"});
+    CHECK_EQ(version.code, 0);
+    CHECK(version.out.starts_with("learndc "));
+}
+
 TEST_CASE("cli hints and solutions do not start an exercise")
 {
     CliFixture f;

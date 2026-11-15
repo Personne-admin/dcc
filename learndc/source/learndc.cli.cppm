@@ -163,6 +163,7 @@ export namespace learndc::cli
                 value_option("content-dir", "DIR", "load exercises from DIR instead of the built-in set"),
                 flag_option("no-color", "never use colors"),
                 flag_option("ascii", "use plain ASCII output"),
+                flag_option("json", "print JSON where the command supports it"),
                 flag_option("help", "show help"),
                 flag_option("version", "show the version"),
             };
@@ -209,6 +210,11 @@ export namespace learndc::cli
             if (a == "-h")
             {
                 out.help = true;
+                continue;
+            }
+            if (a == "-V")
+            {
+                out.version = true;
                 continue;
             }
             if (a.size() > 2 && a.starts_with("--"))
