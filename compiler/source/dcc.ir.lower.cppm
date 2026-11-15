@@ -5804,14 +5804,16 @@ export namespace dcc::ir::lower
         {
             auto type_cat = classify_type(sema_ty);
 
-            if (m_type_ctx && m_type_ctx->arch() == target::Arch::I8086 && ty->kind == IrTypeKind::Int && ty->byte_size == 8 &&
+            if (m_type_ctx && (m_type_ctx->arch() == target::Arch::I8086 || m_type_ctx->arch() == target::Arch::X86) && ty->kind == IrTypeKind::Int &&
+                ty->byte_size == 8 &&
                 (op == dcc::lex::TokenKind::Slash || op == dcc::lex::TokenKind::Percent))
             {
                 IrFunction* helper{};
                 auto name = type_cat == TypeCat::Unsigned ? "__dcc_udivmod64" : "__dcc_divmod64";
+                auto const module_name = std::format("core::{}", target::arithmetic_helper_module_name(m_type_ctx->arch()));
                 if (m_module_graph)
                     for (auto const& mod : m_module_graph->all())
-                        if (mod && mod->canonical_path.str() == "core::i8086_arith" && mod->tu)
+                        if (mod && mod->canonical_path.str() == module_name && mod->tu)
                             for (auto* decl : mod->tu->decls)
                                 if (auto* fd = ast::node_cast<ast::FuncDecl>(decl))
                                 {
@@ -5822,7 +5824,7 @@ export namespace dcc::ir::lower
                                         helper = f;
                                 }
                 if (!helper)
-                    lower_panic("missing i8086 division helper module");
+                    lower_panic("missing 64-bit division helper module");
                 auto* unsigned_type = m_ctx.int_t(64, false);
                 if (ty != unsigned_type)
                 {

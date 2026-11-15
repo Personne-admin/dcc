@@ -470,6 +470,59 @@ TEST_CASE("in-memory files survive repeated recompilation")
     }
 }
 
+TEST_CASE("direct semantic analysis provides x86 division helpers and lowers 64-bit division to them")
+{
+    struct Probe
+    {
+        std::string_view source;
+        bool needs_helper;
+    };
+    Probe const probes[] = {
+        {"@runtime u64 f(u64 a, u64 b) { return a / b + a % b; }", true},
+        {"@runtime i64 f(i64 a, i64 b) { return a / b + a % b; }", true},
+        {"@runtime u64 f(u64 a, u64 b) { a /= b; a %= b; return a; }", true},
+        {"@runtime u64 f(u64 a, u64 b) { return a + b; }", false},
+        {"@runtime u32 f(u32 a, u32 b) { return a / b; }", false},
+        {"public u64 value = 12 as u64 / 3;", false},
+    };
+    for (auto triple : {"x86-elf", "x86-coff", "x86_64-elf"})
+        for (auto const& probe : probes)
+        {
+            bool const x86 = std::string_view{triple}.starts_with("x86-");
+            TempDir td;
+            td.write_file("main.dc", std::string{"module main;\n"} + std::string{probe.source});
+            dcc::sm::SourceManager sm;
+            std::ostringstream errors;
+            dcc::diag::DiagnosticEngine diag{sm, errors};
+            dcc::ast::AstContext ast;
+            dcc::si::string_interner interner;
+            auto parse = [&](dcc::sm::FileId fid, dcc::ast::AstContext& ctx, dcc::diag::DiagnosticEngine& d) {
+                dcc::lex::Lexer lexer{*sm.get(fid), interner};
+                return dcc::parser::Parser{lexer, ctx, d}.parse();
+            };
+            auto target = *dcc::target::TargetConfig::parse_triple(triple);
+            dcc::sema::SemaOptions opts;
+            opts.target = target;
+            opts.interner = &interner;
+            dcc::sema::SemaContext sema{sm, diag, ast, parse, std::move(opts)};
+            auto* entry = sema.analyze_entry(td.file("main.dc"));
+            REQUIRE(entry != nullptr);
+            CHECK(!diag.has_errors());
+            auto helpers = std::ranges::count_if(sema.graph().all(), [](auto const& m) { return m->canonical_path.str() == "core::x86_arith"; });
+            CHECK_EQ(helpers, x86 && probe.needs_helper ? 1 : 0);
+            CHECK(std::ranges::none_of(sema.graph().all(), [](auto const& m) { return m->canonical_path.str() == "core::i8086_arith"; }));
+            dcc::ir::IrContext ir{256 * 1024, &target};
+            dcc::ir::lower::Lowerer lowerer{ir, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types()};
+            auto* module = lowerer.lower_module(*entry);
+            REQUIRE(module != nullptr);
+            CHECK(lowerer.lower_errors().empty());
+            bool const calls_helper = std::ranges::any_of(module->functions, [](auto const* f) {
+                return f && (f->name == "__dcc_udivmod64" || f->name == "__dcc_divmod64");
+            });
+            CHECK_EQ(calls_helper, x86 && probe.needs_helper);
+        }
+}
+
 TEST_CASE("direct semantic analysis provides i8086 division dependencies without source imports")
 {
     struct Probe

@@ -105,8 +105,8 @@ export namespace dcc::sema
             complete_all_templated_structs(m_types, m_alloc);
             check_allocator_layout();
 
-            if (!m_diag.has_errors() && std::ranges::any_of(m_graph.all(), [](auto const& mod) { return mod->needs_i8086_arithmetic; }))
-                analyze_i8086_arithmetic(*root);
+            if (!m_diag.has_errors() && std::ranges::any_of(m_graph.all(), [](auto const& mod) { return mod->needs_arithmetic_helpers; }))
+                analyze_arithmetic_helpers(*root);
 
             return root;
         }
@@ -151,11 +151,11 @@ export namespace dcc::sema
         }
 
     private:
-        void analyze_i8086_arithmetic(ModuleInfo const& root)
+        void analyze_arithmetic_helpers(ModuleInfo const& root)
         {
             auto const first = m_graph.all().size();
             ast::Path path{m_ast_ctx.allocator()};
-            for (auto name : {"core", "i8086_arith"})
+            for (auto name : {std::string_view{"core"}, target::arithmetic_helper_module_name(m_opts.target.arch)})
                 path.segments.push_back({m_opts.interner ? m_opts.interner->intern(name) : std::string_view{name}, sm::SourceRange{}});
             auto* helper = m_importer.resolve_import(path, root);
             if (!helper || helper->state == ModuleState::BodiesAnalyzed)

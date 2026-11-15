@@ -17,6 +17,11 @@ export namespace dcc::target
         I8086,
     };
 
+    [[nodiscard]] constexpr std::string_view arithmetic_helper_module_name(Arch arch) noexcept
+    {
+        return arch == Arch::X86 ? "x86_arith" : "i8086_arith";
+    }
+
     enum class Os : std::uint8_t
     {
         Linux,
