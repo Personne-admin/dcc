@@ -10,6 +10,7 @@ import learndc.settings;
 import learndc.progress;
 import learndc.workspace;
 import learndc.toolchain;
+import learndc.runner;
 import dcc.host.process;
 
 #define main harness_main
@@ -27,6 +28,7 @@ namespace settings = learndc::settings;
 namespace progress = learndc::progress;
 namespace workspace = learndc::workspace;
 namespace toolchain = learndc::toolchain;
+namespace runner = learndc::runner;
 
 namespace
 {
@@ -3227,6 +3229,685 @@ TEST_CASE("toolchain version parsing and comparison")
     CHECK(!toolchain::version_at_least("garbage", "0.6.0"));
 }
 
+SECTION("learndc.runner");
+
+namespace
+{
+    using namespace std::chrono_literals;
+
+    std::string hex_encode(std::string_view bytes)
+    {
+        std::string out;
+        for (char c : bytes)
+            out += std::format("{:02x}", static_cast<unsigned>(static_cast<unsigned char>(c)));
+        return out;
+    }
+
+    runner::ProgramSpec fake_spec(std::vector<std::string> args)
+    {
+        runner::ProgramSpec spec;
+        spec.argv = {g_self};
+        spec.argv.insert(spec.argv.end(), args.begin(), args.end());
+        spec.timeout = 10s;
+        spec.max_output = 65536;
+        return spec;
+    }
+
+    catalog::Check run_check(std::optional<std::string> expected, int exit = 0)
+    {
+        catalog::Check c;
+        c.kind = catalog::CheckKind::Run;
+        c.name = "fake";
+        c.expect_stdout = std::move(expected);
+        c.expect_exit = exit;
+        return c;
+    }
+
+    runner::CheckResult judge_fake(catalog::Check const& check, std::vector<std::string> args, std::size_t max_output = 65536, std::chrono::milliseconds timeout = 10s)
+    {
+        auto spec = fake_spec(std::move(args));
+        spec.max_output = max_output;
+        spec.timeout = timeout;
+        return runner::judge_run(check, runner::execute_program(spec));
+    }
+
+    std::filesystem::path bin_dir()
+    {
+        return platform::executable_path().value_or(std::filesystem::path("build/bin/tests/test_learndc")).parent_path().parent_path();
+    }
+
+    bool real_tools_present()
+    {
+        return std::filesystem::exists(bin_dir() / "dcc") && std::filesystem::exists(bin_dir() / "dpm");
+    }
+
+    runner::RunnerOptions make_options(std::filesystem::path const& home, runner::Backend backend = runner::Backend::Dpm)
+    {
+        runner::RunnerOptions o;
+        platform::Overrides ov;
+        ov.home = home;
+        o.dirs = platform::resolve_dirs(ov, platform::Env{}).value();
+        o.settings.tools_dcc = platform::path_to_utf8(bin_dir() / "dcc");
+        o.settings.tools_dpm = platform::path_to_utf8(bin_dir() / "dpm");
+        toolchain::Inputs in;
+        in.settings = o.settings;
+        in.env = platform::current_env();
+        o.tools = toolchain::resolve(in);
+        o.backend = backend;
+        return o;
+    }
+
+    std::optional<catalog::Exercise> hello_exercise()
+    {
+        auto const* dir = std::getenv("DCC_TEST_LEARNDC_CONTENT");
+        if (!dir)
+            return std::nullopt;
+        auto full = catalog::load_directory(dir);
+        if (!full)
+            return std::nullopt;
+        catalog::ContentSource s;
+        s.label = "hello";
+        s.add("catalog.toml", "schema = 1\ntitle = \"T\"\ntracks = [\"fundamentals\"]\n");
+        s.add("tracks/fundamentals/track.toml", "schema = 1\nid = \"fundamentals\"\ntitle = \"F\"\nsummary = \"s\"\nexercises = [\"hello-world\"]\n");
+        for (auto const& [path, bytes] : full->files)
+            if (path.starts_with("tracks/fundamentals/hello-world/"))
+                s.add(path, bytes);
+        auto loaded = catalog::Catalog::load(s);
+        if (!loaded)
+            return std::nullopt;
+        auto const* ex = loaded->find("fundamentals/hello-world");
+        if (!ex)
+            return std::nullopt;
+        return *ex;
+    }
+
+    void write_tree(std::filesystem::path const& root, std::map<std::string, std::string> const& files)
+    {
+        for (auto const& [rel, bytes] : files)
+            write_file(root / platform::path_from_utf8(rel), bytes);
+    }
+
+    catalog::Exercise inline_exercise(std::string const& id, std::string const& main_source)
+    {
+        catalog::Exercise ex;
+        ex.id = id;
+        ex.track = id.substr(0, id.find('/'));
+        ex.name = id.substr(id.find('/') + 1);
+        ex.entry_file = "src/main.dc";
+        ex.product = "prog";
+        ex.starter["project.dcon"] =
+            "dpm::v1::Project {\n    name = \"prog\",\n    version = \"0.1.0\",\n    products = {\n        { name = \"prog\", entry = \"src/main.dc\" },\n    },\n}\n";
+        ex.starter["src/main.dc"] = main_source;
+        catalog::Check build;
+        build.kind = catalog::CheckKind::Build;
+        build.name = "Compiles";
+        ex.checks.push_back(build);
+        return ex;
+    }
+
+    catalog::Check stdout_check(std::string const& name, std::string expected)
+    {
+        catalog::Check c;
+        c.kind = catalog::CheckKind::Run;
+        c.name = name;
+        c.expect_stdout = std::move(expected);
+        c.max_seconds = 10;
+        return c;
+    }
+}
+
+TEST_CASE("output matching modes and line endings")
+{
+    using catalog::LineEndings;
+    using catalog::StdoutMatch;
+    CHECK(runner::output_matches("a\nb\n", "a\nb\n", StdoutMatch::Exact, LineEndings::Portable));
+    CHECK(!runner::output_matches("a\nb\n", "a\nb", StdoutMatch::Exact, LineEndings::Portable));
+    CHECK(runner::output_matches("a\nb\n", "a\r\nb\r\n", StdoutMatch::Exact, LineEndings::Portable));
+    CHECK(!runner::output_matches("a\nb\n", "a\r\nb\r\n", StdoutMatch::Exact, LineEndings::Exact));
+    CHECK(runner::output_matches("a\nb", "  a\nb\n\n", StdoutMatch::Trimmed, LineEndings::Portable));
+    CHECK(!runner::output_matches("a b", "a  b", StdoutMatch::Trimmed, LineEndings::Portable));
+    CHECK(runner::output_matches("needle", "hay needle stack", StdoutMatch::Contains, LineEndings::Portable));
+    CHECK(!runner::output_matches("needle", "hay stack", StdoutMatch::Contains, LineEndings::Portable));
+    CHECK(runner::output_matches("", "anything", StdoutMatch::Contains, LineEndings::Portable));
+}
+
+TEST_CASE("parse_locations reads error and warning pointers")
+{
+    std::string const diag =
+        "error: expected expression, found ';'\n"
+        "  --> /ws/src/main.dc:2:39\n"
+        "   |\n"
+        "warning: unused variable `x`\n"
+        "  --> C:\\Users\\a b\\src\\main.dc:10:5\n"
+        "error: no pointer here\n"
+        "note: something\n"
+        "  --> src/x.dc:3:1\n";
+    auto const locs = runner::parse_locations(diag);
+    REQUIRE((locs.size()) == 3u);
+    CHECK_EQ(locs[0].file, "/ws/src/main.dc");
+    CHECK_EQ(locs[0].line, 2);
+    CHECK_EQ(locs[0].column, 39);
+    CHECK_EQ(locs[0].severity, "error");
+    CHECK_EQ(locs[0].message, "expected expression, found ';'");
+    CHECK_EQ(locs[1].file, "C:\\Users\\a b\\src\\main.dc");
+    CHECK_EQ(locs[1].line, 10);
+    CHECK_EQ(locs[1].severity, "warning");
+    CHECK_EQ(locs[2].severity, "note");
+    CHECK(runner::parse_locations("nothing to see\n").empty());
+}
+
+TEST_CASE("diagnostics are sanitized and staging paths rewritten")
+{
+    runner::detail::Rewrites rw;
+    rw.add("/stage/x/project", "/ws/root");
+    rw.add("/stage/x/harness/tests", "checks");
+    auto const out = runner::detail::clean_diagnostics(
+        "    Building hello (debug, host)\n\x1b[1;91merror\x1b[0m: bad\x1b]0;title\x07 thing\n\x1b[1;94m  --> \x1b[0m/stage/x/project/src/main.dc:2:39\n"
+        "  --> /stage/x/harness/tests/a.dc:1:1\n",
+        rw);
+    CHECK(out.find('\x1b') == std::string::npos);
+    CHECK(out.find("Building") == std::string::npos);
+    CHECK(out.find("/stage/") == std::string::npos);
+    CHECK(out.find("/ws/root/src/main.dc:2:39") != std::string::npos);
+    CHECK(out.find("checks/a.dc:1:1") != std::string::npos);
+    CHECK(out.starts_with("error: bad thing"));
+}
+
+TEST_CASE("staging sync keeps unchanged files and prunes stale ones")
+{
+    TempDir t;
+    auto const dest = t.path / "stage";
+    std::map<std::string, std::string> files = {{"src/a.dc", "one"}, {"src/b.dc", "two"}, {"project.dcon", "p"}};
+    REQUIRE(runner::detail::sync_tree(dest, files, {".dpm"}).has_value());
+    write_file(dest / ".dpm" / "out" / "bin", "built");
+    write_file(dest / "stale.dc", "old");
+    auto const before = std::filesystem::last_write_time(dest / "src" / "a.dc");
+    std::this_thread::sleep_for(30ms);
+    files["src/b.dc"] = "changed";
+    files.erase("project.dcon");
+    REQUIRE(runner::detail::sync_tree(dest, files, {".dpm"}).has_value());
+    CHECK(std::filesystem::last_write_time(dest / "src" / "a.dc") == before);
+    CHECK_EQ(slurp(dest / "src" / "b.dc"), "changed");
+    CHECK(!std::filesystem::exists(dest / "stale.dc"));
+    CHECK(!std::filesystem::exists(dest / "project.dcon"));
+    CHECK(std::filesystem::exists(dest / ".dpm" / "out" / "bin"));
+}
+
+TEST_CASE("fake program exact output passes and mismatch reports expected and observed")
+{
+    auto ok = judge_fake(run_check("hello\n"), {"--emit", hex_encode("hello\n")});
+    CHECK(ok.verdict == runner::Verdict::Pass);
+    CHECK(ok.stage == runner::Stage::Passed);
+    CHECK_EQ(ok.exit_code.value_or(-1), 0);
+
+    auto bad = judge_fake(run_check("hello\n"), {"--emit", hex_encode("help\n")});
+    CHECK(bad.verdict == runner::Verdict::Fail);
+    CHECK(bad.stage == runner::Stage::Compare);
+    CHECK_EQ(bad.expected, "hello\n");
+    CHECK_EQ(bad.observed, "help\n");
+    CHECK(bad.expected_visible.empty());
+}
+
+TEST_CASE("whitespace only differences are shown visibly")
+{
+    auto r = judge_fake(run_check("a\nb\n"), {"--emit", hex_encode("a \nb\n")});
+    CHECK(r.verdict == runner::Verdict::Fail);
+    CHECK(r.stage == runner::Stage::Compare);
+    CHECK(r.observed_visible.find("\xC2\xB7") != std::string::npos);
+    CHECK(r.expected_visible.find("\xC2\xB7") == std::string::npos);
+    CHECK(r.summary.find("whitespace") != std::string::npos);
+
+    auto tab = judge_fake(run_check("a b\n"), {"--emit", hex_encode("a\tb\n")});
+    CHECK(tab.observed_visible.find("\xE2\x86\x92") != std::string::npos);
+}
+
+TEST_CASE("CRLF output passes with portable endings and fails visibly with exact endings")
+{
+    auto portable = judge_fake(run_check("a\nb\n"), {"--emit", hex_encode("a\r\nb\r\n")});
+    CHECK(portable.verdict == runner::Verdict::Pass);
+
+    auto strict = run_check("a\nb\n");
+    strict.line_endings = catalog::LineEndings::Exact;
+    auto r = judge_fake(strict, {"--emit", hex_encode("a\r\nb\r\n")});
+    CHECK(r.verdict == runner::Verdict::Fail);
+    CHECK(r.observed_visible.find("\xE2\x90\x8D") != std::string::npos);
+}
+
+TEST_CASE("contains and trimmed matching in judge_run")
+{
+    auto contains = run_check("world");
+    contains.stdout_match = catalog::StdoutMatch::Contains;
+    CHECK(judge_fake(contains, {"--emit", hex_encode("hello world\n")}).verdict == runner::Verdict::Pass);
+    auto miss = judge_fake(contains, {"--emit", hex_encode("hello there\n")});
+    CHECK(miss.verdict == runner::Verdict::Fail);
+    CHECK(miss.summary.find("does not contain") != std::string::npos);
+
+    auto trimmed = run_check("x");
+    trimmed.stdout_match = catalog::StdoutMatch::Trimmed;
+    CHECK(judge_fake(trimmed, {"--emit", hex_encode("\n  x \n\n")}).verdict == runner::Verdict::Pass);
+}
+
+TEST_CASE("exit codes signals and launch failures are classified")
+{
+    auto exit3 = judge_fake(run_check(std::nullopt, 0), {"--exit", "3"});
+    CHECK(exit3.verdict == runner::Verdict::Fail);
+    CHECK(exit3.stage == runner::Stage::Run);
+    CHECK(exit3.summary.find("code 3") != std::string::npos);
+    CHECK_EQ(exit3.exit_code.value_or(-1), 3);
+    CHECK(judge_fake(run_check(std::nullopt, 3), {"--exit", "3"}).verdict == runner::Verdict::Pass);
+
+    auto aborted = judge_fake(run_check(std::nullopt), {"--abort"});
+    CHECK(aborted.verdict == runner::Verdict::Fail);
+    CHECK(aborted.stage == runner::Stage::Run);
+    CHECK(aborted.signal.has_value());
+    CHECK(aborted.summary.find("SIGABRT") != std::string::npos);
+
+    auto segv = judge_fake(run_check(std::nullopt), {"--segv"});
+    CHECK(segv.verdict == runner::Verdict::Fail);
+    CHECK(segv.summary.find("SIGSEGV") != std::string::npos);
+
+    runner::ProgramSpec missing;
+    missing.argv = {"/nonexistent/learndc-no-such-program"};
+    auto launch = runner::judge_run(run_check(std::nullopt), runner::execute_program(missing));
+    CHECK(launch.verdict == runner::Verdict::Error);
+    CHECK(launch.stage == runner::Stage::Launch);
+}
+
+TEST_CASE("stderr expectations and stdin fixtures")
+{
+    auto check = run_check(std::nullopt);
+    check.expect_stderr_contains = "boom";
+    CHECK(judge_fake(check, {"--emit-err", hex_encode("a boom here\n")}).verdict == runner::Verdict::Pass);
+    auto miss = judge_fake(check, {"--emit-err", hex_encode("quiet\n")});
+    CHECK(miss.verdict == runner::Verdict::Fail);
+    CHECK(miss.stage == runner::Stage::Compare);
+
+    TempDir t;
+    write_file(t.path / "in.txt", "line one\nline two\n");
+    auto spec = fake_spec({"--echo-stdin"});
+    spec.stdin_file = t.path / "in.txt";
+    auto echoed = runner::judge_run(run_check("line one\nline two\n"), runner::execute_program(spec));
+    CHECK(echoed.verdict == runner::Verdict::Pass);
+}
+
+TEST_CASE("flooding output stops the program at the output limit")
+{
+    auto r = judge_fake(run_check(std::nullopt), {"--flood"}, 4096);
+    CHECK(r.verdict == runner::Verdict::Fail);
+    CHECK(r.stage == runner::Stage::OutputLimit);
+    CHECK(r.summary.find("more than") != std::string::npos);
+}
+
+TEST_CASE("a sleeping program times out")
+{
+    auto const begin = std::chrono::steady_clock::now();
+    auto r = judge_fake(run_check(std::nullopt), {"--sleep"}, 65536, 300ms);
+    auto const elapsed = std::chrono::steady_clock::now() - begin;
+    CHECK(r.verdict == runner::Verdict::Fail);
+    CHECK(r.stage == runner::Stage::Timeout);
+    CHECK(r.timed_out);
+    CHECK(elapsed < 5s);
+}
+
+TEST_CASE("cancelling a sleeping program returns within two seconds")
+{
+    std::atomic<bool> cancel{false};
+    auto spec = fake_spec({"--sleep"});
+    spec.cancel = &cancel;
+    spec.timeout = 60s;
+    std::thread canceller(
+        [&]
+        {
+            std::this_thread::sleep_for(250ms);
+            cancel = true;
+        });
+    auto const begin = std::chrono::steady_clock::now();
+    auto r = runner::judge_run(run_check(std::nullopt), runner::execute_program(spec));
+    auto const elapsed = std::chrono::steady_clock::now() - begin;
+    canceller.join();
+    CHECK(r.verdict == runner::Verdict::Cancelled);
+    CHECK(r.stage == runner::Stage::Cancelled);
+    CHECK(elapsed < 2s);
+}
+
+TEST_CASE("missing toolchain is reported with the setting names")
+{
+    TempDir t;
+    runner::RunnerOptions o;
+    platform::Overrides ov;
+    ov.home = t.path;
+    o.dirs = platform::resolve_dirs(ov, platform::Env{}).value();
+    auto ex = inline_exercise("basics/none", "module main;\n");
+    ex.checks.push_back(stdout_check("Prints", "x\n"));
+    auto const root = t.path / "ws";
+    write_tree(root, ex.starter);
+    auto report = runner::run_checks(ex, root, o);
+    CHECK(report.outcome == runner::Outcome::Error);
+    CHECK_EQ(report.total, 2);
+    CHECK_EQ(report.passed, 0);
+    CHECK(report.results[0].stage == runner::Stage::Toolchain);
+    CHECK(report.results[0].summary.find("tools.dpm") != std::string::npos);
+    CHECK(report.results[0].summary.find("LEARNDC_DPM") != std::string::npos);
+    CHECK(report.results[1].verdict == runner::Verdict::Skipped);
+    CHECK_EQ(report.first_failure_stage, "toolchain");
+}
+
+TEST_CASE("a held check lock refuses a second check")
+{
+    TempDir t;
+    auto o = make_options(t.path);
+    auto ex = inline_exercise("basics/locked", "module main;\n");
+    auto const root = t.path / "ws";
+    write_tree(root, ex.starter);
+    std::filesystem::create_directories(o.dirs.staging_dir);
+    auto held = platform::FileLock::try_acquire(runner::lock_path(o.dirs, ex));
+    REQUIRE(held.has_value());
+    auto report = runner::run_checks(ex, root, o);
+    CHECK(report.outcome == runner::Outcome::Error);
+    CHECK(report.results[0].stage == runner::Stage::Busy);
+    CHECK(report.results[0].summary.find("already running") != std::string::npos);
+    held->release();
+    o.cancel = nullptr;
+    std::atomic<bool> cancel{true};
+    o.cancel = &cancel;
+    auto after = runner::run_checks(ex, root, o);
+    CHECK(after.results[0].stage != runner::Stage::Busy);
+}
+
+TEST_CASE("a pre-set cancel flag cancels every check without building")
+{
+    TempDir t;
+    auto o = make_options(t.path);
+    std::atomic<bool> cancel{true};
+    o.cancel = &cancel;
+    auto ex = inline_exercise("basics/cancelled", "module main;\n");
+    ex.checks.push_back(stdout_check("Prints", "x\n"));
+    auto const root = t.path / "ws";
+    write_tree(root, ex.starter);
+    auto report = runner::run_checks(ex, root, o);
+    CHECK(report.outcome == runner::Outcome::Cancelled);
+    CHECK_EQ(report.passed, 0);
+    for (auto const& r : report.results)
+        CHECK(r.verdict == runner::Verdict::Cancelled);
+}
+
+TEST_CASE("hello-world starter builds but fails the run check with expected and observed")
+{
+    REQUIRE(real_tools_present());
+    auto ex = hello_exercise();
+    REQUIRE(ex.has_value());
+    TempDir t;
+    auto o = make_options(t.path);
+    auto const root = t.path / "ws";
+    REQUIRE(workspace::start(*ex, root).has_value());
+    std::vector<std::string> stages;
+    o.on_stage = [&](std::string_view s) { stages.emplace_back(s); };
+    o.include_safety_note = true;
+    auto report = runner::run_checks(*ex, root, o);
+    REQUIRE((report.results.size()) == 2u);
+    CHECK(report.results[0].verdict == runner::Verdict::Pass);
+    CHECK(report.results[1].verdict == runner::Verdict::Fail);
+    CHECK(report.results[1].stage == runner::Stage::Compare);
+    CHECK_EQ(report.results[1].expected, "Hello, Ada!\nWelcome to DC.\n");
+    CHECK(report.results[1].observed.find("Hello, world!") != std::string::npos);
+    CHECK(report.outcome == runner::Outcome::Failed);
+    CHECK_EQ(report.passed, 1);
+    CHECK_EQ(report.total, 2);
+    CHECK_EQ(report.first_failure_stage, "compare");
+    CHECK(!report.safety_note.empty());
+    CHECK(!stages.empty());
+    CHECK(std::filesystem::exists(report.log_path));
+    auto const log = slurp(report.log_path);
+    CHECK(log.find("Hello, world!") != std::string::npos);
+    auto const text = runner::render_text(report, {});
+    CHECK(text.find("1 of 2 checks passed") != std::string::npos);
+    CHECK(text.find("Expected:") != std::string::npos);
+    CHECK(text.find("Observed:") != std::string::npos);
+    CHECK(text.find("final full stop") != std::string::npos);
+    CHECK(text.find("not a sandbox") != std::string::npos);
+    CHECK(text.find('\x1b') == std::string::npos);
+    auto colored = runner::render_text(report, {true, false, false});
+    CHECK(colored.find('\x1b') != std::string::npos);
+    auto j = runner::to_json(report);
+    CHECK_EQ(j.find("outcome")->as_string().value_or(""), "failed");
+    CHECK_EQ(j.find("results")->size(), 2u);
+}
+
+TEST_CASE("hello-world solution passes on dpm and both direct backends")
+{
+    REQUIRE(real_tools_present());
+    auto ex = hello_exercise();
+    REQUIRE(ex.has_value());
+    for (auto backend : {runner::Backend::Dpm, runner::Backend::DirectLlvm, runner::Backend::DirectCustom})
+    {
+        TempDir t;
+        auto o = make_options(t.path, backend);
+        auto const root = t.path / "ws";
+        REQUIRE(workspace::start(*ex, root).has_value());
+        write_tree(root, ex->solution);
+        auto report = runner::run_checks(*ex, root, o);
+        CHECK_EQ(report.passed, report.total);
+        CHECK(report.outcome == runner::Outcome::Passed);
+        CHECK_EQ(report.backend, std::string(runner::to_string(backend)));
+        CHECK(runner::render_text(report, {}).find("2 of 2 checks passed") != std::string::npos);
+    }
+}
+
+TEST_CASE("a broken program fails at the build stage with workspace locations")
+{
+    REQUIRE(real_tools_present());
+    TempDir t;
+    auto o = make_options(t.path);
+    auto ex = inline_exercise("basics/broken", "module main;\n\npublic Status(Error) main() { int x = ; }\n");
+    ex.checks.push_back(stdout_check("Prints", "x\n"));
+    ex.checks[0].hint = "Look at the line the compiler points to.";
+    auto const root = t.path / "ws dir";
+    write_tree(root, ex.starter);
+    auto report = runner::run_checks(ex, root, o);
+    REQUIRE((report.results.size()) == 2u);
+    auto const& build = report.results[0];
+    CHECK(build.verdict == runner::Verdict::Fail);
+    CHECK(build.stage == runner::Stage::Build);
+    CHECK(build.diagnostics.find('\x1b') == std::string::npos);
+    CHECK(build.diagnostics.find("staging") == std::string::npos);
+    REQUIRE(!build.locations.empty());
+    auto const& loc = build.locations[0];
+    CHECK(loc.file.starts_with(platform::path_to_utf8(root)));
+    CHECK(loc.file.ends_with("src/main.dc"));
+    CHECK_EQ(loc.line, 3);
+    CHECK_EQ(loc.severity, "error");
+    CHECK(report.results[1].verdict == runner::Verdict::Skipped);
+    CHECK_EQ(report.first_failure_stage, "build");
+    auto const text = runner::render_text(report, {});
+    CHECK(text.find("0 of 2 checks passed") != std::string::npos);
+    CHECK(text.find("src/main.dc:3:") != std::string::npos);
+    CHECK(text.find("Look at the line") != std::string::npos);
+}
+
+TEST_CASE("an unresolved symbol is reported at the link stage")
+{
+    REQUIRE(real_tools_present());
+    TempDir t;
+    auto o = make_options(t.path);
+    auto ex = inline_exercise("basics/linkfail", "module main;\n\n@nomangle extern i32 missing_symbol_for_learndc();\n\npublic i32 main() {\n    return missing_symbol_for_learndc();\n}\n");
+    auto const root = t.path / "ws";
+    write_tree(root, ex.starter);
+    auto report = runner::run_checks(ex, root, o);
+    REQUIRE((report.results.size()) == 1u);
+    CHECK(report.results[0].verdict == runner::Verdict::Fail);
+    CHECK(report.results[0].stage == runner::Stage::Link || report.results[0].stage == runner::Stage::Build);
+}
+
+TEST_CASE("stdin fixtures arguments and exit codes reach the learner program")
+{
+    REQUIRE(real_tools_present());
+    TempDir t;
+    auto o = make_options(t.path);
+    auto ex = inline_exercise("basics/exitcode", "module main;\n\npublic i32 main() {\n    return 7;\n}\n");
+    catalog::Check seven = stdout_check("Exit seven", "");
+    seven.expect_stdout = std::nullopt;
+    seven.expect_exit = 7;
+    ex.checks.push_back(seven);
+    catalog::Check wrong = stdout_check("Exit zero", "");
+    wrong.expect_stdout = std::nullopt;
+    wrong.expect_exit = 0;
+    ex.checks.push_back(wrong);
+    auto const root = t.path / "ws";
+    write_tree(root, ex.starter);
+    auto report = runner::run_checks(ex, root, o);
+    REQUIRE((report.results.size()) == 3u);
+    CHECK(report.results[0].verdict == runner::Verdict::Pass);
+    CHECK(report.results[1].verdict == runner::Verdict::Pass);
+    CHECK(report.results[2].verdict == runner::Verdict::Fail);
+    CHECK(report.results[2].summary.find("code 7") != std::string::npos);
+}
+
+namespace
+{
+    catalog::Exercise harness_exercise(std::string const& id, std::string const& area_body)
+    {
+        auto ex = inline_exercise(id, "module main;\n\nimport shapes;\n\npublic i32 main() {\n    return 0;\n}\n");
+        ex.starter["src/shapes.dc"] = std::format("module shapes;\n\npublic i32 area(i32 w, i32 h) {{\n    return {};\n}}\n", area_body);
+        ex.check_files["checks/area_check.dc"] =
+            "module area_check;\nimport shapes;\n\npublic i32 main() {\n    if shapes::area(2, 3) != 6 {\n        println(\"area(2, 3): expected 6, got {}\", shapes::area(2, 3));\n        return 1;\n    }\n    println(\"area ok\");\n    return 0;\n}\n";
+        catalog::Check harness;
+        harness.kind = catalog::CheckKind::Harness;
+        harness.name = "area works";
+        harness.harness = "checks/area_check.dc";
+        harness.expect_stdout = "area ok\n";
+        harness.hint = "Multiply the width by the height.";
+        ex.checks.push_back(harness);
+        return ex;
+    }
+}
+
+TEST_CASE("harness exercise passes and fails against learner code")
+{
+    REQUIRE(real_tools_present());
+    {
+        TempDir t;
+        auto o = make_options(t.path);
+        auto ex = harness_exercise("basics/shapes-pass", "w * h");
+        auto const root = t.path / "ws";
+        write_tree(root, ex.starter);
+        auto report = runner::run_checks(ex, root, o);
+        REQUIRE((report.results.size()) == 2u);
+        CHECK(report.results[0].verdict == runner::Verdict::Pass);
+        CHECK(report.results[1].verdict == runner::Verdict::Pass);
+        CHECK(report.outcome == runner::Outcome::Passed);
+    }
+    {
+        TempDir t;
+        auto o = make_options(t.path);
+        auto ex = harness_exercise("basics/shapes-fail", "w + h");
+        auto const root = t.path / "ws";
+        write_tree(root, ex.starter);
+        auto report = runner::run_checks(ex, root, o);
+        REQUIRE((report.results.size()) == 2u);
+        CHECK(report.results[0].verdict == runner::Verdict::Pass);
+        CHECK(report.results[1].verdict == runner::Verdict::Fail);
+        CHECK(report.results[1].stage == runner::Stage::Harness);
+        CHECK(report.results[1].exit_code.value_or(-1) == 1);
+        CHECK(report.results[1].stdout_preview.find("expected 6, got 5") != std::string::npos);
+        CHECK(runner::render_text(report, {}).find("Multiply the width") != std::string::npos);
+    }
+    {
+        TempDir t;
+        auto o = make_options(t.path);
+        auto ex = harness_exercise("basics/shapes-missing", "w * h");
+        ex.starter["src/shapes.dc"] = "module shapes;\n\npublic i32 other() {\n    return 1;\n}\n";
+        auto const root = t.path / "ws";
+        write_tree(root, ex.starter);
+        auto report = runner::run_checks(ex, root, o);
+        REQUIRE((report.results.size()) == 2u);
+        CHECK(report.results[0].verdict == runner::Verdict::Pass);
+        CHECK(report.results[1].verdict == runner::Verdict::Fail);
+        CHECK(report.results[1].stage == runner::Stage::Build);
+        REQUIRE(!report.results[1].locations.empty());
+        CHECK(report.results[1].diagnostics.find("staging") == std::string::npos);
+    }
+}
+
+TEST_CASE("diagnostic checks compare compiler behaviour")
+{
+    REQUIRE(real_tools_present());
+    TempDir t;
+    auto o = make_options(t.path);
+    auto ex = inline_exercise("basics/diag", "module main;\n\npublic Status(Error) main() { int x = ; }\n");
+    ex.checks.clear();
+    catalog::Check expect_fail;
+    expect_fail.kind = catalog::CheckKind::Diagnostic;
+    expect_fail.name = "Rejected";
+    expect_fail.expect_build_success = false;
+    expect_fail.diagnostic_contains = "expected expression";
+    ex.checks.push_back(expect_fail);
+    catalog::Check wrong_text = expect_fail;
+    wrong_text.name = "Wrong text";
+    wrong_text.diagnostic_contains = "no such message anywhere";
+    ex.checks.push_back(wrong_text);
+    catalog::Check expect_ok = expect_fail;
+    expect_ok.name = "Compiles";
+    expect_ok.expect_build_success = true;
+    expect_ok.diagnostic_contains.clear();
+    ex.checks.push_back(expect_ok);
+    auto const root = t.path / "ws";
+    write_tree(root, ex.starter);
+    auto report = runner::run_checks(ex, root, o);
+    REQUIRE((report.results.size()) == 3u);
+    CHECK(report.results[0].verdict == runner::Verdict::Pass);
+    CHECK(report.results[1].verdict == runner::Verdict::Fail);
+    CHECK(report.results[1].stage == runner::Stage::Compare);
+    CHECK(report.results[2].verdict == runner::Verdict::Fail);
+    CHECK(report.results[2].stage == runner::Stage::Build);
+}
+
+TEST_CASE("repeated checks reuse unchanged staging files")
+{
+    REQUIRE(real_tools_present());
+    auto ex = hello_exercise();
+    REQUIRE(ex.has_value());
+    TempDir t;
+    auto o = make_options(t.path);
+    auto const root = t.path / "ws";
+    REQUIRE(workspace::start(*ex, root).has_value());
+    auto first = runner::run_checks(*ex, root, o);
+    auto const staged = o.dirs.staging_dir / "fundamentals-hello-world" / "project" / "src" / "main.dc";
+    REQUIRE(std::filesystem::exists(staged));
+    auto const before = std::filesystem::last_write_time(staged);
+    std::this_thread::sleep_for(30ms);
+    auto second = runner::run_checks(*ex, root, o);
+    CHECK(std::filesystem::last_write_time(staged) == before);
+    CHECK_EQ(first.passed, second.passed);
+    write_file(root / "src" / "main.dc", "module main;\n\npublic Status(Error) main() {\n    println(\"changed\")?;\n    return Status::Ok;\n}\n");
+    auto third = runner::run_checks(*ex, root, o);
+    CHECK(third.results[1].observed.find("changed") != std::string::npos);
+}
+
+TEST_CASE("interactive run reports build errors and program exit")
+{
+    REQUIRE(real_tools_present());
+    TempDir t;
+    auto o = make_options(t.path);
+    {
+        auto ex = inline_exercise("basics/irun-bad", "module main;\n\npublic Status(Error) main() { int x = ; }\n");
+        auto const root = t.path / "bad";
+        write_tree(root, ex.starter);
+        auto out = runner::build_and_run_interactive(ex, root, o);
+        CHECK(!out.ok);
+        CHECK(out.stage == runner::Stage::Build);
+        CHECK(!out.locations.empty());
+    }
+    {
+        auto ex = inline_exercise("basics/irun-ok", "module main;\n\npublic i32 main() {\n    return 4;\n}\n");
+        auto const root = t.path / "ok";
+        write_tree(root, ex.starter);
+        auto out = runner::build_and_run_interactive(ex, root, o);
+        CHECK(!out.ok);
+        CHECK_EQ(out.exit_code.value_or(-1), 4);
+        CHECK(out.stage == runner::Stage::Passed);
+    }
+}
+
 int main(int argc, char** argv)
 {
     g_self = platform::path_to_utf8(platform::executable_path().value_or(std::filesystem::path(argv[0])));
@@ -3243,6 +3924,57 @@ int main(int argc, char** argv)
             if (stem.starts_with("silent"))
                 return 0;
             std::println("fakedcc 1.2.3 (test)");
+            return 0;
+        }
+        if (mode == "--emit" && argc == 3)
+        {
+            auto const hex = std::string_view(argv[2]);
+            std::string bytes;
+            for (std::size_t i = 0; i + 1 < hex.size(); i += 2)
+                bytes += static_cast<char>(std::stoi(std::string(hex.substr(i, 2)), nullptr, 16));
+            std::cout.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            std::cout.flush();
+            return 0;
+        }
+        if (mode == "--emit-err" && argc == 3)
+        {
+            auto const hex = std::string_view(argv[2]);
+            std::string bytes;
+            for (std::size_t i = 0; i + 1 < hex.size(); i += 2)
+                bytes += static_cast<char>(std::stoi(std::string(hex.substr(i, 2)), nullptr, 16));
+            std::cerr.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            std::cerr.flush();
+            return 0;
+        }
+        if (mode == "--flood")
+        {
+            std::string const chunk(8192, 'x');
+            for (int i = 0; i < 4096; ++i)
+            {
+                std::cout.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+                std::cout.flush();
+            }
+            return 0;
+        }
+        if (mode == "--sleep")
+        {
+            std::this_thread::sleep_for(std::chrono::seconds(60));
+            return 0;
+        }
+        if (mode == "--exit" && argc == 3)
+            return std::stoi(argv[2]);
+        if (mode == "--abort")
+            std::abort();
+        if (mode == "--segv")
+        {
+            *static_cast<volatile int*>(nullptr) = 1;
+            return 0;
+        }
+        if (mode == "--echo-stdin")
+        {
+            std::string all{std::istreambuf_iterator<char>(std::cin), std::istreambuf_iterator<char>()};
+            std::cout << all;
+            std::cout.flush();
             return 0;
         }
         if (mode == "--progress-worker" && argc == 6)
