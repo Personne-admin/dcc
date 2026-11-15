@@ -12,7 +12,7 @@ fi
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends "$deb" >/dev/null
 dpkg -s dcc | grep -E '^(Version|Depends):'
-for bin in dcc dccd dcdoc; do
+for bin in dcc dccd dcdoc learndc; do
     echo "-- ldd $bin"
     ldd "/usr/bin/$bin"
 done
@@ -30,4 +30,9 @@ for backend in llvm custom; do
     echo "$backend: output=$output exit=$rc"
     [[ "$output" == "hello from dcc" && $rc -eq 42 ]]
 done
+learndc --version
+export LEARNDC_HOME="$work/learndc home"
+learndc list --json > "$work/learndc-list.json"
+learndc doctor --json > "$work/learndc-doctor.json" || true
+grep -q '"fundamentals/hello-world"' "$work/learndc-list.json"
 echo "smoke ok on $PRETTY_NAME"

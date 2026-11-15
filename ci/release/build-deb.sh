@@ -12,7 +12,7 @@ pkg="$stage/dcc"
 make install DESTDIR="$pkg" PREFIX=/usr "$@" >/dev/null
 find "$pkg/usr/lib" -name 'libdcext-*.a' ! -name 'libdcext-linux-llvm.a' ! -name 'libdcext-linux-custom.a' ! -name 'libdcext-freestanding-llvm.a' ! -name 'libdcext-freestanding-custom.a' -delete
 install -m 644 LICENSE "$pkg/usr/share/doc/dcc/copyright"
-strip --strip-unneeded "$pkg/usr/bin/dcc" "$pkg/usr/bin/dccd" "$pkg/usr/bin/dcdoc"
+strip --strip-unneeded "$pkg/usr/bin/dcc" "$pkg/usr/bin/dccd" "$pkg/usr/bin/dcdoc" "$pkg/usr/bin/learndc"
 
 libs="$(cd "$pkg/usr/lib" && ls)"
 if [[ "$libs" != $'libdcext-freestanding-custom.a\nlibdcext-freestanding-llvm.a\nlibdcext-linux-custom.a\nlibdcext-linux-llvm.a' ]]; then
@@ -22,7 +22,7 @@ fi
 
 mkdir -p "$stage/shlibs/debian"
 printf 'Source: dcc\n\nPackage: dcc\nArchitecture: any\n' > "$stage/shlibs/debian/control"
-shlibs="$(cd "$stage/shlibs" && dpkg-shlibdeps -O "$pkg/usr/bin/dcc" "$pkg/usr/bin/dccd" "$pkg/usr/bin/dcdoc" | sed -n 's/^shlibs:Depends=//p')"
+shlibs="$(cd "$stage/shlibs" && dpkg-shlibdeps -O "$pkg/usr/bin/dcc" "$pkg/usr/bin/dccd" "$pkg/usr/bin/dcdoc" "$pkg/usr/bin/learndc" | sed -n 's/^shlibs:Depends=//p')"
 
 mkdir -p "$pkg/DEBIAN"
 sed -e "s/@VERSION@/$version/" -e "s/@DEPENDS@/$shlibs, lld/" \
