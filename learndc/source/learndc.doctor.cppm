@@ -125,7 +125,10 @@ export namespace learndc::doctor
             else
             {
                 item.status = Status::Ok;
-                item.detail = std::format("{} at {} (from {})", version->line, where, toolchain::to_string(located.source));
+                if (version->line.starts_with('['))
+                    item.detail = std::format("{} (from {})", where, toolchain::to_string(located.source));
+                else
+                    item.detail = std::format("{} at {} (from {})", version->line, where, toolchain::to_string(located.source));
             }
             for (auto const& warning : located.warnings)
                 item.detail += std::format("\nwarning: {}", warning);
