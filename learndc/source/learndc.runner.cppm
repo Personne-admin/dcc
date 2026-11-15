@@ -417,10 +417,27 @@ export namespace learndc::runner
             return text::clamp_bytes(trimmed, diagnostics_limit);
         }
 
+        [[nodiscard]] inline bool is_source_excerpt_line(std::string_view line)
+        {
+            auto const t = text::trim(line);
+            std::size_t i = 0;
+            while (i < t.size() && t[i] >= '0' && t[i] <= '9')
+                ++i;
+            while (i < t.size() && (t[i] == ' ' || t[i] == '\t'))
+                ++i;
+            return i < t.size() && t[i] == '|';
+        }
+
         [[nodiscard]] inline bool is_link_failure(std::string_view diagnostics)
         {
-            return diagnostics.contains("undefined symbol") || diagnostics.contains("ld.lld") || diagnostics.contains("lld-link") ||
-                   diagnostics.contains("linker command failed");
+            for (auto const& line : text::split_lines(diagnostics))
+            {
+                if (is_source_excerpt_line(line))
+                    continue;
+                if (line.contains("undefined symbol") || line.contains("ld.lld") || line.contains("lld-link") || line.contains("linker command failed"))
+                    return true;
+            }
+            return false;
         }
 
         [[nodiscard]] inline int count_errors(std::string_view diagnostics)

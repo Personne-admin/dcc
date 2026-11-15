@@ -3692,6 +3692,12 @@ TEST_CASE("diagnostic checks do not pass when the build times out")
     CHECK(r.stage == runner::Stage::Timeout);
 }
 
+TEST_CASE("source lines that mention linker words do not make a compile error a link failure")
+{
+    CHECK(!runner::detail::is_link_failure("error: initializer type mismatch\n 4 | println(\"undefined symbol\")\n   | ^^^"));
+    CHECK(runner::detail::is_link_failure("ld.lld: error: undefined symbol: foo"));
+}
+
 TEST_CASE("missing toolchain is reported with the setting names")
 {
     TempDir t;
