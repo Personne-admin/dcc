@@ -8,7 +8,7 @@ Status of this release:
 
 - The command line described below is complete and was tested on Linux.
 - The full-screen interface opens when you run `learndc` without a command in a terminal. Everything it does is also available as commands.
-- Windows: learndc is cross-compiled for Windows but has not been validated natively. `learndc.exe` is not in the MSI yet. See [Platform status](#platform-status).
+- Windows: learndc is cross-compiled for Windows and packaged in the MSI, but has not been validated natively. See [Platform status](#platform-status).
 
 ## Contents
 
@@ -39,6 +39,18 @@ From a source checkout:
     make install         # installs learndc next to dcc and dpm (PREFIX, default /usr/local)
 
 `LEARNDC_STANDALONE=1 make learndc` builds only learndc, for an already installed dcc and dpm.
+
+The Linux `.deb` and the Windows MSI install `learndc` beside `dcc`, `dccd` and `dpm`. Exercises, hints and reference solutions are built into the executable; there are no separate content files.
+
+### Windows installer
+
+The MSI installs `dcc.exe`, `dccd.exe`, `dpm.exe` and `learndc.exe` into `bin` under the installation directory (default `C:\Program Files\dcc`, or the `INSTALLDIR` you choose), adds a **Learn DC** shortcut to the `dcc` folder of the Start Menu, and appends that `bin` directory to the system `PATH`.
+
+- The shortcut opens learndc's dashboard in an ordinary console window, starting in your Documents folder. Windows Terminal is not required.
+- The `PATH` entry is the real installation directory, appended to the end of the system `PATH`; existing entries are kept. Repair and reinstall do not add it twice, and uninstall removes only this entry.
+- To install without changing `PATH`, pass `ADDTOPATH=0`, for example `msiexec /i dcc-0.6.0-x86_64.msi ADDTOPATH=0`. The choice is remembered for repairs and upgrades; pass `ADDTOPATH=1` to turn it back on. The installer has no options dialog, so this property is the only switch.
+- Terminals and programs that were already open keep their old environment. Open a new terminal after installing before running `dcc`, `dpm` or `learndc` by name.
+- Uninstall removes the shortcut, the `dcc` Start Menu folder and the `PATH` entry.
 
 Check the setup, then do the first exercise entirely from the command line:
 
@@ -496,4 +508,4 @@ Start with `learndc doctor`.
 ## Platform status
 
 - Linux: tested natively, including the end-to-end journeys in `tests/learndc/e2e.py` (start, failing and passing checks, progress, export and import, reset with backup, paths with spaces and Unicode).
-- Windows: learndc is cross-compiled from Linux. It has not been validated natively: not the commands, not the editor handoff, not process cleanup, not the paths. `learndc.exe` is not part of the MSI yet. `tests/learndc/windows-smoke.ps1` is a script for a first native run; it has never been run. Treat Windows as unverified until it passes.
+- Windows: learndc is cross-compiled from Linux and packaged in the MSI. It has not been validated natively: not the commands, not the editor handoff, not process cleanup, not the paths, not the installer's shortcut and `PATH` handling. The release workflow runs `ci/release/smoke-msi-windows.ps1` (install, custom directory, repair, `ADDTOPATH=0`, uninstall) and `tests/learndc/windows-smoke.ps1` on a Windows runner; neither has run yet. Treat Windows as unverified until they pass.
