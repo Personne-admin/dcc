@@ -186,3 +186,32 @@ TEST_CASE("targets parse from triples")
     CHECK(b::parse_target("host") == m::Target::Host);
     CHECK(!b::parse_target("arm64-linux").has_value());
 }
+
+TEST_CASE("package native libraries propagate to products and tests in dependency order")
+{
+    auto project = base_project();
+    project.link = {"root", "repeat", "repeat"};
+    project.products[0].link = {"product"};
+    auto r = request_for(project);
+    r.packages = {
+        {"a", "/a/src", false, {"leaf"}, {}},
+        {"z", "/z/src", false, {"binding"}, {"a"}},
+        {"dev", "/dev/src", true, {"devlib"}, {"z"}},
+    };
+    auto libraries = [](b::Plan const& plan)
+    {
+        std::vector<std::string> result;
+        for (auto const& arg : plan.argv)
+            if (arg.starts_with("-l"))
+                result.push_back(arg);
+        return result;
+    };
+    CHECK(libraries(b::plan_product(r, project.products[0])) == strs({"-lproduct", "-lroot", "-lrepeat", "-lrepeat", "-lbinding", "-lleaf"}));
+    CHECK(libraries(b::plan_test(r, "tests/basic.dc")) == strs({"-lroot", "-lrepeat", "-lrepeat", "-lbinding", "-lleaf"}));
+    r.include_dev = true;
+    CHECK(libraries(b::plan_test(r, "tests/basic.dc")) == strs({"-lroot", "-lrepeat", "-lrepeat", "-ldevlib", "-lbinding", "-lleaf"}));
+    project.products[0].kind = m::Kind::SharedLibrary;
+    CHECK(libraries(b::plan_product(r, project.products[0])) == strs({"-lproduct", "-lroot", "-lrepeat", "-lrepeat", "-ldevlib", "-lbinding", "-lleaf"}));
+    std::ranges::reverse(r.packages);
+    CHECK(libraries(b::plan_test(r, "tests/basic.dc")) == strs({"-lroot", "-lrepeat", "-lrepeat", "-ldevlib", "-lbinding", "-lleaf"}));
+}

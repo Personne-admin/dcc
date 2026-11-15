@@ -337,6 +337,7 @@ export namespace dpm::manifest
         std::string source;
         std::vector<Dependency> dependencies;
         std::vector<Dependency> dev_dependencies;
+        std::vector<std::string> link;
         std::vector<Product> products;
         std::vector<Asset> assets;
         std::vector<Task> tasks;
@@ -2146,6 +2147,7 @@ export namespace dpm::manifest
                 if (auto const* n = root.find("registry");
                     n && !p.registry.empty() && !p.registry.starts_with("https://") && !(allow_file && p.registry.starts_with("file://")))
                     error(*n, allow_file ? "registry must be an https:// or file:// URL" : "registry must be an https:// URL");
+                p.link = strs(root, "link");
                 p.dependencies = dependencies(root, "dependencies");
                 p.dev_dependencies = dependencies(root, "dev_dependencies");
                 p.assets = assets(root);

@@ -772,6 +772,55 @@ def scenario_path_dependency():
     check(r.returncode == 1, "building without the dependency fails", detail(r))
 
 
+def scenario_native_link_requirements():
+    parent = os.path.join(ROOT, "native-link")
+    os.makedirs(parent)
+    native = os.path.join(parent, "native")
+    os.makedirs(native)
+    for name, body in (("leaf", "int native_leaf(void) { return 17; }"),
+                       ("binding", "int native_leaf(void); int native_answer(void) { return native_leaf() + 6; }")):
+        source = os.path.join(native, name + ".c")
+        obj = os.path.join(native, name + ".o")
+        write(source, body + "\n")
+        subprocess.run(["cc", "-c", source, "-o", obj], check=True, timeout=60)
+        subprocess.run(["ar", "rcs", os.path.join(native, "lib" + name + ".a"), obj], check=True, timeout=60)
+    leaf = os.path.join(parent, "leaf")
+    binding = os.path.join(parent, "binding")
+    app = os.path.join(parent, "app")
+    write(os.path.join(leaf, "project.dcon"), 'dpm::v1::Project { name = "leaf", version = "0.1.0", link = { "leaf" } }\n')
+    write(os.path.join(leaf, "src", "leaf", "lib.dc"), "module leaf::lib;\n")
+    write(os.path.join(binding, "project.dcon"), '''dpm::v1::Project {
+    name = "binding", version = "0.1.0", link = { "binding" },
+    dependencies = { { location = "path:../leaf" } },
+}
+''')
+    write(os.path.join(binding, "src", "binding", "lib.dc"),
+          "module binding::lib;\n@nomangle public i32 native_answer();\n")
+    manifest = '''dpm::v1::Project {
+    name = "app", version = "0.1.0",
+    dependencies = { { location = "path:../binding" } },
+    products = { { name = "app" } },
+    settings = { extra_flags = { "-L%s" } },
+}
+''' % native
+    write(os.path.join(app, "project.dcon"), manifest)
+    source = "module main;\nimport binding::lib;\npublic i32 main() { return binding::lib::native_answer() - 23; }\n"
+    write(os.path.join(app, "src", "main.dc"), source)
+    write(os.path.join(app, "tests", "native.dc"), source)
+    r = dpm(app, "run", "-v")
+    check(r.returncode == 0 and "-lbinding -lleaf" in r.stderr,
+          "transitive native requirements link a real external consumer", detail(r))
+    r = dpm(app, "test", "-v")
+    check(r.returncode == 0 and "1 passed, 0 failed" in r.stdout,
+          "native requirements also link test programs", detail(r))
+    r = dpm(app, "build")
+    check(r.returncode == 0 and "Fresh app" in r.stdout, "native requirements remain fresh", detail(r))
+    write(os.path.join(binding, "project.dcon"), read(os.path.join(binding, "project.dcon")).replace('"binding" },', '"binding", "missing_native_requirement" },'))
+    r = dpm(app, "build")
+    check(r.returncode != 0 and "Building app" in r.stdout,
+          "changing a path dependency link requirement invalidates the build", detail(r))
+
+
 def scenario_git_dependency():
     repo = make_lib_repo("gitlib", [("1.0.0", 10), ("1.1.0", 11)])
     app = new_app("gitapp")
@@ -2075,6 +2124,7 @@ try:
     scenario_new_registry()
     scenario_publish_template()
     scenario_path_dependency()
+    scenario_native_link_requirements()
     scenario_git_dependency()
     scenario_offline_and_cache()
     scenario_assets()

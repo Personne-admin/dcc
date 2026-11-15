@@ -228,6 +228,7 @@ TEST_CASE("decoding fills the project structure")
     auto result = dpm::manifest::load(R"(dpm::v1::Project {
     name = "app",
     version = "1.2.3-rc1",
+    link = { "SDL3" },
     dependencies = {
         { location = "json5", version = "1.2.0" },
         { location = "path:../util" },
@@ -242,6 +243,7 @@ TEST_CASE("decoding fills the project structure")
     REQUIRE(result.project.has_value());
     auto const& p = *result.project;
     CHECK(p.name == "app");
+    CHECK(p.link == std::vector<std::string>{"SDL3"});
     CHECK(p.source == "src");
     CHECK(p.test_dir == "tests");
     REQUIRE(p.dependencies.size() == 2);

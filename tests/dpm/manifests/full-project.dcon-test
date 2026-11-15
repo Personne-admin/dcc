@@ -2,6 +2,7 @@
 dpm::v1::Project {
     name = "app",
     version = "1.2.3-rc1+build.5",
+    link = { "SDL3" },
     description = "an app",
     requires_dcc = "0.7.0",
     dependencies = {
@@ -27,6 +28,9 @@ module boot;
   version = "1.2.3-rc1+build.5",
   description = "an app",
   requires_dcc = "0.7.0",
+  link = [
+    "SDL3",
+  ],
   dependencies = [
     {
       location = "json5",

@@ -18,6 +18,8 @@ export namespace dpm::build
         std::string location;
         std::filesystem::path source_dir;
         bool dev{};
+        std::vector<std::string> link{};
+        std::vector<std::string> dependencies{};
     };
 
     struct Request
@@ -101,6 +103,34 @@ export namespace dpm::build
             return roots;
         }
 
+        inline std::vector<std::string> link_flags(Request const& request)
+        {
+            std::vector<std::string> flags;
+            for (auto const& lib : request.project->link)
+                flags.push_back("-l" + lib);
+            std::vector<PackageRoot const*> pending;
+            for (auto const& p : request.packages)
+                if (request.include_dev || !p.dev)
+                    pending.push_back(&p);
+            std::ranges::sort(pending, [](auto const* a, auto const* b) { return a->location < b->location; });
+            while (!pending.empty())
+            {
+                auto next = std::ranges::find_if(pending, [&](auto const* candidate)
+                {
+                    return std::ranges::none_of(pending, [&](auto const* other)
+                    {
+                        return std::ranges::find(other->dependencies, candidate->location) != other->dependencies.end();
+                    });
+                });
+                if (next == pending.end())
+                    next = pending.begin();
+                for (auto const& lib : (*next)->link)
+                    flags.push_back("-l" + lib);
+                pending.erase(next);
+            }
+            return flags;
+        }
+
         inline Plan compose(Request const& request, Settings const& effective, std::string const& entry, std::filesystem::path const& output,
                             std::vector<std::string> const& extra_product_flags)
         {
@@ -122,6 +152,8 @@ export namespace dpm::build
             plan.argv.push_back("--compdb-entry");
             plan.argv.push_back(plan.compdb_entry.generic_string());
             for (auto const& flag : extra_product_flags)
+                plan.argv.push_back(flag);
+            for (auto const& flag : link_flags(request))
                 plan.argv.push_back(flag);
             for (auto const& flag : settings::dcc_flags(effective))
                 plan.argv.push_back(flag);
@@ -190,7 +222,7 @@ export namespace dpm::build
                 error = std::format("{}: {}", p.location, loaded.diagnostics.empty() ? "invalid manifest" : loaded.diagnostics.front().format());
                 return std::nullopt;
             }
-            roots.push_back({p.location, (root / loaded.project->source).lexically_normal(), p.dev});
+            roots.push_back({p.location, (root / loaded.project->source).lexically_normal(), p.dev, loaded.project->link, p.dependencies});
         }
         return roots;
     }

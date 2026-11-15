@@ -115,3 +115,6 @@ and [hosted library basics](hosted.md) for allocation and printing contracts.
 Use [DPM templates](dpm-templates.md) and [DPM tasks](dpm-tasks.md) for packages,
 custom projects and execution settings. Library and freestanding/kernel
 projects retain their own templates and startup rules.
+
+See [DPM libraries](dpm-libraries.md) for source packages and transitive native
+library requirements such as SDL3.

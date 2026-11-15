@@ -302,6 +302,9 @@ public struct Project
     []const char requires_dcc = "";
     /// Import root that dependents see, relative to the package root.
     []const char source = "src";
+    /// Native libraries required by this package and its consumers (`dcc -l`).
+    /// Applied to products and tests, including transitive dependencies.
+    []const []const char link = {};
     /// Packages needed to build and use this package.
     []const Dependency dependencies = {};
     /// Packages needed only by tests and `dpm run --dev`.
