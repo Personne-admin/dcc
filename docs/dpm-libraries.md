@@ -52,6 +52,21 @@ the build command and invalidates its build stamp.
 These declarations name libraries; they do not install SDL, build C sources,
 copy DLLs, or run dependency tasks. Install native libraries separately.
 
+## Editors
+
+Dependencies are unpacked read-only into DPM's cache (`dpm cache path`, under
+`src/<hash>/`). After `dpm build` writes `compile_commands.json`, Go to
+Definition in VS Code or Neovim opens cached package sources, and dccd analyses
+them with the compile command of the project that imports them: the same
+import roots, transitive packages, target, prelude and allocator settings, and
+unsaved edits. When several open projects use the same cached file, the
+project you navigated from is used; otherwise a project whose analysis
+imports the file, then the first matching project by entry path. A cached
+file that no open project uses resolves its own package's modules from that
+package's `source` directory, and dccd reports that imports of its
+dependencies need the owning project. Run `dpm build` again after changing
+dependencies so the compilation database names the new package hashes.
+
 ## Search paths and shared libraries
 
 A product configures where its libraries are found and how it is linked:

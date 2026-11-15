@@ -104,6 +104,12 @@ disables attachment for that buffer. Buffers sharing a root reuse one client,
 including while initialization is pending. Different roots have separate
 clients.
 
+Files inside DPM's package cache (a `project.dcon` in `<cache>/src/<hash>/`)
+stay with an existing dccd client instead of starting one rooted in the cache:
+the client of the buffer you came from (for example through Go to Definition),
+otherwise the oldest client. dccd then analyses the file with the compile
+command of the project that depends on it.
+
 DPM's compilation database and dccd settings control compiler options. The
 plugin does not invent compiler flags from `project.dcon`. Build the project
 to generate `compile_commands.json`; configure include paths when needed
