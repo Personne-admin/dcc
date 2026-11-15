@@ -4845,6 +4845,25 @@ TEST_CASE("cli export and import round trip with preview and apply")
     CHECK_EQ(g.run({"import", "--input", platform::path_to_utf8(f.temp.path / "none.json")}).code, 1);
 }
 
+TEST_CASE("cli export refuses to overwrite learndc's own data files")
+{
+    CliFixture f;
+    REQUIRE(f.run({"start", "basics/one"}).code == 0);
+    REQUIRE(f.run({"bookmark", "basics/one"}).code == 0);
+    auto const progress_file = f.home / "progress.json";
+    REQUIRE(std::filesystem::exists(progress_file));
+    auto const before = slurp(progress_file);
+    for (auto const& target : {progress_file, f.home / "progress.json.bak", f.home / "config.json", f.home / "sub" / ".." / "progress.json"})
+    {
+        auto r = f.run({"export", "--output", platform::path_to_utf8(target), "--yes"});
+        CHECK_EQ(r.code, 6);
+        CHECK(r.err.find("own data files") != std::string::npos);
+    }
+    CHECK_EQ(slurp(progress_file), before);
+    CHECK(!std::filesystem::exists(f.home / "config.json"));
+    CHECK_EQ(f.run({"export", "--output", platform::path_to_utf8(f.temp.path / "ok.json")}).code, 0);
+}
+
 TEST_CASE("app resolves the exercise from the argument then the enclosing workspace then the active exercise")
 {
     CliFixture f;

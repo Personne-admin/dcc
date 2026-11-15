@@ -599,9 +599,28 @@ export namespace learndc::app
         return out;
     }
 
+    [[nodiscard]] inline bool is_learndc_state_file(Context const& ctx, std::filesystem::path const& file)
+    {
+        std::error_code ec;
+        auto backup = ctx.dirs.progress_file;
+        backup += ".bak";
+        for (auto const& state : {ctx.dirs.progress_file, backup, ctx.dirs.progress_lock, ctx.dirs.config_file})
+        {
+            if (state.empty())
+                continue;
+            if (std::filesystem::equivalent(file, state, ec) ||
+                std::filesystem::weakly_canonical(file, ec) == std::filesystem::weakly_canonical(state, ec))
+                return true;
+        }
+        auto const name = file.filename().string();
+        return name == workspace::meta_file && file.parent_path().filename().string() == workspace::meta_dir;
+    }
+
     [[nodiscard]] inline Result<std::string> export_progress(Context& ctx, std::filesystem::path const& file, bool overwrite)
     {
         std::error_code ec;
+        if (is_learndc_state_file(ctx, file))
+            return failure(exit_refused, std::format("'{}' is one of learndc's own data files; choose another output file", platform::path_to_utf8(file)));
         if (!overwrite && std::filesystem::exists(file, ec))
             return failure(exit_refused, std::format("'{}' already exists; use --yes to overwrite it", platform::path_to_utf8(file)));
         auto p = load_progress(ctx);
