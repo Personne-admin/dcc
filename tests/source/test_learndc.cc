@@ -9405,3 +9405,15 @@ TEST_CASE("tui shows learning paths on home and switches paths in learn")
     press(m, "4");
     snap(m, "progress-paths", {{100, 30}});
 }
+
+TEST_CASE("a chapter of optional lessons counts them as its lessons")
+{
+    CliFixture f;
+    auto s = paths_source();
+    edit(s, "tracks/extra/four/exercise.toml", "starter_state = \"fails-checks\"", "starter_state = \"fails-checks\"\noptional = true");
+    edit(s, "tracks/extra/five/exercise.toml", "starter_state = \"fails-checks\"", "starter_state = \"fails-checks\"\noptional = true");
+    write_source(s, f.content);
+    auto const r = f.run({"paths"});
+    CHECK_EQ(r.code, 0);
+    CHECK(r.out.find("games  Game development  (1 chapter; 0 of 2 lessons)") != std::string::npos);
+}

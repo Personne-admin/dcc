@@ -1164,6 +1164,16 @@ export namespace learndc::app
                 else if (status == progress::Status::InProgress)
                     ++t.in_progress;
             }
+            if (t.total == 0 && t.bonus_total > 0)
+            {
+                t.total = t.bonus_total;
+                t.completed = t.bonus_completed;
+                t.bonus_total = 0;
+                t.bonus_completed = 0;
+                for (auto const& id : track.exercise_ids)
+                    if (progress::status_of(p, id) == progress::Status::InProgress)
+                        ++t.in_progress;
+            }
             t.done = t.total > 0 && t.completed == t.total;
             s.total += t.total;
             s.completed += t.completed;
@@ -1263,8 +1273,10 @@ export namespace learndc::app
                 }
                 out.push_back(std::move(a));
             }
+            auto const* path = ctx.catalog.find_path(t.path);
+            bool const core = !path || path->kind == catalog::PathKind::Core || ctx.catalog.paths().size() < 2;
             if (t.done)
-                out.push_back({std::format("Chapter {} complete: {}", t.number, t.title),
+                out.push_back({core ? std::format("Chapter {} complete: {}", t.number, t.title) : std::format("{} complete: {}", path->title, t.title),
                                t.bonus_total > 0 ? std::format("bonus lessons {} of {}", t.bonus_completed, t.bonus_total) : std::string(), false});
         }
         return out;
