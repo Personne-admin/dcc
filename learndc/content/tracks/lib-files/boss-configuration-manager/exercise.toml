@@ -270,7 +270,7 @@ Status(Error) save_if_valid(const Settings* s, []const char path) {
         return Status::Ok;
     }
     FileWriter out = FileWriter::new(f);
-    std::fmt::format(&out, "port = {}\n", s.port)?;
+    std::fmt::format(&out, "port = {}\\n", s.port)?;
     return Status::Ok;
 }
 """
