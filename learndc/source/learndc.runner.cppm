@@ -7,6 +7,7 @@ import learndc.platform;
 import learndc.catalog;
 import learndc.workspace;
 import learndc.toolchain;
+import learndc.requirements;
 import learndc.settings;
 import learndc.diff;
 import dcc.host.process;
@@ -75,6 +76,7 @@ export namespace learndc::runner
     enum class Stage
     {
         Toolchain,
+        Setup,
         Build,
         Link,
         Launch,
@@ -94,6 +96,8 @@ export namespace learndc::runner
         {
             case Stage::Toolchain:
                 return "toolchain";
+            case Stage::Setup:
+                return "setup";
             case Stage::Build:
                 return "build";
             case Stage::Link:
@@ -274,6 +278,7 @@ export namespace learndc::runner
     struct BuildSpec
     {
         Backend backend = Backend::Dpm;
+        bool planned = false;
         std::optional<std::filesystem::path> dpm;
         std::optional<std::filesystem::path> dcc;
         std::filesystem::path project_dir;
@@ -572,6 +577,101 @@ export namespace learndc::runner
             return out;
         }
 
+        struct DconToken
+        {
+            std::size_t begin = 0;
+            std::size_t end = 0;
+            int depth = 0;
+        };
+
+        [[nodiscard]] inline std::vector<DconToken> dcon_words(std::string_view text)
+        {
+            std::vector<DconToken> out;
+            int depth = 0;
+            std::size_t i = 0;
+            while (i < text.size())
+            {
+                char const c = text[i];
+                if (c == '"')
+                {
+                    ++i;
+                    while (i < text.size() && text[i] != '"')
+                        i += text[i] == '\\' ? 2 : 1;
+                    ++i;
+                }
+                else if (c == '/' && i + 1 < text.size() && text[i + 1] == '/')
+                {
+                    while (i < text.size() && text[i] != '\n')
+                        ++i;
+                }
+                else if (c == '/' && i + 1 < text.size() && text[i + 1] == '*')
+                {
+                    auto const close = text.find("*/", i + 2);
+                    i = close == std::string_view::npos ? text.size() : close + 2;
+                }
+                else if (c == '{')
+                {
+                    ++depth;
+                    ++i;
+                }
+                else if (c == '}')
+                {
+                    --depth;
+                    ++i;
+                }
+                else if (std::isalpha(static_cast<unsigned char>(c)) || c == '_')
+                {
+                    auto const start = i;
+                    while (i < text.size() && (std::isalnum(static_cast<unsigned char>(text[i])) || text[i] == '_'))
+                        ++i;
+                    out.push_back({start, i, depth});
+                }
+                else
+                    ++i;
+            }
+            return out;
+        }
+
+        [[nodiscard]] inline bool uses_packages(std::string_view manifest)
+        {
+            for (auto const& w : dcon_words(manifest))
+            {
+                auto const word = manifest.substr(w.begin, w.end - w.begin);
+                if (w.depth == 1 && (word == "dependencies" || word == "link" || word == "library_paths"))
+                    return true;
+            }
+            return false;
+        }
+
+        [[nodiscard]] inline std::optional<std::string> replace_products(std::string_view manifest, std::string_view products)
+        {
+            for (auto const& w : dcon_words(manifest))
+            {
+                if (w.depth != 1 || manifest.substr(w.begin, w.end - w.begin) != "products")
+                    continue;
+                auto const open = manifest.find('{', w.end);
+                if (open == std::string_view::npos)
+                    return std::nullopt;
+                int depth = 0;
+                for (std::size_t i = open; i < manifest.size(); ++i)
+                {
+                    if (manifest[i] == '"')
+                    {
+                        ++i;
+                        while (i < manifest.size() && manifest[i] != '"')
+                            i += manifest[i] == '\\' ? 2 : 1;
+                        continue;
+                    }
+                    if (manifest[i] == '{')
+                        ++depth;
+                    else if (manifest[i] == '}' && --depth == 0)
+                        return std::format("{}products = {}{}", manifest.substr(0, w.begin), products, manifest.substr(i + 1));
+                }
+                return std::nullopt;
+            }
+            return std::nullopt;
+        }
+
         [[nodiscard]] inline std::string harness_manifest(std::string_view stem)
         {
             return std::format("dpm::v1::Project {{\n    name = \"learndc_check\",\n    version = \"0.1.0\",\n    products = {{\n        {{ name = "
@@ -829,6 +929,61 @@ export namespace learndc::runner
         return r;
     }
 
+    namespace detail
+    {
+        [[nodiscard]] inline std::expected<std::vector<std::string>, std::string> planned_command(BuildSpec const& spec, std::string const& out_rel)
+        {
+            if (!spec.dpm)
+                return std::unexpected(std::string("dpm was not found; it is needed to plan the build of a project with dependencies"));
+            dcc::host::process::Command cmd;
+            cmd.argv = {platform::path_to_utf8(*spec.dpm), "compile-commands"};
+            cmd.cwd = spec.project_dir;
+            cmd.inherit_env = true;
+            cmd.timeout = std::chrono::seconds(30);
+            auto const r = dcc::host::process::run(cmd);
+            if (!r.started || r.exit_code != 0)
+                return std::unexpected(std::format("dpm compile-commands failed: {}", r.started ? std::string(text::trim(r.err)) : r.error));
+            auto const parsed = json::parse(r.out);
+            if (!parsed || !parsed->as_array())
+                return std::unexpected(std::string("dpm compile-commands printed no command list"));
+            for (auto const& entry : *parsed->as_array())
+            {
+                auto const* product = entry.find("product");
+                auto const* args = entry.find("arguments");
+                if (!product || product->as_string() != std::optional<std::string_view>(spec.product) || !args || !args->as_array())
+                    continue;
+                std::vector<std::string> argv;
+                auto const& items = *args->as_array();
+                for (std::size_t i = 0; i < items.size(); ++i)
+                {
+                    auto const a = items[i].as_string().value_or("");
+                    if (i == 0)
+                    {
+                        argv.push_back(platform::path_to_utf8(*spec.dcc));
+                        continue;
+                    }
+                    if ((a == "-o" || a == "--depfile" || a == "--compdb-entry") && i + 1 < items.size())
+                    {
+                        if (a == "-o")
+                        {
+                            argv.push_back("-o");
+                            argv.push_back(out_rel);
+                        }
+                        ++i;
+                        continue;
+                    }
+                    if (a == "-g" && spec.backend == Backend::DirectCustom)
+                        continue;
+                    if (a.starts_with("-fbackend"))
+                        continue;
+                    argv.emplace_back(a);
+                }
+                return argv;
+            }
+            return std::unexpected(std::format("dpm compile-commands has no command for product '{}'", spec.product));
+        }
+    } // namespace detail
+
     [[nodiscard]] inline BuildOutcome build_program(BuildSpec const& spec)
     {
         BuildOutcome outcome;
@@ -865,10 +1020,24 @@ export namespace learndc::runner
             std::error_code ec;
             std::filesystem::create_directories(spec.project_dir / platform::path_from_utf8(dir), ec);
             auto const out_rel = std::format("{}/{}", dir, detail::exe_name(spec.product));
-            command.argv = {platform::path_to_utf8(*spec.dcc), spec.entry, "-o", out_rel, "-Isrc", "-O0", "-fwhole-program", "-flibdcext"};
-            if (spec.backend == Backend::DirectLlvm)
-                command.argv.push_back("-g");
-            command.argv.push_back("-fbounds-check");
+            if (spec.planned)
+            {
+                auto planned = detail::planned_command(spec, out_rel);
+                if (!planned)
+                {
+                    outcome.error = planned.error();
+                    outcome.output = planned.error();
+                    return outcome;
+                }
+                command.argv = std::move(*planned);
+            }
+            else
+            {
+                command.argv = {platform::path_to_utf8(*spec.dcc), spec.entry, "-o", out_rel, "-Isrc", "-O0", "-fwhole-program", "-flibdcext"};
+                if (spec.backend == Backend::DirectLlvm)
+                    command.argv.push_back("-g");
+                command.argv.push_back("-fbounds-check");
+            }
             command.argv.push_back(spec.backend == Backend::DirectLlvm ? "-fbackend=llvm" : "-fbackend=custom");
             outcome.binary = spec.project_dir / platform::path_from_utf8(out_rel);
             std::filesystem::remove(outcome.binary, ec);
@@ -975,6 +1144,20 @@ export namespace learndc::runner
                 return std::nullopt;
             }
 
+            [[nodiscard]] std::optional<std::string> missing_requirement() const
+            {
+                for (auto const& tool : ex.required_tools)
+                {
+                    if (tool != "sdl3")
+                        continue;
+                    auto const status = requirements::check_sdl3(platform::host_os(), opt.tools.dpm.path, project_dir);
+                    if (!status.ok)
+                        return std::format("This lesson needs SDL3, which is not set up yet.\n{}\n{}", requirements::describe(status),
+                                           requirements::setup_guide(platform::host_os()));
+                }
+                return std::nullopt;
+            }
+
             [[nodiscard]] BuildSpec spec_for(std::filesystem::path const& dir, std::string_view entry, std::string_view product) const
             {
                 BuildSpec spec;
@@ -984,6 +1167,8 @@ export namespace learndc::runner
                 spec.project_dir = dir;
                 spec.entry = std::string(entry);
                 spec.product = std::string(product);
+                if (auto manifest = platform::read_file(dir / "project.dcon"))
+                    spec.planned = uses_packages(*manifest);
                 spec.timeout = build_timeout();
                 spec.cancel = opt.cancel;
                 return spec;
@@ -1002,7 +1187,16 @@ export namespace learndc::runner
             {
                 auto files = read_workspace(ws_root, "src/");
                 files.emplace(std::format("tests/{}.dc", stem), source);
-                files.emplace("project.dcon", harness_manifest(stem));
+                std::string manifest = harness_manifest(stem);
+                if (auto own = platform::read_file(ws_root / "project.dcon"); own && uses_packages(*own))
+                {
+                    auto const product = std::format("{{\n        {{ name = \"check_{0}\", entry = \"tests/{0}.dc\" }},\n    }}", stem);
+                    if (auto replaced = replace_products(*own, product))
+                        manifest = std::move(*replaced);
+                    if (auto lock = platform::read_file(ws_root / "project.lock.dcon"))
+                        files.emplace("project.lock.dcon", std::move(*lock));
+                }
+                files.emplace("project.dcon", std::move(manifest));
                 return sync_tree(harness_dir, files, {".dpm", "project.lock.dcon", "compile_commands.json"});
             }
 
@@ -1402,6 +1596,11 @@ export namespace learndc::runner
             fail_all(Stage::Build, Verdict::Error, "could not prepare the build directory: " + synced.error());
             return report;
         }
+        if (auto message = s.missing_requirement())
+        {
+            fail_all(Stage::Setup, Verdict::Error, *message);
+            return report;
+        }
         s.log = std::format("learndc check log\nexercise: {} (revision {})\nworkspace: {}\nbackend: {}\nstarted: {}\n\n", ex.id, ex.revision, report.workspace,
                             report.backend, report.started_at);
 
@@ -1466,6 +1665,12 @@ export namespace learndc::runner
         {
             out.stage = Stage::Build;
             out.message = "could not prepare the build directory: " + synced.error();
+            return out;
+        }
+        if (auto message = s.missing_requirement())
+        {
+            out.stage = Stage::Setup;
+            out.message = *message;
             return out;
         }
         auto& build = s.build_project();
@@ -1749,7 +1954,17 @@ export namespace learndc::runner
                 return;
             std::string const indent = "      ";
             if (!r.summary.empty())
-                out += std::format("{}{} (stage: {})\n", indent, r.summary, to_string(r.stage));
+            {
+                auto const summary = std::string(text::trim(r.summary));
+                if (summary.find('\n') == std::string::npos)
+                    out += std::format("{}{} (stage: {})\n", indent, summary, to_string(r.stage));
+                else
+                {
+                    out += std::format("{}(stage: {})\n", indent, to_string(r.stage));
+                    for (auto const& line : text::split_lines(summary))
+                        out += line.empty() ? std::string("\n") : std::format("{}{}\n", indent, line);
+                }
+            }
             if (r.output_diff)
             {
                 for (auto const& [begin, end] : diff::hunks(*r.output_diff, style.verbose ? 3 : 2, style.verbose))

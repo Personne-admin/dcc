@@ -100,6 +100,12 @@ Chapters belong to learning paths. The core curriculum is the beginner journey, 
 
 `learndc paths` lists the paths with their progress, `learndc list` shows the core curriculum and `learndc list --path ID` (or `--path all`) any other path. In the terminal interface, Home lists the paths below the core chapters (Enter shows a path's lessons), Learn switches paths with `Left` and `Right`, and the recommendation stays in the path you are working in: finishing the core curriculum never starts a specialization by itself.
 
+### Optional requirements: SDL3
+
+The game development path needs the SDL3 library and the DC bindings for it (the dpm package `sdl3`); nothing else does, and the core curriculum works fully offline without them. `learndc setup sdl3` reports what is installed and how to install what is missing; `learndc setup sdl3 --fetch` downloads the bindings into the dpm cache (the only step that uses the network). Until both are present, checking an SDL3 lesson prints these setup steps instead of compiler or linker errors, and `learndc doctor` lists SDL3 as optional. SDL3 lessons support Linux for now.
+
+Their checks never need a display: game logic is tested headlessly, and drawing code is tested by rendering one frame with SDL's software renderer and the offscreen video driver and reading pixels back. That proves the SDL rendering calls work, not how a real window looks or feels; `learndc run` (or `r` in a lesson) opens the real window on a desktop session.
+
 ## The terminal interface
 
 Run `learndc` with no command in an interactive terminal (stdin and stdout both a terminal) to open the full-screen interface. In any other situation, `learndc` with no command prints the help text.
@@ -206,7 +212,8 @@ Commands that take an optional `id` use the exercise of the current directory's 
 | `learndc review [--json]` | Exercises worth revisiting: completed after looking at the solution, or whose content has a newer revision than the one you completed. |
 | `learndc bookmark ID [--remove]` | Bookmark an exercise (shown in `list --json` as `bookmarked`). |
 | `learndc config get KEY \| set KEY VALUE \| unset KEY \| list [--json]` | Read and change settings. |
-| `learndc doctor [--json] [--build]` | Check toolchain, folders, editor and terminal; `--build` also compiles a small program. |
+| `learndc doctor [--json] [--build]` | Check toolchain, folders, editor and terminal; `--build` also compiles a small program. Optional requirements of the bundled lessons (SDL3) are reported as warnings, never errors. |
+| `learndc setup sdl3 [--fetch]` | Check the SDL3 library, the DC bindings and the display for the game development path and print setup steps; `--fetch` runs `dpm fetch` for the bindings. Exit 0 when ready, 1 when something is missing. |
 | `learndc export --output FILE [--yes]` | Write your progress to a file. An existing file needs `--yes`. |
 | `learndc import --input FILE [--apply]` | Preview, or with `--apply` merge, an export. |
 | `learndc dev validate [--backend dpm\|llvm\|custom\|all] [--id ID]` | Validate content, for authors. See [the authoring guide](learndc-authoring.md). |

@@ -15,6 +15,7 @@ import learndc.runner;
 import learndc.watch;
 import learndc.editor;
 import learndc.doctor;
+import learndc.requirements;
 import learndc.app;
 import learndc.activity;
 import learndc.cli;
@@ -9224,6 +9225,13 @@ TEST_CASE("paths are validated")
         edit(s, "catalog.toml", "kind = \"specialization\"", "kind = \"bonus\"");
         CHECK(has_error(errors_of(s), "path kind 'bonus' must be core, specialization or practice"));
     }
+    {
+        auto s = paths_source();
+        edit(s, one_toml, "requires = [\"dcc\", \"dpm\"]", "requires = [\"dcc\", \"dpm\", \"sdl3\"]");
+        CHECK(errors_of(s).empty());
+        edit(s, one_toml, "\"sdl3\"]", "\"sdl2\"]");
+        CHECK(has_error(errors_of(s), "unknown tool 'sdl2' in requires"));
+    }
 }
 
 TEST_CASE("the recommendation stays in the current path and never starts a specialization by itself")
@@ -9245,6 +9253,44 @@ TEST_CASE("the recommendation stays in the current path and never starts a speci
     CHECK(cat.next_recommended(completed, "more/three") == nullptr);
     done = {"basics/one", "basics/two", "more/three", "extra/four", "extra/five"};
     CHECK(cat.next_recommended(completed, "extra/five") == nullptr);
+}
+
+TEST_CASE("projects with dependencies keep their manifest and lock for checks")
+{
+    std::string const plain = "dpm::v1::Project {\n    name = \"hello\",\n    products = { { name = \"hello\", entry = \"src/main.dc\" } },\n}\n";
+    CHECK(!runner::detail::uses_packages(plain));
+    CHECK(!runner::detail::uses_packages("dpm::v1::Project {\n    name = \"link\", // dependencies\n    description = \"dependencies link\",\n}\n"));
+    std::string const game =
+        "dpm::v1::Project {\n    name = \"game\",\n    products = {\n        { name = \"game\", entry = \"src/main.dc\", link = { \"m\" } },\n"
+        "    },\n    dependencies = {\n        { location = \"github.com/u/sdl3\", version = \"0.1.0\" },\n    },\n}\n";
+    CHECK(runner::detail::uses_packages(game));
+    CHECK(runner::detail::uses_packages("dpm::v1::Project { name = \"x\", link = { \"SDL3\" } }\n"));
+    auto const replaced = runner::detail::replace_products(game, "{ { name = \"check_a\", entry = \"tests/a.dc\" } }");
+    REQUIRE(replaced.has_value());
+    CHECK(replaced->find("check_a") != std::string::npos);
+    CHECK(replaced->find("src/main.dc") == std::string::npos);
+    CHECK(replaced->find("github.com/u/sdl3") != std::string::npos);
+    CHECK(replaced->starts_with("dpm::v1::Project {\n    name = \"game\",\n    products = { { name = \"check_a\""));
+    CHECK(!runner::detail::replace_products("dpm::v1::Project { name = \"x\" }", "{}").has_value());
+}
+
+TEST_CASE("the sdl3 requirement explains what is missing and how to set it up")
+{
+    learndc::requirements::Status st;
+    st.title = "SDL3 (optional, for the game development path)";
+    st.findings.push_back({"library", "SDL3 library", true, false, "/usr/lib/libSDL3.so", ""});
+    st.findings.push_back({"package", "DC bindings (dpm package sdl3)", false, false, "the sdl3 package is not in the dpm cache yet",
+                           "Download it once with: learndc setup sdl3 --fetch (this uses the network)."});
+    auto const text = learndc::requirements::describe(st);
+    CHECK(text.starts_with("SDL3 (optional, for the game development path): setup needed\n"));
+    CHECK(text.find("  ok   SDL3 library: /usr/lib/libSDL3.so\n") != std::string::npos);
+    CHECK(text.find("  MISS DC bindings (dpm package sdl3): the sdl3 package is not in the dpm cache yet\n       Download it once") != std::string::npos);
+    auto const guide = learndc::requirements::setup_guide(platform::Os::Linux);
+    CHECK(guide.find("sudo apt install libsdl3-dev") != std::string::npos);
+    CHECK(guide.find("learndc setup sdl3 --fetch") != std::string::npos);
+    CHECK(learndc::requirements::setup_guide(platform::Os::Windows).find("Linux only") != std::string::npos);
+    CHECK(learndc::requirements::is_optional("sdl3"));
+    CHECK(!learndc::requirements::is_optional("dcc"));
 }
 
 TEST_CASE("cli lists the core curriculum by default and other paths on request")

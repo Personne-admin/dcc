@@ -723,7 +723,7 @@ export namespace learndc::catalog
             return std::move(*parsed);
         }
 
-        constexpr std::array<std::string_view, 3> known_tools = {"dcc", "dpm", "dccd"};
+        constexpr std::array<std::string_view, 4> known_tools = {"dcc", "dpm", "dccd", "sdl3"};
         constexpr std::array<std::string_view, 2> known_platforms = {"linux", "windows"};
         constexpr std::array<std::string_view, 2> known_backends = {"llvm", "custom"};
 

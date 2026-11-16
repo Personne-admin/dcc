@@ -9,6 +9,7 @@ import learndc.catalog;
 import learndc.toolchain;
 import learndc.editor;
 import learndc.runner;
+import learndc.requirements;
 
 export namespace learndc::doctor
 {
@@ -375,6 +376,41 @@ export namespace learndc::doctor
         }
     } // namespace detail
 
+    [[nodiscard]] inline catalog::Exercise const* first_requiring(catalog::Catalog const& cat, std::string_view requirement)
+    {
+        for (auto const& ex : cat.exercises())
+            if (std::ranges::find(ex.required_tools, requirement) != ex.required_tools.end())
+                return &ex;
+        return nullptr;
+    }
+
+    [[nodiscard]] inline std::expected<std::filesystem::path, std::string> probe_project(platform::Dirs const& dirs, catalog::Exercise const& ex)
+    {
+        auto const dir = dirs.cache_dir / "requirements" / platform::path_from_utf8(text::replace_all(ex.id, "/", "-"));
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        for (auto const& [rel, bytes] : ex.starter)
+        {
+            auto const target = dir / platform::path_from_utf8(rel);
+            std::filesystem::create_directories(target.parent_path(), ec);
+            std::ofstream out(target, std::ios::binary);
+            out << bytes;
+            if (!out)
+                return std::unexpected(std::format("cannot write {}", platform::path_to_utf8(target)));
+        }
+        return dir;
+    }
+
+    [[nodiscard]] inline std::optional<requirements::Status> sdl3_status(catalog::Catalog const& cat, platform::Dirs const& dirs, platform::Os os,
+                                                                         toolchain::Toolchain const& tools)
+    {
+        auto const* lesson = first_requiring(cat, "sdl3");
+        if (!lesson)
+            return std::nullopt;
+        auto dir = probe_project(dirs, *lesson);
+        return requirements::check_sdl3(os, tools.dpm.path, dir ? *dir : std::filesystem::path{});
+    }
+
     [[nodiscard]] inline DoctorReport run_doctor(DoctorOptions const& options)
     {
         DoctorReport report;
@@ -387,6 +423,20 @@ export namespace learndc::doctor
         detail::check_content(report, options.content);
         detail::check_editor(report, options);
         detail::check_terminal(report, options);
+        if (options.content)
+            if (auto loaded = catalog::Catalog::load(*options.content))
+                if (auto status = sdl3_status(*loaded, options.dirs, options.os, options.tools))
+                    for (auto const& f : status->findings)
+                    {
+                        Item item;
+                        item.id = "sdl3." + f.id;
+                        item.label = "optional: " + f.name;
+                        item.status = f.ok ? Status::Ok : (f.informational ? Status::Info : Status::Warn);
+                        item.detail = f.detail;
+                        item.fix = f.ok ? std::string{}
+                                        : (f.fix.empty() ? std::string{} : f.fix + " Only the game development path needs SDL3; see learndc setup sdl3.");
+                        report.items.push_back(std::move(item));
+                    }
         {
             Item item;
             item.id = "safety";

@@ -84,7 +84,7 @@ Unknown keys are errors. Errors are reported as `file:line:column: message`.
 | `entry_file` | string | required | relative path that exists in `starter/`; opened by `learndc edit` |
 | `product` | string | required | the dpm product name; an identifier `[a-z_][a-z0-9_]*`, and `starter/project.dcon` must mention it |
 | `prerequisites` | array of strings | required (may be empty) | exercise ids that exist; no cycles |
-| `requires` | array of strings | required | `dcc`, `dpm` or `dccd` |
+| `requires` | array of strings | required | `dcc`, `dpm`, `dccd` or `sdl3` (see Optional requirements) |
 | `min_dcc` | string | required | `major.minor.patch` |
 | `platforms` | array of strings | required | `linux`, `windows` |
 | `backends` | array of strings | required | `llvm`, `custom`: the code generators the solution is validated on |
@@ -228,6 +228,14 @@ A Boss Fight is a staged exercise with a `[boss]` table:
     """
 
 It needs at least two stages and a hint for each. Validation requires the starter to fail every stage and the solution to pass every stage, bonus stages included.
+
+## Packages and optional requirements
+
+A starter may declare `dependencies`, `link`, `library_paths` or `runtime_paths` in `project.dcon`. Ship `project.lock.dcon` in `starter/` so builds work with `dpm build --offline` from the dpm cache. For such projects, harness builds keep the learner's manifest (with the products replaced by the harness product) and lock, and the direct `llvm` and `custom` backends take the dcc command line from `dpm compile-commands` instead of the fixed flags above.
+
+`requires = ["dcc", "dpm", "sdl3"]` marks a lesson of the game development path. Before building such a lesson learndc checks for the SDL3 shared library (libSDL3.so in the directories dcc searches) and the `sdl3` package in the dpm cache. When one is missing, the check fails at the `setup` stage with installation steps instead of compiler or linker errors, `learndc dev validate` reports the lesson as `skip` with `SDL3 not set up`, and `learndc setup sdl3` tells the learner what to do. Nothing is downloaded unless the learner runs `learndc setup sdl3 --fetch`.
+
+Windowed programs loop until the window closes, so SDL3 lessons use harness checks only. Logic harnesses call pure update functions with scripted input. Rendering harnesses call `SDL_SetHint("SDL_VIDEO_DRIVER", "offscreen")` before `SDL_Init`, call the learner's draw function once and compare pixels read back with `SDL_RenderReadPixels` and `SDL_ReadSurfacePixel` (declared `@nomangle extern` in the harness). This exercises SDL's real software renderer without a display; it does not show that a window appears on screen, and lessons must not claim it does.
 
 ## README.md, hints.md, explanation.md
 

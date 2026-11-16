@@ -14,6 +14,8 @@ import learndc.runner;
 import learndc.watch;
 import learndc.editor;
 import learndc.doctor;
+import learndc.requirements;
+import dcc.host.process;
 import learndc.app;
 import learndc.activity;
 
@@ -157,6 +159,10 @@ export namespace learndc::cli
             add("config", "config get KEY | set KEY VALUE | unset KEY | list [--json]", "Read and change settings", {flag_option("json", "print JSON")}, 1, 3);
             add("doctor", "doctor [--json] [--build]", "Check the toolchain, folders, editor and terminal",
                 {flag_option("json", "print JSON"), flag_option("build", "also build a small test program")}, 0, 0);
+            add("setup", "setup sdl3 [--fetch]", "Check and set up an optional requirement (sdl3 for the game development path)",
+                {flag_option("fetch", "download the DC bindings into the dpm cache (uses the network)")}, 1, 1, false,
+                "Reports whether the SDL3 library, the DC bindings and a display are available, and how to install what is missing. Nothing is "
+                "downloaded or installed unless you pass --fetch, which runs dpm fetch for the bindings.");
             add("export", "export --output FILE [--yes]", "Write your progress to a file",
                 {value_option("output", "FILE", "destination file"), flag_option("yes", "overwrite an existing file")}, 0, 0);
             add("import", "import --input FILE [--apply]", "Merge progress from an export (preview unless --apply)",
@@ -1725,6 +1731,52 @@ export namespace learndc::cli
             return app::exit_failed;
         }
 
+        inline int cmd_setup(Session& s)
+        {
+            auto const what = s.args.positionals[0];
+            if (what != "sdl3")
+                return usage_error(s, std::format("unknown requirement '{}' (sdl3)", text::sanitize(what)));
+            if (auto f = app::require_content(s.ctx))
+                return report_failure(s, *f);
+            auto const* lesson = doctor::first_requiring(s.ctx.catalog, "sdl3");
+            if (!lesson)
+            {
+                s.out() << "No lesson in this content needs SDL3.\n";
+                return app::exit_ok;
+            }
+            if (s.args.flag("fetch"))
+            {
+                if (!s.ctx.tools.dpm.found())
+                    return report_failure(s, app::Failure{app::exit_toolchain, "dpm was not found, so the bindings cannot be downloaded"});
+                auto dir = doctor::probe_project(s.ctx.dirs, *lesson);
+                if (!dir)
+                    return report_failure(s, app::Failure{app::exit_failed, dir.error()});
+                std::print(s.out(), "Downloading the DC bindings for SDL3 with dpm fetch...\n");
+                s.out().flush();
+                dcc::host::process::Command cmd;
+                cmd.argv = {platform::path_to_utf8(*s.ctx.tools.dpm.path), "fetch"};
+                cmd.cwd = *dir;
+                cmd.inherit_env = true;
+                cmd.passthrough = true;
+                cmd.timeout = std::chrono::minutes(10);
+                cmd.cancel = s.io.cancel;
+                auto const r = dcc::host::process::run(cmd);
+                if (!r.started || r.exit_code != 0)
+                    std::print(s.out(), "dpm fetch did not finish{}.\n", r.started ? std::format(" (exit code {})", r.exit_code) : ": " + r.error);
+            }
+            auto const status = doctor::sdl3_status(s.ctx.catalog, s.ctx.dirs, s.ctx.os, s.ctx.tools);
+            if (!status)
+                return app::exit_ok;
+            s.out() << requirements::describe(*status);
+            if (status->ok)
+            {
+                s.out() << "\nThe game development path is ready. List its lessons with: learndc list --path games\n";
+                return app::exit_ok;
+            }
+            s.out() << "\n" << requirements::setup_guide(s.ctx.os);
+            return app::exit_failed;
+        }
+
         inline int cmd_export(Session& s)
         {
             auto out_path = s.args.value("output");
@@ -2071,6 +2123,19 @@ export namespace learndc::cli
             std::print(s.out(), "Content {}: {} exercise(s) loaded, schema valid\n", s.ctx.source.label, s.ctx.catalog.exercises().size());
             std::vector<ValidationRow> rows;
             std::string const host = s.ctx.os == platform::Os::Windows ? "windows" : "linux";
+            std::optional<bool> sdl3_ready;
+            auto const needs_missing_sdl3 = [&](catalog::Exercise const& ex) {
+                if (std::ranges::find(ex.required_tools, "sdl3") == ex.required_tools.end())
+                    return false;
+                if (!sdl3_ready)
+                {
+                    auto const status = doctor::sdl3_status(s.ctx.catalog, s.ctx.dirs, s.ctx.os, s.ctx.tools);
+                    sdl3_ready = status && status->ok;
+                    if (status && !status->ok)
+                        s.out() << requirements::describe(*status);
+                }
+                return !*sdl3_ready;
+            };
             bool interrupted = false;
             for (auto const* ex : chosen)
                 for (auto backend : backends)
@@ -2089,6 +2154,12 @@ export namespace learndc::cli
                         row.skipped = true;
                         row.starter = "skipped";
                         row.solution = !ex->supports_platform(host) ? "not on this platform" : "backend not listed";
+                    }
+                    else if (needs_missing_sdl3(*ex))
+                    {
+                        row.skipped = true;
+                        row.starter = "skipped";
+                        row.solution = "SDL3 not set up";
                     }
                     else
                     {
@@ -2217,7 +2288,7 @@ export namespace learndc::cli
             {"start", detail::cmd_start},   {"next", detail::cmd_next},         {"edit", detail::cmd_edit},     {"run", detail::cmd_run},
             {"check", detail::cmd_check},   {"watch", detail::cmd_watch},       {"hint", detail::cmd_hint},     {"solution", detail::cmd_solution},
             {"reset", detail::cmd_reset},   {"progress", detail::cmd_progress}, {"review", detail::cmd_review}, {"bookmark", detail::cmd_bookmark},
-            {"config", detail::cmd_config}, {"doctor", detail::cmd_doctor},   {"export", detail::cmd_export},
+            {"config", detail::cmd_config}, {"doctor", detail::cmd_doctor},     {"setup", detail::cmd_setup},   {"export", detail::cmd_export},
             {"import", detail::cmd_import}, {"dev", detail::cmd_dev},           {"answer", detail::cmd_answer}, {"cards", detail::cmd_cards},
             {"card", detail::cmd_card},
         };
