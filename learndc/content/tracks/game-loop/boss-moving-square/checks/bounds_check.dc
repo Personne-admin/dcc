@@ -1,0 +1,51 @@
+module bounds_check;
+
+import game;
+import input;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.01;
+}
+
+bool at(game::State s, f32 x, f32 y) {
+    return near(s.x, x) && near(s.y, y);
+}
+
+public i32 main() {
+    i32 failures = 0;
+    game::State s = {x = 100.0, y = 100.0, color = 0, paused = false};
+    game::keep_inside(&s);
+    failures += expect(at(s, 100.0, 100.0), "a square inside the window stays");
+    s = game::State {x = -5.0, y = 100.0, color = 0, paused = false};
+    game::keep_inside(&s);
+    failures += expect(at(s, 0.0, 100.0), "left of the window: x becomes 0");
+    s = game::State {x = 700.0, y = 100.0, color = 0, paused = false};
+    game::keep_inside(&s);
+    failures += expect(at(s, 600.0, 100.0), "right of the window: x becomes WIDTH - SIZE = 600");
+    s = game::State {x = 100.0, y = -30.0, color = 0, paused = false};
+    game::keep_inside(&s);
+    failures += expect(at(s, 100.0, 0.0), "above the window: y becomes 0");
+    s = game::State {x = 100.0, y = 500.0, color = 0, paused = false};
+    game::keep_inside(&s);
+    failures += expect(at(s, 100.0, 440.0), "below the window: y becomes HEIGHT - SIZE = 440");
+    s = game::State {x = 600.0, y = 440.0, color = 0, paused = false};
+    game::keep_inside(&s);
+    failures += expect(at(s, 600.0, 440.0), "exactly touching the edges is allowed");
+    s = game::State {x = -1.0, y = 999.0, color = 2, paused = true};
+    game::keep_inside(&s);
+    failures += expect(at(s, 0.0, 440.0) && s.color == 2 && s.paused, "both axes are fixed and the other fields are untouched");
+    return failures;
+}

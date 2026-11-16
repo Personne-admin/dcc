@@ -1,0 +1,26 @@
+module runner;
+
+public import sdl3;
+import input;
+public import game;
+import render;
+import timing;
+
+public i32 run(sdl3::SDL_Renderer* renderer, game::State* state, i32 max_frames) {
+    input::Input in = {};
+    timing::Clock clock = {};
+    i32 frames = 0;
+    while frames != max_frames {
+        input::pump(&in);
+        if in.quit {
+            break;
+        }
+        f32 dt = timing::tick(&clock, sdl3::SDL_GetTicksNS());
+        game::update(state, in, dt);
+        render::draw(renderer, *state);
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(16);
+        frames += 1;
+    }
+    return frames;
+}

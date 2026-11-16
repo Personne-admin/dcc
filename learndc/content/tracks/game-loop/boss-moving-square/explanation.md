@@ -1,0 +1,7 @@
+# Why it works
+
+The structure is the one every game uses. `main` owns the window; `runner::run` owns the loop; each frame it turns SDL events into an `Input` (`pump`), measures `dt` (`tick`), changes the `State` with a function that sees only plain data (`update`), and draws the state (`draw`). Nothing in `game.dc` knows SDL exists, which is why every rule could be checked by calling a function with a hand-made `Input`.
+
+The movement is `position += direction * speed * dt`. Speed is in pixels per second and `dt` in seconds, so the square covers the same distance on any machine. Diagonals need one more idea: two axes at full speed make a longer vector. Its length is the square root of 2, about 1.414, so scaling both components by 1/1.414 = 0.7071 restores the length to 1. Bounds are clamps on the top-left corner, and the right and bottom limits subtract the square's size because the corner, not the far edge, is what the state stores.
+
+A pause is a *toggle on an edge*: `pause_pressed` is true for exactly one frame per press (the `pump` clears it every frame and ignores key repeats), so flipping a boolean once per press is enough. Click-to-teleport uses the same kind of one-frame flag, and the center-to-corner conversion is the only arithmetic. The old cabinet's loop shows the two classic mistakes: `if` instead of `while` on the event queue, and a speed per frame instead of per second.

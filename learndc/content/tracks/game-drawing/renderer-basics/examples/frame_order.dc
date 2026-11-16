@@ -1,0 +1,35 @@
+module main;
+
+struct Renderer {
+    i32 color;
+    i32 back_buffer;
+}
+
+void set_color(Renderer* r, i32 color) {
+    r.color = color;
+    println("color is now {}", color);
+}
+
+void clear(Renderer* r) {
+    r.back_buffer = r.color;
+    println("back buffer cleared to {}", r.color);
+}
+
+void fill_rect(Renderer* r) {
+    r.back_buffer = r.color;
+    println("rectangle drawn in {}", r.color);
+}
+
+void present(Renderer* r) {
+    println("window shows {}", r.back_buffer);
+}
+
+public Status(Error) main() {
+    Renderer r = {};
+    set_color(&r, 1);
+    clear(&r);
+    set_color(&r, 2);
+    fill_rect(&r);
+    present(&r);
+    return Status::Ok;
+}

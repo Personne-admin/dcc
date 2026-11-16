@@ -1,0 +1,36 @@
+schema = 1
+id = "game-loop/events-to-input"
+revision = 1
+title = "From SDL events to an Input struct"
+summary = "Translate key, mouse and quit events into plain data, then drain the real event queue each frame."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["SDL_Event", "SDL_PollEvent", "scancode", "held versus pressed", "Input struct"]
+tags = ["games", "sdl3", "input", "events"]
+objectives = [
+    "Read the right view of the SDL_Event union for each event type",
+    "Keep held keys as state and one-shot actions as per-frame flags",
+    "Ignore key repeats for one-shot actions",
+    "Drain the event queue into an Input struct once per frame",
+]
+entry_file = "src/main.dc"
+product = "events_to_input"
+prerequisites = ["game-loop/loop-time-input"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "apply_event translates single events"
+harness = "checks/apply_check.dc"
+hint = "Check ev.type first. For keys read ev.key.scancode and ev.key.down; for the mouse read ev.button.button, x and y. Held keys copy `down`; Space sets pause_pressed only when down and not repeat."
+
+[[checks]]
+kind = "harness"
+name = "pump drains the real event queue"
+harness = "checks/pump_check.dc"
+hint = "pump calls begin_frame once, then loops `while sdl3::SDL_PollEvent(&ev)` and calls apply_event for each event."

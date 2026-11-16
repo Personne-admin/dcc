@@ -1,0 +1,23 @@
+module main;
+
+import sdl3;
+import pong;
+import runner;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("The Arcade Guardian", 640, 360, 0, &window, &renderer) {
+        return 2;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+    pong::Game game = pong::new_game((sdl3::SDL_GetTicks() as u32) + 1);
+    runner::run(renderer, &game, -1);
+    return 0;
+}

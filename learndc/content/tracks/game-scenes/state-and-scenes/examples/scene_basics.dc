@@ -1,0 +1,97 @@
+module main;
+
+enum Scene : u8 {
+    Title,
+    Play,
+    Pause,
+    GameOver,
+}
+
+struct Game {
+    Scene scene;
+    i32 score;
+    i32 lives;
+}
+
+struct Input {
+    bool confirm;
+    bool pause;
+    bool hurt;
+}
+
+Input keys(bool confirm, bool pause, bool hurt) {
+    return Input { confirm = confirm, pause = pause, hurt = hurt };
+}
+
+Game new_game() {
+    return Game { scene = Scene::Title, score = 0, lives = 3 };
+}
+
+void update(Game* g, Input in) {
+    match g.scene {
+        Scene::Title => {
+            if in.confirm {
+                g.scene = Scene::Play;
+                g.score = 0;
+                g.lives = 3;
+            }
+        },
+        Scene::Play => {
+            if in.confirm {
+                g.score += 10;
+            }
+            if in.hurt {
+                g.lives -= 1;
+            }
+            if g.lives == 0 {
+                g.scene = Scene::GameOver;
+            } else if in.pause {
+                g.scene = Scene::Pause;
+            }
+        },
+        Scene::Pause => {
+            if in.pause {
+                g.scene = Scene::Play;
+            }
+        },
+        Scene::GameOver => {
+            if in.confirm {
+                g.scene = Scene::Title;
+            }
+        },
+    }
+}
+
+void show(Game* g) {
+    match g.scene {
+        Scene::Title => println("scene Title, score {}", g.score),
+        Scene::Play => println("scene Play, score {}, lives {}", g.score, g.lives),
+        Scene::Pause => println("scene Pause, score {}", g.score),
+        Scene::GameOver => println("scene GameOver, score {}", g.score),
+    }
+}
+
+public Status(Error) main() {
+    Game g = new_game();
+    Input none = keys(false, false, false);
+    Input confirm = keys(true, false, false);
+    Input pause = keys(false, true, false);
+    Input hurt = keys(false, false, true);
+    show(&g);
+    update(&g, confirm);
+    show(&g);
+    update(&g, confirm);
+    update(&g, pause);
+    show(&g);
+    update(&g, confirm);
+    show(&g);
+    update(&g, pause);
+    update(&g, hurt);
+    update(&g, hurt);
+    update(&g, hurt);
+    update(&g, none);
+    show(&g);
+    update(&g, confirm);
+    show(&g);
+    return Status::Ok;
+}

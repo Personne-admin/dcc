@@ -1,0 +1,50 @@
+module ranges_check;
+
+import rng;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    rng::Rng r = rng::seeded(42);
+    i32[5] rolls = {};
+    for i32 i = 0; i < 5; i++ {
+        rolls[i as usize] = rng::range(&r, 1, 6);
+    }
+    failures += expect(rolls[0] == 2 && rolls[1] == 4 && rolls[2] == 3 && rolls[3] == 6 && rolls[4] == 2, "seed 42 rolls 2 4 3 6 2 with range(1, 6)");
+
+    rng::Rng s = rng::seeded(99);
+    i32[7] counts = {};
+    for i32 i = 0; i < 6000; i++ {
+        i32 v = rng::range(&s, 1, 6);
+        counts[v as usize] += 1;
+    }
+    failures += expect(counts[0] == 0, "range(1, 6) never gives 0");
+    failures += expect(counts[7 - 1] > 900 && counts[7 - 1] < 1100, "6 appears about a sixth of the time");
+    bool every = true;
+    for i32 v = 1; v <= 6; v++ {
+        if counts[v as usize] < 900 || counts[v as usize] > 1100 {
+            every = false;
+        }
+    }
+    failures += expect(every, "all six values appear about 1000 times in 6000 rolls");
+
+    rng::Rng t = rng::seeded(5);
+    bool negatives = true;
+    for i32 i = 0; i < 200; i++ {
+        i32 v = rng::range(&t, -3, 3);
+        if v < -3 || v > 3 {
+            negatives = false;
+        }
+    }
+    failures += expect(negatives, "range(-3, 3) stays inside -3..3");
+    failures += expect(rng::range(&t, 4, 4) == 4, "a range with one value always gives it");
+    return failures;
+}

@@ -1,0 +1,26 @@
+module main;
+
+struct Rect {
+    f32 x;
+    f32 y;
+    f32 w;
+    f32 h;
+}
+
+bool overlaps(Rect a, Rect b) {
+    return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+void report(Rect a, Rect b, []const char name) {
+    println("{}: {}", name, overlaps(a, b));
+}
+
+public Status(Error) main() {
+    Rect a = Rect { x = 0.0, y = 0.0, w = 10.0, h = 10.0 };
+    report(a, Rect { x = 5.0, y = 5.0, w = 10.0, h = 10.0 }, "overlapping corner");
+    report(a, Rect { x = 20.0, y = 0.0, w = 10.0, h = 10.0 }, "far to the right");
+    report(a, Rect { x = 10.0, y = 0.0, w = 10.0, h = 10.0 }, "touching edges");
+    report(a, Rect { x = 2.0, y = 2.0, w = 3.0, h = 3.0 }, "fully inside");
+    report(a, Rect { x = 5.0, y = 20.0, w = 10.0, h = 10.0 }, "overlap in x only");
+    return Status::Ok;
+}

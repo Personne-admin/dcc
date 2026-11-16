@@ -1,0 +1,206 @@
+schema = 1
+id = "game-loop/boss-moving-square"
+revision = 1
+title = "The Moving Square"
+summary = "Build a small interactive game: a square you steer with the keyboard, teleport with the mouse and pause, drawn inside a fixed window."
+kind = "challenge"
+difficulty = "intermediate"
+estimated_minutes = 75
+concepts = ["game loop", "Input struct", "delta time", "bounds", "mouse", "pause", "rendering", "SDL_PollEvent"]
+tags = ["boss", "games", "sdl3", "input", "timing"]
+objectives = [
+    "Move a square by speed times dt, without moving faster on diagonals",
+    "Keep the square inside the window",
+    "React to clicks and a pause key through the Input struct",
+    "Draw the state, and run the whole loop: events, update, draw, present",
+]
+entry_file = "src/main.dc"
+product = "moving_square"
+prerequisites = ["game-loop/loop-drills"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 3
+story = """
+The arcade's first machine has a cabinet, a joystick and a blank screen.
+The owner wants one thing to prove it lives: a square that follows the stick,
+jumps where you click and holds still when you press pause. It may never
+leave the screen and it may never be faster on the diagonal. Wire up the
+loop and switch it on.
+"""
+
+[[stages]]
+id = "old-loop"
+title = "Read the old cabinet's loop"
+summary = "Find what is wrong in the previous programmer's frame code before writing your own."
+questions = ["legacy-events", "legacy-speed"]
+hints = ["Compare it with the loop from the lecture: how many events does it handle per frame, and what does the movement depend on?"]
+
+[[stages]]
+id = "movement"
+title = "Move with the keys"
+summary = "move_square moves by speed times dt, with the same speed on diagonals."
+hints = [
+    "axis(left, right) and axis(up, down) give dx and dy as -1.0, 0.0 or 1.0. Multiply by the speed and dt.",
+    "When both dx and dy are not 0 the direction has length 1.41. Scale both by 0.70710678 (one over the square root of two) so the length is 1 again.",
+    "Call current_speed(in) for the speed instead of using SPEED directly; the optional last stage changes it.",
+]
+
+[[stages]]
+id = "bounds"
+title = "Stay inside the window"
+summary = "keep_inside clamps x to 0..WIDTH-SIZE and y to 0..HEIGHT-SIZE."
+hints = [
+    "The square's x is its left edge, so the largest allowed x is WIDTH - SIZE, not WIDTH.",
+    "Four ifs: x below 0, x above WIDTH - SIZE, y below 0, y above HEIGHT - SIZE.",
+]
+
+[[stages]]
+id = "click"
+title = "Click to teleport"
+summary = "click centers the square on the mouse position and cycles the color index through COLORS values."
+hints = [
+    "Only act when in.clicked is true. in.mouse_x and in.mouse_y are the click position.",
+    "The click is the center of the square, so the top left is the click minus half the size. The next color is (s.color + 1) % COLORS.",
+]
+
+[[stages]]
+id = "pause"
+title = "Pause"
+summary = "toggle_pause flips the paused flag on a press. update (given) already does nothing while paused."
+hints = [
+    "pause_pressed is true for one frame only, so each press flips the flag once: s.paused = !s.paused.",
+]
+
+[[stages]]
+id = "draw"
+title = "Draw the state"
+summary = "draw clears to (20, 24, 40), draws the square in its palette color and, when paused, two white bars."
+hints = [
+    "Clear first, then the square: SDL_FRect with state.x, state.y, game::SIZE, and the color from palette(state.color).",
+    "The pause sign is two filled rectangles, x 10 and x 24, y 10, 7 wide, 30 tall, white. Draw them only when state.paused is true, after the square.",
+]
+
+[[stages]]
+id = "loop"
+title = "Run the loop"
+summary = "run repeats pump, tick, update, draw and present until quit or max_frames, and returns how many frames completed."
+hints = [
+    "Create an Input and a Clock before the loop. A negative max_frames never equals frames, so `while frames != max_frames` runs forever for -1.",
+    "Each frame: input::pump(&in); if in.quit leave the loop; dt = timing::tick(&clock, SDL_GetTicksNS()); game::update(state, in, dt); render::draw(renderer, *state); SDL_RenderPresent; SDL_Delay(16); count the frame.",
+]
+
+[[stages]]
+id = "boost"
+title = "Bonus: shift to sprint"
+summary = "current_speed doubles the speed while the boost key (Shift) is held."
+optional = true
+hints = ["Return SPEED * 2.0 when in.boost is true, SPEED otherwise. move_square already asks current_speed."]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "move_square moves by speed times dt"
+stage = "movement"
+harness = "checks/movement_check.dc"
+hint = "x += dx * speed * dt and the same for y; diagonals scale dx and dy by 0.70710678."
+
+[[checks]]
+kind = "harness"
+name = "keep_inside clamps both axes"
+stage = "bounds"
+harness = "checks/bounds_check.dc"
+hint = "The right limit is WIDTH - SIZE (600) and the bottom limit is HEIGHT - SIZE (440)."
+
+[[checks]]
+kind = "harness"
+name = "click teleports the square and cycles the color"
+stage = "click"
+harness = "checks/click_check.dc"
+hint = "x = mouse_x - SIZE / 2.0, y = mouse_y - SIZE / 2.0, color = (color + 1) % COLORS, only when in.clicked."
+
+[[checks]]
+kind = "harness"
+name = "toggle_pause flips on a press and freezes update"
+stage = "pause"
+harness = "checks/pause_check.dc"
+hint = "if in.pause_pressed { s.paused = !s.paused; }"
+
+[[checks]]
+kind = "harness"
+name = "draw: background and square"
+stage = "draw"
+harness = "checks/draw_check.dc"
+hint = "Clear to (20, 24, 40), then fill an SDL_FRect at (state.x, state.y) of size SIZE in the palette color 0 (230, 120, 40)."
+
+[[checks]]
+kind = "harness"
+name = "draw: the palette follows state.color"
+stage = "draw"
+harness = "checks/draw_color_check.dc"
+hint = "Use palette(state.color) for the square, not a fixed color."
+
+[[checks]]
+kind = "harness"
+name = "draw: the pause sign"
+stage = "draw"
+harness = "checks/draw_pause_check.dc"
+hint = "Two white bars (10, 10, 7, 30) and (24, 10, 7, 30), only when paused."
+
+[[checks]]
+kind = "harness"
+name = "run drives the whole loop on SDL's real event queue"
+stage = "loop"
+harness = "checks/runner_check.dc"
+max_seconds = 20
+hint = "pump, tick, update, draw, present, delay, count. Leave the loop when in.quit is true, before updating. This stage uses the earlier ones."
+
+[[checks]]
+kind = "harness"
+name = "current_speed doubles with boost"
+stage = "boost"
+harness = "checks/boost_check.dc"
+hint = "Return SPEED * 2.0 when in.boost is true."
+
+[[questions]]
+id = "legacy-events"
+type = "bug"
+prompt = "The previous programmer's loop sometimes answers the keyboard seconds late when the player is mashing keys. Which line is the cause?"
+code = """
+while running {
+    sdl3::SDL_Event ev;
+    if sdl3::SDL_PollEvent(&ev) {
+        handle(&ev);
+    }
+    x += 5.0;
+    draw(renderer, x);
+    sdl3::SDL_RenderPresent(renderer);
+}
+"""
+lines = [3]
+explanation = "`if` takes one event per frame, so a burst of events waits in the queue, one frame each. A `while sdl3::SDL_PollEvent(&ev)` loop drains them all before the frame goes on."
+
+[[questions]]
+id = "legacy-speed"
+type = "bug"
+prompt = "The same loop makes the square five times faster on a monitor that runs at 300 Hz than at 60 Hz. Which line is the cause?"
+code = """
+while running {
+    sdl3::SDL_Event ev;
+    while sdl3::SDL_PollEvent(&ev) {
+        handle(&ev);
+    }
+    x += 5.0;
+    draw(renderer, x);
+    sdl3::SDL_RenderPresent(renderer);
+}
+"""
+lines = [6]
+explanation = "5 pixels per *frame* means the speed follows the frame rate. Store the speed per second (240.0, say) and add `speed * dt`, where `dt` is the time the last frame took."

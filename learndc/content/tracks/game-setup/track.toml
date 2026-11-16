@@ -1,0 +1,6 @@
+schema = 1
+id = "game-setup"
+title = "Setting Up SDL3"
+summary = "Meet SDL3, link a native library from DC through a DPM package and open your first window."
+goal = "Initialize SDL3, read what it reports, open a window and release everything again, on every way out."
+exercises = ["what-is-sdl3", "read-the-version", "first-window", "setup-drills"]

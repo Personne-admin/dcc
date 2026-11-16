@@ -1,0 +1,58 @@
+module main;
+
+struct Pool {
+    i32 next;
+    i32 live;
+}
+
+i32 acquire(Pool* pool, bool fail) {
+    if fail {
+        return 0;
+    }
+    pool.next += 1;
+    pool.live += 1;
+    return pool.next;
+}
+
+void release(Pool* pool, i32 handle) {
+    if handle != 0 {
+        pool.live -= 1;
+    }
+}
+
+bool use_both_leaky(Pool* pool, bool fail_second) {
+    i32 first = acquire(pool, false);
+    i32 second = acquire(pool, fail_second);
+    if second == 0 {
+        return false;
+    }
+    release(pool, second);
+    release(pool, first);
+    return true;
+}
+
+bool use_both_deferred(Pool* pool, bool fail_second) {
+    i32 first = acquire(pool, false);
+    defer release(pool, first);
+    i32 second = acquire(pool, fail_second);
+    if second == 0 {
+        return false;
+    }
+    defer release(pool, second);
+    return true;
+}
+
+public Status(Error) main() {
+    Pool leaky = {};
+    use_both_leaky(&leaky, false);
+    println("leaky, success path: {} still alive", leaky.live)?;
+    use_both_leaky(&leaky, true);
+    println("leaky, failing path: {} still alive", leaky.live)?;
+
+    Pool safe = {};
+    use_both_deferred(&safe, false);
+    println("deferred, success path: {} still alive", safe.live)?;
+    use_both_deferred(&safe, true);
+    println("deferred, failing path: {} still alive", safe.live)?;
+    return Status::Ok;
+}

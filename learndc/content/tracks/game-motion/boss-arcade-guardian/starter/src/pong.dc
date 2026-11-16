@@ -1,0 +1,120 @@
+module pong;
+
+public import input;
+
+public const f32 W = 640.0;
+public const f32 H = 360.0;
+public const f32 PADDLE_W = 12.0;
+public const f32 PADDLE_H = 64.0;
+public const f32 BALL = 12.0;
+public const f32 LEFT_X = 20.0;
+public const f32 RIGHT_X = 608.0;
+public const f32 PADDLE_SPEED = 320.0;
+public const f32 AI_SPEED = 220.0;
+public const f32 BALL_SPEED = 300.0;
+public const f32 MAX_VY = 225.0;
+public const f32 MAX_BALL_SPEED = 600.0;
+public const i32 WIN_SCORE = 5;
+
+public struct Paddle {
+    f32 y;
+}
+
+public struct Ball {
+    f32 x;
+    f32 y;
+    f32 vx;
+    f32 vy;
+}
+
+public struct Game {
+    Paddle left;
+    Paddle right;
+    Ball ball;
+    i32 left_score;
+    i32 right_score;
+    i32 winner;
+    bool vs_ai;
+    u32 seed;
+}
+
+public Game new_game(u32 seed) {
+    return Game {
+        left = Paddle { y = (H - PADDLE_H) / 2.0 },
+        right = Paddle { y = (H - PADDLE_H) / 2.0 },
+        ball = Ball { x = (W - BALL) / 2.0, y = (H - BALL) / 2.0, vx = BALL_SPEED, vy = 0.0 },
+        left_score = 0,
+        right_score = 0,
+        winner = 0,
+        vs_ai = true,
+        seed = seed,
+    };
+}
+
+public u32 next_random(Game* g) {
+    g.seed = g.seed * 1664525 + 1013904223;
+    return g.seed;
+}
+
+public f32 axis(bool negative, bool positive) {
+    f32 value = 0.0;
+    if negative {
+        value -= 1.0;
+    }
+    if positive {
+        value += 1.0;
+    }
+    return value;
+}
+
+public void move_paddle(Paddle* p, f32 dir, f32 dt) {
+}
+
+public void step_ball(Ball* b, f32 dt) {
+}
+
+public void speed_up(Ball* b) {
+}
+
+public bool hit_paddle(Ball* b, Paddle p, i32 side) {
+    return false;
+}
+
+public void serve(Game* g, i32 dir) {
+}
+
+public i32 score_if_out(Game* g) {
+    return 0;
+}
+
+public void update_winner(Game* g) {
+}
+
+public void restart(Game* g) {
+}
+
+public void ai_paddle(Game* g, f32 dt) {
+}
+
+public void update(Game* g, input::Input in, f32 dt) {
+    if in.toggle_ai {
+        g.vs_ai = !g.vs_ai;
+    }
+    if g.winner != 0 {
+        if in.restart {
+            restart(g);
+        }
+        return;
+    }
+    move_paddle(&g.left, axis(in.w, in.s), dt);
+    if g.vs_ai {
+        ai_paddle(g, dt);
+    } else {
+        move_paddle(&g.right, axis(in.up, in.down), dt);
+    }
+    step_ball(&g.ball, dt);
+    hit_paddle(&g.ball, g.left, 1);
+    hit_paddle(&g.ball, g.right, 2);
+    score_if_out(g);
+    update_winner(g);
+}

@@ -1,0 +1,86 @@
+module main;
+
+import sdl3;
+import boxes;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("Box collisions: arrows or WASD", 480, 320, 0, &window, &renderer) {
+        return 2;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+
+    boxes::Rect[5] walls = {
+        boxes::Rect { x = 0.0, y = 0.0, w = 480.0, h = 16.0 },
+        boxes::Rect { x = 0.0, y = 304.0, w = 480.0, h = 16.0 },
+        boxes::Rect { x = 0.0, y = 0.0, w = 16.0, h = 320.0 },
+        boxes::Rect { x = 464.0, y = 0.0, w = 16.0, h = 320.0 },
+        boxes::Rect { x = 200.0, y = 100.0, w = 80.0, h = 120.0 },
+    };
+    boxes::Mover player = boxes::Mover { rect = boxes::Rect { x = 60.0, y = 60.0, w = 24.0, h = 24.0 }, vx = 0.0, vy = 0.0 };
+    u64 last = sdl3::SDL_GetTicksNS();
+    bool running = true;
+    sdl3::SDL_Event ev;
+    while running {
+        while sdl3::SDL_PollEvent(&ev) {
+            if ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32) {
+                running = false;
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32) {
+                if ev.key.scancode == sdl3::SDL_Scancode::SDL_SCANCODE_ESCAPE {
+                    running = false;
+                }
+            }
+        }
+        i32 count = 0;
+        const bool* keys = sdl3::SDL_GetKeyboardState(&count);
+        player.vx = 0.0;
+        player.vy = 0.0;
+        if keys[sdl3::SDL_Scancode::SDL_SCANCODE_LEFT as usize] || keys[sdl3::SDL_Scancode::SDL_SCANCODE_A as usize] {
+            player.vx -= 220.0;
+        }
+        if keys[sdl3::SDL_Scancode::SDL_SCANCODE_RIGHT as usize] || keys[sdl3::SDL_Scancode::SDL_SCANCODE_D as usize] {
+            player.vx += 220.0;
+        }
+        if keys[sdl3::SDL_Scancode::SDL_SCANCODE_UP as usize] || keys[sdl3::SDL_Scancode::SDL_SCANCODE_W as usize] {
+            player.vy -= 220.0;
+        }
+        if keys[sdl3::SDL_Scancode::SDL_SCANCODE_DOWN as usize] || keys[sdl3::SDL_Scancode::SDL_SCANCODE_S as usize] {
+            player.vy += 220.0;
+        }
+        u64 now = sdl3::SDL_GetTicksNS();
+        f32 dt = ((now - last) as f32) / 1000000000.0;
+        last = now;
+        if dt > 0.05 {
+            dt = 0.05;
+        }
+        player.rect.x += player.vx * dt;
+        for wall in walls[0..5] {
+            boxes::resolve(&player, wall);
+        }
+        player.rect.y += player.vy * dt;
+        for wall in walls[0..5] {
+            boxes::resolve(&player, wall);
+        }
+
+        sdl3::SDL_SetRenderDrawColor(renderer, 20, 24, 40, 255);
+        sdl3::SDL_RenderClear(renderer);
+        sdl3::SDL_SetRenderDrawColor(renderer, 90, 100, 130, 255);
+        for wall in walls[0..5] {
+            sdl3::SDL_FRect r = {x = wall.x, y = wall.y, w = wall.w, h = wall.h};
+            sdl3::SDL_RenderFillRect(renderer, &r);
+        }
+        sdl3::SDL_FRect p = {x = player.rect.x, y = player.rect.y, w = player.rect.w, h = player.rect.h};
+        sdl3::SDL_SetRenderDrawColor(renderer, 230, 120, 40, 255);
+        sdl3::SDL_RenderFillRect(renderer, &p);
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(8);
+    }
+    return 0;
+}

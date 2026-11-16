@@ -1,0 +1,31 @@
+module main;
+
+const f32 LEFT = 0.0;
+const f32 RIGHT = 100.0;
+const f32 SIZE = 10.0;
+
+struct Ball {
+    f32 x;
+    f32 vx;
+}
+
+void step(Ball* b, f32 dt) {
+    b.x += b.vx * dt;
+    if b.x < LEFT {
+        b.x = LEFT + (LEFT - b.x);
+        b.vx = 0.0 - b.vx;
+    }
+    if b.x > RIGHT - SIZE {
+        b.x = (RIGHT - SIZE) - (b.x - (RIGHT - SIZE));
+        b.vx = 0.0 - b.vx;
+    }
+}
+
+public Status(Error) main() {
+    Ball ball = Ball { x = 60.0, vx = 50.0 };
+    for i32 i = 0; i < 8; i++ {
+        step(&ball, 0.25);
+        println("x = {:.1}, vx = {:.0}", ball.x, ball.vx)?;
+    }
+    return Status::Ok;
+}

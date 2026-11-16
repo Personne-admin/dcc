@@ -1,0 +1,30 @@
+module main;
+
+const usize W = 8;
+const usize H = 3;
+
+struct Box {
+    i32 x;
+    i32 w;
+    char glyph;
+}
+
+public Status(Error) main() {
+    char[24] cells = {};
+    for usize i = 0; i < W * H; i++ {
+        cells[i] = '.';
+    }
+    Box[3] boxes = {
+        Box { x = 0, w = 5, glyph = 'a' },
+        Box { x = 3, w = 4, glyph = 'b' },
+        Box { x = 2, w = 2, glyph = 'c' },
+    };
+    for box in boxes[0..3] {
+        for i32 col = box.x; col < box.x + box.w; col++ {
+            cells[(col as usize)] = box.glyph;
+        }
+    }
+    []const char row = cells[0..8];
+    println("{}", row)?;
+    return Status::Ok;
+}

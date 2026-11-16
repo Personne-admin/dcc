@@ -1,0 +1,66 @@
+module main;
+
+import sdl3;
+import vec2;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("Vec2 toolkit: click to throw the ball", 640, 400, 0, &window, &renderer) {
+        return 2;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+
+    vec2::Body ball = vec2::Body {
+        position = vec2::Vec2 { x = 320.0, y = 100.0 },
+        velocity = vec2::Vec2 { x = 0.0, y = 0.0 },
+    };
+    vec2::Vec2 gravity = vec2::Vec2 { x = 0.0, y = 500.0 };
+    u64 last = sdl3::SDL_GetTicksNS();
+    bool running = true;
+    sdl3::SDL_Event ev;
+    while running {
+        while sdl3::SDL_PollEvent(&ev) {
+            if ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32) {
+                running = false;
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32) {
+                if ev.key.scancode == sdl3::SDL_Scancode::SDL_SCANCODE_ESCAPE {
+                    running = false;
+                }
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_MOUSE_BUTTON_DOWN as u32) {
+                vec2::Vec2 target = vec2::Vec2 { x = ev.button.x, y = ev.button.y };
+                vec2::Vec2 direction = vec2::normalized(vec2::sub(target, ball.position));
+                ball.velocity = vec2::scale(direction, 450.0);
+            }
+        }
+        u64 now = sdl3::SDL_GetTicksNS();
+        f32 dt = ((now - last) as f32) / 1000000000.0;
+        last = now;
+        if dt > 0.05 {
+            dt = 0.05;
+        }
+        vec2::integrate(&ball, gravity, dt);
+        if ball.position.y > 380.0 {
+            ball.position.y = 380.0;
+            ball.velocity.y = 0.0 - ball.velocity.y * 0.8;
+        }
+        if ball.position.x < 0.0 || ball.position.x > 620.0 {
+            ball.velocity.x = 0.0 - ball.velocity.x;
+        }
+
+        sdl3::SDL_SetRenderDrawColor(renderer, 20, 24, 40, 255);
+        sdl3::SDL_RenderClear(renderer);
+        sdl3::SDL_FRect box = {x = ball.position.x, y = ball.position.y, w = 20.0, h = 20.0};
+        sdl3::SDL_SetRenderDrawColor(renderer, 230, 120, 40, 255);
+        sdl3::SDL_RenderFillRect(renderer, &box);
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(8);
+    }
+    return 0;
+}

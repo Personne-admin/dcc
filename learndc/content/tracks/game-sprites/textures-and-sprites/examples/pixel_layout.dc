@@ -1,0 +1,21 @@
+module main;
+
+public Status(Error) main() {
+    usize width = 3;
+    usize height = 2;
+    usize pitch = width * 4;
+    println("{}x{} pixels, 4 bytes each, pitch {}, total {} bytes", width, height, pitch, pitch * height)?;
+
+    u8[24] pixels = {};
+    usize x = 2;
+    usize y = 1;
+    usize at = y * pitch + x * 4;
+    pixels[at] = 255;
+    pixels[at + 1] = 128;
+    pixels[at + 2] = 0;
+    pixels[at + 3] = 255;
+    println("pixel ({}, {}) starts at byte {}", x, y, at)?;
+    println("bytes {} {} {} {}", pixels[at], pixels[at + 1], pixels[at + 2], pixels[at + 3])?;
+    println("byte 0 is {}: untouched pixels are transparent black", pixels[0])?;
+    return Status::Ok;
+}

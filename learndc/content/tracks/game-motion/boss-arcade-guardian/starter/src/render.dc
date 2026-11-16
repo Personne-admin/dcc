@@ -1,0 +1,15 @@
+module render;
+
+public import sdl3;
+public import pong;
+
+public void fill(sdl3::SDL_Renderer* renderer, f32 x, f32 y, f32 w, f32 h, u8 r, u8 g, u8 b) {
+    sdl3::SDL_FRect rect = {x = x, y = y, w = w, h = h};
+    sdl3::SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+    sdl3::SDL_RenderFillRect(renderer, &rect);
+}
+
+public void draw(sdl3::SDL_Renderer* renderer, pong::Game game) {
+    sdl3::SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    sdl3::SDL_RenderClear(renderer);
+}

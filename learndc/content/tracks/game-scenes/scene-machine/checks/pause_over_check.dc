@@ -1,0 +1,54 @@
+module pause_over_check;
+
+import game;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+void step(game::Game* g, bool confirm, bool hit, bool pause, bool hurt) {
+    game::Input in = game::Input { confirm = confirm, hit = hit, pause = pause, hurt = hurt };
+    game::update(g, in);
+}
+
+public i32 main() {
+    i32 failures = 0;
+    game::Game g = game::new_game();
+    step(&g, true, false, false, false);
+    step(&g, false, false, false, false);
+    step(&g, false, true, false, false);
+    step(&g, false, false, false, false);
+    step(&g, false, false, true, false);
+    failures += expect_that(g.scene == game::Scene::Pause, "pause opens the pause scene");
+    step(&g, false, false, true, false);
+    failures += expect_that(g.scene == game::Scene::Pause, "holding pause does not close it again");
+    step(&g, false, false, false, false);
+    step(&g, false, true, false, true);
+    failures += expect_that(g.score == 1 && g.lives == 3, "hit and hurt are ignored while paused");
+    step(&g, false, false, false, false);
+    step(&g, false, false, true, false);
+    failures += expect_that(g.scene == game::Scene::Play, "a second press of pause resumes");
+    step(&g, false, false, false, false);
+    step(&g, false, false, false, true);
+    step(&g, false, false, false, false);
+    step(&g, false, false, false, true);
+    step(&g, false, false, false, false);
+    failures += expect_that(g.scene == game::Scene::Play && g.lives == 1, "one life left, still playing");
+    step(&g, false, false, true, true);
+    failures += expect_that(g.scene == game::Scene::GameOver, "losing the last life wins over pause in the same frame");
+    failures += expect_that(g.lives == 0 && g.score == 1, "the final state is kept for the game over screen");
+    step(&g, false, false, false, false);
+    step(&g, false, true, false, false);
+    failures += expect_that(g.score == 1, "nothing scores on the game over screen");
+    step(&g, true, false, false, false);
+    failures += expect_that(g.scene == game::Scene::Title, "confirm leaves the game over screen for the title");
+    step(&g, false, false, false, false);
+    step(&g, true, false, false, false);
+    failures += expect_that(g.scene == game::Scene::Play && g.score == 0 && g.lives == 3, "the next game starts fresh");
+    return failures;
+}

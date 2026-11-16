@@ -1,0 +1,36 @@
+schema = 1
+id = "game-motion/box-collisions"
+revision = 1
+title = "Rectangle overlap and push-out"
+summary = "Test two axis-aligned rectangles for overlap, then resolve a collision by pushing the mover out along the shallower axis and reversing its velocity there."
+kind = "implement-function"
+difficulty = "advanced"
+estimated_minutes = 30
+concepts = ["AABB", "overlap test", "penetration depth", "collision response"]
+tags = ["games", "motion", "collision"]
+objectives = [
+    "Write the axis-aligned overlap test with strict comparisons",
+    "Measure the overlap depth on both axes",
+    "Push the mover out on the axis of least penetration, toward the side it came from",
+    "Set the velocity sign from the side, not by blind negation",
+]
+entry_file = "src/main.dc"
+product = "box_collisions"
+prerequisites = ["game-motion/bouncing-ball"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "overlaps"
+harness = "checks/overlap_check.dc"
+hint = "Two rectangles overlap when each starts before the other ends on both axes, with strict `<`: a.x < b.x + b.w && b.x < a.x + a.w && the same for y."
+
+[[checks]]
+kind = "harness"
+name = "resolve pushes out and reverses"
+harness = "checks/resolve_check.dc"
+hint = "depth_x = min(right edges) - max(left edges), and the same for y. Push along the smaller depth. The sign: if the mover's center is left of the wall's center, push left; otherwise right."

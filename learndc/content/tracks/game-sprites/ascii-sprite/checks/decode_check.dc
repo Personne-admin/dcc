@@ -1,0 +1,30 @@
+module decode_check;
+
+import sprite;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    failures += expect_that(sprite::color_for('r').r == 200 && sprite::color_for('r').g == 40 && sprite::color_for('r').b == 40 && sprite::color_for('r').a == 255, "r is a solid red");
+    failures += expect_that(sprite::color_for('#').a == 255 && sprite::color_for('o').a == 255 && sprite::color_for('b').a == 255, "the other palette characters are solid");
+    failures += expect_that(sprite::color_for('.').a == 0, "a dot is transparent");
+    failures += expect_that(sprite::color_for('z').a == 0, "an unknown character is transparent");
+    []const []const char art = {"r.b", "#oz"};
+    u8[24] px = {};
+    sprite::decode(art, &px[0]);
+    failures += expect_that(px[0] == 200 && px[1] == 40 && px[2] == 40 && px[3] == 255, "pixel (0, 0) holds red");
+    failures += expect_that(px[7] == 0, "pixel (1, 0) is transparent");
+    failures += expect_that(px[8] == 50 && px[10] == 200 && px[11] == 255, "pixel (2, 0) holds blue");
+    failures += expect_that(px[12] == 30 && px[15] == 255, "pixel (0, 1) is the second row, not the first");
+    failures += expect_that(px[16] == 240 && px[17] == 190 && px[18] == 140, "pixel (1, 1) holds skin");
+    failures += expect_that(px[23] == 0, "pixel (2, 1) is transparent");
+    return failures;
+}

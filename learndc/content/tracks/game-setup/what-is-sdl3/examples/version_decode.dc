@@ -1,0 +1,23 @@
+module main;
+
+struct Version {
+    i32 major;
+    i32 minor;
+    i32 patch;
+}
+
+Version decode(i32 packed) {
+    return Version {
+        major = packed / 1000000,
+        minor = (packed / 1000) % 1000,
+        patch = packed % 1000,
+    };
+}
+
+public Status(Error) main() {
+    Version v = decode(3004020);
+    println("SDL {}.{}.{}", v.major, v.minor, v.patch)?;
+    Version old = decode(3002008);
+    println("SDL {}.{}.{}", old.major, old.minor, old.patch)?;
+    return Status::Ok;
+}

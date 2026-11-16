@@ -1,0 +1,66 @@
+module game;
+
+public enum Scene : u8 {
+    Title,
+    Play,
+    Pause,
+    GameOver,
+}
+
+public struct Input {
+    bool confirm;
+    bool hit;
+    bool pause;
+    bool hurt;
+}
+
+public struct Game {
+    Scene scene;
+    i32 score;
+    i32 lives;
+    Input prev;
+}
+
+public Game new_game() {
+    return Game { scene = Scene::Title, score = 0, lives = 3, prev = Input { confirm = false, hit = false, pause = false, hurt = false } };
+}
+
+public void update(Game* g, Input in) {
+    bool confirm = in.confirm && !g.prev.confirm;
+    bool hit = in.hit && !g.prev.hit;
+    bool pause = in.pause && !g.prev.pause;
+    bool hurt = in.hurt && !g.prev.hurt;
+    match g.scene {
+        Scene::Title => {
+            if confirm {
+                g.scene = Scene::Play;
+                g.score = 0;
+                g.lives = 3;
+            }
+        },
+        Scene::Play => {
+            if hit {
+                g.score += 1;
+            }
+            if hurt {
+                g.lives -= 1;
+            }
+            if g.lives <= 0 {
+                g.scene = Scene::GameOver;
+            } else if pause {
+                g.scene = Scene::Pause;
+            }
+        },
+        Scene::Pause => {
+            if pause {
+                g.scene = Scene::Play;
+            }
+        },
+        Scene::GameOver => {
+            if confirm {
+                g.scene = Scene::Title;
+            }
+        },
+    }
+    g.prev = in;
+}

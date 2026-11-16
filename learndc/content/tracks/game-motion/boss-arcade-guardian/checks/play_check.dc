@@ -1,0 +1,66 @@
+module play_check;
+
+import pong;
+import input;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.01;
+}
+
+pong::Ball ball(f32 x, f32 y, f32 vx, f32 vy) {
+    return pong::Ball { x = x, y = y, vx = vx, vy = vy };
+}
+
+public i32 main() {
+    i32 failures = 0;
+    pong::Game g = pong::new_game(7);
+    g.vs_ai = true;
+    input::Input in = {};
+    bool inside = true;
+    i32 steps = 0;
+    i32 scored = 0;
+    i32 last_total = 0;
+    while g.winner == 0 && steps < 120000 {
+        in.w = (steps / 90) % 2 == 0;
+        in.s = !in.w && (steps / 90) % 4 == 3;
+        pong::update(&g, in, 1.0 / 120.0);
+        steps += 1;
+        if g.ball.y + 0.01 < 0.0 || g.ball.y > pong::H - pong::BALL + 0.01 {
+            inside = false;
+        }
+        if g.left.y < 0.0 || g.left.y > pong::H - pong::PADDLE_H || g.right.y < 0.0 || g.right.y > pong::H - pong::PADDLE_H {
+            inside = false;
+        }
+        if g.left_score + g.right_score != last_total {
+            last_total = g.left_score + g.right_score;
+            scored += 1;
+        }
+    }
+    println("steps {} score {} : {} winner {}", steps, g.left_score, g.right_score, g.winner);
+    failures += expect(g.winner != 0, "a game against the AI ends with a winner");
+    failures += expect(g.winner == 1 && g.left_score == 5 && g.right_score < 5 || g.winner == 2 && g.right_score == 5 && g.left_score < 5, "the winner has exactly 5 points and the loser fewer");
+    failures += expect(scored >= 5, "at least five points were scored");
+    failures += expect(inside, "the ball and the paddles stayed inside the court the whole time");
+    input::Input again = {};
+    again.restart = true;
+    pong::update(&g, again, 1.0 / 120.0);
+    failures += expect(g.winner == 0 && g.left_score == 0 && g.right_score == 0, "restart starts a fresh game");
+    input::Input toggle = {};
+    toggle.toggle_ai = true;
+    pong::update(&g, toggle, 1.0 / 120.0);
+    failures += expect(!g.vs_ai, "the toggle key switches the AI off");
+    return failures;
+}

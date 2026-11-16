@@ -1,0 +1,35 @@
+module long_run_check;
+
+import ball;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    ball::Ball b = ball::Ball { x = 40.0, y = 30.0, vx = 170.0, vy = 120.0, size = 16.0 };
+    bool inside = true;
+    i32 total = 0;
+    for i32 i = 0; i < 3000; i++ {
+        total += ball::step(&b, 1.0 / 60.0);
+        if b.x < 0.0 || b.x > ball::WIDTH - b.size || b.y < 0.0 || b.y > ball::HEIGHT - b.size {
+            inside = false;
+        }
+    }
+    failures += expect(inside, "after 3000 steps the ball was inside the box on every step");
+    failures += expect(total > 40, "it bounced many times (counted by the return value)");
+    f32 speed2 = b.vx * b.vx + b.vy * b.vy;
+    f32 start2 = 170.0 * 170.0 + 120.0 * 120.0;
+    f32 diff = speed2 - start2;
+    if diff < 0.0 {
+        diff = 0.0 - diff;
+    }
+    failures += expect(diff < 1.0, "the speed never changed: bounces only flip signs");
+    return failures;
+}

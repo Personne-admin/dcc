@@ -1,0 +1,38 @@
+module stepper_check;
+
+import timing;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.0001;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    timing::Stepper s = {};
+    failures += expect(timing::steps_due(&s, 0.004, 0.01) == 0, "4 ms is less than a step: 0 updates");
+    failures += expect(near(s.accumulator, 0.004), "the 4 ms stay in the accumulator");
+    failures += expect(timing::steps_due(&s, 0.004, 0.01) == 0, "8 ms in total: still 0 updates");
+    failures += expect(timing::steps_due(&s, 0.004, 0.01) == 1, "12 ms in total: 1 update");
+    failures += expect(near(s.accumulator, 0.002), "2 ms are left over");
+    failures += expect(timing::steps_due(&s, 0.0285, 0.01) == 3, "30.5 ms in total: 3 updates");
+    failures += expect(near(s.accumulator, 0.0005), "half a millisecond is left");
+
+    timing::Stepper t = {};
+    failures += expect(timing::steps_due(&t, 1.0, 0.01) == 5, "a very long frame runs at most MAX_STEPS updates");
+    failures += expect(near(t.accumulator, 0.0), "the backlog is dropped instead of being carried over");
+    failures += expect(timing::steps_due(&t, 0.004, 0.01) == 0, "the next frame starts clean");
+    return failures;
+}

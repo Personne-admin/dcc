@@ -1,0 +1,217 @@
+schema = 1
+id = "game-scenes/scene-drills"
+revision = 1
+kind = "drill"
+title = "Scene drills"
+summary = "Trace scene changes and animation frames, find leaks and collision bugs and recall how a game owns its state and resources."
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["scene", "pressed versus held", "resource", "animation", "tile", "collision"]
+tags = ["drill", "games"]
+objectives = [
+    "Trace scene transitions and animation frames by hand",
+    "Spot a leaking load and a collision step that sticks to walls",
+    "Index a tile map and say who owns which resource",
+]
+prerequisites = ["game-scenes/tile-collision"]
+
+[[questions]]
+id = "press-trace"
+type = "predict"
+prompt = "The key is down for the frames in the array. What does this program print?"
+code = """
+module main;
+
+enum Scene : u8 {
+    Title,
+    Play,
+    Pause,
+}
+
+struct Game {
+    Scene scene;
+    bool prev;
+    i32 hits;
+}
+
+void update(Game* g, bool down) {
+    bool pressed = down && !g.prev;
+    match g.scene {
+        Scene::Title => {
+            if pressed {
+                g.scene = Scene::Play;
+            }
+        },
+        Scene::Play => {
+            if pressed {
+                g.hits += 1;
+            }
+        },
+        Scene::Pause => {},
+    }
+    g.prev = down;
+}
+
+public Status(Error) main() {
+    Game g = Game { scene = Scene::Title, prev = false, hits = 0 };
+    bool[8] frames = {true, true, false, true, true, false, false, true};
+    for f in frames {
+        update(&g, f);
+    }
+    println("{} {}", g.hits, g.scene == Scene::Play)?;
+    return Status::Ok;
+}
+"""
+expect = "2 true\n"
+explanation = "The first press starts the game: the scene changes to Play and the same press does not score. The presses at frames 4 and 8 are two hits. The frames where the key stays down (2 and 5) are not presses."
+
+[[questions]]
+id = "frames-trace"
+type = "predict"
+prompt = "A 3 frame animation shows each frame for 100 ms. What does it print for the elapsed times 0, 120, 330 and 1000 ms, looping first and playing once second?"
+code = """
+module main;
+
+i32 frame_at(u32 elapsed, u32 frame_ms, i32 count, bool looping) {
+    i32 index = (elapsed / frame_ms) as i32;
+    if looping {
+        return index % count;
+    }
+    if index >= count {
+        return count - 1;
+    }
+    return index;
+}
+
+public Status(Error) main() {
+    u32[4] times = {0, 120, 330, 1000};
+    for t in times {
+        println("{} {}", frame_at(t, 100, 3, true), frame_at(t, 100, 3, false))?;
+    }
+    return Status::Ok;
+}
+"""
+expect = "0 0\n1 1\n0 2\n1 2\n"
+explanation = "330 ms is index 3: the loop wraps to 0 while the one-shot animation rests on its last frame, 2. 1000 ms is index 10: 10 % 3 is 1 for the loop, and 2 for the one-shot."
+
+[[questions]]
+id = "tile-index"
+type = "short"
+prompt = "A map is stored row by row with 16 tiles per row. Which index of the cells array holds the tile in column 3, row 2?"
+accept = ["35"]
+explanation = "Row 2 starts after two full rows, at 2 * 16 = 32. Column 3 adds 3, so the index is 35: row * COLS + col."
+
+[[questions]]
+id = "not-exhaustive"
+type = "error"
+prompt = "A scene was added to the enum but one match was not updated. What happens?"
+code = """
+module main;
+
+enum Scene : u8 {
+    Title,
+    Play,
+    GameOver,
+}
+
+void show(Scene s) {
+    match s {
+        Scene::Title => println("title"),
+        Scene::Play => println("play"),
+    }
+}
+
+public Status(Error) main() {
+    show(Scene::Play);
+    return Status::Ok;
+}
+"""
+diagnostic = "match expression not exhaustive"
+choices = [
+    "The program compiles and the missing scene does nothing",
+    "The compiler rejects the match and names the missing scene",
+    "The program crashes the first time the missing scene is shown",
+    "The compiler picks the first arm for the missing scene",
+]
+answer = 2
+why = [
+    "A match must cover every value, so the program does not compile.",
+    "",
+    "The mistake is found at compile time, long before the player reaches it.",
+    "There is no default arm unless you write one.",
+]
+explanation = "An exhaustive match is the safety net of scene enums: adding GameOver makes the compiler list every match that still ignores it."
+
+[[questions]]
+id = "load-leak"
+type = "bug"
+prompt = "When the hero art is malformed, the wall texture stays alive for the rest of the program. Which line is the bug?"
+code = """
+bool load(Resources* r, sdl3::SDL_Renderer* renderer) {
+    r.wall = art::make(renderer, art::WALL);
+    if r.wall == null {
+        return false;
+    }
+    r.hero = art::make(renderer, art::HERO);
+    if r.hero == null {
+        return false;
+    }
+    return true;
+}
+"""
+lines = [8]
+explanation = "When the hero fails, the wall already exists, and line 8 returns without releasing it. Every failing return after the first creation must call unload(r) before it returns false."
+
+[[questions]]
+id = "sticky-walls"
+type = "bug"
+prompt = "The player stops dead when pushing diagonally into a wall instead of sliding along it. Which line is the problem?"
+code = """
+void move(map::Map* m, Body* b, f32 dx, f32 dy) {
+    f32 nx = b.x + dx;
+    f32 ny = b.y + dy;
+    if blocked(m, nx, ny, b.w, b.h) {
+        return;
+    }
+    b.x = nx;
+    b.y = ny;
+}
+"""
+lines = [4]
+explanation = "Testing both axes at once refuses the whole step when either axis hits a wall. Move x and test it, then move y from the new x and test it; the blocked axis stays put while the free one moves."
+
+[[questions]]
+id = "owners"
+type = "multi"
+prompt = "In a game with a title, a play and a game over scene that share one texture table, which statements follow the ownership rules of this chapter? Pick all."
+choices = [
+    "main creates the window and renderer and destroys them with defer",
+    "Each scene destroys the shared textures when it ends",
+    "main loads the table, defers the unload and lends a pointer to the scenes",
+    "A load function that fails leaves nothing alive",
+    "A scene may call unload on the shared table to save memory while it is inactive",
+]
+answers = [1, 3, 4]
+why = [
+    "",
+    "A scene only borrows the table. If it destroyed the textures, the next scene would draw with dangling pointers.",
+    "",
+    "",
+    "Only the owner releases. A borrowing scene that unloads breaks every other scene.",
+]
+explanation = "Resources shared by the whole game belong to the outermost owner, which is main. Scenes borrow them through pointers, and a load that fails undoes its own work."
+
+[[cards]]
+id = "tile-index-card"
+front = "Where is tile (col, row) in a row-major array of COLS columns?"
+back = "cells[row * COLS + col]. The same formula as a pixel in a picture, with 1 tile instead of 4 bytes per cell."
+
+[[cards]]
+id = "separate-axes"
+front = "Why move a box on x first and on y afterwards?"
+back = "A blocked axis can be resolved on its own, so a diagonal push into a wall slides along it instead of stopping."
+
+[[cards]]
+id = "time-animation"
+front = "Why compute the animation frame from elapsed milliseconds?"
+back = "The frame depends only on time, so the animation runs at the same speed at any frame rate."

@@ -1,0 +1,28 @@
+module sdlinfo;
+
+import core::slice;
+
+public struct Version {
+    i32 major;
+    i32 minor;
+    i32 patch;
+}
+
+public Version decode_version(i32 packed) {
+    return Version {
+        major = packed / 1000000,
+        minor = (packed / 1000) % 1000,
+        patch = packed % 1000,
+    };
+}
+
+public []const char c_text(const char* text) {
+    if text == null {
+        return "";
+    }
+    usize n = 0;
+    while text[n] != (0 as char) {
+        n += 1;
+    }
+    return core::slice::from_raw_const(text, n);
+}

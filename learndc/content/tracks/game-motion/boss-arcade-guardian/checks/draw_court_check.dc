@@ -1,0 +1,73 @@
+module draw_court_check;
+
+import sdl3;
+import pong;
+import render;
+
+@nomangle extern sdl3::SDL_Surface* SDL_RenderReadPixels(sdl3::SDL_Renderer* renderer, const sdl3::SDL_Rect* rect);
+@nomangle extern bool SDL_ReadSurfacePixel(sdl3::SDL_Surface* surface, i32 x, i32 y, u8* r, u8* g, u8* b, u8* a);
+
+i32 expect(sdl3::SDL_Surface* shot, i32 x, i32 y, u8 r, u8 g, u8 b) {
+    u8 pr = 0;
+    u8 pg = 0;
+    u8 pb = 0;
+    u8 pa = 0;
+    SDL_ReadSurfacePixel(shot, x, y, &pr, &pg, &pb, &pa);
+    if pr == r && pg == g && pb == b {
+        println("ok   pixel {},{} is {} {} {}", x, y, r, g, b);
+        return 0;
+    }
+    println("FAIL pixel {},{} is {} {} {}, expected {} {} {}", x, y, pr, pg, pb, r, g, b);
+    return 1;
+}
+
+public i32 main() {
+    sdl3::SDL_SetHint("SDL_VIDEO_DRIVER", "offscreen");
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        println("FAIL SDL_Init");
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("check", 640, 360, 0, &window, &renderer) {
+        println("FAIL window");
+        return 1;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+    pong::Game g = pong::new_game(1);
+    render::draw(renderer, g);
+    sdl3::SDL_Surface* shot = SDL_RenderReadPixels(renderer, null);
+    if shot == null {
+        println("FAIL read pixels");
+        return 1;
+    }
+    defer sdl3::SDL_DestroySurface(shot);
+    i32 failures = 0;
+    failures += expect(shot, 5, 5, 16, 16, 24);
+    failures += expect(shot, 300, 100, 16, 16, 24);
+    failures += expect(shot, 319, 10, 60, 60, 80);
+    failures += expect(shot, 319, 16, 16, 16, 24);
+    failures += expect(shot, 319, 45, 60, 60, 80);
+    failures += expect(shot, 317, 10, 16, 16, 24);
+    failures += expect(shot, 322, 10, 16, 16, 24);
+    failures += expect(shot, 25, 150, 70, 150, 230);
+    failures += expect(shot, 20, 148, 70, 150, 230);
+    failures += expect(shot, 31, 211, 70, 150, 230);
+    failures += expect(shot, 19, 150, 16, 16, 24);
+    failures += expect(shot, 32, 150, 16, 16, 24);
+    failures += expect(shot, 25, 147, 16, 16, 24);
+    failures += expect(shot, 25, 212, 16, 16, 24);
+    failures += expect(shot, 610, 150, 230, 120, 40);
+    failures += expect(shot, 608, 148, 230, 120, 40);
+    failures += expect(shot, 607, 150, 16, 16, 24);
+    failures += expect(shot, 620, 150, 16, 16, 24);
+    failures += expect(shot, 320, 180, 255, 255, 255);
+    failures += expect(shot, 314, 174, 255, 255, 255);
+    failures += expect(shot, 325, 185, 255, 255, 255);
+    failures += expect(shot, 313, 174, 16, 16, 24);
+    failures += expect(shot, 326, 180, 16, 16, 24);
+    return failures;
+}

@@ -1,0 +1,36 @@
+module render;
+
+public import sdl3;
+public import pong;
+
+public void fill(sdl3::SDL_Renderer* renderer, f32 x, f32 y, f32 w, f32 h, u8 r, u8 g, u8 b) {
+    sdl3::SDL_FRect rect = {x = x, y = y, w = w, h = h};
+    sdl3::SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+    sdl3::SDL_RenderFillRect(renderer, &rect);
+}
+
+public void draw(sdl3::SDL_Renderer* renderer, pong::Game game) {
+    sdl3::SDL_SetRenderDrawColor(renderer, 16, 16, 24, 255);
+    sdl3::SDL_RenderClear(renderer);
+
+    for i32 i = 0; i < 18; i++ {
+        fill(renderer, 318.0, ((i * 20) + 5) as f32, 4.0, 10.0, 60, 60, 80);
+    }
+
+    fill(renderer, pong::LEFT_X, game.left.y, pong::PADDLE_W, pong::PADDLE_H, 70, 150, 230);
+    fill(renderer, pong::RIGHT_X, game.right.y, pong::PADDLE_W, pong::PADDLE_H, 230, 120, 40);
+    fill(renderer, game.ball.x, game.ball.y, pong::BALL, pong::BALL, 255, 255, 255);
+
+    for i32 i = 0; i < game.left_score; i++ {
+        fill(renderer, 300.0 - 16.0 * ((i + 1) as f32), 12.0, 10.0, 10.0, 70, 150, 230);
+    }
+    for i32 i = 0; i < game.right_score; i++ {
+        fill(renderer, 330.0 + 16.0 * (i as f32), 12.0, 10.0, 10.0, 230, 120, 40);
+    }
+
+    if game.winner == 1 {
+        fill(renderer, 160.0, 150.0, 320.0, 60.0, 70, 150, 230);
+    } else if game.winner == 2 {
+        fill(renderer, 160.0, 150.0, 320.0, 60.0, 230, 120, 40);
+    }
+}

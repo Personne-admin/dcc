@@ -1,0 +1,36 @@
+module sequence_check;
+
+import rng;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    rng::Rng r = rng::seeded(42);
+    failures += expect(rng::next(&r) == 1083814273, "the first value of seed 42 is 1083814273");
+    failures += expect(rng::next(&r) == 378494188, "the second value is 378494188");
+    failures += expect(rng::next(&r) == 2479403867, "the third value is 2479403867 (the u32 wraps around)");
+    failures += expect(rng::next(&r) == 955863294, "the fourth value is 955863294");
+    failures += expect(rng::next(&r) == 1613448261, "the fifth value is 1613448261");
+
+    rng::Rng a = rng::seeded(1234);
+    rng::Rng b = rng::seeded(1234);
+    bool same = true;
+    for i32 i = 0; i < 100; i++ {
+        if rng::next(&a) != rng::next(&b) {
+            same = false;
+        }
+    }
+    failures += expect(same, "two generators with the same seed give the same sequence");
+    rng::Rng c = rng::seeded(1235);
+    rng::Rng d = rng::seeded(1234);
+    failures += expect(rng::next(&c) != rng::next(&d), "different seeds give different sequences");
+    return failures;
+}

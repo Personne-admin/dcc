@@ -1,0 +1,29 @@
+module level_invalid_check;
+
+import level;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    level::Level l = {};
+    []const []const char few = {"####", "#@E#"};
+    failures += expect_that(!level::load(&l, few), "too few rows are rejected");
+    []const []const char nostart = {"################", "#.............E#", "################", "################", "################", "################", "################", "################", "################", "################", "################", "################"};
+    failures += expect_that(!level::load(&l, nostart), "a level without a start is rejected");
+    []const []const char noexit = {"################", "#@.............#", "################", "################", "################", "################", "################", "################", "################", "################", "################", "################"};
+    failures += expect_that(!level::load(&l, noexit), "a level without an exit is rejected");
+    []const []const char unknown = {"################", "#@....?......E.#", "################", "################", "################", "################", "################", "################", "################", "################", "################", "################"};
+    failures += expect_that(!level::load(&l, unknown), "an unknown character is rejected");
+    []const []const char narrow = {"###############", "#@...........E#", "###############", "###############", "###############", "###############", "###############", "###############", "###############", "###############", "###############", "###############"};
+    failures += expect_that(!level::load(&l, narrow), "a row of the wrong width is rejected");
+    failures += expect_that(level::load(&l, level::LEVEL) && l.keys_total == 2, "the real level still loads afterwards");
+    return failures;
+}

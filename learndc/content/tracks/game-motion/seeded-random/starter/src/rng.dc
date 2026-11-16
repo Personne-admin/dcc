@@ -1,0 +1,25 @@
+module rng;
+
+public struct Rng {
+    u32 state;
+}
+
+public Rng seeded(u32 seed) {
+    return Rng { state = 0 };
+}
+
+public u32 next(Rng* r) {
+    return 0;
+}
+
+public i32 range(Rng* r, i32 lo, i32 hi) {
+    return lo;
+}
+
+public f32 unit(Rng* r) {
+    return 0.0;
+}
+
+public bool chance(Rng* r, i32 percent) {
+    return false;
+}

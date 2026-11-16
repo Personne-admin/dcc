@@ -1,0 +1,54 @@
+module canvas;
+
+public import sdl3;
+
+public const i32 LOGICAL_W = 160;
+public const i32 LOGICAL_H = 90;
+
+public struct Mapping {
+    f32 scale;
+    f32 offset_x;
+    f32 offset_y;
+}
+
+public void setup(sdl3::SDL_Renderer* renderer) {
+    sdl3::SDL_SetRenderLogicalPresentation(
+        renderer,
+        LOGICAL_W,
+        LOGICAL_H,
+        sdl3::SDL_RendererLogicalPresentation::SDL_LOGICAL_PRESENTATION_LETTERBOX
+    );
+}
+
+public Mapping letterbox(i32 window_w, i32 window_h) {
+    f32 sx = (window_w as f32) / (LOGICAL_W as f32);
+    f32 sy = (window_h as f32) / (LOGICAL_H as f32);
+    f32 scale = if sx < sy { sx } else { sy };
+    f32 used_w = (LOGICAL_W as f32) * scale;
+    f32 used_h = (LOGICAL_H as f32) * scale;
+    return Mapping {
+        scale = scale,
+        offset_x = ((window_w as f32) - used_w) / 2.0,
+        offset_y = ((window_h as f32) - used_h) / 2.0,
+    };
+}
+
+public sdl3::SDL_FPoint to_logical(Mapping m, f32 window_x, f32 window_y) {
+    return sdl3::SDL_FPoint {
+        x = (window_x - m.offset_x) / m.scale,
+        y = (window_y - m.offset_y) / m.scale,
+    };
+}
+
+public void draw(sdl3::SDL_Renderer* renderer) {
+    sdl3::SDL_SetRenderDrawColor(renderer, 20, 24, 40, 255);
+    sdl3::SDL_RenderClear(renderer);
+
+    sdl3::SDL_FRect frame = {x = 0.0, y = 0.0, w = 160.0, h = 90.0};
+    sdl3::SDL_SetRenderDrawColor(renderer, 240, 190, 60, 255);
+    sdl3::SDL_RenderRect(renderer, &frame);
+
+    sdl3::SDL_FRect square = {x = 70.0, y = 35.0, w = 20.0, h = 20.0};
+    sdl3::SDL_SetRenderDrawColor(renderer, 230, 80, 100, 255);
+    sdl3::SDL_RenderFillRect(renderer, &square);
+}

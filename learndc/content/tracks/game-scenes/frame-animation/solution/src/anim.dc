@@ -1,0 +1,57 @@
+module anim;
+
+public import sdl3;
+import lamp;
+
+public struct Anim {
+    u32 elapsed;
+    u32 frame_ms;
+    i32 count;
+    bool looping;
+}
+
+public Anim make(u32 frame_ms, i32 count, bool looping) {
+    return Anim { elapsed = 0, frame_ms = frame_ms, count = count, looping = looping };
+}
+
+public void restart(Anim* a) {
+    a.elapsed = 0;
+}
+
+public i32 current(Anim* a) {
+    return frame_at(a.elapsed, a.frame_ms, a.count, a.looping);
+}
+
+public i32 frame_at(u32 elapsed_ms, u32 frame_ms, i32 count, bool looping) {
+    i32 index = (elapsed_ms / frame_ms) as i32;
+    if looping {
+        return index % count;
+    }
+    if index >= count {
+        return count - 1;
+    }
+    return index;
+}
+
+u32 total(Anim* a) {
+    return a.frame_ms * (a.count as u32);
+}
+
+public void advance(Anim* a, u32 dt_ms) {
+    a.elapsed += dt_ms;
+    if a.looping {
+        a.elapsed = a.elapsed % total(a);
+    } else if a.elapsed > total(a) {
+        a.elapsed = total(a);
+    }
+}
+
+public bool finished(Anim* a) {
+    return !a.looping && a.elapsed >= total(a);
+}
+
+public void draw(sdl3::SDL_Renderer* renderer, sdl3::SDL_Texture* sheet, Anim* a, f32 x, f32 y, f32 scale) {
+    sdl3::SDL_FRect src = lamp::frame_rect(current(a));
+    sdl3::SDL_FRect dst = {x = x, y = y, w = src.w * scale, h = src.h * scale};
+    sdl3::SDL_RenderTexture(renderer, sheet, &src, &dst);
+}

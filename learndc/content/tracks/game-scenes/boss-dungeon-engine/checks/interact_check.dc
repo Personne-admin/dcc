@@ -1,0 +1,66 @@
+module interact_check;
+
+import game;
+import level;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+game::Game fresh() {
+    game::Game g = game::new_game();
+    game::start(&g);
+    return g;
+}
+
+void place(game::Game* g, i32 col, i32 row) {
+    g.player.x = (col * 20 + 4) as f32;
+    g.player.y = (row * 20 + 4) as f32;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    game::Game g = fresh();
+    place(&g, 2, 5);
+    game::interact(&g, game::no_input());
+    failures += expect_that(g.keys == 1 && g.collected == 1, "walking onto a key picks it up");
+    failures += expect_that(level::tile_at(&g.level, 2, 5) == level::Tile::Floor, "the picked up key tile becomes floor");
+    game::interact(&g, game::no_input());
+    failures += expect_that(g.keys == 1 && g.collected == 1, "a key is picked up only once");
+
+    game::Game d = fresh();
+    place(&d, 4, 3);
+    game::Input use = game::no_input();
+    use.use = true;
+    game::interact(&d, use);
+    failures += expect_that(level::tile_at(&d.level, 5, 3) == level::Tile::Door, "without a key the door stays closed");
+    d.keys = 1;
+    d.collected = 1;
+    d.prev = use;
+    game::interact(&d, use);
+    failures += expect_that(level::tile_at(&d.level, 5, 3) == level::Tile::Door && d.keys == 1, "a held use key does not open the door, only a press does");
+    d.prev = game::no_input();
+    game::interact(&d, use);
+    failures += expect_that(level::tile_at(&d.level, 5, 3) == level::Tile::Floor, "pressing use next to the door opens it");
+    failures += expect_that(d.keys == 0 && d.collected == 1, "the key is spent but still counted as collected");
+
+    game::Game e = fresh();
+    place(&e, 4, 2);
+    e.keys = 1;
+    game::interact(&e, use);
+    failures += expect_that(level::tile_at(&e.level, 5, 3) == level::Tile::Door && e.keys == 1, "a door that is only diagonal does not open");
+
+    game::Game x = fresh();
+    place(&x, 14, 1);
+    game::interact(&x, game::no_input());
+    failures += expect_that(!x.exit_reached, "the exit does nothing before all keys are collected");
+    x.collected = 2;
+    game::interact(&x, game::no_input());
+    failures += expect_that(x.exit_reached, "the exit works once both keys are collected");
+    return failures;
+}

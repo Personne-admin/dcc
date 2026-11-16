@@ -1,0 +1,48 @@
+module main;
+
+import sdl3;
+import resources;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("Resource table", 320, 240, 0, &window, &renderer) {
+        return 2;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+    resources::Resources res = {};
+    if !resources::load(&res, renderer) {
+        return 3;
+    }
+    defer resources::unload(&res);
+    bool running = true;
+    sdl3::SDL_Event ev;
+    while running {
+        while sdl3::SDL_PollEvent(&ev) {
+            if ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32) {
+                running = false;
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32) {
+                if ev.key.key == sdl3::SDLK_ESCAPE {
+                    running = false;
+                }
+            }
+        }
+        sdl3::SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255);
+        sdl3::SDL_RenderClear(renderer);
+        sdl3::SDL_FRect a = {x = 40.0, y = 80.0, w = 64.0, h = 64.0};
+        sdl3::SDL_FRect b = {x = 128.0, y = 80.0, w = 64.0, h = 64.0};
+        sdl3::SDL_FRect c = {x = 216.0, y = 80.0, w = 64.0, h = 64.0};
+        sdl3::SDL_RenderTexture(renderer, res.wall, null, &a);
+        sdl3::SDL_RenderTexture(renderer, res.hero, null, &b);
+        sdl3::SDL_RenderTexture(renderer, res.key, null, &c);
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(16);
+    }
+    return 0;
+}

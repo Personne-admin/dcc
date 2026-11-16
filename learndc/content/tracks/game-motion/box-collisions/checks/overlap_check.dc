@@ -1,0 +1,32 @@
+module overlap_check;
+
+import boxes;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+boxes::Rect r(f32 x, f32 y, f32 w, f32 h) {
+    return boxes::Rect { x = x, y = y, w = w, h = h };
+}
+
+public i32 main() {
+    i32 failures = 0;
+    boxes::Rect a = r(0.0, 0.0, 10.0, 10.0);
+    failures += expect(boxes::overlaps(a, r(5.0, 5.0, 10.0, 10.0)), "corner overlap");
+    failures += expect(boxes::overlaps(r(5.0, 5.0, 10.0, 10.0), a), "the test is symmetric");
+    failures += expect(!boxes::overlaps(a, r(20.0, 0.0, 10.0, 10.0)), "far apart in x");
+    failures += expect(!boxes::overlaps(a, r(0.0, 20.0, 10.0, 10.0)), "far apart in y");
+    failures += expect(!boxes::overlaps(a, r(10.0, 0.0, 10.0, 10.0)), "sharing the right edge is not an overlap");
+    failures += expect(!boxes::overlaps(a, r(0.0, 10.0, 10.0, 10.0)), "sharing the bottom edge is not an overlap");
+    failures += expect(!boxes::overlaps(a, r(10.0, 10.0, 5.0, 5.0)), "touching at one corner is not an overlap");
+    failures += expect(boxes::overlaps(a, r(2.0, 2.0, 3.0, 3.0)), "a rectangle inside another overlaps it");
+    failures += expect(boxes::overlaps(r(-5.0, 4.0, 20.0, 2.0), r(4.0, -5.0, 2.0, 20.0)), "a cross shape overlaps with no corner inside the other");
+    failures += expect(!boxes::overlaps(a, r(5.0, 20.0, 10.0, 10.0)), "overlapping in x only is not enough");
+    return failures;
+}

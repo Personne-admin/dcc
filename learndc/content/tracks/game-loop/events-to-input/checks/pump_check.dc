@@ -1,0 +1,71 @@
+module pump_check;
+
+import input;
+import sdl3;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+void push_key(bool down, sdl3::SDL_Scancode code) {
+    sdl3::SDL_Event ev = {};
+    if down {
+        ev.type = (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32);
+    } else {
+        ev.type = (sdl3::SDL_EventType::SDL_EVENT_KEY_UP as u32);
+    }
+    ev.key.scancode = code;
+    ev.key.down = down;
+    sdl3::SDL_PushEvent(&ev);
+}
+
+void push_click(f32 x, f32 y) {
+    sdl3::SDL_Event ev = {};
+    ev.type = (sdl3::SDL_EventType::SDL_EVENT_MOUSE_BUTTON_DOWN as u32);
+    ev.button.button = sdl3::SDL_BUTTON_LEFT;
+    ev.button.down = true;
+    ev.button.x = x;
+    ev.button.y = y;
+    sdl3::SDL_PushEvent(&ev);
+}
+
+public i32 main() {
+    sdl3::SDL_SetHint("SDL_VIDEO_DRIVER", "offscreen");
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        println("FAIL SDL_Init");
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    i32 failures = 0;
+    input::Input in = {};
+
+    push_key(true, sdl3::SDL_Scancode::SDL_SCANCODE_RIGHT);
+    push_click(30.0, 50.0);
+    push_key(true, sdl3::SDL_Scancode::SDL_SCANCODE_SPACE);
+    push_key(true, sdl3::SDL_Scancode::SDL_SCANCODE_UP);
+    input::pump(&in);
+    failures += expect(in.right && in.up, "pump handles every queued key event");
+    failures += expect(in.clicked && in.mouse_x == 30.0 && in.mouse_y == 50.0, "pump handles the click");
+    failures += expect(in.pause_pressed, "pump handles the Space press");
+
+    input::pump(&in);
+    failures += expect(!in.clicked && !in.pause_pressed, "pressed flags are cleared when no new events arrive");
+    failures += expect(in.right && in.up, "held keys stay held");
+
+    push_key(false, sdl3::SDL_Scancode::SDL_SCANCODE_RIGHT);
+    input::pump(&in);
+    failures += expect(!in.right && in.up, "a key up releases only that key");
+
+    sdl3::SDL_Event q = {};
+    q.type = (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32);
+    sdl3::SDL_PushEvent(&q);
+    input::pump(&in);
+    failures += expect(in.quit, "pump sees the quit event");
+    return failures;
+}

@@ -1,0 +1,27 @@
+module invalid_check;
+
+import map;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    map::Map m = {};
+    []const []const char short_rows = {"####", "#@.#"};
+    failures += expect_that(!map::parse(&m, short_rows), "a map with too few rows is rejected");
+    []const []const char narrow = {"###############", "#@............#", "###############", "###############", "###############", "###############", "###############", "###############", "###############", "###############", "###############", "###############"};
+    failures += expect_that(!map::parse(&m, narrow), "a row of the wrong width is rejected");
+    []const []const char unknown = {"################", "#@....x.......#", "################", "################", "################", "################", "################", "################", "################", "################", "################", "################"};
+    failures += expect_that(!map::parse(&m, unknown), "an unknown character is rejected");
+    []const []const char nostart = {"################", "#..............#", "################", "################", "################", "################", "################", "################", "################", "################", "################", "################"};
+    failures += expect_that(!map::parse(&m, nostart), "a map without @ is rejected");
+    failures += expect_that(map::parse(&m, map::LEVEL) && m.start_col == 1, "a good map still parses afterwards");
+    return failures;
+}

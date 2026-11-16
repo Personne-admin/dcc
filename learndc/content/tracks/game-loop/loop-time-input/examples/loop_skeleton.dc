@@ -1,0 +1,52 @@
+module main;
+
+struct Event {
+    i32 frame;
+    i32 kind;
+}
+
+struct Queue {
+    Event[4] items;
+    usize next;
+    usize count;
+}
+
+const i32 KEY_RIGHT = 1;
+const i32 QUIT = 2;
+
+bool poll(Queue* q, i32 frame, Event* out) {
+    if q.next < q.count && q.items[q.next].frame <= frame {
+        out.frame = q.items[q.next].frame;
+        out.kind = q.items[q.next].kind;
+        q.next += 1;
+        return true;
+    }
+    return false;
+}
+
+public Status(Error) main() {
+    Queue q = {};
+    q.items[0] = Event { frame = 1, kind = KEY_RIGHT };
+    q.items[1] = Event { frame = 1, kind = KEY_RIGHT };
+    q.items[2] = Event { frame = 3, kind = QUIT };
+    q.count = 3;
+
+    i32 x = 0;
+    i32 frame = 0;
+    bool running = true;
+    while running {
+        Event ev = {};
+        while poll(&q, frame, &ev) {
+            println("frame {}: event {}", frame, ev.kind)?;
+            if ev.kind == KEY_RIGHT {
+                x += 10;
+            } else if ev.kind == QUIT {
+                running = false;
+            }
+        }
+        println("frame {}: draw square at x = {}", frame, x)?;
+        frame += 1;
+    }
+    println("left the loop after {} frames", frame)?;
+    return Status::Ok;
+}

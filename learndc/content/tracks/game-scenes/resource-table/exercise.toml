@@ -1,0 +1,41 @@
+schema = 1
+id = "game-scenes/resource-table"
+revision = 1
+title = "A resource table"
+summary = "Load three textures all or nothing, release them with a repeatable unload and own them in main."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["resource", "ownership", "defer", "SDL_DestroyTexture", "all or nothing"]
+tags = ["games", "sdl3"]
+objectives = [
+    "Write an unload that releases only what exists and clears every slot",
+    "Write a load that releases what it already created when a later texture fails",
+    "Own the table in main with defer",
+]
+entry_file = "src/main.dc"
+product = "resource_table"
+prerequisites = ["game-scenes/resource-lifetimes"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "load fills every slot with the right texture"
+harness = "checks/load_check.dc"
+hint = "load_with calls art::make for the wall, the hero and the key, in that order, and stores each result in its own field."
+
+[[checks]]
+kind = "harness"
+name = "A failed load leaves nothing behind"
+harness = "checks/fail_check.dc"
+hint = "Every failing return calls unload first, then returns false."
+
+[[checks]]
+kind = "harness"
+name = "unload is safe to repeat"
+harness = "checks/unload_check.dc"
+hint = "Destroy a texture only if its field is not null, and set the field to null right after destroying it."

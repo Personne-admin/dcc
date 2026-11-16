@@ -1,0 +1,32 @@
+module checker;
+
+public import sdl3;
+
+public const i32 SIZE = 4;
+
+public void fill_pixels(u8* pixels) {
+    for i32 y in 0..SIZE {
+        for i32 x in 0..SIZE {
+            usize at = ((y * SIZE + x) * 4) as usize;
+            if (x + y) % 2 == 0 {
+                pixels[at] = 230;
+                pixels[at + 1] = 120;
+                pixels[at + 2] = 40;
+            } else {
+                pixels[at] = 20;
+                pixels[at + 1] = 24;
+                pixels[at + 2] = 90;
+            }
+            pixels[at + 3] = 255;
+        }
+    }
+}
+
+public sdl3::SDL_Texture* make_texture(sdl3::SDL_Renderer* renderer) {
+    return null;
+}
+
+public void draw(sdl3::SDL_Renderer* renderer, sdl3::SDL_Texture* texture) {
+    sdl3::SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    sdl3::SDL_RenderClear(renderer);
+}

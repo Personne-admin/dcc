@@ -1,0 +1,36 @@
+schema = 1
+id = "game-loop/frame-timing"
+revision = 1
+title = "Delta time and fixed steps"
+summary = "Turn nanosecond clock readings into a clamped delta time and run a fixed-step accumulator with a safety cap."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["delta time", "SDL_GetTicksNS", "fixed step", "accumulator", "clamping"]
+tags = ["games", "sdl3", "timing"]
+objectives = [
+    "Compute dt in seconds from two u64 nanosecond readings",
+    "Clamp dt so a long pause cannot cause a giant jump",
+    "Run whole fixed steps from an accumulator and keep the remainder",
+    "Cap the number of steps per frame",
+]
+entry_file = "src/main.dc"
+product = "frame_timing"
+prerequisites = ["game-loop/held-keys"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "tick measures and clamps the frame time"
+harness = "checks/clock_check.dc"
+hint = "Keep the previous reading in the Clock. dt = (now - last) as f32 / 1000000000.0; return 0 on the first call and never more than MAX_DT."
+
+[[checks]]
+kind = "harness"
+name = "steps_due runs whole steps and caps them"
+harness = "checks/stepper_check.dc"
+hint = "Add frame_time to the accumulator, then loop while it holds a full step and fewer than MAX_STEPS steps have run. If the cap was reached, reset the accumulator to 0."

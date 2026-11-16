@@ -1,0 +1,46 @@
+module main;
+
+import sdl3;
+import sheet;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("Sprite sheet", 320, 240, 0, &window, &renderer) {
+        return 2;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+    sdl3::SDL_Texture* frames = sheet::create(renderer);
+    if frames == null {
+        return 3;
+    }
+    defer sdl3::SDL_DestroyTexture(frames);
+    bool running = true;
+    sdl3::SDL_Event ev;
+    while running {
+        while sdl3::SDL_PollEvent(&ev) {
+            if ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32) {
+                running = false;
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32) {
+                if ev.key.key == sdl3::SDLK_ESCAPE {
+                    running = false;
+                }
+            }
+        }
+        sdl3::SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255);
+        sdl3::SDL_RenderClear(renderer);
+        for i32 i in 0..4 {
+            sheet::draw_frame(renderer, frames, i, 20.0 + (i * 70) as f32, 20.0, 4.0, false);
+            sheet::draw_frame(renderer, frames, i, 20.0 + (i * 70) as f32, 100.0, 4.0, true);
+        }
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(16);
+    }
+    return 0;
+}

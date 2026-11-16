@@ -1,0 +1,12 @@
+dpm::v1::Lock {
+    manifest = "sha256:df6023a3a3a35d7732fab98c763f1fc5193f6b0c4d1bcc6d0ffc0f9f6fd8903e",
+    packages = {
+        {
+            location = "github.com/Personne-admin/sdl3-dc",
+            version = "0.1.0",
+            source = "git+https://github.com/Personne-admin/sdl3-dc.git",
+            commit = "ba36329ff6908a205de2e4e837993b071f6e3c8d",
+            hash = "sha256:f7136ef844c8f98525b1a69be81293152ab06c829c703c0f80bf4f0c8bf3efb1",
+        },
+    },
+}

@@ -1,0 +1,94 @@
+module level;
+
+public const i32 COLS = 16;
+public const i32 ROWS = 12;
+public const i32 TILE = 20;
+
+public enum Tile : u8 {
+    Floor,
+    Wall,
+    Door,
+    Key,
+    Exit,
+}
+
+public struct Level {
+    Tile[192] cells;
+    i32 start_col;
+    i32 start_row;
+    i32 keys_total;
+}
+
+public []const []const char LEVEL = {
+    "################",
+    "#@...#.....#..E#",
+    "#....#..k..#...#",
+    "#....D.....D...#",
+    "#....#.....#...#",
+    "#.k..#.....#...#",
+    "#....#.....#...#",
+    "#....#.....#...#",
+    "#....#.....#...#",
+    "#....#.....#...#",
+    "#....#.....#...#",
+    "################",
+};
+
+public void set_tile(Level* l, i32 col, i32 row, Tile t) {
+    if col >= 0 && row >= 0 && col < COLS && row < ROWS {
+        l.cells[(row * COLS + col) as usize] = t;
+    }
+}
+
+public Tile tile_at(Level* l, i32 col, i32 row) {
+    if col < 0 || row < 0 || col >= COLS || row >= ROWS {
+        return Tile::Wall;
+    }
+    return l.cells[(row * COLS + col) as usize];
+}
+
+public bool solid(Level* l, i32 col, i32 row) {
+    Tile t = tile_at(l, col, row);
+    return t == Tile::Wall || t == Tile::Door;
+}
+
+public bool load(Level* l, []const []const char rows) {
+    if rows.len != (ROWS as usize) {
+        return false;
+    }
+    bool has_start = false;
+    bool has_exit = false;
+    i32 keys = 0;
+    for i32 row in 0..ROWS {
+        []const char line = rows[row as usize];
+        if line.len != (COLS as usize) {
+            return false;
+        }
+        for i32 col in 0..COLS {
+            char c = line[col as usize];
+            Tile t = Tile::Floor;
+            if c == '#' {
+                t = Tile::Wall;
+            } else if c == '.' {
+                t = Tile::Floor;
+            } else if c == '@' {
+                l.start_col = col;
+                l.start_row = row;
+                has_start = true;
+            } else if c == 'k' {
+                t = Tile::Key;
+                keys += 1;
+            } else if c == 'D' {
+                t = Tile::Door;
+            } else if c == 'E' {
+                t = Tile::Exit;
+                has_exit = true;
+            } else {
+                return false;
+            }
+            set_tile(l, col, row, t);
+        }
+    }
+    l.keys_total = keys;
+    return has_start && has_exit;
+}

@@ -1,0 +1,39 @@
+module main;
+
+bool pretend_init(bool works) {
+    if works {
+        println("init: ok");
+    }
+    return works;
+}
+
+bool pretend_window(bool works) {
+    if works {
+        println("window: ok");
+    }
+    return works;
+}
+
+i32 start(bool init_works, bool window_works) {
+    if !pretend_init(init_works) {
+        println("stop: init failed, nothing to undo");
+        return 1;
+    }
+    if !pretend_window(window_works) {
+        println("stop: window failed, undo the init first");
+        println("quit");
+        return 2;
+    }
+    println("ready");
+    return 0;
+}
+
+public Status(Error) main() {
+    println("-- everything works")?;
+    println("code {}", start(true, true))?;
+    println("-- the window fails")?;
+    println("code {}", start(true, false))?;
+    println("-- init fails")?;
+    println("code {}", start(false, true))?;
+    return Status::Ok;
+}

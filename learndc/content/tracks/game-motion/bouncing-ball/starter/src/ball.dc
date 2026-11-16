@@ -1,0 +1,16 @@
+module ball;
+
+public const f32 WIDTH = 320.0;
+public const f32 HEIGHT = 240.0;
+
+public struct Ball {
+    f32 x;
+    f32 y;
+    f32 vx;
+    f32 vy;
+    f32 size;
+}
+
+public i32 step(Ball* b, f32 dt) {
+    return 0;
+}

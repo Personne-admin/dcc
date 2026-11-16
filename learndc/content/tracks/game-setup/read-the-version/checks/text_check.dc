@@ -1,0 +1,29 @@
+module text_check;
+
+import std::slice;
+import sdl3;
+import sdlinfo;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    i32 failures = 0;
+    failures += expect(std::slice::eq(sdlinfo::c_text("hello"), "hello"), "a C string becomes the same text");
+    failures += expect(sdlinfo::c_text("hello").len == 5, "the length stops at the zero byte");
+    failures += expect(sdlinfo::c_text("").len == 0, "an empty C string is empty text");
+    const char* none = null;
+    failures += expect(sdlinfo::c_text(none).len == 0, "null is empty text");
+    sdl3::SDL_SetError("boom");
+    failures += expect(std::slice::eq(sdlinfo::c_text(sdl3::SDL_GetError()), "boom"), "SDL_GetError reads back as text");
+    sdl3::SDL_ClearError();
+    failures += expect(sdlinfo::c_text(sdl3::SDL_GetError()).len == 0, "a cleared error is empty text");
+    return failures;
+}

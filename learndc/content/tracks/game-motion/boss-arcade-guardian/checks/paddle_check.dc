@@ -1,0 +1,45 @@
+module paddle_check;
+
+import pong;
+import input;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.01;
+}
+
+pong::Ball ball(f32 x, f32 y, f32 vx, f32 vy) {
+    return pong::Ball { x = x, y = y, vx = vx, vy = vy };
+}
+
+public i32 main() {
+    i32 failures = 0;
+    pong::Paddle p = pong::Paddle { y = 100.0 };
+    pong::move_paddle(&p, 1.0, 0.1);
+    failures += expect(near(p.y, 132.0), "dir 1 moves down by 320 * dt = 32");
+    pong::move_paddle(&p, -1.0, 0.25);
+    failures += expect(near(p.y, 52.0), "dir -1 moves up by 80");
+    pong::move_paddle(&p, 0.0, 1.0);
+    failures += expect(near(p.y, 52.0), "dir 0 does not move");
+    pong::move_paddle(&p, 0.5, 0.1);
+    failures += expect(near(p.y, 68.0), "a dir of 0.5 moves at half speed");
+    pong::move_paddle(&p, -1.0, 10.0);
+    failures += expect(near(p.y, 0.0), "the top of the court stops the paddle at 0");
+    pong::move_paddle(&p, 1.0, 10.0);
+    failures += expect(near(p.y, 296.0), "the bottom stops it at H - PADDLE_H = 296");
+    pong::move_paddle(&p, 1.0, 0.1);
+    failures += expect(near(p.y, 296.0), "pushing against the edge keeps it there");
+    return failures;
+}

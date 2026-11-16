@@ -1,0 +1,60 @@
+module texture_check;
+
+import sdl3;
+import checker;
+
+@nomangle extern sdl3::SDL_Surface* SDL_RenderReadPixels(sdl3::SDL_Renderer* renderer, const sdl3::SDL_Rect* rect);
+@nomangle extern bool SDL_ReadSurfacePixel(sdl3::SDL_Surface* surface, i32 x, i32 y, u8* r, u8* g, u8* b, u8* a);
+
+i32 expect_px(sdl3::SDL_Surface* shot, i32 x, i32 y, u8 r, u8 g, u8 b) {
+    u8 pr = 0;
+    u8 pg = 0;
+    u8 pb = 0;
+    u8 pa = 0;
+    SDL_ReadSurfacePixel(shot, x, y, &pr, &pg, &pb, &pa);
+    if pr == r && pg == g && pb == b {
+        println("ok   pixel {},{} is {} {} {}", x, y, r, g, b);
+        return 0;
+    }
+    println("FAIL pixel {},{} is {} {} {}, expected {} {} {}", x, y, pr, pg, pb, r, g, b);
+    return 1;
+}
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    sdl3::SDL_SetHint("SDL_VIDEO_DRIVER", "offscreen");
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        println("FAIL SDL_Init");
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("check", 320, 240, 0, &window, &renderer) {
+        println("FAIL window");
+        return 1;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+    i32 failures = 0;
+    sdl3::SDL_Texture* texture = checker::make_texture(renderer);
+    failures += expect_that(texture != null, "make_texture returns a texture");
+    if texture == null {
+        return failures;
+    }
+    defer sdl3::SDL_DestroyTexture(texture);
+    f32 tw = 0.0;
+    f32 th = 0.0;
+    sdl3::SDL_GetTextureSize(texture, &tw, &th);
+    failures += expect_that(tw == 4.0 && th == 4.0, "the texture is 4 by 4 pixels");
+    return failures;
+}

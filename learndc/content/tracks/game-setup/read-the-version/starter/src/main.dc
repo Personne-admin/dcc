@@ -1,0 +1,14 @@
+module main;
+
+import sdl3;
+import sdlinfo;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    sdlinfo::Version v = sdlinfo::decode_version(sdl3::SDL_GetVersion());
+    println("SDL {}.{}.{}", v.major, v.minor, v.patch);
+    println("revision: {}", sdlinfo::c_text(sdl3::SDL_GetRevision()));
+    sdl3::SDL_SetError("this is a test error");
+    println("error text: {}", sdlinfo::c_text(sdl3::SDL_GetError()));
+    return 0;
+}

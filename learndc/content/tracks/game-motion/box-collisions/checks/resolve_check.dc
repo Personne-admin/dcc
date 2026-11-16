@@ -1,0 +1,60 @@
+module resolve_check;
+
+import boxes;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.001;
+}
+
+boxes::Rect r(f32 x, f32 y, f32 w, f32 h) {
+    return boxes::Rect { x = x, y = y, w = w, h = h };
+}
+
+boxes::Mover mover(f32 x, f32 y, f32 vx, f32 vy) {
+    return boxes::Mover { rect = r(x, y, 10.0, 10.0), vx = vx, vy = vy };
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    boxes::Mover m = mover(0.0, 0.0, 50.0, 7.0);
+    bool hit = boxes::resolve(&m, r(30.0, 0.0, 10.0, 40.0));
+    failures += expect(!hit && near(m.rect.x, 0.0) && near(m.vx, 50.0) && near(m.vy, 7.0), "no overlap: nothing changes and false is returned");
+
+    m = mover(0.0, 0.0, 50.0, 7.0);
+    hit = boxes::resolve(&m, r(8.0, 0.0, 10.0, 40.0));
+    failures += expect(hit && near(m.rect.x, -2.0) && near(m.rect.y, 0.0), "hitting a wall from the left pushes the mover 2 back to the left");
+    failures += expect(near(m.vx, -50.0) && near(m.vy, 7.0), "and reverses only vx");
+
+    m = mover(16.0, 5.0, -40.0, 3.0);
+    hit = boxes::resolve(&m, r(8.0, 0.0, 10.0, 40.0));
+    failures += expect(hit && near(m.rect.x, 18.0) && near(m.rect.y, 5.0), "hitting a wall from the right pushes the mover out to the right");
+    failures += expect(near(m.vx, 40.0) && near(m.vy, 3.0), "and vx becomes positive");
+
+    m = mover(0.0, 0.0, 4.0, 60.0);
+    hit = boxes::resolve(&m, r(-5.0, 8.0, 40.0, 10.0));
+    failures += expect(hit && near(m.rect.y, -2.0) && near(m.rect.x, 0.0), "hitting a floor from above pushes the mover up");
+    failures += expect(near(m.vy, -60.0) && near(m.vx, 4.0), "and vy becomes negative");
+
+    m = mover(0.0, 16.0, 4.0, -60.0);
+    hit = boxes::resolve(&m, r(-5.0, 8.0, 40.0, 10.0));
+    failures += expect(hit && near(m.rect.y, 18.0) && near(m.vy, 60.0), "hitting a ceiling from below pushes the mover down and vy becomes positive");
+
+    m = mover(0.0, 0.0, -50.0, 0.0);
+    hit = boxes::resolve(&m, r(8.0, 0.0, 10.0, 40.0));
+    failures += expect(hit && near(m.rect.x, -2.0) && near(m.vx, -50.0), "a mover already moving away keeps its velocity: the side decides the sign");
+    return failures;
+}

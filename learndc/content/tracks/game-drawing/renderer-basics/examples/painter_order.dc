@@ -1,0 +1,57 @@
+module main;
+
+const usize W = 24;
+const usize H = 7;
+
+struct Canvas {
+    char[168] cells;
+}
+
+struct Rect {
+    i32 x;
+    i32 y;
+    i32 w;
+    i32 h;
+}
+
+void clear(Canvas* c, char glyph) {
+    for usize i = 0; i < W * H; i++ {
+        c.cells[i] = glyph;
+    }
+}
+
+void fill_rect(Canvas* c, Rect r, char glyph) {
+    for i32 row = r.y; row < r.y + r.h; row++ {
+        for i32 col = r.x; col < r.x + r.w; col++ {
+            if col >= 0 && col < (W as i32) && row >= 0 && row < (H as i32) {
+                c.cells[(row as usize) * W + (col as usize)] = glyph;
+            }
+        }
+    }
+}
+
+void present(Canvas* c) {
+    for usize row = 0; row < H; row++ {
+        []const char line = c.cells[row * W..(row + 1) * W];
+        println("{}", line);
+    }
+}
+
+public Status(Error) main() {
+    Rect big = Rect { x = 2, y = 0, w = 10, h = 4 };
+    Rect small = Rect { x = 8, y = 2, w = 8, h = 4 };
+
+    Canvas c = {};
+    clear(&c, '.');
+    fill_rect(&c, big, '#');
+    fill_rect(&c, small, '*');
+    present(&c);
+
+    println("--")?;
+
+    clear(&c, '.');
+    fill_rect(&c, small, '*');
+    fill_rect(&c, big, '#');
+    present(&c);
+    return Status::Ok;
+}

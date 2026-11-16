@@ -1,0 +1,76 @@
+module main;
+
+import sdl3;
+import timing;
+
+const f32 SPEED = 240.0;
+const f32 STEP = 1.0 / 60.0;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("Frame timing", 400, 160, 0, &window, &renderer) {
+        return 2;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+
+    timing::Clock clock = {};
+    timing::Stepper stepper = {};
+    f32 top_x = 0.0;
+    f32 bottom_x = 0.0;
+    f32 top_dir = 1.0;
+    f32 bottom_dir = 1.0;
+    bool running = true;
+    sdl3::SDL_Event ev;
+    while running {
+        while sdl3::SDL_PollEvent(&ev) {
+            if ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32) {
+                running = false;
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32) {
+                if ev.key.scancode == sdl3::SDL_Scancode::SDL_SCANCODE_ESCAPE {
+                    running = false;
+                }
+            }
+        }
+        f32 dt = timing::tick(&clock, sdl3::SDL_GetTicksNS());
+
+        top_x += top_dir * SPEED * dt;
+        if top_x > 360.0 {
+            top_x = 360.0;
+            top_dir = -1.0;
+        } else if top_x < 0.0 {
+            top_x = 0.0;
+            top_dir = 1.0;
+        }
+
+        i32 n = timing::steps_due(&stepper, dt, STEP);
+        for i32 i = 0; i < n; i++ {
+            bottom_x += bottom_dir * SPEED * STEP;
+            if bottom_x > 360.0 {
+                bottom_x = 360.0;
+                bottom_dir = -1.0;
+            } else if bottom_x < 0.0 {
+                bottom_x = 0.0;
+                bottom_dir = 1.0;
+            }
+        }
+
+        sdl3::SDL_SetRenderDrawColor(renderer, 20, 24, 40, 255);
+        sdl3::SDL_RenderClear(renderer);
+        sdl3::SDL_FRect a = {x = top_x, y = 30.0, w = 40.0, h = 40.0};
+        sdl3::SDL_SetRenderDrawColor(renderer, 230, 120, 40, 255);
+        sdl3::SDL_RenderFillRect(renderer, &a);
+        sdl3::SDL_FRect b = {x = bottom_x, y = 90.0, w = 40.0, h = 40.0};
+        sdl3::SDL_SetRenderDrawColor(renderer, 70, 150, 230, 255);
+        sdl3::SDL_RenderFillRect(renderer, &b);
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(8);
+    }
+    return 0;
+}

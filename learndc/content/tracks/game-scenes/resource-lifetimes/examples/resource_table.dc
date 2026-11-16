@@ -1,0 +1,71 @@
+module main;
+
+struct Pool {
+    i32 next;
+    i32 live;
+}
+
+struct Table {
+    i32 tiles;
+    i32 hero;
+    i32 key;
+}
+
+i32 acquire(Pool* pool, bool fail) {
+    if fail {
+        return 0;
+    }
+    pool.next += 1;
+    pool.live += 1;
+    return pool.next;
+}
+
+void release(Pool* pool, i32 handle) {
+    if handle != 0 {
+        pool.live -= 1;
+    }
+}
+
+void unload(Pool* pool, Table* t) {
+    release(pool, t.key);
+    release(pool, t.hero);
+    release(pool, t.tiles);
+    t.key = 0;
+    t.hero = 0;
+    t.tiles = 0;
+}
+
+bool load(Pool* pool, Table* t, i32 fail_at) {
+    t.tiles = acquire(pool, fail_at == 1);
+    if t.tiles == 0 {
+        unload(pool, t);
+        return false;
+    }
+    t.hero = acquire(pool, fail_at == 2);
+    if t.hero == 0 {
+        unload(pool, t);
+        return false;
+    }
+    t.key = acquire(pool, fail_at == 3);
+    if t.key == 0 {
+        unload(pool, t);
+        return false;
+    }
+    return true;
+}
+
+public Status(Error) main() {
+    Pool pool = {};
+    Table table = {};
+    bool ok = load(&pool, &table, 0);
+    println("load ok {}, {} alive", ok, pool.live)?;
+    unload(&pool, &table);
+    println("unload: {} alive", pool.live)?;
+    unload(&pool, &table);
+    println("unload again: {} alive", pool.live)?;
+    for i32 fail_at in 1..=3 {
+        bool loaded = load(&pool, &table, fail_at);
+        println("fail at {}: load ok {}, {} alive", fail_at, loaded, pool.live)?;
+    }
+    return Status::Ok;
+}

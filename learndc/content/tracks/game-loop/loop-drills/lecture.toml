@@ -1,0 +1,211 @@
+schema = 1
+id = "game-loop/loop-drills"
+revision = 1
+kind = "drill"
+title = "Loop drills"
+summary = "Predict a loop with a pause toggle, find a repeat bug, order the frame, read a type error and do the arithmetic of time and masks."
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = ["game loop", "key repeat", "fixed step", "button mask", "delta time"]
+tags = ["drill", "games", "sdl3", "input", "timing"]
+objectives = [
+    "Predict how held and pressed input differ over several frames",
+    "Spot a one-shot action that forgot to ignore key repeats",
+    "Order the jobs of a frame",
+    "Compute fixed-step counts and mouse button masks by hand",
+]
+prerequisites = ["game-loop/frame-timing"]
+
+[[examples]]
+name = "frame_order"
+expect_stdout = """
+-- frame 1
+pump
+tick
+update
+draw
+present
+-- frame 2
+pump
+tick
+update
+draw
+present
+"""
+
+[[questions]]
+id = "pause-frames"
+type = "predict"
+prompt = "Space is pressed in frames 1 and 3, and the right key is held in frames 0, 1 and 3. What does the program print? Type every line."
+code = """
+module main;
+
+struct Input {
+    bool right_held;
+    bool pause_pressed;
+}
+
+public Status(Error) main() {
+    Input in = {};
+    bool paused = false;
+    i32 x = 0;
+    i32[4] frames_right = {1, 1, 0, 1};
+    bool[4] frames_pause = {false, true, false, true};
+    for i32 i = 0; i < 4; i++ {
+        in.pause_pressed = frames_pause[i as usize];
+        in.right_held = frames_right[i as usize] == 1;
+        if in.pause_pressed {
+            paused = !paused;
+        }
+        if !paused && in.right_held {
+            x += 10;
+        }
+        println("frame {}: x = {}, paused = {}", i, x, paused)?;
+    }
+    return Status::Ok;
+}
+"""
+expect = """
+frame 0: x = 10, paused = false
+frame 1: x = 10, paused = true
+frame 2: x = 10, paused = true
+frame 3: x = 20, paused = false
+"""
+explanation = "Frame 0 moves the square to 10. In frame 1 the pause is toggled before the movement check, so the held key does nothing. Frame 2 is still paused. In frame 3 the second press resumes the game first, and the held right key moves the square again: x = 20 and paused = false."
+
+[[questions]]
+id = "repeat-bug"
+type = "bug"
+prompt = "The player presses and holds Space once, but the pause keeps flickering on and off. Which line is the bug?"
+code = """
+module main;
+
+struct Input {
+    bool paused;
+}
+
+void key_down(Input* in, bool repeat) {
+    in.paused = !in.paused;
+}
+
+public Status(Error) main() {
+    Input in = {};
+    key_down(&in, false);
+    key_down(&in, true);
+    key_down(&in, true);
+    key_down(&in, true);
+    println("paused: {}", in.paused)?;
+    return Status::Ok;
+}
+"""
+lines = [8]
+fixed = """
+module main;
+
+struct Input {
+    bool paused;
+}
+
+void key_down(Input* in, bool repeat) {
+    if !repeat {
+        in.paused = !in.paused;
+    }
+}
+
+public Status(Error) main() {
+    Input in = {};
+    key_down(&in, false);
+    key_down(&in, true);
+    key_down(&in, true);
+    key_down(&in, true);
+    println("paused: {}", in.paused)?;
+    return Status::Ok;
+}
+"""
+expect = """
+paused: true
+"""
+explanation = "While a key is held the operating system sends repeated key-down events with `repeat` set. A one-shot action must ignore them: only the first key-down (`repeat` false) toggles. Here the three repeats toggle the flag three more times."
+
+[[questions]]
+id = "frame-order"
+type = "order"
+prompt = "Put the jobs of one frame in order. The frame must read the input, measure the time, change the state, draw it and show it."
+code = """
+        println("pump")?;
+        println("tick")?;
+        println("update")?;
+        println("draw")?;
+        println("present")?;
+"""
+example = "frame_order"
+explanation = "Input first (so the update sees it), then the time, then the state changes, then the picture of the new state, and finally the swap that shows it."
+
+[[questions]]
+id = "event-type"
+type = "error"
+prompt = "A learner compares a raw event type number with an enum constant. What does the compiler say, and what is the fix?"
+code = """
+module main;
+
+enum Kind : u32 {
+    Quit = 256,
+    Key = 768,
+}
+
+public Status(Error) main() {
+    u32 raw = 256;
+    if raw == Kind::Quit {
+        println("quit")?;
+    }
+    return Status::Ok;
+}
+"""
+diagnostic = "type mismatch"
+choices = [
+    "The enum has no value 256",
+    "A u32 and an enum are different types; convert the enum with `Kind::Quit as u32`",
+    "An enum can only be compared in a match",
+    "raw must be declared const",
+]
+answer = 2
+why = [
+    "256 is exactly Quit's value; the types are the problem.",
+    "",
+    "Enums can be compared with == to values of their own type.",
+    "const has nothing to do with it.",
+]
+explanation = "SDL's `ev.type` is a plain `u32`, while the bindings declare the event constants as an enum. That is why every comparison in this path reads `ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32)`."
+
+[[questions]]
+id = "steps-30"
+type = "short"
+prompt = "The fixed step is 10 ms, the accumulator holds 4 ms and the next frame took 26 ms. How many updates run in this frame? Type the number."
+accept = ["3"]
+explanation = "4 + 26 = 30 ms, which holds three whole steps and nothing is left over."
+
+[[questions]]
+id = "right-mask"
+type = "short"
+prompt = "Button b is bit b - 1 of the mouse mask. What is the number value of the mask when only the right button (button 3) is down? Type the number."
+accept = ["4"]
+explanation = "Button 3 is bit 2, and the value of bit 2 is 1 << 2 = 4. The left button alone gives 1 and the middle button 2."
+
+[[questions]]
+id = "why-clamp"
+type = "choice"
+prompt = "Why is dt clamped to at most 0.25 seconds?"
+choices = [
+    "So the game never runs faster than 4 frames per second",
+    "A long pause would otherwise produce one huge dt and move objects through walls in a single update",
+    "Because floats cannot hold more than 0.25",
+    "SDL refuses larger values",
+]
+answer = 2
+why = [
+    "Clamping dt does not change how often frames are drawn.",
+    "",
+    "Floats hold much larger numbers; the problem is what a huge step does to the game.",
+    "SDL reports the real time; the clamp is the game's own safety rail.",
+]
+explanation = "After a pause (a dragged window, a suspended laptop) the next real frame time can be seconds. Clamping loses a little game time and prevents a teleport."

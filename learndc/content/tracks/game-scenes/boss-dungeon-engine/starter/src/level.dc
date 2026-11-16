@@ -1,0 +1,53 @@
+module level;
+
+public const i32 COLS = 16;
+public const i32 ROWS = 12;
+public const i32 TILE = 20;
+
+public enum Tile : u8 {
+    Floor,
+    Wall,
+    Door,
+    Key,
+    Exit,
+}
+
+public struct Level {
+    Tile[192] cells;
+    i32 start_col;
+    i32 start_row;
+    i32 keys_total;
+}
+
+public []const []const char LEVEL = {
+    "################",
+    "#@...#.....#..E#",
+    "#....#..k..#...#",
+    "#....D.....D...#",
+    "#....#.....#...#",
+    "#.k..#.....#...#",
+    "#....#.....#...#",
+    "#....#.....#...#",
+    "#....#.....#...#",
+    "#....#.....#...#",
+    "#....#.....#...#",
+    "################",
+};
+
+public void set_tile(Level* l, i32 col, i32 row, Tile t) {
+    if col >= 0 && row >= 0 && col < COLS && row < ROWS {
+        l.cells[(row * COLS + col) as usize] = t;
+    }
+}
+
+public bool load(Level* l, []const []const char rows) {
+    return false;
+}
+
+public Tile tile_at(Level* l, i32 col, i32 row) {
+    return Tile::Floor;
+}
+
+public bool solid(Level* l, i32 col, i32 row) {
+    return false;
+}

@@ -1,0 +1,45 @@
+module chart;
+
+public import sdl3;
+
+public struct Color {
+    u8 r;
+    u8 g;
+    u8 b;
+}
+
+public struct Shape {
+    sdl3::SDL_FRect rect;
+    Color color;
+    bool filled;
+}
+
+public void set_color(sdl3::SDL_Renderer* renderer, Color color) {
+    sdl3::SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, 255);
+}
+
+public void draw_shapes(sdl3::SDL_Renderer* renderer, []const Shape shapes) {
+    for shape in shapes {
+        set_color(renderer, shape.color);
+        if shape.filled {
+            sdl3::SDL_RenderFillRect(renderer, &shape.rect);
+        } else {
+            sdl3::SDL_RenderRect(renderer, &shape.rect);
+        }
+    }
+}
+
+public void draw_bars(sdl3::SDL_Renderer* renderer, []const i32 values, i32 bar_width, i32 gap, i32 baseline, Color color) {
+    set_color(renderer, color);
+    i32 x = 0;
+    for value in values {
+        sdl3::SDL_FRect bar = {
+            x = x as f32,
+            y = (baseline - value) as f32,
+            w = bar_width as f32,
+            h = value as f32,
+        };
+        sdl3::SDL_RenderFillRect(renderer, &bar);
+        x += bar_width + gap;
+    }
+}

@@ -1,0 +1,18 @@
+module collision;
+
+public import sdl3;
+public import map;
+
+public struct Body {
+    f32 x;
+    f32 y;
+    f32 w;
+    f32 h;
+}
+
+public bool blocked(map::Map* m, f32 x, f32 y, f32 w, f32 h) {
+    return false;
+}
+
+public void move(map::Map* m, Body* b, f32 dx, f32 dy) {
+}

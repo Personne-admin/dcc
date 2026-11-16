@@ -1,0 +1,41 @@
+schema = 1
+id = "game-scenes/tile-maps"
+revision = 1
+title = "Tile maps from text"
+summary = "Parse a level drawn with characters into a grid of tiles, ask whether a tile is a wall and draw the map with a camera offset."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["tile map", "grid", "parsing", "camera"]
+tags = ["games", "sdl3"]
+objectives = [
+    "Fill a fixed array of tiles from rows of text and validate the input",
+    "Treat everything outside the map as wall",
+    "Draw tiles shifted by a camera offset",
+]
+entry_file = "src/main.dc"
+product = "tile_maps"
+prerequisites = ["game-scenes/frame-animation"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "parse reads the level and the start position"
+harness = "checks/parse_check.dc"
+hint = "Tile (col, row) lives at cells[row * COLS + col]. '#' is 1, '.' is 0 and '@' is floor that also sets start_col and start_row."
+
+[[checks]]
+kind = "harness"
+name = "parse rejects broken maps"
+harness = "checks/invalid_check.dc"
+hint = "Return false for the wrong number of rows, a row that is not COLS long, a character that is none of # . @, and a map without any @."
+
+[[checks]]
+kind = "harness"
+name = "draw colors the tiles and honors the camera"
+harness = "checks/draw_check.dc"
+hint = "A tile's screen position is col * TILE - cam_x and row * TILE - cam_y. Walls are (150, 100, 60), floor is (40, 36, 48)."

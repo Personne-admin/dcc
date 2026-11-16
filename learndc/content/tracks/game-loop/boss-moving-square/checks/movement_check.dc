@@ -1,0 +1,61 @@
+module movement_check;
+
+import game;
+import input;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.01;
+}
+
+bool at(game::State s, f32 x, f32 y) {
+    return near(s.x, x) && near(s.y, y);
+}
+
+public i32 main() {
+    i32 failures = 0;
+    input::Input none = {};
+    input::Input right = {};
+    right.right = true;
+    input::Input left_up = {};
+    left_up.left = true;
+    left_up.up = true;
+    input::Input both = {};
+    both.left = true;
+    both.right = true;
+    input::Input down_right = {};
+    down_right.down = true;
+    down_right.right = true;
+
+    game::State s = {x = 100.0, y = 100.0, color = 0, paused = false};
+    game::move_square(&s, none, 1.0);
+    failures += expect(at(s, 100.0, 100.0), "no keys: the square stays");
+    game::move_square(&s, right, 0.5);
+    failures += expect(at(s, 220.0, 100.0), "right for half a second moves 120 pixels (240 per second)");
+    game::move_square(&s, right, 0.25);
+    failures += expect(at(s, 280.0, 100.0), "dt scales the distance");
+    game::move_square(&s, right, 0.0);
+    failures += expect(at(s, 280.0, 100.0), "dt 0 means no movement");
+    game::State t = {x = 300.0, y = 300.0, color = 0, paused = false};
+    game::move_square(&t, left_up, 0.5);
+    failures += expect(at(t, 300.0 - 84.85, 300.0 - 84.85), "left and up move both coordinates by speed * 0.7071 * dt");
+    game::State u = {x = 100.0, y = 100.0, color = 0, paused = false};
+    game::move_square(&u, both, 1.0);
+    failures += expect(at(u, 100.0, 100.0), "left and right together cancel");
+    game::State v = {x = 100.0, y = 100.0, color = 0, paused = false};
+    game::move_square(&v, down_right, 1.0);
+    failures += expect(at(v, 269.71, 269.71), "diagonal speed equals straight speed: 240 pixels in total");
+    return failures;
+}

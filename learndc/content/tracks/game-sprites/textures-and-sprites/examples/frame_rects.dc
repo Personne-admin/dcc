@@ -1,0 +1,26 @@
+module main;
+
+struct Rect {
+    f32 x;
+    f32 y;
+    f32 w;
+    f32 h;
+}
+
+Rect frame_rect(usize index, usize columns, f32 frame_w, f32 frame_h) {
+    usize col = index % columns;
+    usize row = index / columns;
+    return Rect { x = (col as f32) * frame_w, y = (row as f32) * frame_h, w = frame_w, h = frame_h };
+}
+
+public Status(Error) main() {
+    for i in 0..6 {
+        Rect r = frame_rect(i, 4, 8.0, 8.0);
+        println("frame {}: x {:.0} y {:.0} w {:.0} h {:.0}", i, r.x, r.y, r.w, r.h)?;
+    }
+    f32 scale = 4.0;
+    Rect src = frame_rect(5, 4, 8.0, 8.0);
+    Rect dst = Rect { x = 100.0, y = 40.0, w = src.w * scale, h = src.h * scale };
+    println("draw it {:.0} x {:.0} at {:.0},{:.0}", dst.w, dst.h, dst.x, dst.y)?;
+    return Status::Ok;
+}

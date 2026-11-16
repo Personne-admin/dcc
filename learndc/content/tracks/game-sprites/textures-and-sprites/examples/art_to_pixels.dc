@@ -1,0 +1,57 @@
+module main;
+
+struct Rgba {
+    u8 r;
+    u8 g;
+    u8 b;
+    u8 a;
+}
+
+[]const []const char SWORD = {
+    "..#..",
+    ".#o#.",
+    ".#o#.",
+    "#rrr#",
+    "..r..",
+};
+
+Rgba color_for(char c) {
+    match c {
+        '#' => return Rgba { r = 30, g = 30, b = 50, a = 255 },
+        'o' => return Rgba { r = 220, g = 220, b = 235, a = 255 },
+        'r' => return Rgba { r = 180, g = 40, b = 40, a = 255 },
+        _ => return Rgba { r = 0, g = 0, b = 0, a = 0 },
+    }
+}
+
+void put(u8* pixels, usize index, Rgba c) {
+    usize at = index * 4;
+    pixels[at] = c.r;
+    pixels[at + 1] = c.g;
+    pixels[at + 2] = c.b;
+    pixels[at + 3] = c.a;
+}
+
+public Status(Error) main() {
+    u8[100] pixels = {};
+    usize width = SWORD[0].len;
+    usize y = 0;
+    for row in SWORD {
+        usize x = 0;
+        for c in row {
+            put(&pixels[0], y * width + x, color_for(c));
+            x += 1;
+        }
+        y += 1;
+    }
+    usize solid = 0;
+    for i in 0..25 {
+        if pixels[i * 4 + 3] == 255 {
+            solid += 1;
+        }
+    }
+    println("{} of 25 pixels are solid", solid)?;
+    println("pixel 0 is transparent: alpha {}", pixels[3])?;
+    println("pixel 7 is blade: {} {} {}", pixels[7 * 4], pixels[7 * 4 + 1], pixels[7 * 4 + 2])?;
+    return Status::Ok;
+}

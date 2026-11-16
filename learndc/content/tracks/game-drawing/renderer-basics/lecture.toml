@@ -1,0 +1,146 @@
+schema = 1
+id = "game-drawing/renderer-basics"
+revision = 1
+title = "The renderer, coordinates and drawing from data"
+summary = "How a renderer draws: current color, clear and present, the top left origin, painter's order, shapes from arrays and logical presentation."
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["renderer", "draw color", "SDL_FRect", "painter's order", "logical presentation"]
+tags = ["lecture", "games", "sdl3", "drawing"]
+objectives = [
+    "Describe a frame as clear, draw, present",
+    "Place shapes with the origin at the top left and y growing downwards",
+    "Explain why the order of draw calls is the layering",
+    "Draw many shapes from one array in one loop",
+    "Compute the scale and offset of a letterboxed logical size",
+]
+prerequisites = ["game-setup/setup-drills"]
+
+[[examples]]
+name = "painter_order"
+expect_stdout = """
+..##########............
+..##########............
+..######********........
+..######********........
+........********........
+........********........
+........................
+--
+..##########............
+..##########............
+..##########****........
+..##########****........
+........********........
+........********........
+........................
+"""
+
+[[examples]]
+name = "bars_from_data"
+expect_stdout = """
+...............
+....###........
+....###........
+....###.###....
+###.###.###....
+###.###.###.###
+"""
+
+[[examples]]
+name = "letterbox_math"
+expect_stdout = """
+scale 2.0, offset 0.0, 30.0
+window (100.0, 120.0) is logical (50.0, 45.0)
+wide window: scale 2.7, offset 106.7, 0.0
+"""
+
+[[examples]]
+name = "frame_order"
+expect_stdout = """
+color is now 1
+back buffer cleared to 1
+color is now 2
+rectangle drawn in 2
+window shows 2
+"""
+
+[[questions]]
+id = "frame-order"
+type = "order"
+prompt = "Put the calls of `main` in order. The program must print: color is now 1, back buffer cleared to 1, color is now 2, rectangle drawn in 2, window shows 2."
+code = """
+    set_color(&r, 1);
+    clear(&r);
+    set_color(&r, 2);
+    fill_rect(&r);
+    present(&r);
+"""
+example = "frame_order"
+explanation = "The clear uses the color that is current when it is called, so the color comes first. A new color applies to the next drawing call, and present shows the finished back buffer last."
+
+[[questions]]
+id = "y-down"
+type = "predict"
+prompt = "A bar of height 3 should stand on the baseline y = 10. What does this program print?"
+code = """
+module main;
+
+public Status(Error) main() {
+    i32 baseline = 10;
+    i32 height = 3;
+    i32 top = baseline - height;
+    println("top {} bottom {}", top, top + height)?;
+    return Status::Ok;
+}
+"""
+expect = """
+top 7 bottom 10
+"""
+explanation = "y grows downwards, so a bar that rises from the baseline has its top above it, at a smaller y: `baseline - height`."
+
+[[questions]]
+id = "draw-after-color"
+type = "choice"
+prompt = "A program calls SDL_RenderFillRect, and only then SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255). What color does that rectangle have?"
+choices = [
+    "Red, because the color call is in the same frame",
+    "The color that was current before the color call",
+    "Black, always",
+    "The color of the last rectangle drawn",
+]
+answer = 2
+why = [
+    "The color applies to later calls only.",
+    "",
+    "Black only if black was the current color.",
+    "Rectangles have no memory; the renderer's current color decides.",
+]
+explanation = "The renderer paints with its current color at the moment of the call. A color change affects only the calls after it."
+
+[[questions]]
+id = "painter"
+type = "short"
+prompt = "Two filled rectangles overlap. Which one is visible in the overlap: the one drawn `first` or `last`?"
+accept = ["last"]
+explanation = "Later calls paint over earlier ones, so the rectangle drawn last is on top (painter's order)."
+
+[[cards]]
+id = "frame-steps"
+front = "What are the three steps of every frame?"
+back = "Clear the back buffer, draw, present. Present shows the finished picture."
+
+[[cards]]
+id = "coords"
+front = "Where is the origin and which way does y grow?"
+back = "The origin is the top left corner; x grows right and y grows down."
+
+[[cards]]
+id = "paint-order"
+front = "Why does the order of draw calls matter?"
+back = "Every call paints over what is already there, so the later call is on top (painter's order)."
+
+[[cards]]
+id = "logical"
+front = "What does SDL_SetRenderLogicalPresentation do?"
+back = "You draw in a fixed logical size such as 160 x 90 and SDL scales it to the window, with bars (letterbox) to keep the aspect ratio."

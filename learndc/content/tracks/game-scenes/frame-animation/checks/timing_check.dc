@@ -1,0 +1,26 @@
+module timing_check;
+
+import anim;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    failures += expect_that(anim::frame_at(0, 100, 4, true) == 0, "at 0 ms the first frame shows");
+    failures += expect_that(anim::frame_at(99, 100, 4, true) == 0, "at 99 ms it is still the first frame");
+    failures += expect_that(anim::frame_at(100, 100, 4, true) == 1, "at 100 ms the second frame shows");
+    failures += expect_that(anim::frame_at(399, 100, 4, true) == 3, "at 399 ms the last frame shows");
+    failures += expect_that(anim::frame_at(400, 100, 4, true) == 0, "a looping animation wraps to frame 0 at 400 ms");
+    failures += expect_that(anim::frame_at(1050, 100, 4, true) == 2, "at 1050 ms a looping animation shows frame 2");
+    failures += expect_that(anim::frame_at(250, 100, 4, false) == 2, "a one-shot animation counts like a loop at first");
+    failures += expect_that(anim::frame_at(400, 100, 4, false) == 3, "a one-shot animation stays on its last frame");
+    failures += expect_that(anim::frame_at(100000, 100, 4, false) == 3, "even much later");
+    return failures;
+}

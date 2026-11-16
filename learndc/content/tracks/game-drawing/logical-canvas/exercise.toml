@@ -1,0 +1,36 @@
+schema = 1
+id = "game-drawing/logical-canvas"
+revision = 1
+title = "A fixed canvas in any window"
+summary = "Draw in a fixed 160 x 90 logical size that SDL scales into the window, and convert window positions back to logical ones."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["logical presentation", "letterbox", "coordinate mapping", "SDL_FPoint"]
+tags = ["games", "sdl3", "drawing"]
+objectives = [
+    "Switch the renderer to a fixed logical size with letterboxing",
+    "Draw in logical coordinates and know where the pixels land in the window",
+    "Compute the letterbox scale and offsets",
+    "Convert a window position (such as a mouse click) to logical coordinates",
+]
+entry_file = "src/main.dc"
+product = "logical_canvas"
+prerequisites = ["game-drawing/shapes-from-data"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "letterbox and to_logical agree with SDL"
+harness = "checks/mapping_check.dc"
+hint = "scale is the smaller of window_w / 160 and window_h / 90. The offsets center the used area: (window - logical * scale) / 2. to_logical subtracts the offset and divides by the scale."
+
+[[checks]]
+kind = "harness"
+name = "setup and draw produce a scaled, letterboxed picture"
+harness = "checks/scene_check.dc"
+hint = "setup calls SDL_SetRenderLogicalPresentation(renderer, LOGICAL_W, LOGICAL_H, ...LETTERBOX). draw uses logical coordinates: a frame (0, 0, 160, 90) and a 20 x 20 square at (70, 35)."

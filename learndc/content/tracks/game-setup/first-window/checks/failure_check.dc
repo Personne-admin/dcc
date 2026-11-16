@@ -1,0 +1,33 @@
+module failure_check;
+
+import gfx;
+import sdl3;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    gfx::Gfx g = {};
+
+    sdl3::SDL_SetHint("SDL_VIDEO_DRIVER", "no_such_driver");
+    failures += expect(!gfx::open(&g, "bad driver", 100, 100, null), "open fails when no video driver starts");
+    failures += expect(g.window == null && g.renderer == null, "failed open leaves the handles empty (driver)");
+    failures += expect(sdl3::SDL_WasInit(sdl3::SDL_INIT_VIDEO) == 0, "a failed init leaves nothing initialized");
+
+    sdl3::SDL_SetHint("SDL_VIDEO_DRIVER", "offscreen");
+    failures += expect(!gfx::open(&g, "bad renderer", 100, 100, "no-such-renderer"), "open fails when the renderer cannot be created");
+    failures += expect(g.window == null && g.renderer == null, "failed open leaves the handles empty (renderer)");
+    failures += expect(sdl3::SDL_WasInit(sdl3::SDL_INIT_VIDEO) == 0, "a renderer failure undoes SDL_Init");
+
+    sdl3::SDL_SetHint("SDL_VIDEO_DRIVER", "offscreen");
+    failures += expect(gfx::open(&g, "retry", 100, 100, null), "open works again after the failures");
+    gfx::close(&g);
+    return failures;
+}

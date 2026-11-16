@@ -1,0 +1,31 @@
+module main;
+
+import sdl3;
+import gfx;
+
+public i32 main() {
+    gfx::Gfx g = {};
+    if !gfx::open(&g, "First window", 480, 320, null) {
+        println("cannot open the window: {}", gfx::last_error());
+        return 1;
+    }
+    defer gfx::close(&g);
+    bool running = true;
+    sdl3::SDL_Event ev;
+    while running {
+        while sdl3::SDL_PollEvent(&ev) {
+            if ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32) {
+                running = false;
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32) {
+                if ev.key.key == sdl3::SDLK_ESCAPE {
+                    running = false;
+                }
+            }
+        }
+        sdl3::SDL_SetRenderDrawColor(g.renderer, 30, 60, 90, 255);
+        sdl3::SDL_RenderClear(g.renderer);
+        sdl3::SDL_RenderPresent(g.renderer);
+        sdl3::SDL_Delay(16);
+    }
+    return 0;
+}

@@ -1,0 +1,6 @@
+schema = 1
+id = "game-scenes"
+title = "Game State, Scenes and Resources"
+summary = "Model a game as data, switch between scenes, own your resources and build a tile-based dungeon."
+goal = "Structure a game as scenes with owned resources, then build a complete tile-based dungeon game."
+exercises = ["state-and-scenes", "scene-machine", "resource-lifetimes", "resource-table", "frame-animation", "tile-maps", "tile-collision", "scene-drills", "boss-dungeon-engine"]

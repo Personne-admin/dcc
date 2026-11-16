@@ -1,0 +1,208 @@
+schema = 1
+id = "game-setup/setup-drills"
+revision = 1
+kind = "drill"
+title = "Setup drills"
+summary = "Predict cleanup order, find a leaking error path, read the C-string diagnostic and reason about dynamic linking."
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = ["cleanup order", "error paths", "C strings", "dynamic linking"]
+tags = ["drill", "games", "sdl3"]
+objectives = [
+    "Predict the order in which an early return runs deferred cleanups",
+    "Spot an error path that forgets to undo an earlier step",
+    "Recognise the diagnostic for printing a C string",
+    "Tell build-time from run-time library problems",
+]
+prerequisites = ["game-setup/first-window"]
+
+[[examples]]
+name = "startup_order"
+expect_stdout = """
+init
+window
+renderer
+play
+destroy renderer
+destroy window
+quit
+"""
+
+[[questions]]
+id = "early-exit"
+type = "predict"
+prompt = "A pretend setup function fails at its third step. What does the program print? Type every line."
+code = """
+module main;
+
+Status(Error) setup(i32 fail_at) {
+    println("init")?;
+    defer println("quit");
+    if fail_at == 1 {
+        return Status::Ok;
+    }
+    println("window")?;
+    defer println("destroy window");
+    if fail_at == 2 {
+        return Status::Ok;
+    }
+    println("renderer")?;
+    defer println("destroy renderer");
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    setup(2)?;
+    println("---")?;
+    setup(1)?;
+    return Status::Ok;
+}
+"""
+expect = """
+init
+window
+destroy window
+quit
+---
+init
+quit
+"""
+explanation = "Only the deferred statements that were already registered run. A failure at step 2 has registered `quit` and `destroy window`, so exactly those run, last registered first."
+
+[[questions]]
+id = "leaky-open"
+type = "bug"
+prompt = "This pretend `open` leaves something behind when the second step fails. Which line is the bug?"
+code = """
+module main;
+
+bool step(i32 n, i32 fails) {
+    println("step {}", n);
+    return n != fails;
+}
+
+bool open(i32 fails) {
+    if !step(1, fails) {
+        return false;
+    }
+    if !step(2, fails) {
+        return false;
+    }
+    println("opened");
+    return true;
+}
+
+public Status(Error) main() {
+    if !open(2) {
+        println("failed")?;
+    }
+    return Status::Ok;
+}
+"""
+lines = [13]
+fixed = """
+module main;
+
+bool step(i32 n, i32 fails) {
+    println("step {}", n);
+    return n != fails;
+}
+
+bool open(i32 fails) {
+    if !step(1, fails) {
+        return false;
+    }
+    if !step(2, fails) {
+        println("undo step 1");
+        return false;
+    }
+    println("opened");
+    return true;
+}
+
+public Status(Error) main() {
+    if !open(2) {
+        println("failed")?;
+    }
+    return Status::Ok;
+}
+"""
+expect = """
+step 1
+step 2
+undo step 1
+failed
+"""
+explanation = "Step 1 succeeded, so a failing step 2 must undo it before `return false`. In the real program that is the window that needs `SDL_DestroyWindow` and `SDL_Quit`. Every failing branch undoes exactly the steps before it."
+
+[[questions]]
+id = "print-c-string"
+type = "error"
+prompt = "A learner prints SDL's error message with `println(\"error: {}\", SDL_GetError())`. What does the compiler say, and what is the fix?"
+code = """
+module main;
+
+@nomangle extern const char* SDL_GetError();
+
+public Status(Error) main() {
+    println("error: {}", SDL_GetError())?;
+    return Status::Ok;
+}
+"""
+diagnostic = "type is not formattable"
+choices = [
+    "SDL_GetError is unknown; import sdl3 first",
+    "A const char* has no formatter; convert it to a []const char first",
+    "println cannot print inside main",
+    "The format string needs {:s} for text",
+]
+answer = 2
+why = [
+    "The extern declaration is there and fine.",
+    "",
+    "println works anywhere; the problem is the argument type.",
+    "`{}` is the placeholder for text; the argument has the wrong type.",
+]
+explanation = "A C string is only a pointer; DC's formatter needs a slice that knows its length. Walk to the zero byte and build the slice with `core::slice::from_raw_const`, as `c_text` did."
+
+[[questions]]
+id = "which-failure"
+type = "choice"
+prompt = "A game built fine yesterday. Today it prints `error while loading shared libraries: libSDL3.so.0: cannot open shared object file` and no window opens, before any of your code runs. What happened?"
+choices = [
+    "The code has a bug in main",
+    "The dynamic loader could not find libSDL3.so.0 at run time",
+    "The linker could not find libSDL3 at build time",
+    "dpm lost the lock file",
+]
+answer = 2
+why = [
+    "main never ran; the message comes before it.",
+    "",
+    "The program was already built, so the linker had succeeded.",
+    "A lock problem shows up as a dpm message while building, not when the program starts.",
+]
+explanation = "The executable records that it needs libSDL3.so.0. The loader looks for it at start-up, before `main`. Reinstalling SDL3 (see `learndc setup sdl3`) fixes it."
+
+[[questions]]
+id = "right-order"
+type = "order"
+prompt = "Put the lines of this program in order so that the output is `init`, `window`, `renderer`, `play`, `destroy renderer`, `destroy window`, `quit`."
+code = """
+    println("init")?;
+    defer println("quit");
+    println("window")?;
+    defer println("destroy window");
+    println("renderer")?;
+    defer println("destroy renderer");
+    println("play")?;
+"""
+example = "startup_order"
+explanation = "Each `defer` goes right after the step it undoes. Because deferred statements run in reverse order, the cleanups come out as renderer, window, quit."
+
+[[questions]]
+id = "decode-patch"
+type = "short"
+prompt = "`SDL_GetVersion()` returns 3002008. What is the patch number? Type the number."
+accept = ["8"]
+explanation = "The patch number is `packed % 1000`: 3002008 % 1000 = 8. The minor number is `(packed / 1000) % 1000 = 2`, so this is SDL 3.2.8."

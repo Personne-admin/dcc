@@ -1,0 +1,10 @@
+dpm::v1::Project {
+    name = "ascii_sprite",
+    version = "0.1.0",
+    products = {
+        { name = "ascii_sprite", entry = "src/main.dc" },
+    },
+    dependencies = {
+        { location = "github.com/Personne-admin/sdl3-dc", version = "0.1.0" },
+    },
+}

@@ -1,0 +1,10 @@
+dpm::v1::Project {
+    name = "held_keys",
+    version = "0.1.0",
+    products = {
+        { name = "held_keys", entry = "src/main.dc" },
+    },
+    dependencies = {
+        { location = "github.com/Personne-admin/sdl3-dc", version = "0.1.0" },
+    },
+}

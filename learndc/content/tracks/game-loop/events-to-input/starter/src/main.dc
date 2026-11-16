@@ -1,0 +1,54 @@
+module main;
+
+import sdl3;
+import input;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("Events to input", 400, 300, 0, &window, &renderer) {
+        return 2;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+
+    f32 x = 190.0;
+    f32 y = 140.0;
+    u8 red = 60;
+    input::Input in = {};
+    while !in.quit {
+        input::pump(&in);
+        if in.left {
+            x -= 3.0;
+        }
+        if in.right {
+            x += 3.0;
+        }
+        if in.up {
+            y -= 3.0;
+        }
+        if in.down {
+            y += 3.0;
+        }
+        if in.clicked {
+            x = in.mouse_x - 10.0;
+            y = in.mouse_y - 10.0;
+        }
+        if in.pause_pressed {
+            red = if red > 100 { 60 } else { 200 };
+        }
+        sdl3::SDL_SetRenderDrawColor(renderer, 20, 24, 40, 255);
+        sdl3::SDL_RenderClear(renderer);
+        sdl3::SDL_FRect box = {x = x, y = y, w = 20.0, h = 20.0};
+        sdl3::SDL_SetRenderDrawColor(renderer, red, 120, 40, 255);
+        sdl3::SDL_RenderFillRect(renderer, &box);
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(16);
+    }
+    return 0;
+}

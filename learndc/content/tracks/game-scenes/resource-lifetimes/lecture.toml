@@ -1,0 +1,124 @@
+schema = 1
+id = "game-scenes/resource-lifetimes"
+revision = 1
+title = "Resources and lifetimes"
+summary = "Who creates and destroys textures, how defer covers every exit and how a resource table loads all or nothing."
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["resource", "ownership", "defer", "unwinding", "all or nothing"]
+tags = ["lecture", "games", "memory"]
+objectives = [
+    "Release a resource on every exit path with defer",
+    "Hand ownership to the caller by returning a resource",
+    "Write a load that fails cleanly and an unload that is safe to repeat",
+]
+prerequisites = ["game-scenes/scene-machine"]
+
+[[examples]]
+name = "early_return_leaks"
+expect_stdout = """
+leaky, success path: 0 still alive
+leaky, failing path: 1 still alive
+deferred, success path: 0 still alive
+deferred, failing path: 0 still alive
+"""
+
+[[examples]]
+name = "resource_table"
+expect_stdout = """
+load ok true, 3 alive
+unload: 0 alive
+unload again: 0 alive
+fail at 1: load ok false, 0 alive
+fail at 2: load ok false, 0 alive
+fail at 3: load ok false, 0 alive
+"""
+
+[[questions]]
+id = "defer-placement"
+type = "choice"
+prompt = "Where does the `defer release(...)` for a handle belong?"
+choices = [
+    "At the end of the function, just before the last return",
+    "Directly after the acquire and its null check",
+    "In main, once, for every handle in the program",
+    "Before the acquire, so it is not forgotten",
+]
+answer = 2
+why = [
+    "An early return would skip it, which is the whole problem.",
+    "",
+    "Only the owner of a handle can release it, and a function that creates one for its caller must not.",
+    "Before the acquire there is nothing to release, and the check may show there never will be.",
+]
+explanation = "The release sits next to what it cleans up, after the check that proves the resource exists. Then every later exit is covered."
+
+[[questions]]
+id = "unload-twice"
+type = "predict"
+prompt = "What does this print?"
+code = """
+module main;
+
+struct Slot {
+    i32 handle;
+    i32 live;
+}
+
+void release(Slot* s) {
+    if s.handle != 0 {
+        s.live -= 1;
+        s.handle = 0;
+    }
+}
+
+public Status(Error) main() {
+    Slot s = Slot { handle = 7, live = 1 };
+    release(&s);
+    release(&s);
+    println("{} {}", s.handle, s.live)?;
+    return Status::Ok;
+}
+"""
+expect = "0 0\n"
+explanation = "The first release returns the handle and clears it, the second sees 0 and does nothing. Without clearing the field the second call would count the same handle twice and live would be -1."
+
+[[questions]]
+id = "load-partial"
+type = "bug"
+prompt = "The third texture fails to load and the first two stay alive for the rest of the program. Which line is the bug?"
+code = """
+bool load(Resources* r, sdl3::SDL_Renderer* renderer) {
+    r.tiles = make(renderer, TILES);
+    if r.tiles == null {
+        return false;
+    }
+    r.hero = make(renderer, HERO);
+    if r.hero == null {
+        unload(r);
+        return false;
+    }
+    r.key = make(renderer, KEY);
+    if r.key == null {
+        return false;
+    }
+    return true;
+}
+"""
+lines = [13]
+explanation = "When the key fails, the tiles and the hero already exist. Every failing return must call unload (as the hero check does); line 13 returns without it."
+
+[[cards]]
+id = "acquire-check-defer"
+front = "What is the pattern for any resource you create and keep inside a function?"
+back = "Acquire, check for failure, then defer the release on the next line. Every later exit releases it."
+
+[[cards]]
+id = "load-all-or-nothing"
+front = "What must a load function do when the third resource fails?"
+back = "Release the first two before returning false, so the caller never sees a half-loaded table."
+
+[[cards]]
+id = "unload-repeatable"
+front = "Why does unload set every field back to null (or 0) after releasing it?"
+back = "So that calling unload again, or after a failed load, releases nothing twice."

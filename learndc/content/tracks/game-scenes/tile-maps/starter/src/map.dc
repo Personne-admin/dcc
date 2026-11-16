@@ -1,0 +1,45 @@
+module map;
+
+public import sdl3;
+
+public const i32 COLS = 16;
+public const i32 ROWS = 12;
+public const i32 TILE = 20;
+
+public struct Map {
+    u8[192] cells;
+    i32 start_col;
+    i32 start_row;
+}
+
+public []const []const char LEVEL = {
+    "################",
+    "#@.....#.......#",
+    "#.####.#.#####.#",
+    "#.#....#.#...#.#",
+    "#.#.####.#.#.#.#",
+    "#.#......#.#...#",
+    "#.########.#####",
+    "#..........#...#",
+    "#.########.#.#.#",
+    "#.#......#...#.#",
+    "#...####...###.#",
+    "################",
+};
+
+void fill(sdl3::SDL_Renderer* renderer, u8 r, u8 g, u8 b, f32 x, f32 y, f32 w, f32 h) {
+    sdl3::SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+    sdl3::SDL_FRect rect = {x = x, y = y, w = w, h = h};
+    sdl3::SDL_RenderFillRect(renderer, &rect);
+}
+
+public bool parse(Map* m, []const []const char rows) {
+    return false;
+}
+
+public bool is_wall(Map* m, i32 col, i32 row) {
+    return false;
+}
+
+public void draw(sdl3::SDL_Renderer* renderer, Map* m, f32 cam_x, f32 cam_y) {
+}

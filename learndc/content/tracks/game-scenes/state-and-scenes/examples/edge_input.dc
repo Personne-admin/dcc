@@ -1,0 +1,38 @@
+module main;
+
+struct Input {
+    bool confirm;
+}
+
+struct Button {
+    bool was_down;
+    i32 presses;
+}
+
+void held_counts(Button* b, Input in) {
+    if in.confirm {
+        b.presses += 1;
+    }
+}
+
+void edge_counts(Button* b, Input in) {
+    if in.confirm && !b.was_down {
+        b.presses += 1;
+    }
+    b.was_down = in.confirm;
+}
+
+public Status(Error) main() {
+    bool[6] frames = {false, true, true, true, false, true};
+    Button held = {};
+    Button edge = {};
+    for f in frames {
+        Input in = Input { confirm = f };
+        held_counts(&held, in);
+        edge_counts(&edge, in);
+    }
+    println("one button, two separate presses over 6 frames")?;
+    println("counting held frames: {}", held.presses)?;
+    println("counting pressed edges: {}", edge.presses)?;
+    return Status::Ok;
+}

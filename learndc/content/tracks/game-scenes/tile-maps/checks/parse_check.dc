@@ -1,0 +1,27 @@
+module parse_check;
+
+import map;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    map::Map m = {};
+    failures += expect_that(map::parse(&m, map::LEVEL), "the level parses");
+    failures += expect_that(m.start_col == 1 && m.start_row == 1, "the start is where the @ is, at column 1, row 1");
+    failures += expect_that(map::is_wall(&m, 0, 0), "the top left corner is a wall");
+    failures += expect_that(!map::is_wall(&m, 1, 1), "the start tile is floor");
+    failures += expect_that(map::is_wall(&m, 2, 2) && !map::is_wall(&m, 1, 2), "(2, 2) is wall and (1, 2) is floor");
+    failures += expect_that(!map::is_wall(&m, 6, 1) && map::is_wall(&m, 7, 1), "row 1: floor up to column 6, wall at column 7");
+    failures += expect_that(map::is_wall(&m, 15, 11), "the bottom right corner is a wall");
+    failures += expect_that(map::is_wall(&m, -1, 3) && map::is_wall(&m, 16, 3), "left and right of the map count as wall");
+    failures += expect_that(map::is_wall(&m, 3, -1) && map::is_wall(&m, 3, 12), "above and below the map count as wall");
+    return failures;
+}

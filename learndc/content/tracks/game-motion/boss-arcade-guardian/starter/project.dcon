@@ -1,0 +1,10 @@
+dpm::v1::Project {
+    name = "arcade_guardian",
+    version = "0.1.0",
+    products = {
+        { name = "arcade_guardian", entry = "src/main.dc" },
+    },
+    dependencies = {
+        { location = "github.com/Personne-admin/sdl3-dc", version = "0.1.0" },
+    },
+}

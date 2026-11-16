@@ -1,0 +1,26 @@
+module bmpio;
+
+import core::slice;
+
+public import sdl3;
+
+public []const char last_error() {
+    const char* p = sdl3::SDL_GetError();
+    usize n = 0;
+    while p[n] != (0 as char) {
+        n += 1;
+    }
+    return core::slice::from_raw_const(p, n);
+}
+
+public sdl3::SDL_Surface* make_gradient(i32 size) {
+    return null;
+}
+
+public bool save_gradient(const char* path) {
+    return false;
+}
+
+public sdl3::SDL_Texture* load_texture(sdl3::SDL_Renderer* renderer, const char* path) {
+    return null;
+}

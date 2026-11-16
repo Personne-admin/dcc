@@ -1,0 +1,35 @@
+schema = 1
+id = "game-sprites/first-texture"
+revision = 1
+title = "Your first texture"
+summary = "Upload a 4 by 4 checkerboard to a texture and draw it enlarged with crisp pixels."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["texture", "SDL_CreateTexture", "SDL_UpdateTexture", "scale mode"]
+tags = ["games", "sdl3"]
+objectives = [
+    "Create a texture and fill it from a pixel array",
+    "Draw a texture into a larger destination rectangle",
+    "Destroy the texture on a failing path",
+]
+entry_file = "src/main.dc"
+product = "first_texture"
+prerequisites = ["game-sprites/textures-and-sprites"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "make_texture creates a 4 by 4 texture"
+harness = "checks/texture_check.dc"
+hint = "SDL_CreateTexture takes the renderer, a pixel format, an access mode and the width and height. Check for null."
+
+[[checks]]
+kind = "harness"
+name = "draw shows the checkerboard enlarged with sharp pixels"
+harness = "checks/draw_check.dc"
+hint = "Fill a 160 by 160 rectangle at 80,40 with the texture, and select SDL_SCALEMODE_NEAREST on the texture."

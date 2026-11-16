@@ -1,0 +1,55 @@
+module bmpio;
+
+import core::slice;
+
+public import sdl3;
+
+public []const char last_error() {
+    const char* p = sdl3::SDL_GetError();
+    usize n = 0;
+    while p[n] != (0 as char) {
+        n += 1;
+    }
+    return core::slice::from_raw_const(p, n);
+}
+
+public sdl3::SDL_Surface* make_gradient(i32 size) {
+    sdl3::SDL_Surface* surface = sdl3::SDL_CreateSurface(size, size, sdl3::SDL_PixelFormat::SDL_PIXELFORMAT_ABGR8888);
+    if surface == null {
+        return null;
+    }
+    u8* bytes = surface.pixels as u8*;
+    for i32 y in 0..size {
+        for i32 x in 0..size {
+            usize at = (y * surface.pitch + x * 4) as usize;
+            bytes[at] = (x * 60) as u8;
+            bytes[at + 1] = (y * 60) as u8;
+            bytes[at + 2] = 100;
+            bytes[at + 3] = 255;
+        }
+    }
+    return surface;
+}
+
+public bool save_gradient(const char* path) {
+    sdl3::SDL_Surface* surface = make_gradient(4);
+    if surface == null {
+        return false;
+    }
+    defer sdl3::SDL_DestroySurface(surface);
+    return sdl3::SDL_SaveBMP(surface, path);
+}
+
+public sdl3::SDL_Texture* load_texture(sdl3::SDL_Renderer* renderer, const char* path) {
+    sdl3::SDL_Surface* surface = sdl3::SDL_LoadBMP(path);
+    if surface == null {
+        return null;
+    }
+    defer sdl3::SDL_DestroySurface(surface);
+    sdl3::SDL_Texture* texture = sdl3::SDL_CreateTextureFromSurface(renderer, surface);
+    if texture == null {
+        return null;
+    }
+    sdl3::SDL_SetTextureScaleMode(texture, sdl3::SDL_ScaleMode::SDL_SCALEMODE_NEAREST);
+    return texture;
+}

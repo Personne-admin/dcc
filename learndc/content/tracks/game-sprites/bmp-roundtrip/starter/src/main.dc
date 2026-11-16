@@ -1,0 +1,47 @@
+module main;
+
+import sdl3;
+import bmpio;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("BMP round trip", 320, 240, 0, &window, &renderer) {
+        return 2;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+    if !bmpio::save_gradient("gradient.bmp") {
+        return 3;
+    }
+    sdl3::SDL_Texture* texture = bmpio::load_texture(renderer, "gradient.bmp");
+    if texture == null {
+        return 4;
+    }
+    defer sdl3::SDL_DestroyTexture(texture);
+    bool running = true;
+    sdl3::SDL_Event ev;
+    while running {
+        while sdl3::SDL_PollEvent(&ev) {
+            if ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32) {
+                running = false;
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32) {
+                if ev.key.key == sdl3::SDLK_ESCAPE {
+                    running = false;
+                }
+            }
+        }
+        sdl3::SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        sdl3::SDL_RenderClear(renderer);
+        sdl3::SDL_FRect dst = {x = 80.0, y = 40.0, w = 160.0, h = 160.0};
+        sdl3::SDL_RenderTexture(renderer, texture, null, &dst);
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(16);
+    }
+    return 0;
+}

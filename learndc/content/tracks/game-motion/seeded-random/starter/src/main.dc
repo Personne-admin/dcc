@@ -1,0 +1,56 @@
+module main;
+
+import sdl3;
+import rng;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("Seeded random: Space picks a new seed", 480, 320, 0, &window, &renderer) {
+        return 2;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+
+    u32 seed = (sdl3::SDL_GetTicks() as u32) + 1;
+    bool running = true;
+    sdl3::SDL_Event ev;
+    while running {
+        while sdl3::SDL_PollEvent(&ev) {
+            if ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32) {
+                running = false;
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32) {
+                if ev.key.scancode == sdl3::SDL_Scancode::SDL_SCANCODE_ESCAPE {
+                    running = false;
+                } else if ev.key.scancode == sdl3::SDL_Scancode::SDL_SCANCODE_SPACE {
+                    seed = (sdl3::SDL_GetTicks() as u32) + 1;
+                }
+            }
+        }
+        sdl3::SDL_SetRenderDrawColor(renderer, 20, 24, 40, 255);
+        sdl3::SDL_RenderClear(renderer);
+        rng::Rng r = rng::seeded(seed);
+        for i32 i = 0; i < 60; i++ {
+            sdl3::SDL_FRect star = {
+                x = rng::unit(&r) * 460.0,
+                y = rng::unit(&r) * 300.0,
+                w = (rng::range(&r, 2, 8)) as f32,
+                h = (rng::range(&r, 2, 8)) as f32,
+            };
+            if rng::chance(&r, 25) {
+                sdl3::SDL_SetRenderDrawColor(renderer, 240, 220, 80, 255);
+            } else {
+                sdl3::SDL_SetRenderDrawColor(renderer, 170, 180, 220, 255);
+            }
+            sdl3::SDL_RenderFillRect(renderer, &star);
+        }
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(16);
+    }
+    return 0;
+}

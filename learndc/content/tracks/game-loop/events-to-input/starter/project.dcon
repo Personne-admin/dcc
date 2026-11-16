@@ -1,0 +1,10 @@
+dpm::v1::Project {
+    name = "events_to_input",
+    version = "0.1.0",
+    products = {
+        { name = "events_to_input", entry = "src/main.dc" },
+    },
+    dependencies = {
+        { location = "github.com/Personne-admin/sdl3-dc", version = "0.1.0" },
+    },
+}

@@ -1,0 +1,71 @@
+module mapping_check;
+
+import sdl3;
+import canvas;
+
+@nomangle extern bool SDL_RenderCoordinatesFromWindow(sdl3::SDL_Renderer* renderer, f32 window_x, f32 window_y, f32* x, f32* y);
+
+i32 near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    if d < 0.01 {
+        return 1;
+    }
+    return 0;
+}
+
+i32 expect_mapping(i32 w, i32 h, f32 scale, f32 ox, f32 oy) {
+    canvas::Mapping m = canvas::letterbox(w, h);
+    if near(m.scale, scale) == 1 && near(m.offset_x, ox) == 1 && near(m.offset_y, oy) == 1 {
+        println("ok   letterbox({}, {})", w, h);
+        return 0;
+    }
+    println("FAIL letterbox({}, {}) gave scale {:.2} offset {:.2}, {:.2}; expected {:.2}, {:.2}, {:.2}", w, h, m.scale, m.offset_x, m.offset_y, scale, ox, oy);
+    return 1;
+}
+
+i32 expect_point(sdl3::SDL_Renderer* renderer, f32 wx, f32 wy) {
+    canvas::Mapping m = canvas::letterbox(320, 240);
+    sdl3::SDL_FPoint mine = canvas::to_logical(m, wx, wy);
+    f32 sx = 0.0;
+    f32 sy = 0.0;
+    SDL_RenderCoordinatesFromWindow(renderer, wx, wy, &sx, &sy);
+    if near(mine.x, sx) == 1 && near(mine.y, sy) == 1 {
+        println("ok   window ({:.1}, {:.1}) maps like SDL does", wx, wy);
+        return 0;
+    }
+    println("FAIL window ({:.1}, {:.1}): you gave ({:.2}, {:.2}), SDL says ({:.2}, {:.2})", wx, wy, mine.x, mine.y, sx, sy);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    failures += expect_mapping(320, 240, 2.0, 0.0, 30.0);
+    failures += expect_mapping(640, 360, 4.0, 0.0, 0.0);
+    failures += expect_mapping(640, 240, 2.6666667, 106.66666, 0.0);
+    failures += expect_mapping(160, 90, 1.0, 0.0, 0.0);
+
+    sdl3::SDL_SetHint("SDL_VIDEO_DRIVER", "offscreen");
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        println("FAIL SDL_Init");
+        return failures + 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("check", 320, 240, 0, &window, &renderer) {
+        println("FAIL window");
+        return failures + 1;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+    canvas::setup(renderer);
+    failures += expect_point(renderer, 100.0, 120.0);
+    failures += expect_point(renderer, 0.0, 30.0);
+    failures += expect_point(renderer, 320.0, 210.0);
+    failures += expect_point(renderer, 160.0, 120.0);
+    return failures;
+}

@@ -1,0 +1,78 @@
+module resources;
+
+public import sdl3;
+import art;
+
+public struct Resources {
+    sdl3::SDL_Texture* wall;
+    sdl3::SDL_Texture* floor;
+    sdl3::SDL_Texture* door;
+    sdl3::SDL_Texture* key;
+    sdl3::SDL_Texture* exit;
+    sdl3::SDL_Texture* hero;
+}
+
+public bool load(Resources* r, sdl3::SDL_Renderer* renderer) {
+    return load_with(r, renderer, art::KEY, art::HERO);
+}
+
+public void unload(Resources* r) {
+    if r.hero != null {
+        sdl3::SDL_DestroyTexture(r.hero);
+        r.hero = null;
+    }
+    if r.exit != null {
+        sdl3::SDL_DestroyTexture(r.exit);
+        r.exit = null;
+    }
+    if r.key != null {
+        sdl3::SDL_DestroyTexture(r.key);
+        r.key = null;
+    }
+    if r.door != null {
+        sdl3::SDL_DestroyTexture(r.door);
+        r.door = null;
+    }
+    if r.floor != null {
+        sdl3::SDL_DestroyTexture(r.floor);
+        r.floor = null;
+    }
+    if r.wall != null {
+        sdl3::SDL_DestroyTexture(r.wall);
+        r.wall = null;
+    }
+}
+
+public bool load_with(Resources* r, sdl3::SDL_Renderer* renderer, []const []const char key_art, []const []const char hero_art) {
+    r.wall = art::make(renderer, art::WALL);
+    if r.wall == null {
+        unload(r);
+        return false;
+    }
+    r.floor = art::make(renderer, art::FLOOR);
+    if r.floor == null {
+        unload(r);
+        return false;
+    }
+    r.door = art::make(renderer, art::DOOR);
+    if r.door == null {
+        unload(r);
+        return false;
+    }
+    r.key = art::make(renderer, key_art);
+    if r.key == null {
+        unload(r);
+        return false;
+    }
+    r.exit = art::make(renderer, art::EXIT);
+    if r.exit == null {
+        unload(r);
+        return false;
+    }
+    r.hero = art::make(renderer, hero_art);
+    if r.hero == null {
+        unload(r);
+        return false;
+    }
+    return true;
+}

@@ -1,0 +1,57 @@
+module main;
+
+import sdl3;
+import lamp;
+import anim;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("Frame animation", 320, 240, 0, &window, &renderer) {
+        return 2;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+    sdl3::SDL_Texture* sheet = lamp::create(renderer);
+    if sheet == null {
+        return 3;
+    }
+    defer sdl3::SDL_DestroyTexture(sheet);
+    anim::Anim looping = anim::make(250, 4, true);
+    anim::Anim once = anim::make(250, 4, false);
+    u64 last = sdl3::SDL_GetTicks();
+    bool running = true;
+    sdl3::SDL_Event ev;
+    while running {
+        while sdl3::SDL_PollEvent(&ev) {
+            if ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32) {
+                running = false;
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32) {
+                if ev.key.key == sdl3::SDLK_ESCAPE {
+                    running = false;
+                }
+            }
+        }
+        u64 now = sdl3::SDL_GetTicks();
+        u32 dt = (now - last) as u32;
+        last = now;
+        const bool* keys = sdl3::SDL_GetKeyboardState(null);
+        if keys[sdl3::SDL_Scancode::SDL_SCANCODE_SPACE as i32] {
+            anim::restart(&once);
+        }
+        anim::advance(&looping, dt);
+        anim::advance(&once, dt);
+        sdl3::SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255);
+        sdl3::SDL_RenderClear(renderer);
+        anim::draw(renderer, sheet, &looping, 60.0, 80.0, 8.0);
+        anim::draw(renderer, sheet, &once, 200.0, 80.0, 8.0);
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(16);
+    }
+    return 0;
+}

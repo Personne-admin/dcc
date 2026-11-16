@@ -1,0 +1,57 @@
+module gfx;
+
+import core::slice;
+
+public import sdl3;
+
+public struct Gfx {
+    sdl3::SDL_Window* window;
+    sdl3::SDL_Renderer* renderer;
+}
+
+public []const char last_error() {
+    const char* text = sdl3::SDL_GetError();
+    if text == null {
+        return "";
+    }
+    usize n = 0;
+    while text[n] != (0 as char) {
+        n += 1;
+    }
+    return core::slice::from_raw_const(text, n);
+}
+
+public bool open(Gfx* g, const char* title, i32 width, i32 height, const char* renderer_name) {
+    g.window = null;
+    g.renderer = null;
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return false;
+    }
+    sdl3::SDL_Window* window = sdl3::SDL_CreateWindow(title, width, height, 0);
+    if window == null {
+        sdl3::SDL_Quit();
+        return false;
+    }
+    sdl3::SDL_Renderer* renderer = sdl3::SDL_CreateRenderer(window, renderer_name);
+    if renderer == null {
+        sdl3::SDL_DestroyWindow(window);
+        sdl3::SDL_Quit();
+        return false;
+    }
+    g.window = window;
+    g.renderer = renderer;
+    return true;
+}
+
+public void close(Gfx* g) {
+    if g.renderer != null {
+        sdl3::SDL_DestroyRenderer(g.renderer);
+        g.renderer = null;
+    }
+    if g.window != null {
+        sdl3::SDL_DestroyWindow(g.window);
+        g.window = null;
+    }
+    sdl3::SDL_Quit();
+}

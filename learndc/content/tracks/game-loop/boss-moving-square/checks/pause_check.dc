@@ -1,0 +1,53 @@
+module pause_check;
+
+import game;
+import input;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.01;
+}
+
+bool at(game::State s, f32 x, f32 y) {
+    return near(s.x, x) && near(s.y, y);
+}
+
+public i32 main() {
+    i32 failures = 0;
+    input::Input none = {};
+    input::Input press = {};
+    press.pause_pressed = true;
+
+    game::State s = game::new_state();
+    game::toggle_pause(&s, none);
+    failures += expect(!s.paused, "no press: not paused");
+    game::toggle_pause(&s, press);
+    failures += expect(s.paused, "a press pauses");
+    game::toggle_pause(&s, none);
+    failures += expect(s.paused, "staying pressed-free keeps the pause");
+    game::toggle_pause(&s, press);
+    failures += expect(!s.paused, "a second press resumes");
+
+    input::Input busy = {};
+    busy.right = true;
+    busy.clicked = true;
+    busy.mouse_x = 10.0;
+    busy.mouse_y = 10.0;
+    game::State p = game::new_state();
+    p.paused = true;
+    game::update(&p, busy, 1.0);
+    failures += expect(at(p, 300.0, 220.0) && p.color == 0 && p.paused, "update does nothing while paused");
+    return failures;
+}

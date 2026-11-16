@@ -1,0 +1,12 @@
+module scene;
+
+public import sdl3;
+
+public void set_color(sdl3::SDL_Renderer* renderer, u8 r, u8 g, u8 b) {
+    sdl3::SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+}
+
+public void draw(sdl3::SDL_Renderer* renderer) {
+    set_color(renderer, 0, 0, 0);
+    sdl3::SDL_RenderClear(renderer);
+}

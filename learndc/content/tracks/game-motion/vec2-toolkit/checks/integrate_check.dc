@@ -1,0 +1,42 @@
+module integrate_check;
+
+import vec2;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.001;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    vec2::Vec2 none = vec2::Vec2 { x = 0.0, y = 0.0 };
+    vec2::Vec2 gravity = vec2::Vec2 { x = 0.0, y = 200.0 };
+
+    vec2::Body glide = vec2::Body { position = vec2::Vec2 { x = 0.0, y = 0.0 }, velocity = vec2::Vec2 { x = 100.0, y = 0.0 } };
+    vec2::integrate(&glide, none, 0.5);
+    failures += expect(near(glide.position.x, 50.0) && near(glide.position.y, 0.0), "no acceleration: position moves by velocity * dt");
+    failures += expect(near(glide.velocity.x, 100.0), "no acceleration: velocity is unchanged");
+
+    vec2::Body fall = vec2::Body { position = vec2::Vec2 { x = 0.0, y = 0.0 }, velocity = vec2::Vec2 { x = 100.0, y = 0.0 } };
+    vec2::integrate(&fall, gravity, 0.1);
+    failures += expect(near(fall.velocity.y, 20.0), "gravity first changes the velocity: 200 * 0.1 = 20");
+    failures += expect(near(fall.position.x, 10.0) && near(fall.position.y, 2.0), "the position then uses the new velocity: y = 20 * 0.1 = 2");
+    for i32 i = 0; i < 4; i++ {
+        vec2::integrate(&fall, gravity, 0.1);
+    }
+    failures += expect(near(fall.position.x, 50.0) && near(fall.position.y, 30.0), "five steps of 0.1 give the lecture's numbers (50, 30)");
+    failures += expect(near(fall.velocity.y, 100.0), "and the velocity is (100, 100)");
+    return failures;
+}

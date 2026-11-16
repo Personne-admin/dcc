@@ -1,0 +1,118 @@
+schema = 1
+id = "game-scenes/state-and-scenes"
+revision = 1
+title = "Game state and scenes"
+summary = "Model the whole game as data, switch between scenes with an enum and tell a key press from a held key."
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["game state", "scene", "enum", "state machine", "pressed versus held"]
+tags = ["lecture", "games"]
+objectives = [
+    "Keep game logic in plain state and update functions that need no window",
+    "Model title, play, pause and game over as an enum with one match per concern",
+    "Detect a key press as an edge instead of a held key",
+]
+prerequisites = ["game-sprites/sprite-drills"]
+
+[[examples]]
+name = "scene_basics"
+expect_stdout = """
+scene Title, score 0
+scene Play, score 0, lives 3
+scene Pause, score 10
+scene Pause, score 10
+scene GameOver, score 10
+scene Title, score 10
+"""
+
+[[examples]]
+name = "edge_input"
+expect_stdout = """
+one button, two separate presses over 6 frames
+counting held frames: 4
+counting pressed edges: 2
+"""
+
+[[questions]]
+id = "why-enum"
+type = "choice"
+prompt = "Why is an enum with a match better than the flags `bool paused; bool dead; bool in_menu;`?"
+choices = [
+    "It runs faster",
+    "Exactly one value is possible at a time, and the compiler checks that every scene is handled",
+    "Flags cannot be stored in a struct",
+    "An enum can hold the score",
+]
+answer = 2
+why = [
+    "Speed is not the point. Both are a few bytes.",
+    "",
+    "Flags can be stored, but nothing stops two of them being true at once.",
+    "An enum value only names the scene; the score lives next to it in the state struct.",
+]
+explanation = "One enum field means one scene, and an exhaustive match turns a forgotten scene into a compile error."
+
+[[questions]]
+id = "held-presses"
+type = "predict"
+prompt = "A button is down for the frames below. How many presses does the edge counter see, and how many frames does the held counter see?"
+code = """
+module main;
+
+public Status(Error) main() {
+    bool[7] frames = {false, true, true, false, true, true, true};
+    bool was_down = false;
+    i32 presses = 0;
+    i32 held = 0;
+    for down in frames {
+        if down {
+            held += 1;
+        }
+        if down && !was_down {
+            presses += 1;
+        }
+        was_down = down;
+    }
+    println("{} {}", presses, held)?;
+    return Status::Ok;
+}
+"""
+expect = "2 5\n"
+explanation = "There are two separate runs of true frames, so two presses; they last 2 and 3 frames, so the held counter reaches 5."
+
+[[questions]]
+id = "stale-previous"
+type = "bug"
+prompt = "Pressing Enter starts the game and also hits once in the same frame. Which line causes it?"
+code = """
+void update(Game* g, Input in) {
+    bool pressed = in.confirm && !g.was_down;
+    if g.scene == Scene::Title {
+        if pressed {
+            g.scene = Scene::Play;
+        }
+        return;
+    }
+    if pressed {
+        g.score += 1;
+    }
+    g.was_down = in.confirm;
+}
+"""
+lines = [7]
+explanation = "The `return` on line 7 skips the last line, so `was_down` is not updated while the title scene is active. On the next frame the held key still looks like a fresh press and scores a point. Update the previous value on every path."
+
+[[cards]]
+id = "state-is-data"
+front = "What goes into the game state struct, and what does update do with it?"
+back = "Everything that must be remembered between frames. update(state, input) changes it and never draws; draw reads it and never changes it."
+
+[[cards]]
+id = "pressed-edge"
+front = "How do you detect that a key was pressed, not held?"
+back = "Compare with the previous frame: pressed = down && !was_down, then store was_down = down at the end of every update."
+
+[[cards]]
+id = "scene-enum"
+front = "Why model scenes as an enum?"
+back = "Exactly one scene at a time, and an exhaustive match makes the compiler flag every place that forgets a new scene."

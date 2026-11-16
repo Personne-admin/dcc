@@ -1,0 +1,36 @@
+module clock_check;
+
+import timing;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.0001;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    timing::Clock clock = {};
+    f32 first = timing::tick(&clock, 5000000000);
+    failures += expect(near(first, 0.0), "the first tick has no previous frame, so dt is 0");
+    f32 a = timing::tick(&clock, 5016000000);
+    failures += expect(near(a, 0.016), "16 ms later dt is 0.016");
+    f32 b = timing::tick(&clock, 5066000000);
+    failures += expect(near(b, 0.05), "50 ms later dt is 0.05, measured from the previous tick");
+    f32 c = timing::tick(&clock, 15066000000);
+    failures += expect(near(c, 0.25), "a 10 second pause is clamped to 0.25");
+    f32 d = timing::tick(&clock, 15082000000);
+    failures += expect(near(d, 0.016), "the next frame is normal again");
+    return failures;
+}

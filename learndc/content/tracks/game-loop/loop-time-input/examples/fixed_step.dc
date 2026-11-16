@@ -1,0 +1,30 @@
+module main;
+
+const f32 STEP = 0.01;
+
+struct Stepper {
+    f32 accumulator;
+}
+
+i32 steps_due(Stepper* s, f32 frame_time) {
+    s.accumulator += frame_time;
+    i32 steps = 0;
+    while s.accumulator >= STEP {
+        s.accumulator -= STEP;
+        steps += 1;
+    }
+    return steps;
+}
+
+public Status(Error) main() {
+    Stepper s = {};
+    f32[5] frames = {0.016, 0.017, 0.033, 0.005, 0.016};
+    i32 total = 0;
+    for i32 i = 0; i < 5; i++ {
+        i32 n = steps_due(&s, frames[i as usize]);
+        total += n;
+        println("frame {}: {:.3} s -> {} update(s), {:.3} s left over", i, frames[i as usize], n, s.accumulator)?;
+    }
+    println("total updates: {}", total)?;
+    return Status::Ok;
+}

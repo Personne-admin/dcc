@@ -1,0 +1,54 @@
+module walk_check;
+
+import game;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+void run(game::Game* g, game::Input in, i32 frames, f32 dt) {
+    for i32 i in 0..frames {
+        game::walk(g, in, dt);
+    }
+}
+
+game::Input held(bool left, bool right, bool up, bool down) {
+    game::Input in = game::no_input();
+    in.left = left;
+    in.right = right;
+    in.up = up;
+    in.down = down;
+    return in;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    game::Game g = game::new_game();
+    game::start(&g);
+    failures += expect_that(g.player.x == 24.0 && g.player.y == 24.0, "the player starts centered in the start tile");
+    run(&g, held(false, false, false, false), 5, 0.125);
+    failures += expect_that(g.player.x == 24.0 && g.player.y == 24.0, "without input the player stays");
+    run(&g, held(false, true, false, false), 1, 0.125);
+    failures += expect_that(g.player.x == 34.0 && g.player.y == 24.0, "right moves SPEED * dt = 10 pixels");
+    run(&g, held(true, false, false, false), 1, 0.125);
+    failures += expect_that(g.player.x == 24.0, "left moves back");
+    run(&g, held(false, true, false, false), 20, 0.125);
+    failures += expect_that(g.player.x == 88.0, "the wall at column 5 stops the player flush (x = 88)");
+    run(&g, held(false, true, false, true), 1, 0.125);
+    failures += expect_that(g.player.x == 88.0 && g.player.y == 34.0, "pushing diagonally into the wall slides down it");
+    run(&g, held(false, false, false, true), 30, 0.125);
+    failures += expect_that(g.player.y == 208.0, "the bottom wall stops the player (y = 208)");
+    run(&g, held(true, false, false, false), 30, 0.125);
+    failures += expect_that(g.player.x == 20.0, "the left wall stops the player (x = 20)");
+    game::Game h = game::new_game();
+    game::start(&h);
+    h.player.y = 64.0;
+    run(&h, held(false, true, false, false), 30, 0.125);
+    failures += expect_that(h.player.x == 88.0, "a closed door blocks the player like a wall");
+    return failures;
+}

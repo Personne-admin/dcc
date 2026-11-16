@@ -1,0 +1,17 @@
+module sdlinfo;
+
+import core::slice;
+
+public struct Version {
+    i32 major;
+    i32 minor;
+    i32 patch;
+}
+
+public Version decode_version(i32 packed) {
+    return Version { major = 0, minor = 0, patch = 0 };
+}
+
+public []const char c_text(const char* text) {
+    return "";
+}

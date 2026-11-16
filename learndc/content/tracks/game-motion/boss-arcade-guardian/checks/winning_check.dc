@@ -1,0 +1,65 @@
+module winning_check;
+
+import pong;
+import input;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.01;
+}
+
+pong::Ball ball(f32 x, f32 y, f32 vx, f32 vy) {
+    return pong::Ball { x = x, y = y, vx = vx, vy = vy };
+}
+
+public i32 main() {
+    i32 failures = 0;
+    pong::Game g = pong::new_game(3);
+    pong::update_winner(&g);
+    failures += expect(g.winner == 0, "nobody wins at 0 : 0");
+    g.left_score = 4;
+    g.right_score = 4;
+    pong::update_winner(&g);
+    failures += expect(g.winner == 0, "4 : 4 is not a win");
+    g.left_score = 5;
+    pong::update_winner(&g);
+    failures += expect(g.winner == 1, "5 points win for the left player");
+    pong::Game h = pong::new_game(3);
+    h.right_score = 5;
+    h.left_score = 2;
+    pong::update_winner(&h);
+    failures += expect(h.winner == 2, "5 points win for the right player");
+
+    h.left.y = 0.0;
+    h.right.y = 300.0;
+    h.ball = ball(500.0, 20.0, 100.0, 50.0);
+    pong::restart(&h);
+    failures += expect(h.left_score == 0 && h.right_score == 0 && h.winner == 0, "restart clears the scores and the winner");
+    failures += expect(near(h.left.y, 148.0) && near(h.right.y, 148.0), "restart centers both paddles");
+    failures += expect(near(h.ball.x, 314.0) && near(h.ball.y, 174.0) && near(h.ball.vx, 300.0), "restart serves a new ball from the center");
+
+    pong::Game u = pong::new_game(3);
+    u.winner = 2;
+    u.right_score = 5;
+    u.ball = ball(100.0, 100.0, 300.0, 0.0);
+    input::Input idle = {};
+    pong::update(&u, idle, 0.1);
+    failures += expect(u.winner == 2 && near(u.ball.x, 100.0), "while somebody has won, update freezes the game");
+    input::Input again = {};
+    again.restart = true;
+    pong::update(&u, again, 0.1);
+    failures += expect(u.winner == 0 && u.right_score == 0, "pressing restart starts a new game");
+    return failures;
+}

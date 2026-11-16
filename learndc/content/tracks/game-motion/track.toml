@@ -1,0 +1,6 @@
+schema = 1
+id = "game-motion"
+title = "Motion and Collision"
+summary = "Vectors, velocity, bouncing, overlap tests, collision response and seeded randomness, ending in a complete Pong game."
+goal = "Simulate moving objects and their collisions in plain testable functions, and combine them into a finished arcade game."
+exercises = ["vectors-and-collisions", "vec2-toolkit", "bouncing-ball", "box-collisions", "seeded-random", "motion-drills", "boss-arcade-guardian"]

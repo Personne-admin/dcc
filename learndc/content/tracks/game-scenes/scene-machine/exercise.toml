@@ -1,0 +1,41 @@
+schema = 1
+id = "game-scenes/scene-machine"
+revision = 1
+title = "A scene machine"
+summary = "Switch between title, play, pause and game over with an enum, edge-detected input and one draw function per scene."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["scene", "enum", "match", "state machine", "pressed versus held"]
+tags = ["games", "sdl3"]
+objectives = [
+    "Write update as a match on the scene with transitions and entry work",
+    "Detect key presses with the previous input stored in the state",
+    "Draw each scene, with pause drawn on top of play",
+]
+entry_file = "src/main.dc"
+product = "scene_machine"
+prerequisites = ["game-scenes/state-and-scenes"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "Title and play: transitions, hits and hurt"
+harness = "checks/title_play_check.dc"
+hint = "Compute pressed = down now && !down last frame for every key, using g.prev. Starting the game sets scene Play, score 0 and lives 3."
+
+[[checks]]
+kind = "harness"
+name = "Pause, game over and the next game"
+harness = "checks/pause_over_check.dc"
+hint = "Pause ignores hit and hurt. Test lives <= 0 before the pause key in Play. Do not forget g.prev = in at the very end of update."
+
+[[checks]]
+kind = "harness"
+name = "Every scene draws its own picture"
+harness = "checks/render_check.dc"
+hint = "draw is a match on g.scene with one arm per scene; draw_pause calls draw_play first and then draws the two bars."

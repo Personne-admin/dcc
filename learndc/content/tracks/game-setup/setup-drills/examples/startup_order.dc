@@ -1,0 +1,12 @@
+module main;
+
+public Status(Error) main() {
+    println("init")?;
+    defer println("quit");
+    println("window")?;
+    defer println("destroy window");
+    println("renderer")?;
+    defer println("destroy renderer");
+    println("play")?;
+    return Status::Ok;
+}

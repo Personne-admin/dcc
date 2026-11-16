@@ -1,0 +1,32 @@
+module controls;
+
+public import sdl3;
+
+public struct Held {
+    bool left;
+    bool right;
+    bool up;
+    bool down;
+}
+
+public void read_keyboard(const bool* keys, Held* held) {
+    held.left = keys[sdl3::SDL_Scancode::SDL_SCANCODE_LEFT as usize] || keys[sdl3::SDL_Scancode::SDL_SCANCODE_A as usize];
+    held.right = keys[sdl3::SDL_Scancode::SDL_SCANCODE_RIGHT as usize] || keys[sdl3::SDL_Scancode::SDL_SCANCODE_D as usize];
+    held.up = keys[sdl3::SDL_Scancode::SDL_SCANCODE_UP as usize] || keys[sdl3::SDL_Scancode::SDL_SCANCODE_W as usize];
+    held.down = keys[sdl3::SDL_Scancode::SDL_SCANCODE_DOWN as usize] || keys[sdl3::SDL_Scancode::SDL_SCANCODE_S as usize];
+}
+
+public i32 axis(bool negative, bool positive) {
+    i32 value = 0;
+    if negative {
+        value -= 1;
+    }
+    if positive {
+        value += 1;
+    }
+    return value;
+}
+
+public bool button_down(u32 mask, u8 button) {
+    return (mask & (1 << ((button as u32) - 1))) != 0;
+}

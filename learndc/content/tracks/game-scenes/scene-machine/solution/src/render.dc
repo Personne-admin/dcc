@@ -1,0 +1,43 @@
+module render;
+
+public import sdl3;
+public import game;
+
+void fill(sdl3::SDL_Renderer* renderer, u8 r, u8 g, u8 b, f32 x, f32 y, f32 w, f32 h) {
+    sdl3::SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+    sdl3::SDL_FRect rect = {x = x, y = y, w = w, h = h};
+    sdl3::SDL_RenderFillRect(renderer, &rect);
+}
+
+void draw_title(sdl3::SDL_Renderer* renderer) {
+    fill(renderer, 20, 30, 80, 0.0, 0.0, 320.0, 240.0);
+    fill(renderer, 230, 120, 40, 60.0, 100.0, 200.0, 40.0);
+}
+
+void draw_play(sdl3::SDL_Renderer* renderer, game::Game* g) {
+    fill(renderer, 20, 60, 30, 0.0, 0.0, 320.0, 240.0);
+    for i32 i in 0..g.lives {
+        fill(renderer, 200, 40, 40, 10.0 + (i * 30) as f32, 10.0, 20.0, 20.0);
+    }
+    fill(renderer, 240, 220, 60, 10.0, 40.0, (g.score * 10) as f32, 10.0);
+}
+
+void draw_game_over(sdl3::SDL_Renderer* renderer) {
+    fill(renderer, 90, 20, 20, 0.0, 0.0, 320.0, 240.0);
+    fill(renderer, 240, 240, 240, 100.0, 90.0, 120.0, 60.0);
+}
+
+public void draw_pause(sdl3::SDL_Renderer* renderer, game::Game* g) {
+    draw_play(renderer, g);
+    fill(renderer, 230, 230, 230, 130.0, 90.0, 20.0, 60.0);
+    fill(renderer, 230, 230, 230, 170.0, 90.0, 20.0, 60.0);
+}
+
+public void draw(sdl3::SDL_Renderer* renderer, game::Game* g) {
+    match g.scene {
+        game::Scene::Title => draw_title(renderer),
+        game::Scene::Play => draw_play(renderer, g),
+        game::Scene::Pause => draw_pause(renderer, g),
+        game::Scene::GameOver => draw_game_over(renderer),
+    }
+}

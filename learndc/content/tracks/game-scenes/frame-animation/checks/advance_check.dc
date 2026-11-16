@@ -1,0 +1,34 @@
+module advance_check;
+
+import anim;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    anim::Anim lp = anim::make(100, 4, true);
+    anim::advance(&lp, 150);
+    failures += expect_that(anim::current(&lp) == 1, "after 150 ms the loop shows frame 1");
+    anim::advance(&lp, 100);
+    failures += expect_that(anim::current(&lp) == 2, "after 250 ms it shows frame 2");
+    anim::advance(&lp, 1000);
+    failures += expect_that(lp.elapsed < 400, "a looping animation keeps its time below one cycle");
+    failures += expect_that(anim::current(&lp) == 0 && !anim::finished(&lp), "after 1250 ms it is on frame 0 and never finishes");
+    anim::Anim once = anim::make(100, 4, false);
+    anim::advance(&once, 399);
+    failures += expect_that(anim::current(&once) == 3 && !anim::finished(&once), "one-shot: the last frame shows before the end");
+    anim::advance(&once, 1);
+    failures += expect_that(anim::finished(&once), "one-shot: finished after 400 ms");
+    anim::advance(&once, 5000);
+    failures += expect_that(anim::finished(&once) && anim::current(&once) == 3 && once.elapsed == 400, "one-shot: time stops at the end");
+    anim::restart(&once);
+    failures += expect_that(!anim::finished(&once) && anim::current(&once) == 0, "restart starts the one-shot animation again");
+    return failures;
+}

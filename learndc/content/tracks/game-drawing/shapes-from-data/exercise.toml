@@ -1,0 +1,36 @@
+schema = 1
+id = "game-drawing/shapes-from-data"
+revision = 1
+title = "Shapes from data"
+summary = "Draw an array of shape structs with one loop, and turn a list of numbers into bars that stand on a baseline."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["arrays of structs", "slices", "SDL_FRect", "y axis", "data-driven drawing"]
+tags = ["games", "sdl3", "drawing", "structs"]
+objectives = [
+    "Loop over a slice of structs and draw each by its fields",
+    "Choose between a filled and an outlined rectangle from a flag",
+    "Compute rectangles from numbers, converting integers to f32",
+    "Stand bars on a baseline with y growing downwards",
+]
+entry_file = "src/main.dc"
+product = "shapes_from_data"
+prerequisites = ["game-drawing/shapes-by-hand"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "draw_shapes draws filled and outlined shapes in list order"
+harness = "checks/shapes_check.dc"
+hint = "Loop over shapes, set the color from shape.color and call SDL_RenderFillRect or SDL_RenderRect depending on shape.filled. Pass &shape.rect."
+
+[[checks]]
+kind = "harness"
+name = "draw_bars stands bars on the baseline"
+harness = "checks/bars_check.dc"
+hint = "Bar i starts at x = i * (bar_width + gap), has height = value and its top is baseline - value. Convert the integers with `as f32`."

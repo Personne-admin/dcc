@@ -1,0 +1,85 @@
+module map;
+
+public import sdl3;
+
+public const i32 COLS = 16;
+public const i32 ROWS = 12;
+public const i32 TILE = 20;
+
+public struct Map {
+    u8[192] cells;
+    i32 start_col;
+    i32 start_row;
+}
+
+public []const []const char LEVEL = {
+    "################",
+    "#@.....#.......#",
+    "#.####.#.#####.#",
+    "#.#....#.#...#.#",
+    "#.#.####.#.#.#.#",
+    "#.#......#.#...#",
+    "#.########.#####",
+    "#..........#...#",
+    "#.########.#.#.#",
+    "#.#......#...#.#",
+    "#...####...###.#",
+    "################",
+};
+
+void fill(sdl3::SDL_Renderer* renderer, u8 r, u8 g, u8 b, f32 x, f32 y, f32 w, f32 h) {
+    sdl3::SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+    sdl3::SDL_FRect rect = {x = x, y = y, w = w, h = h};
+    sdl3::SDL_RenderFillRect(renderer, &rect);
+}
+
+public bool parse(Map* m, []const []const char rows) {
+    if rows.len != (ROWS as usize) {
+        return false;
+    }
+    bool found = false;
+    for i32 row in 0..ROWS {
+        []const char line = rows[row as usize];
+        if line.len != (COLS as usize) {
+            return false;
+        }
+        for i32 col in 0..COLS {
+            char c = line[col as usize];
+            usize at = (row * COLS + col) as usize;
+            if c == '#' {
+                m.cells[at] = 1;
+            } else if c == '.' {
+                m.cells[at] = 0;
+            } else if c == '@' {
+                m.cells[at] = 0;
+                m.start_col = col;
+                m.start_row = row;
+                found = true;
+            } else {
+                return false;
+            }
+        }
+    }
+    return found;
+}
+
+public bool is_wall(Map* m, i32 col, i32 row) {
+    if col < 0 || row < 0 || col >= COLS || row >= ROWS {
+        return true;
+    }
+    return m.cells[(row * COLS + col) as usize] == 1;
+}
+
+public void draw(sdl3::SDL_Renderer* renderer, Map* m, f32 cam_x, f32 cam_y) {
+    for i32 row in 0..ROWS {
+        for i32 col in 0..COLS {
+            f32 x = ((col * TILE) as f32) - cam_x;
+            f32 y = ((row * TILE) as f32) - cam_y;
+            if is_wall(m, col, row) {
+                fill(renderer, 150, 100, 60, x, y, TILE as f32, TILE as f32);
+            } else {
+                fill(renderer, 40, 36, 48, x, y, TILE as f32, TILE as f32);
+            }
+        }
+    }
+}

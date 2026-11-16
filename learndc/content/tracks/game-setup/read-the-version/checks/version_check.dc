@@ -1,0 +1,22 @@
+module version_check;
+
+import sdlinfo;
+
+i32 expect(i32 packed, i32 major, i32 minor, i32 patch) {
+    sdlinfo::Version v = sdlinfo::decode_version(packed);
+    if v.major == major && v.minor == minor && v.patch == patch {
+        println("ok   {} is {}.{}.{}", packed, major, minor, patch);
+        return 0;
+    }
+    println("FAIL {} gave {}.{}.{}, expected {}.{}.{}", packed, v.major, v.minor, v.patch, major, minor, patch);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    failures += expect(3004020, 3, 4, 20);
+    failures += expect(3002008, 3, 2, 8);
+    failures += expect(3000000, 3, 0, 0);
+    failures += expect(3010999, 3, 10, 999);
+    return failures;
+}

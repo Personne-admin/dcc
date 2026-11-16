@@ -1,0 +1,51 @@
+module collision;
+
+public import level;
+
+public struct Body {
+    f32 x;
+    f32 y;
+    f32 w;
+    f32 h;
+}
+
+public bool blocked(level::Level* l, f32 x, f32 y, f32 w, f32 h) {
+    f32 tile = level::TILE as f32;
+    if x < 0.0 || y < 0.0 {
+        return true;
+    }
+    i32 first_col = (x / tile) as i32;
+    i32 last_col = ((x + w - 0.001) / tile) as i32;
+    i32 first_row = (y / tile) as i32;
+    i32 last_row = ((y + h - 0.001) / tile) as i32;
+    for i32 row in first_row..=last_row {
+        for i32 col in first_col..=last_col {
+            if level::solid(l, col, row) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+public void move(level::Level* l, Body* b, f32 dx, f32 dy) {
+    f32 tile = level::TILE as f32;
+    f32 nx = b.x + dx;
+    if blocked(l, nx, b.y, b.w, b.h) {
+        if dx > 0.0 {
+            nx = ((((nx + b.w) / tile) as i32) as f32) * tile - b.w;
+        } else {
+            nx = ((((nx / tile) as i32) + 1) as f32) * tile;
+        }
+    }
+    b.x = nx;
+    f32 ny = b.y + dy;
+    if blocked(l, b.x, ny, b.w, b.h) {
+        if dy > 0.0 {
+            ny = ((((ny + b.h) / tile) as i32) as f32) * tile - b.h;
+        } else {
+            ny = ((((ny / tile) as i32) + 1) as f32) * tile;
+        }
+    }
+    b.y = ny;
+}

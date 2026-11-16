@@ -1,0 +1,107 @@
+module apply_check;
+
+import input;
+import sdl3;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+sdl3::SDL_Event key(bool down, sdl3::SDL_Scancode code, bool repeat) {
+    sdl3::SDL_Event ev = {};
+    if down {
+        ev.type = (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32);
+    } else {
+        ev.type = (sdl3::SDL_EventType::SDL_EVENT_KEY_UP as u32);
+    }
+    ev.key.scancode = code;
+    ev.key.down = down;
+    ev.key.repeat = repeat;
+    return ev;
+}
+
+sdl3::SDL_Event mouse_down(u8 button, f32 x, f32 y) {
+    sdl3::SDL_Event ev = {};
+    ev.type = (sdl3::SDL_EventType::SDL_EVENT_MOUSE_BUTTON_DOWN as u32);
+    ev.button.button = button;
+    ev.button.down = true;
+    ev.button.x = x;
+    ev.button.y = y;
+    return ev;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    input::Input in = {};
+    sdl3::SDL_Event ev = {};
+
+    ev = key(true, sdl3::SDL_Scancode::SDL_SCANCODE_LEFT, false);
+    input::apply_event(&in, &ev);
+    failures += expect(in.left && !in.right && !in.up && !in.down, "left arrow down holds left");
+    ev = key(false, sdl3::SDL_Scancode::SDL_SCANCODE_LEFT, false);
+    input::apply_event(&in, &ev);
+    failures += expect(!in.left, "left arrow up releases left");
+
+    ev = key(true, sdl3::SDL_Scancode::SDL_SCANCODE_D, false);
+    input::apply_event(&in, &ev);
+    ev = key(true, sdl3::SDL_Scancode::SDL_SCANCODE_W, false);
+    input::apply_event(&in, &ev);
+    failures += expect(in.right && in.up && !in.left && !in.down, "D is right and W is up");
+    ev = key(true, sdl3::SDL_Scancode::SDL_SCANCODE_S, false);
+    input::apply_event(&in, &ev);
+    ev = key(true, sdl3::SDL_Scancode::SDL_SCANCODE_A, false);
+    input::apply_event(&in, &ev);
+    failures += expect(in.down && in.left, "S is down and A is left");
+    ev = key(false, sdl3::SDL_Scancode::SDL_SCANCODE_DOWN, false);
+    input::apply_event(&in, &ev);
+    ev = key(false, sdl3::SDL_Scancode::SDL_SCANCODE_UP, false);
+    input::apply_event(&in, &ev);
+    ev = key(false, sdl3::SDL_Scancode::SDL_SCANCODE_RIGHT, false);
+    input::apply_event(&in, &ev);
+    failures += expect(!in.down && !in.up && !in.right && in.left, "the arrow keys release the same directions as WASD");
+
+    failures += expect(!in.quit, "no quit yet");
+    ev = key(true, sdl3::SDL_Scancode::SDL_SCANCODE_ESCAPE, false);
+    input::apply_event(&in, &ev);
+    failures += expect(in.quit, "Escape down quits");
+
+    input::Input fresh = {};
+    ev = key(false, sdl3::SDL_Scancode::SDL_SCANCODE_ESCAPE, false);
+    input::apply_event(&fresh, &ev);
+    failures += expect(!fresh.quit, "releasing Escape does not quit");
+    sdl3::SDL_Event quit_ev = {};
+    quit_ev.type = (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32);
+    input::apply_event(&fresh, &quit_ev);
+    failures += expect(fresh.quit, "the quit event quits");
+
+    input::Input p = {};
+    ev = key(true, sdl3::SDL_Scancode::SDL_SCANCODE_SPACE, false);
+    input::apply_event(&p, &ev);
+    failures += expect(p.pause_pressed, "Space down presses pause");
+    input::begin_frame(&p);
+    ev = key(true, sdl3::SDL_Scancode::SDL_SCANCODE_SPACE, true);
+    input::apply_event(&p, &ev);
+    failures += expect(!p.pause_pressed, "a repeated Space does not press pause again");
+    ev = key(false, sdl3::SDL_Scancode::SDL_SCANCODE_SPACE, false);
+    input::apply_event(&p, &ev);
+    failures += expect(!p.pause_pressed, "releasing Space does not press pause");
+
+    input::Input m = {};
+    ev = mouse_down(sdl3::SDL_BUTTON_LEFT, 12.5, 40.0);
+    input::apply_event(&m, &ev);
+    failures += expect(m.clicked && m.mouse_x == 12.5 && m.mouse_y == 40.0, "a left click stores the position");
+    input::Input r = {};
+    ev = mouse_down(sdl3::SDL_BUTTON_RIGHT, 3.0, 4.0);
+    input::apply_event(&r, &ev);
+    failures += expect(!r.clicked, "a right click is ignored");
+    sdl3::SDL_Event motion_ev = {};
+    motion_ev.type = (sdl3::SDL_EventType::SDL_EVENT_MOUSE_MOTION as u32);
+    input::apply_event(&r, &motion_ev);
+    failures += expect(!r.clicked && !r.quit, "mouse motion changes nothing");
+    return failures;
+}

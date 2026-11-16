@@ -1,0 +1,35 @@
+schema = 1
+id = "game-scenes/tile-collision"
+revision = 1
+title = "Tile collision"
+summary = "Test a box against the tiles it overlaps and move it one axis at a time so it stops flush against walls and slides along them."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["collision", "AABB", "tile", "axis separation"]
+tags = ["games", "sdl3"]
+objectives = [
+    "Find the range of tiles a box overlaps",
+    "Move on one axis at a time and snap to the wall",
+    "Slide along a wall when moving diagonally",
+]
+entry_file = "src/main.dc"
+product = "tile_collision"
+prerequisites = ["game-scenes/tile-maps"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "blocked finds walls under a box"
+harness = "checks/blocked_check.dc"
+hint = "The box covers columns x / TILE to (x + w - 0.001) / TILE and the same for rows. Ask map::is_wall for each tile in that range."
+
+[[checks]]
+kind = "harness"
+name = "move stops flush against walls and slides"
+harness = "checks/move_check.dc"
+hint = "Move x, test, snap x if blocked; then move y, test, snap y if blocked. Snap to the tile edge the box ran into, not back to the old position."

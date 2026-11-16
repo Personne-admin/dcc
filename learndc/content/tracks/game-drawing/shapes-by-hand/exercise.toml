@@ -1,0 +1,42 @@
+schema = 1
+id = "game-drawing/shapes-by-hand"
+revision = 1
+title = "A house from rectangles, lines and points"
+summary = "Draw a small scene with SDL's renderer: clear, filled rectangles, an outlined rectangle, lines and points."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["renderer", "draw color", "SDL_FRect", "coordinates", "painter's order"]
+tags = ["games", "sdl3", "drawing"]
+objectives = [
+    "Set the draw color and clear the frame",
+    "Fill and outline rectangles given as SDL_FRect",
+    "Draw lines and points in window coordinates with the origin at the top left",
+    "Order draw calls so later shapes cover earlier ones",
+]
+entry_file = "src/main.dc"
+product = "shapes_by_hand"
+prerequisites = ["game-drawing/renderer-basics"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "Sky and ground"
+harness = "checks/sky_ground.dc"
+hint = "Clear to (110, 170, 230) first, then fill the ground rectangle x 0, y 110, w 200, h 40 in (60, 150, 70)."
+
+[[checks]]
+kind = "harness"
+name = "House body, door and window frame"
+harness = "checks/house.dc"
+hint = "Fill the body, then the door over it, then outline the window with SDL_RenderRect. The outline keeps the body color inside."
+
+[[checks]]
+kind = "harness"
+name = "Roof and birds"
+harness = "checks/roof_birds.dc"
+hint = "The roof is two SDL_RenderLine calls through the apex (100, 15); the birds are three SDL_RenderPoint calls."

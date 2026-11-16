@@ -1,0 +1,38 @@
+module main;
+
+struct Vec2 {
+    f32 x;
+    f32 y;
+}
+
+Vec2 add(Vec2 a, Vec2 b) {
+    return Vec2 { x = a.x + b.x, y = a.y + b.y };
+}
+
+Vec2 scale(Vec2 v, f32 k) {
+    return Vec2 { x = v.x * k, y = v.y * k };
+}
+
+struct Body {
+    Vec2 position;
+    Vec2 velocity;
+}
+
+void step(Body* b, Vec2 acceleration, f32 dt) {
+    b.velocity = add(b.velocity, scale(acceleration, dt));
+    b.position = add(b.position, scale(b.velocity, dt));
+}
+
+public Status(Error) main() {
+    Body ball = Body {
+        position = Vec2 { x = 0.0, y = 0.0 },
+        velocity = Vec2 { x = 100.0, y = 0.0 },
+    };
+    Vec2 gravity = Vec2 { x = 0.0, y = 200.0 };
+    for i32 i = 0; i < 5; i++ {
+        step(&ball, gravity, 0.1);
+        println("t = {:.1}: position ({:.1}, {:.1}), velocity ({:.1}, {:.1})", ((i + 1) as f32) * 0.1,
+                ball.position.x, ball.position.y, ball.velocity.x, ball.velocity.y)?;
+    }
+    return Status::Ok;
+}

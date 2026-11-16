@@ -1,0 +1,21 @@
+module controls;
+
+public import sdl3;
+
+public struct Held {
+    bool left;
+    bool right;
+    bool up;
+    bool down;
+}
+
+public void read_keyboard(const bool* keys, Held* held) {
+}
+
+public i32 axis(bool negative, bool positive) {
+    return 0;
+}
+
+public bool button_down(u32 mask, u8 button) {
+    return false;
+}

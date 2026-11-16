@@ -1,0 +1,28 @@
+module rng;
+
+public struct Rng {
+    u32 state;
+}
+
+public Rng seeded(u32 seed) {
+    return Rng { state = seed };
+}
+
+public u32 next(Rng* r) {
+    r.state = r.state * 1664525 + 1013904223;
+    return r.state;
+}
+
+public i32 range(Rng* r, i32 lo, i32 hi) {
+    u32 span = (hi - lo + 1) as u32;
+    return lo + (((next(r) >> 16) % span) as i32);
+}
+
+public f32 unit(Rng* r) {
+    u32 bits = next(r) >> 8;
+    return (bits as f32) / 16777216.0;
+}
+
+public bool chance(Rng* r, i32 percent) {
+    return range(r, 0, 99) < percent;
+}

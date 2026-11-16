@@ -1,0 +1,54 @@
+module walls_check;
+
+import ball;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.01;
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    ball::Ball free = ball::Ball { x = 100.0, y = 100.0, vx = 50.0, vy = -20.0, size = 10.0 };
+    i32 n = ball::step(&free, 0.5);
+    failures += expect(n == 0 && near(free.x, 125.0) && near(free.y, 90.0), "in the open the ball just moves by velocity * dt");
+    failures += expect(near(free.vx, 50.0) && near(free.vy, -20.0), "and keeps its velocity");
+
+    ball::Ball right = ball::Ball { x = 295.0, y = 100.0, vx = 100.0, vy = 0.0, size = 10.0 };
+    n = ball::step(&right, 0.2);
+    failures += expect(n == 1 && near(right.x, 305.0) && near(right.vx, -100.0), "right wall: x = 315 is 5 past the limit 310, mirrored to 305, vx flips");
+
+    ball::Ball left = ball::Ball { x = 5.0, y = 100.0, vx = -100.0, vy = 0.0, size = 10.0 };
+    n = ball::step(&left, 0.2);
+    failures += expect(n == 1 && near(left.x, 15.0) && near(left.vx, 100.0), "left wall: -15 is mirrored to 15, vx flips");
+
+    ball::Ball floor = ball::Ball { x = 100.0, y = 225.0, vx = 0.0, vy = 100.0, size = 10.0 };
+    n = ball::step(&floor, 0.2);
+    failures += expect(n == 1 && near(floor.y, 215.0) && near(floor.vy, -100.0), "bottom: the y limit is 240 - 10 = 230; 245 is 15 past it, mirrored to 215");
+
+    ball::Ball top = ball::Ball { x = 100.0, y = 5.0, vx = 0.0, vy = -100.0, size = 10.0 };
+    n = ball::step(&top, 0.2);
+    failures += expect(n == 1 && near(top.y, 15.0) && near(top.vy, 100.0), "top: -15 is mirrored to 15");
+
+    ball::Ball corner = ball::Ball { x = 300.0, y = 220.0, vx = 100.0, vy = 100.0, size = 10.0 };
+    n = ball::step(&corner, 0.2);
+    failures += expect(n == 2 && near(corner.vx, -100.0) && near(corner.vy, -100.0), "a corner bounces both axes and counts 2");
+
+    ball::Ball exact = ball::Ball { x = 300.0, y = 100.0, vx = 50.0, vy = 0.0, size = 10.0 };
+    n = ball::step(&exact, 0.2);
+    failures += expect(n == 0 && near(exact.x, 310.0), "touching the limit exactly is not a bounce");
+    return failures;
+}

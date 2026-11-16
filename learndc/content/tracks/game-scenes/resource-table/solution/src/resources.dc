@@ -1,0 +1,48 @@
+module resources;
+
+public import sdl3;
+import art;
+
+public struct Resources {
+    sdl3::SDL_Texture* wall;
+    sdl3::SDL_Texture* hero;
+    sdl3::SDL_Texture* key;
+}
+
+public bool load(Resources* r, sdl3::SDL_Renderer* renderer) {
+    return load_with(r, renderer, art::WALL, art::HERO, art::KEY);
+}
+
+public void unload(Resources* r) {
+    if r.key != null {
+        sdl3::SDL_DestroyTexture(r.key);
+        r.key = null;
+    }
+    if r.hero != null {
+        sdl3::SDL_DestroyTexture(r.hero);
+        r.hero = null;
+    }
+    if r.wall != null {
+        sdl3::SDL_DestroyTexture(r.wall);
+        r.wall = null;
+    }
+}
+
+public bool load_with(Resources* r, sdl3::SDL_Renderer* renderer, []const []const char wall_art, []const []const char hero_art, []const []const char key_art) {
+    r.wall = art::make(renderer, wall_art);
+    if r.wall == null {
+        unload(r);
+        return false;
+    }
+    r.hero = art::make(renderer, hero_art);
+    if r.hero == null {
+        unload(r);
+        return false;
+    }
+    r.key = art::make(renderer, key_art);
+    if r.key == null {
+        unload(r);
+        return false;
+    }
+    return true;
+}

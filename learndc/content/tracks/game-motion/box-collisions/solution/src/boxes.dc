@@ -1,0 +1,69 @@
+module boxes;
+
+public struct Rect {
+    f32 x;
+    f32 y;
+    f32 w;
+    f32 h;
+}
+
+public struct Mover {
+    Rect rect;
+    f32 vx;
+    f32 vy;
+}
+
+public bool overlaps(Rect a, Rect b) {
+    return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+f32 magnitude(f32 v) {
+    if v < 0.0 {
+        return 0.0 - v;
+    }
+    return v;
+}
+
+f32 smaller(f32 a, f32 b) {
+    if a < b {
+        return a;
+    }
+    return b;
+}
+
+f32 larger(f32 a, f32 b) {
+    if a > b {
+        return a;
+    }
+    return b;
+}
+
+public bool resolve(Mover* m, Rect wall) {
+    if !overlaps(m.rect, wall) {
+        return false;
+    }
+    f32 depth_x = smaller(m.rect.x + m.rect.w, wall.x + wall.w) - larger(m.rect.x, wall.x);
+    f32 depth_y = smaller(m.rect.y + m.rect.h, wall.y + wall.h) - larger(m.rect.y, wall.y);
+    if depth_x < depth_y {
+        f32 mover_center = m.rect.x + m.rect.w / 2.0;
+        f32 wall_center = wall.x + wall.w / 2.0;
+        if mover_center < wall_center {
+            m.rect.x -= depth_x;
+            m.vx = 0.0 - magnitude(m.vx);
+        } else {
+            m.rect.x += depth_x;
+            m.vx = magnitude(m.vx);
+        }
+    } else {
+        f32 mover_center = m.rect.y + m.rect.h / 2.0;
+        f32 wall_center = wall.y + wall.h / 2.0;
+        if mover_center < wall_center {
+            m.rect.y -= depth_y;
+            m.vy = 0.0 - magnitude(m.vy);
+        } else {
+            m.rect.y += depth_y;
+            m.vy = magnitude(m.vy);
+        }
+    }
+    return true;
+}

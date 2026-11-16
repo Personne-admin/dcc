@@ -1,0 +1,35 @@
+schema = 1
+id = "game-sprites/sprite-sheet"
+revision = 1
+title = "Sprite sheets"
+summary = "Pick a frame of a sprite sheet with a source rectangle and draw it scaled, optionally mirrored."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["sprite sheet", "source rectangle", "SDL_RenderTexture", "flip"]
+tags = ["games", "sdl3"]
+objectives = [
+    "Compute the source rectangle of frame number n",
+    "Draw one frame into a scaled destination rectangle",
+    "Mirror a sprite with SDL_RenderTextureRotated",
+]
+entry_file = "src/main.dc"
+product = "sprite_sheet"
+prerequisites = ["game-sprites/ascii-sprite"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "frame_rect finds every frame of the sheet"
+harness = "checks/rect_check.dc"
+hint = "Column is index % columns, row is index / columns. Multiply both by the frame size."
+
+[[checks]]
+kind = "harness"
+name = "draw_frame draws the chosen frame, mirrored when asked"
+harness = "checks/sheet_check.dc"
+hint = "The source rectangle comes from frame_rect, the destination is the same size times scale. For the mirror use SDL_RenderTextureRotated with angle 0.0 and SDL_FLIP_HORIZONTAL."

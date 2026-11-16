@@ -1,0 +1,101 @@
+module art;
+
+public import sdl3;
+
+struct Rgba {
+    u8 r;
+    u8 g;
+    u8 b;
+    u8 a;
+}
+
+public []const []const char WALL = {
+    "gggggggg",
+    "kkkgkkkk",
+    "kkkgkkkk",
+    "gggggggg",
+    "kkkkkgkk",
+    "kkkkkgkk",
+    "gggggggg",
+    "kkkgkkkk",
+};
+
+public []const []const char HERO = {
+    "..rrrr..",
+    ".rrrrrr.",
+    ".#oooo#.",
+    ".#o##o#.",
+    "..oooo..",
+    ".bbbbbb.",
+    ".b.bb.b.",
+    "..#..#..",
+};
+
+public []const []const char KEY = {
+    "..yyy...",
+    ".y...y..",
+    ".y...y..",
+    "..yyy...",
+    "...y....",
+    "...yy...",
+    "...y....",
+    "...yy...",
+};
+
+Rgba color_for(char c) {
+    match c {
+        '#' => return Rgba { r = 30, g = 30, b = 50, a = 255 },
+        'k' => return Rgba { r = 150, g = 100, b = 60, a = 255 },
+        'g' => return Rgba { r = 90, g = 90, b = 100, a = 255 },
+        'y' => return Rgba { r = 240, g = 210, b = 60, a = 255 },
+        'r' => return Rgba { r = 200, g = 40, b = 40, a = 255 },
+        'b' => return Rgba { r = 50, g = 90, b = 200, a = 255 },
+        'o' => return Rgba { r = 240, g = 190, b = 140, a = 255 },
+        _ => return Rgba { r = 0, g = 0, b = 0, a = 0 },
+    }
+}
+
+public sdl3::SDL_Texture* make(sdl3::SDL_Renderer* renderer, []const []const char art) {
+    if art.len == 0 || art.len > 16 {
+        return null;
+    }
+    usize width = art[0].len;
+    if width == 0 || width > 16 {
+        return null;
+    }
+    for row in art {
+        if row.len != width {
+            return null;
+        }
+    }
+    sdl3::SDL_Texture* texture = sdl3::SDL_CreateTexture(
+        renderer,
+        sdl3::SDL_PixelFormat::SDL_PIXELFORMAT_ABGR8888,
+        sdl3::SDL_TextureAccess::SDL_TEXTUREACCESS_STATIC,
+        width as i32,
+        art.len as i32);
+    if texture == null {
+        return null;
+    }
+    u8[1024] pixels = {};
+    usize y = 0;
+    for row in art {
+        usize x = 0;
+        for c in row {
+            Rgba color = color_for(c);
+            usize at = (y * width + x) * 4;
+            pixels[at] = color.r;
+            pixels[at + 1] = color.g;
+            pixels[at + 2] = color.b;
+            pixels[at + 3] = color.a;
+            x += 1;
+        }
+        y += 1;
+    }
+    if !sdl3::SDL_UpdateTexture(texture, null, &pixels[0] as const void*, (width * 4) as i32) {
+        sdl3::SDL_DestroyTexture(texture);
+        return null;
+    }
+    sdl3::SDL_SetTextureScaleMode(texture, sdl3::SDL_ScaleMode::SDL_SCALEMODE_NEAREST);
+    return texture;
+}

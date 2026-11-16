@@ -1,0 +1,56 @@
+module input;
+
+public import sdl3;
+
+public struct Input {
+    bool w;
+    bool s;
+    bool up;
+    bool down;
+    bool quit;
+    bool restart;
+    bool toggle_ai;
+}
+
+public void begin_frame(Input* in) {
+    in.restart = false;
+    in.toggle_ai = false;
+}
+
+public void apply_event(Input* in, const sdl3::SDL_Event* ev) {
+    if ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32) {
+        in.quit = true;
+    } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32) || ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_UP as u32) {
+        bool down = ev.key.down;
+        sdl3::SDL_Scancode code = ev.key.scancode;
+        if code == sdl3::SDL_Scancode::SDL_SCANCODE_W {
+            in.w = down;
+        } else if code == sdl3::SDL_Scancode::SDL_SCANCODE_S {
+            in.s = down;
+        } else if code == sdl3::SDL_Scancode::SDL_SCANCODE_UP {
+            in.up = down;
+        } else if code == sdl3::SDL_Scancode::SDL_SCANCODE_DOWN {
+            in.down = down;
+        } else if code == sdl3::SDL_Scancode::SDL_SCANCODE_ESCAPE {
+            if down {
+                in.quit = true;
+            }
+        } else if code == sdl3::SDL_Scancode::SDL_SCANCODE_SPACE || code == sdl3::SDL_Scancode::SDL_SCANCODE_RETURN {
+            if down && !ev.key.repeat {
+                in.restart = true;
+            }
+        } else if code == sdl3::SDL_Scancode::SDL_SCANCODE_TAB {
+            if down && !ev.key.repeat {
+                in.toggle_ai = true;
+            }
+        }
+    }
+}
+
+public void pump(Input* in) {
+    begin_frame(in);
+    sdl3::SDL_Event ev = {};
+    while sdl3::SDL_PollEvent(&ev) {
+        apply_event(in, &ev);
+    }
+}

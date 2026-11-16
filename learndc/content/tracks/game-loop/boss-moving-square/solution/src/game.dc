@@ -1,0 +1,89 @@
+module game;
+
+public import input;
+
+public const f32 WIDTH = 640.0;
+public const f32 HEIGHT = 480.0;
+public const f32 SIZE = 40.0;
+public const f32 SPEED = 240.0;
+public const i32 COLORS = 4;
+
+public struct State {
+    f32 x;
+    f32 y;
+    i32 color;
+    bool paused;
+}
+
+public State new_state() {
+    return State { x = 300.0, y = 220.0, color = 0, paused = false };
+}
+
+public f32 axis(bool negative, bool positive) {
+    f32 value = 0.0;
+    if negative {
+        value -= 1.0;
+    }
+    if positive {
+        value += 1.0;
+    }
+    return value;
+}
+
+public f32 current_speed(input::Input in) {
+    if in.boost {
+        return SPEED * 2.0;
+    }
+    return SPEED;
+}
+
+public void move_square(State* s, input::Input in, f32 dt) {
+    f32 dx = axis(in.left, in.right);
+    f32 dy = axis(in.up, in.down);
+    if dx != 0.0 && dy != 0.0 {
+        dx *= 0.70710678;
+        dy *= 0.70710678;
+    }
+    f32 speed = current_speed(in);
+    s.x += dx * speed * dt;
+    s.y += dy * speed * dt;
+}
+
+public void keep_inside(State* s) {
+    if s.x < 0.0 {
+        s.x = 0.0;
+    }
+    if s.x > WIDTH - SIZE {
+        s.x = WIDTH - SIZE;
+    }
+    if s.y < 0.0 {
+        s.y = 0.0;
+    }
+    if s.y > HEIGHT - SIZE {
+        s.y = HEIGHT - SIZE;
+    }
+}
+
+public void click(State* s, input::Input in) {
+    if in.clicked {
+        s.x = in.mouse_x - SIZE / 2.0;
+        s.y = in.mouse_y - SIZE / 2.0;
+        s.color = (s.color + 1) % COLORS;
+    }
+}
+
+public void toggle_pause(State* s, input::Input in) {
+    if in.pause_pressed {
+        s.paused = !s.paused;
+    }
+}
+
+public void update(State* s, input::Input in, f32 dt) {
+    toggle_pause(s, in);
+    if s.paused {
+        return;
+    }
+    click(s, in);
+    move_square(s, in, dt);
+    keep_inside(s);
+}

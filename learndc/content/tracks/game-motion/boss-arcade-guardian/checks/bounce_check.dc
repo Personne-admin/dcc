@@ -1,0 +1,70 @@
+module bounce_check;
+
+import pong;
+import input;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.01;
+}
+
+pong::Ball ball(f32 x, f32 y, f32 vx, f32 vy) {
+    return pong::Ball { x = x, y = y, vx = vx, vy = vy };
+}
+
+public i32 main() {
+    i32 failures = 0;
+    pong::Paddle left = pong::Paddle { y = 100.0 };
+    pong::Ball b = ball(22.0, 120.0, -300.0, 10.0);
+    bool hit = pong::hit_paddle(&b, left, 1);
+    failures += expect(hit, "a ball overlapping the left paddle and moving left hits it");
+    failures += expect(near(b.x, 32.0), "it is pushed out to the paddle's right face: x = 20 + 12");
+    failures += expect(b.vx >= 299.99 && b.vx <= 315.01, "its horizontal velocity is reversed (300, or 315 once speed_up is written)");
+    failures += expect(near(b.vy, -42.1875), "the angle comes from the hit position: -0.1875 * 225");
+
+    b = ball(22.0, 126.0, -300.0, 99.0);
+    hit = pong::hit_paddle(&b, left, 1);
+    failures += expect(hit && near(b.vy, 0.0), "hitting the exact center of the paddle sends the ball straight");
+
+    b = ball(22.0, 140.0, -300.0, 0.0);
+    hit = pong::hit_paddle(&b, left, 1);
+    failures += expect(hit && near(b.vy, 98.4375), "a hit 14 below the center: offset 0.4375, vy = 98.4375 (down)");
+
+    b = ball(22.0, 162.0, -300.0, 0.0);
+    hit = pong::hit_paddle(&b, left, 1);
+    failures += expect(hit && near(b.vy, 225.0), "the angle is clamped to MAX_VY at the paddle's edge");
+
+    pong::Paddle right = pong::Paddle { y = 100.0 };
+    b = ball(600.0, 126.0, 300.0, 0.0);
+    hit = pong::hit_paddle(&b, right, 2);
+    failures += expect(hit && near(b.x, 596.0) && b.vx <= -299.99 && b.vx >= -315.01 && near(b.vy, 0.0), "the right paddle: pushed out to x = 608 - 12 and vx reversed");
+
+    b = ball(22.0, 120.0, 300.0, 10.0);
+    hit = pong::hit_paddle(&b, left, 1);
+    failures += expect(!hit && near(b.vx, 300.0) && near(b.x, 22.0), "a ball moving away from the paddle is left alone");
+
+    b = ball(100.0, 120.0, -300.0, 10.0);
+    hit = pong::hit_paddle(&b, left, 1);
+    failures += expect(!hit && near(b.vx, -300.0), "a ball far from the paddle is left alone");
+
+    b = ball(22.0, 20.0, -300.0, 10.0);
+    hit = pong::hit_paddle(&b, left, 1);
+    failures += expect(!hit && near(b.vx, -300.0), "a ball above the paddle misses it");
+
+    b = ball(22.0, 164.0, -300.0, 10.0);
+    hit = pong::hit_paddle(&b, left, 1);
+    failures += expect(!hit, "a ball that only touches the paddle's bottom edge misses it");
+    return failures;
+}

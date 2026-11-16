@@ -1,0 +1,168 @@
+schema = 1
+id = "game-motion/vectors-and-collisions"
+revision = 1
+title = "Vectors, velocity, bouncing, overlap and seeded randomness"
+summary = "Position, velocity and acceleration as small steps, Vec2 as a struct, wall bounces, axis-aligned overlap tests, collision response and a repeatable random generator."
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["vector", "velocity", "acceleration", "bounce", "AABB overlap", "collision response", "pseudo-random numbers"]
+tags = ["lecture", "games", "motion", "collision"]
+objectives = [
+    "Update velocity and position with dt, and explain the order",
+    "Write Vec2 operations as functions on structs, including length and normalization",
+    "Reflect a velocity at a wall and put the object back inside",
+    "Test two axis-aligned rectangles for overlap and choose the side of a collision",
+    "Explain why a seeded generator makes a game testable",
+]
+prerequisites = ["game-loop/boss-moving-square"]
+
+[[examples]]
+name = "falling"
+expect_stdout = """
+t = 0.1: position (10.0, 2.0), velocity (100.0, 20.0)
+t = 0.2: position (20.0, 6.0), velocity (100.0, 40.0)
+t = 0.3: position (30.0, 12.0), velocity (100.0, 60.0)
+t = 0.4: position (40.0, 20.0), velocity (100.0, 80.0)
+t = 0.5: position (50.0, 30.0), velocity (100.0, 100.0)
+"""
+
+[[examples]]
+name = "length"
+expect_stdout = """
+length of (1, 1): 1.4142
+normalized: (0.7071, 0.7071), length 1.0000
+length of (3, 4): 5.0
+normalized zero: (0.0, 0.0)
+"""
+
+[[examples]]
+name = "bounce"
+expect_stdout = """
+x = 72.5, vx = 50
+x = 85.0, vx = 50
+x = 82.5, vx = -50
+x = 70.0, vx = -50
+x = 57.5, vx = -50
+x = 45.0, vx = -50
+x = 32.5, vx = -50
+x = 20.0, vx = -50
+"""
+
+[[examples]]
+name = "overlap"
+expect_stdout = """
+overlapping corner: true
+far to the right: false
+touching edges: false
+fully inside: true
+overlap in x only: false
+"""
+
+[[examples]]
+name = "seeded"
+expect_stdout = """
+seed 42: 2 4 3 6 2
+seed 42: 2 4 3 6 2
+seed 7: 1 5 1 1 6
+"""
+
+[[questions]]
+id = "order"
+type = "choice"
+prompt = "In one physics step, which order is used in the lecture?"
+choices = [
+    "position += velocity * dt, then velocity += acceleration * dt",
+    "velocity += acceleration * dt, then position += velocity * dt",
+    "Only the position changes; velocity is fixed",
+    "Both are computed from the old values at the same time, in any order",
+]
+answer = 2
+why = [
+    "That is explicit Euler; the lecture uses the other order, which is more stable.",
+    "",
+    "Then nothing could accelerate or fall.",
+    "The second update must use the new velocity.",
+]
+explanation = "Updating the velocity first and moving with the new velocity is semi-implicit Euler. It keeps simple bouncing and falling stable, and it is what the examples and the exercises use."
+
+[[questions]]
+id = "touching"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+struct Rect {
+    f32 x;
+    f32 y;
+    f32 w;
+    f32 h;
+}
+
+bool overlaps(Rect a, Rect b) {
+    return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+public Status(Error) main() {
+    Rect a = Rect { x = 0.0, y = 0.0, w = 10.0, h = 10.0 };
+    Rect right = Rect { x = 10.0, y = 0.0, w = 10.0, h = 10.0 };
+    Rect nudge = Rect { x = 9.5, y = 0.0, w = 10.0, h = 10.0 };
+    println("{} {}", overlaps(a, right), overlaps(a, nudge))?;
+    return Status::Ok;
+}
+"""
+expect = """
+false true
+"""
+explanation = "The test uses `<`, so rectangles that only share an edge do not overlap. Moving the second one by half a unit into the first makes the ranges overlap in x, and they already overlapped in y."
+
+[[questions]]
+id = "length-short"
+type = "short"
+prompt = "What is the length of the vector (6, 8)? Type the number."
+accept = ["10", "10.0"]
+explanation = "sqrt(6 * 6 + 8 * 8) = sqrt(100) = 10."
+
+[[questions]]
+id = "why-seed"
+type = "multi"
+prompt = "Which statements about a seeded pseudo-random generator are true?"
+choices = [
+    "The same seed always gives the same sequence",
+    "A test can use a fixed seed and expect exact results",
+    "It produces numbers that depend on the time of day",
+    "It needs the operating system to supply bytes",
+]
+answers = [1, 2]
+why = [
+    "",
+    "",
+    "Only a seed taken from the clock does; the generator itself is a plain function of its previous value.",
+    "That is `std::os::random`; the multiply-and-add generator is pure arithmetic.",
+]
+explanation = "A seeded generator is a pure function: previous value in, next value out. That makes game logic that uses it repeatable, which is what lets a check verify exact numbers."
+
+[[cards]]
+id = "euler"
+front = "What are the two lines of a physics step?"
+back = "velocity += acceleration * dt, then position += velocity * dt."
+
+[[cards]]
+id = "bounce-fix"
+front = "What two things happen when a ball hits a wall?"
+back = "Flip the velocity component that points into the wall, and move the ball back inside by the overshoot."
+
+[[cards]]
+id = "aabb"
+front = "When do two axis-aligned rectangles overlap?"
+back = "When their x ranges overlap and their y ranges overlap: a.x < b.x + b.w and b.x < a.x + a.w, and the same for y."
+
+[[cards]]
+id = "normalize"
+front = "How do you get a direction of length 1?"
+back = "Divide the vector by its length, after checking the length is not 0."
+
+[[cards]]
+id = "seeded-rng"
+front = "Why do tests use a seeded generator?"
+back = "The same seed gives the same sequence, so the game behaves identically and exact results can be checked."

@@ -1,0 +1,48 @@
+module open_check;
+
+import std::slice;
+import core::slice;
+import gfx;
+import sdl3;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+[]const char text_of(const char* text) {
+    usize n = 0;
+    while text[n] != (0 as char) {
+        n += 1;
+    }
+    return core::slice::from_raw_const(text, n);
+}
+
+public i32 main() {
+    sdl3::SDL_SetHint("SDL_VIDEO_DRIVER", "offscreen");
+    i32 failures = 0;
+    gfx::Gfx g = {};
+    bool opened = gfx::open(&g, "Open check", 320, 200, null);
+    failures += expect(opened, "open returns true");
+    if !opened {
+        return failures;
+    }
+    failures += expect(sdl3::SDL_WasInit(sdl3::SDL_INIT_VIDEO) != 0, "the video subsystem is initialized");
+    failures += expect(g.window != null, "the window handle is stored");
+    failures += expect(g.renderer != null, "the renderer handle is stored");
+    i32 w = 0;
+    i32 h = 0;
+    sdl3::SDL_GetWindowSize(g.window, &w, &h);
+    failures += expect(w == 320 && h == 200, "the window has the requested size");
+    failures += expect(std::slice::eq(text_of(sdl3::SDL_GetWindowTitle(g.window)), "Open check"), "the window has the requested title");
+    gfx::close(&g);
+    failures += expect(sdl3::SDL_WasInit(sdl3::SDL_INIT_VIDEO) == 0, "close shuts SDL down");
+    failures += expect(g.window == null && g.renderer == null, "close clears the handles");
+    gfx::close(&g);
+    failures += expect(sdl3::SDL_WasInit(sdl3::SDL_INIT_VIDEO) == 0, "closing twice is harmless");
+    return failures;
+}

@@ -1,0 +1,41 @@
+schema = 1
+id = "game-scenes/frame-animation"
+revision = 1
+title = "Frame animation"
+summary = "Pick the animation frame from elapsed milliseconds, looping or playing once, and draw it from a sprite sheet."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["animation", "elapsed time", "frame index", "sprite sheet"]
+tags = ["games", "sdl3"]
+objectives = [
+    "Compute a frame index from elapsed time instead of counting frames",
+    "Keep elapsed time bounded for looping and one-shot animations",
+    "Draw the current frame from a sprite sheet",
+]
+entry_file = "src/main.dc"
+product = "frame_animation"
+prerequisites = ["game-scenes/resource-table"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "frame_at turns time into a frame"
+harness = "checks/timing_check.dc"
+hint = "index = elapsed / frame_ms. A loop uses index % count; a one-shot animation stops at count - 1."
+
+[[checks]]
+kind = "harness"
+name = "advance and finished keep time bounded"
+harness = "checks/advance_check.dc"
+hint = "total = frame_ms * count. A loop keeps elapsed % total; a one-shot clamps elapsed to total and is finished when elapsed >= total."
+
+[[checks]]
+kind = "harness"
+name = "draw shows the current frame"
+harness = "checks/draw_check.dc"
+hint = "The source is lamp::frame_rect(current(a)); the destination is the same size times scale."

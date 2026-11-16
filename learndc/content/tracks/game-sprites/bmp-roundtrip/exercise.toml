@@ -1,0 +1,41 @@
+schema = 1
+id = "game-sprites/bmp-roundtrip"
+revision = 1
+title = "Save and load a picture"
+summary = "Build a surface by hand, save it as a BMP file, load it back and turn it into a texture without leaking."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["surface", "SDL_SaveBMP", "SDL_LoadBMP", "SDL_CreateTextureFromSurface", "ownership"]
+tags = ["games", "sdl3"]
+objectives = [
+    "Write pixels into a surface using its pitch",
+    "Save and load a BMP file",
+    "Destroy the temporary surface on every exit path with defer",
+]
+entry_file = "src/main.dc"
+product = "bmp_roundtrip"
+prerequisites = ["game-sprites/sprite-sheet"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "make_gradient fills a surface"
+harness = "checks/gradient_check.dc"
+hint = "surface.pixels is a void pointer to the first byte; cast it to u8*. Pixel (x, y) starts at y * surface.pitch + x * 4."
+
+[[checks]]
+kind = "harness"
+name = "The gradient survives a save and a load"
+harness = "checks/roundtrip_check.dc"
+hint = "Save with SDL_SaveBMP(surface, path), load with SDL_LoadBMP(path), then SDL_CreateTextureFromSurface(renderer, surface). Select nearest-neighbour scaling on the texture."
+
+[[checks]]
+kind = "harness"
+name = "A missing file gives null"
+harness = "checks/missing_check.dc"
+hint = "SDL_LoadBMP returns null when the file cannot be read. Return null from load_texture without touching the surface."

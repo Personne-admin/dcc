@@ -1,0 +1,196 @@
+schema = 1
+id = "game-motion/boss-arcade-guardian"
+revision = 1
+title = "The Arcade Guardian"
+summary = "Finish a complete Pong game: paddles, a bouncing ball, paddle collisions that change the angle, scoring with serves, a winner and restart, an AI opponent and the drawing code."
+kind = "challenge"
+difficulty = "advanced"
+estimated_minutes = 90
+concepts = ["Pong", "collision response", "paddle angle", "scoring", "game state", "AI", "seeded random", "rendering"]
+tags = ["boss", "games", "sdl3", "motion", "collision"]
+objectives = [
+    "Move paddles inside the court and bounce the ball off the top and bottom walls",
+    "Reflect the ball from a paddle and set its angle from the hit position",
+    "Score points, serve with a seeded random angle, declare a winner and restart",
+    "Write a simple AI paddle with a dead zone, then draw the whole game",
+]
+entry_file = "src/main.dc"
+product = "arcade_guardian"
+prerequisites = ["game-motion/motion-drills"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 4
+story = """
+The Guardian is the last machine in the arcade: a cabinet that has beaten
+every visitor for thirty years, because nobody ever finished building its
+game. Two paddles, one ball, five points to win. Give it rules, a scoreboard
+and an opponent that never gets tired, and then try to beat it.
+"""
+
+[[stages]]
+id = "paddles"
+title = "Move the paddles"
+summary = "move_paddle moves a paddle by dir times PADDLE_SPEED times dt and keeps it inside the court."
+hints = [
+    "dir is -1.0 (up), 0.0 or 1.0 (down), but it can be any value in between: the AI will use fractions.",
+    "p.y += dir * PADDLE_SPEED * dt; then clamp: below 0.0 becomes 0.0, above H - PADDLE_H becomes H - PADDLE_H.",
+]
+
+[[stages]]
+id = "walls"
+title = "A ball between two walls"
+summary = "step_ball moves the ball and bounces it off the top and the bottom of the court. The left and right sides are open."
+hints = [
+    "Move x and y first. Only y is tested here: the ball may leave through the left or right side.",
+    "The ball's y limit is H - BALL (its top left corner). Mirror the overshoot like in the bouncing ball lesson and flip vy only.",
+]
+
+[[stages]]
+id = "bounce"
+title = "Bounce off a paddle"
+summary = "hit_paddle reflects a ball that moves toward and overlaps a paddle, and the hit position sets the new vy."
+hints = [
+    "Return false unless the ball moves toward the paddle (side 1: vx < 0, side 2: vx > 0) and the rectangles overlap (strict comparisons). The left paddle is at x = LEFT_X, the right at RIGHT_X, both PADDLE_W wide and PADDLE_H tall.",
+    "On a hit: push the ball out (side 1: b.x = LEFT_X + PADDLE_W; side 2: b.x = RIGHT_X - BALL), flip vx, and call speed_up(b) (the bonus stage fills that in).",
+    "The angle: offset = (ball center y - paddle center y) / (PADDLE_H / 2), clamped to -1.0 ..= 1.0, and vy = offset * MAX_VY.",
+]
+
+[[stages]]
+id = "points"
+title = "Serve, score, win and restart"
+summary = "serve centers the ball with a random vy, score_if_out gives points and serves, update_winner and restart manage the match."
+hints = [
+    "serve: ball.x = (W - BALL) / 2.0, ball.y = (H - BALL) / 2.0, vx = (dir as f32) * BALL_SPEED, and vy = (((next_random(g) >> 16) % 301) as f32) - 150.0.",
+    "score_if_out: if g.ball.x + BALL < 0.0 the right player scores (right_score += 1, serve toward the loser: serve(g, -1), return 2); if g.ball.x > W the left player scores (serve(g, 1), return 1); otherwise return 0.",
+    "update_winner sets winner to 1 or 2 when a score reaches WIN_SCORE. restart zeroes both scores and the winner, centers both paddles at (H - PADDLE_H) / 2.0 and serves with serve(g, 1).",
+]
+
+[[stages]]
+id = "ai"
+title = "An opponent for one player"
+summary = "ai_paddle moves the right paddle toward the ball's height at AI_SPEED, with a dead zone of 10 pixels."
+hints = [
+    "Compare the ball's center (g.ball.y + BALL / 2.0) with the paddle's center (g.right.y + PADDLE_H / 2.0).",
+    "More than 10 below: dir = 1.0; more than 10 above: dir = -1.0; otherwise 0.0. A paddle that never rests in the middle shakes.",
+    "Reuse move_paddle with dir * (AI_SPEED / PADDLE_SPEED): then the AI is slower than a human and still stays in the court.",
+]
+
+[[stages]]
+id = "draw"
+title = "Draw the court"
+summary = "draw paints the court, the net, both paddles, the ball, the score pips and the winner banner."
+hints = [
+    "fill(renderer, x, y, w, h, r, g, b) is given: one call per rectangle. Clear to (16, 16, 24) first, then the net, the paddles, the ball, the pips and finally the banner.",
+    "The net is 18 dashes: for i in 0..18, x 318, y i * 20 + 5, w 4, h 10, color (60, 60, 80). Left paddle (70, 150, 230) at LEFT_X, right paddle (230, 120, 40) at RIGHT_X, ball white.",
+    "Pips: left player's i-th pip at x 300 - 16 * (i + 1), right player's at x 330 + 16 * i, y 12, 10 x 10, in the player's color. The banner when winner is 1 or 2: x 160, y 150, 320 x 60, in the winner's color, drawn last.",
+]
+
+[[stages]]
+id = "play"
+title = "Play a whole match"
+summary = "A scripted match (a wiggling left player against the AI) must reach a winner, stay inside the court and restart."
+hints = [
+    "This check plays hundreds of frames through update, which uses all your functions. If it fails, read the printed score line and the failing line, then test the earlier stage that explains it.",
+    "Typical causes: a paddle or ball outside the court (clamps), a ball that sticks to a paddle (push-out in hit_paddle), a ball that is never served again (score_if_out must serve).",
+]
+
+[[stages]]
+id = "polish"
+title = "Bonus: the ball speeds up"
+summary = "speed_up multiplies the horizontal speed by 1.05 on every paddle hit, up to MAX_BALL_SPEED."
+optional = true
+hints = ["b.vx *= 1.05, then clamp the magnitude to MAX_BALL_SPEED in both directions. hit_paddle already calls speed_up once you wrote it as described."]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "move_paddle moves and clamps"
+stage = "paddles"
+harness = "checks/paddle_check.dc"
+hint = "p.y += dir * PADDLE_SPEED * dt, then clamp to 0.0 ..= H - PADDLE_H."
+
+[[checks]]
+kind = "harness"
+name = "step_ball bounces off the top and bottom"
+stage = "walls"
+harness = "checks/walls_check.dc"
+hint = "Mirror y at 0 and at H - BALL and flip vy; leave x alone."
+
+[[checks]]
+kind = "harness"
+name = "hit_paddle reflects and sets the angle"
+stage = "bounce"
+harness = "checks/bounce_check.dc"
+hint = "Strict overlap, moving toward the paddle, push out, flip vx, vy = clamped offset * MAX_VY, and call speed_up."
+
+[[checks]]
+kind = "harness"
+name = "serve and score_if_out"
+stage = "points"
+harness = "checks/scoring_check.dc"
+hint = "serve centers the ball and uses next_random once for vy. score_if_out compares x + BALL < 0.0 and x > W."
+
+[[checks]]
+kind = "harness"
+name = "update_winner and restart"
+stage = "points"
+harness = "checks/winning_check.dc"
+hint = "WIN_SCORE points win. restart resets scores, winner, paddles and serves to the right."
+
+[[checks]]
+kind = "harness"
+name = "ai_paddle follows the ball"
+stage = "ai"
+harness = "checks/ai_check.dc"
+hint = "Dead zone of 10 pixels around the paddle's center; otherwise move_paddle with +-(AI_SPEED / PADDLE_SPEED)."
+
+[[checks]]
+kind = "harness"
+name = "draw: court, net, paddles and ball"
+stage = "draw"
+harness = "checks/draw_court_check.dc"
+hint = "Background (16, 16, 24); net dashes at x 318; paddles and ball as filled rectangles."
+
+[[checks]]
+kind = "harness"
+name = "draw: score pips"
+stage = "draw"
+harness = "checks/draw_score_check.dc"
+hint = "Left pips at x = 300 - 16 * (i + 1), right pips at x = 330 + 16 * i, y 12, 10 x 10."
+
+[[checks]]
+kind = "harness"
+name = "draw: winner banner (right)"
+stage = "draw"
+harness = "checks/draw_winner_check.dc"
+hint = "winner 2: a 320 x 60 banner at (160, 150) in (230, 120, 40), drawn after everything else."
+
+[[checks]]
+kind = "harness"
+name = "draw: winner banner (left)"
+stage = "draw"
+harness = "checks/draw_winner_left_check.dc"
+hint = "winner 1 uses the left player's color (70, 150, 230)."
+
+[[checks]]
+kind = "harness"
+name = "a whole match reaches a winner and restarts"
+stage = "play"
+harness = "checks/play_check.dc"
+max_seconds = 30
+hint = "All stages together: if this fails, a ball or paddle probably leaves the court or a point is never served."
+
+[[checks]]
+kind = "harness"
+name = "speed_up accelerates the ball up to the cap"
+stage = "polish"
+harness = "checks/speed_check.dc"
+hint = "vx *= 1.05 and clamp |vx| to MAX_BALL_SPEED."

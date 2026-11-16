@@ -1,0 +1,130 @@
+schema = 1
+id = "game-loop/loop-time-input"
+revision = 1
+title = "The loop, events, keyboard state, the mouse and time"
+summary = "The four jobs of a frame, draining the event queue, events versus keyboard state, one Input struct, delta time and fixed steps."
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["game loop", "SDL_PollEvent", "keyboard state", "mouse", "delta time", "fixed step"]
+tags = ["lecture", "games", "sdl3", "input", "timing"]
+objectives = [
+    "Name the four jobs of a frame and the order they run in",
+    "Drain the event queue and choose events or keyboard state for each kind of input",
+    "Describe why game logic takes a plain Input struct instead of SDL events",
+    "Scale motion by delta time and explain the fixed-step accumulator",
+]
+prerequisites = ["game-drawing/drawing-drills"]
+
+[[examples]]
+name = "loop_skeleton"
+expect_stdout = """
+frame 0: draw square at x = 0
+frame 1: event 1
+frame 1: event 1
+frame 1: draw square at x = 20
+frame 2: draw square at x = 20
+frame 3: event 2
+frame 3: draw square at x = 20
+left the loop after 4 frames
+"""
+
+[[examples]]
+name = "held_and_pressed"
+expect_stdout = """
+frame 0: right held = true, jump pressed = true
+frame 1: right held = true, jump pressed = false
+frame 2: right held = true, jump pressed = false
+frame 3: right held = false, jump pressed = false
+"""
+
+[[examples]]
+name = "delta_time"
+expect_stdout = """
+one second at 30 fps: 150.0 pixels per frame, 300.0 with dt
+one second at 60 fps: 300.0 pixels per frame, 300.0 with dt
+one second at 144 fps: 720.0 pixels per frame, 300.0 with dt
+"""
+
+[[examples]]
+name = "fixed_step"
+expect_stdout = """
+frame 0: 0.016 s -> 1 update(s), 0.006 s left over
+frame 1: 0.017 s -> 2 update(s), 0.003 s left over
+frame 2: 0.033 s -> 3 update(s), 0.006 s left over
+frame 3: 0.005 s -> 1 update(s), 0.001 s left over
+frame 4: 0.016 s -> 1 update(s), 0.007 s left over
+total updates: 8
+"""
+
+[[questions]]
+id = "drain"
+type = "choice"
+prompt = "Why is the event handling an inner `while SDL_PollEvent(&ev)` loop and not a single `if`?"
+choices = [
+    "Because SDL_PollEvent returns the whole queue at once",
+    "Several events can be waiting; handling one per frame would make the game answer late",
+    "Because if is not allowed in a loop",
+    "To make the frame slower on purpose",
+]
+answer = 2
+why = [
+    "It returns one event per call, true while it filled the event.",
+    "",
+    "if works anywhere; the problem is the backlog.",
+    "Waiting is the job of SDL_Delay or vsync, not of the event loop.",
+]
+explanation = "Events arrive in bursts. Draining the queue every frame keeps input fresh: the loop handles everything that happened since the last frame and then moves on."
+
+[[questions]]
+id = "state-or-event"
+type = "multi"
+prompt = "Which of these are best read from an event rather than from the keyboard state?"
+choices = [
+    "Moving left while the left arrow is held",
+    "Toggling pause when Space is pressed",
+    "Closing the window",
+    "Firing once per click of the mouse button",
+]
+answers = [2, 3, 4]
+why = [
+    "Holding is a state: true every frame the key is down, which is what the keyboard state gives.",
+    "",
+    "",
+    "",
+]
+explanation = "A held key is a *state* and the keyboard state array answers it every frame. One-shot actions (pause, quit, click) are *changes*, so they come from events, ignoring `repeat` for key events."
+
+[[questions]]
+id = "distance"
+type = "short"
+prompt = "A square moves at 200 pixels per second and the last frame took 0.5 seconds. How many pixels does `x += speed * dt` add? Type the number."
+accept = ["100", "100.0"]
+explanation = "200 * 0.5 = 100 pixels. With a real frame time of 1/60 s the same speed adds about 3.3 pixels per frame, so the speed per second stays the same at any frame rate."
+
+[[questions]]
+id = "updates"
+type = "trace"
+prompt = "A fixed step of 10 ms is used. A frame took 25 ms and nothing was left over from the frame before. How many updates run in this frame? Type the number."
+example = "fixed_step"
+accept = ["2"]
+explanation = "25 ms holds two whole steps (20 ms) and leaves 5 ms in the accumulator for the next frame. The example's third frame does the same with 33 ms: three updates and 3 ms left over (plus what was already there)."
+
+[[cards]]
+id = "frame-jobs"
+front = "What are the jobs of one frame, in order?"
+back = "Events, update, draw, present."
+
+[[cards]]
+id = "event-or-state"
+front = "Events or keyboard state?"
+back = "State for what is held (movement); events for one-shot actions (pause, click, quit), ignoring key repeats."
+
+[[cards]]
+id = "dt"
+front = "How do you make speed independent of the frame rate?"
+back = "Store speed in units per second and multiply by dt, the seconds the last frame took. Clamp dt."
+
+[[cards]]
+id = "fixed-step"
+front = "What is a fixed-step loop?"
+back = "Add the frame time to an accumulator and run update once per full step that fits; keep the remainder for the next frame."

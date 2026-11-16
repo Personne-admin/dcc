@@ -1,0 +1,33 @@
+module axis_check;
+
+import controls;
+import sdl3;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    failures += expect(controls::axis(false, false) == 0, "no key is 0");
+    failures += expect(controls::axis(true, false) == -1, "negative only is -1");
+    failures += expect(controls::axis(false, true) == 1, "positive only is 1");
+    failures += expect(controls::axis(true, true) == 0, "both keys cancel out");
+
+    u32 none = 0;
+    u32 left_only = 1;
+    u32 right_only = 4;
+    u32 left_and_right = 5;
+    failures += expect(!controls::button_down(none, sdl3::SDL_BUTTON_LEFT), "no buttons down");
+    failures += expect(controls::button_down(left_only, sdl3::SDL_BUTTON_LEFT), "bit 0 is the left button");
+    failures += expect(!controls::button_down(left_only, sdl3::SDL_BUTTON_RIGHT), "the right button is not down");
+    failures += expect(controls::button_down(right_only, sdl3::SDL_BUTTON_RIGHT), "bit 2 is the right button");
+    failures += expect(controls::button_down(left_and_right, sdl3::SDL_BUTTON_LEFT) && controls::button_down(left_and_right, sdl3::SDL_BUTTON_RIGHT), "two buttons can be down together");
+    failures += expect(!controls::button_down(left_and_right, sdl3::SDL_BUTTON_MIDDLE), "the middle button stays up");
+    return failures;
+}

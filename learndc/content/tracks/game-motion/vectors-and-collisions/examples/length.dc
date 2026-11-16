@@ -1,0 +1,33 @@
+module main;
+
+import std::math;
+
+struct Vec2 {
+    f32 x;
+    f32 y;
+}
+
+f32 length(Vec2 v) {
+    return std::math::sqrt((v.x * v.x + v.y * v.y) as f64) as f32;
+}
+
+Vec2 normalized(Vec2 v) {
+    f32 len = length(v);
+    if len == 0.0 {
+        return Vec2 { x = 0.0, y = 0.0 };
+    }
+    return Vec2 { x = v.x / len, y = v.y / len };
+}
+
+public Status(Error) main() {
+    Vec2 diagonal = Vec2 { x = 1.0, y = 1.0 };
+    println("length of (1, 1): {:.4}", length(diagonal))?;
+    Vec2 n = normalized(diagonal);
+    println("normalized: ({:.4}, {:.4}), length {:.4}", n.x, n.y, length(n))?;
+    Vec2 long = Vec2 { x = 3.0, y = 4.0 };
+    println("length of (3, 4): {:.1}", length(long))?;
+    Vec2 zero = Vec2 { x = 0.0, y = 0.0 };
+    Vec2 nz = normalized(zero);
+    println("normalized zero: ({:.1}, {:.1})", nz.x, nz.y)?;
+    return Status::Ok;
+}

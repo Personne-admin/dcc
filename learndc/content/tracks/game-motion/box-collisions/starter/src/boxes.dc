@@ -1,0 +1,22 @@
+module boxes;
+
+public struct Rect {
+    f32 x;
+    f32 y;
+    f32 w;
+    f32 h;
+}
+
+public struct Mover {
+    Rect rect;
+    f32 vx;
+    f32 vy;
+}
+
+public bool overlaps(Rect a, Rect b) {
+    return false;
+}
+
+public bool resolve(Mover* m, Rect wall) {
+    return false;
+}

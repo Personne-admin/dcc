@@ -1,0 +1,25 @@
+module main;
+
+f32 per_frame(i32 frames) {
+    f32 x = 0.0;
+    for i32 i = 0; i < frames; i++ {
+        x += 5.0;
+    }
+    return x;
+}
+
+f32 per_second(i32 frames) {
+    f32 dt = 1.0 / (frames as f32);
+    f32 x = 0.0;
+    for i32 i = 0; i < frames; i++ {
+        x += 300.0 * dt;
+    }
+    return x;
+}
+
+public Status(Error) main() {
+    println("one second at 30 fps: {:.1} pixels per frame, {:.1} with dt", per_frame(30), per_second(30))?;
+    println("one second at 60 fps: {:.1} pixels per frame, {:.1} with dt", per_frame(60), per_second(60))?;
+    println("one second at 144 fps: {:.1} pixels per frame, {:.1} with dt", per_frame(144), per_second(144))?;
+    return Status::Ok;
+}

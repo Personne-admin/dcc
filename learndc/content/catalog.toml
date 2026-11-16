@@ -27,6 +27,12 @@ tracks = [
     "dpm-builds",
     "dpm-native",
     "dpm-packaging",
+    "game-setup",
+    "game-drawing",
+    "game-loop",
+    "game-motion",
+    "game-sprites",
+    "game-scenes",
     "lab",
     "clinic",
     "reading",
@@ -61,6 +67,13 @@ title = "DPM mastery"
 summary = "Projects and products, dependencies and locks, profiles, tasks and assets, native libraries, and packaging a reusable library."
 kind = "specialization"
 tracks = ["dpm-projects", "dpm-dependencies", "dpm-builds", "dpm-native", "dpm-packaging"]
+
+[[paths]]
+id = "games"
+title = "Game development (SDL3)"
+summary = "An SDL3 tutorial in DC: windows, drawing, game loops and input, motion and collision, sprites, scenes and three complete games. Needs SDL3 (learndc setup sdl3)."
+kind = "specialization"
+tracks = ["game-setup", "game-drawing", "game-loop", "game-motion", "game-sprites", "game-scenes"]
 
 [[paths]]
 id = "practice"

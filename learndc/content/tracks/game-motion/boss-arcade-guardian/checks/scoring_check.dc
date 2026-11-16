@@ -1,0 +1,70 @@
+module scoring_check;
+
+import pong;
+import input;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.01;
+}
+
+pong::Ball ball(f32 x, f32 y, f32 vx, f32 vy) {
+    return pong::Ball { x = x, y = y, vx = vx, vy = vy };
+}
+
+public i32 main() {
+    i32 failures = 0;
+    pong::Game g = pong::new_game(1);
+    pong::serve(&g, 1);
+    failures += expect(near(g.ball.x, 314.0) && near(g.ball.y, 174.0), "serve puts the ball in the center of the court");
+    failures += expect(near(g.ball.vx, 300.0), "serve(1) sends the ball to the right at BALL_SPEED");
+    failures += expect(near(g.ball.vy, -5.0), "vy is the first random number of seed 1: ((value >> 16) % 301) - 150 = -5");
+    pong::serve(&g, -1);
+    failures += expect(near(g.ball.vx, -300.0), "serve(-1) sends the ball to the left");
+    bool in_range = true;
+    for i32 i = 0; i < 200; i++ {
+        pong::serve(&g, 1);
+        if g.ball.vy + 150.0 < 0.0 || g.ball.vy > 150.0 {
+            in_range = false;
+        }
+    }
+    failures += expect(in_range, "vy always stays within -150..150");
+    pong::Game a = pong::new_game(77);
+    pong::Game b = pong::new_game(77);
+    pong::serve(&a, 1);
+    pong::serve(&a, 1);
+    pong::serve(&b, 1);
+    pong::serve(&b, 1);
+    failures += expect(near(a.ball.vy, b.ball.vy), "the same seed serves the same way twice");
+
+    pong::Game s = pong::new_game(1);
+    s.ball = ball(100.0, 100.0, 200.0, 0.0);
+    i32 who = pong::score_if_out(&s);
+    failures += expect(who == 0 && s.left_score == 0 && s.right_score == 0 && near(s.ball.x, 100.0), "a ball in play scores nothing");
+    s.ball = ball(-12.5, 100.0, -200.0, 0.0);
+    who = pong::score_if_out(&s);
+    failures += expect(who == 2 && s.right_score == 1 && s.left_score == 0, "a ball fully past the left edge scores for the right player");
+    failures += expect(near(s.ball.x, 314.0) && near(s.ball.vx, -300.0), "and is served again toward the player who lost the point");
+    s.ball = ball(-12.0, 100.0, -200.0, 0.0);
+    who = pong::score_if_out(&s);
+    failures += expect(who == 0, "a ball whose right edge is exactly at x = 0 is not out yet");
+    s.ball = ball(640.5, 100.0, 200.0, 0.0);
+    who = pong::score_if_out(&s);
+    failures += expect(who == 1 && s.left_score == 1 && near(s.ball.vx, 300.0), "a ball past the right edge scores for the left player and is served to the right");
+    s.ball = ball(640.0, 100.0, 200.0, 0.0);
+    who = pong::score_if_out(&s);
+    failures += expect(who == 0, "x = 640 exactly is still in");
+    return failures;
+}

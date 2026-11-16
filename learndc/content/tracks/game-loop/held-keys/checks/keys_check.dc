@@ -1,0 +1,38 @@
+module keys_check;
+
+import controls;
+import sdl3;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    bool[512] keys = {};
+    controls::Held held = {};
+
+    controls::read_keyboard(&keys[0], &held);
+    failures += expect(!held.left && !held.right && !held.up && !held.down, "no key down means nothing held");
+
+    keys[sdl3::SDL_Scancode::SDL_SCANCODE_LEFT as usize] = true;
+    controls::read_keyboard(&keys[0], &held);
+    failures += expect(held.left && !held.right && !held.up && !held.down, "the left arrow holds left");
+
+    keys[sdl3::SDL_Scancode::SDL_SCANCODE_LEFT as usize] = false;
+    keys[sdl3::SDL_Scancode::SDL_SCANCODE_D as usize] = true;
+    keys[sdl3::SDL_Scancode::SDL_SCANCODE_W as usize] = true;
+    controls::read_keyboard(&keys[0], &held);
+    failures += expect(!held.left && held.right && held.up && !held.down, "the state is read fresh each frame: D is right, W is up");
+
+    keys[sdl3::SDL_Scancode::SDL_SCANCODE_DOWN as usize] = true;
+    keys[sdl3::SDL_Scancode::SDL_SCANCODE_A as usize] = true;
+    controls::read_keyboard(&keys[0], &held);
+    failures += expect(held.down && held.left && held.right && held.up, "arrows and WASD can be mixed");
+    return failures;
+}

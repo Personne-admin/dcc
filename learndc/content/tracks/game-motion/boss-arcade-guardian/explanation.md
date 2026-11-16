@@ -1,0 +1,9 @@
+# Why it works
+
+The game is a handful of rules applied in a fixed order every frame, each one a small function on plain data. `update` is the schedule: paddles move, the ball moves, collisions are resolved, points are counted. Because none of the rules knows SDL exists, the checks drove them with made-up states and fixed time steps, and a scripted match can run thousands of frames in a fraction of a second.
+
+The ball's behaviour comes from three ideas of the chapter. *Reflection with position correction* makes the walls and the paddles solid: the ball is mirrored or pushed out, so it can never be inside something at the start of the next frame. *Direction-aware collision* (only hit a paddle you are moving toward) is what stops the ball from sticking: after a hit it still overlaps the paddle for a frame, but it is leaving. *Response by hit position* turns the paddle into an instrument: the offset from the center sets vy, so a player aims by where the ball lands on the paddle.
+
+Scoring and serving use the seeded generator held in the game state. Every serve consumes exactly one random number, so a given seed always produces the same match for the same inputs, which is why the checks can state the first serve of seed 1 to the digit and why a bug report can say "seed 7". The AI is the smallest thing that plays: aim at the ball's height, ignore small differences (the dead zone avoids jitter), and be slower than the player. Making it slower through `dir * (AI_SPEED / PADDLE_SPEED)` reuses the paddle code and its clamps instead of duplicating them.
+
+Drawing is the reverse of the rules: it only reads the state. The order of the calls is the layering (the banner last, so that it covers everything), and pixel checks on the offscreen renderer verify the geometry that the rules assumed, for example that a paddle really covers `y` to `y + 64`.

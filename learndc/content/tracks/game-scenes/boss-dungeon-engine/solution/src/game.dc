@@ -1,0 +1,140 @@
+module game;
+
+public import level;
+public import collision;
+
+public enum Scene : u8 {
+    Title,
+    Play,
+    Pause,
+    Win,
+}
+
+public struct Input {
+    bool left;
+    bool right;
+    bool up;
+    bool down;
+    bool confirm;
+    bool pause;
+    bool use;
+}
+
+public struct Game {
+    Scene scene;
+    level::Level level;
+    collision::Body player;
+    i32 keys;
+    i32 collected;
+    bool exit_reached;
+    u32 elapsed_ms;
+    Input prev;
+}
+
+public const f32 SPEED = 80.0;
+public const f32 BODY = 12.0;
+
+public Input no_input() {
+    return Input { left = false, right = false, up = false, down = false, confirm = false, pause = false, use = false };
+}
+
+public void start(Game* g) {
+    level::load(&g.level, level::LEVEL);
+    g.player = collision::Body {
+        x = (g.level.start_col * level::TILE) as f32 + 4.0,
+        y = (g.level.start_row * level::TILE) as f32 + 4.0,
+        w = BODY,
+        h = BODY,
+    };
+    g.keys = 0;
+    g.collected = 0;
+    g.exit_reached = false;
+    g.elapsed_ms = 0;
+    g.scene = Scene::Play;
+}
+
+public Game new_game() {
+    Game g = {};
+    g.prev = no_input();
+    return g;
+}
+
+public void walk(Game* g, Input in, f32 dt) {
+    f32 dx = 0.0;
+    f32 dy = 0.0;
+    if in.left {
+        dx -= SPEED * dt;
+    }
+    if in.right {
+        dx += SPEED * dt;
+    }
+    if in.up {
+        dy -= SPEED * dt;
+    }
+    if in.down {
+        dy += SPEED * dt;
+    }
+    collision::move(&g.level, &g.player, dx, dy);
+}
+
+public void interact(Game* g, Input in) {
+    i32 col = ((g.player.x + g.player.w / 2.0) / (level::TILE as f32)) as i32;
+    i32 row = ((g.player.y + g.player.h / 2.0) / (level::TILE as f32)) as i32;
+    level::Tile here = level::tile_at(&g.level, col, row);
+    if here == level::Tile::Key {
+        level::set_tile(&g.level, col, row, level::Tile::Floor);
+        g.keys += 1;
+        g.collected += 1;
+    }
+    if here == level::Tile::Exit && g.collected == g.level.keys_total {
+        g.exit_reached = true;
+    }
+    if in.use && !g.prev.use && g.keys > 0 {
+        i32[4] dcol = {1, -1, 0, 0};
+        i32[4] drow = {0, 0, 1, -1};
+        for i32 i in 0..4 {
+            i32 c = col + dcol[i as usize];
+            i32 r = row + drow[i as usize];
+            if level::tile_at(&g.level, c, r) == level::Tile::Door {
+                level::set_tile(&g.level, c, r, level::Tile::Floor);
+                g.keys -= 1;
+                break;
+            }
+        }
+    }
+}
+
+public void update(Game* g, Input in, f32 dt) {
+    bool confirm = in.confirm && !g.prev.confirm;
+    bool pause = in.pause && !g.prev.pause;
+    match g.scene {
+        Scene::Title => {
+            if confirm {
+                start(g);
+            }
+        },
+        Scene::Play => {
+            if pause {
+                g.scene = Scene::Pause;
+            } else {
+                g.elapsed_ms += (dt * 1000.0) as u32;
+                walk(g, in, dt);
+                interact(g, in);
+                if g.exit_reached {
+                    g.scene = Scene::Win;
+                }
+            }
+        },
+        Scene::Pause => {
+            if pause {
+                g.scene = Scene::Play;
+            }
+        },
+        Scene::Win => {
+            if confirm {
+                g.scene = Scene::Title;
+            }
+        },
+    }
+    g.prev = in;
+}

@@ -1,0 +1,29 @@
+module game;
+
+public enum Scene : u8 {
+    Title,
+    Play,
+    Pause,
+    GameOver,
+}
+
+public struct Input {
+    bool confirm;
+    bool hit;
+    bool pause;
+    bool hurt;
+}
+
+public struct Game {
+    Scene scene;
+    i32 score;
+    i32 lives;
+    Input prev;
+}
+
+public Game new_game() {
+    return Game { scene = Scene::Title, score = 0, lives = 3, prev = Input { confirm = false, hit = false, pause = false, hurt = false } };
+}
+
+public void update(Game* g, Input in) {
+}

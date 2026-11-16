@@ -1,0 +1,70 @@
+module main;
+
+import sdl3;
+import map;
+import collision;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("Tile collision", 320, 240, 0, &window, &renderer) {
+        return 2;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+    map::Map level = {};
+    if !map::parse(&level, map::LEVEL) {
+        return 3;
+    }
+    collision::Body player = collision::Body {
+        x = (level.start_col * map::TILE) as f32 + 5.0,
+        y = (level.start_row * map::TILE) as f32 + 5.0,
+        w = 10.0,
+        h = 10.0,
+    };
+    u64 last = sdl3::SDL_GetTicks();
+    bool running = true;
+    sdl3::SDL_Event ev;
+    while running {
+        while sdl3::SDL_PollEvent(&ev) {
+            if ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32) {
+                running = false;
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32) {
+                if ev.key.key == sdl3::SDLK_ESCAPE {
+                    running = false;
+                }
+            }
+        }
+        u64 now = sdl3::SDL_GetTicks();
+        f32 dt = ((now - last) as f32) / 1000.0;
+        last = now;
+        const bool* keys = sdl3::SDL_GetKeyboardState(null);
+        f32 dx = 0.0;
+        f32 dy = 0.0;
+        if keys[sdl3::SDL_Scancode::SDL_SCANCODE_LEFT as i32] {
+            dx -= 90.0 * dt;
+        }
+        if keys[sdl3::SDL_Scancode::SDL_SCANCODE_RIGHT as i32] {
+            dx += 90.0 * dt;
+        }
+        if keys[sdl3::SDL_Scancode::SDL_SCANCODE_UP as i32] {
+            dy -= 90.0 * dt;
+        }
+        if keys[sdl3::SDL_Scancode::SDL_SCANCODE_DOWN as i32] {
+            dy += 90.0 * dt;
+        }
+        collision::move(&level, &player, dx, dy);
+        map::draw(renderer, &level, 0.0, 0.0);
+        sdl3::SDL_SetRenderDrawColor(renderer, 230, 120, 40, 255);
+        sdl3::SDL_FRect box = {x = player.x, y = player.y, w = player.w, h = player.h};
+        sdl3::SDL_RenderFillRect(renderer, &box);
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(16);
+    }
+    return 0;
+}

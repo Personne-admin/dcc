@@ -1,0 +1,42 @@
+schema = 1
+id = "game-motion/seeded-random"
+revision = 1
+title = "A seeded random number generator"
+summary = "Write a linear congruential generator with ranges, unit floats and percent chances, so a game's randomness can be repeated exactly."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["pseudo-random numbers", "seed", "u32 wrap-around", "modulo", "bit shift"]
+tags = ["games", "motion", "random"]
+objectives = [
+    "Advance a generator state with a multiply-and-add that wraps at 32 bits",
+    "Map the high bits of a value into an inclusive integer range",
+    "Turn bits into an f32 in [0, 1)",
+    "Explain why a seed makes behaviour repeatable",
+]
+entry_file = "src/main.dc"
+product = "seeded_random"
+prerequisites = ["game-motion/box-collisions"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "next gives the exact sequence"
+harness = "checks/sequence_check.dc"
+hint = "state = state * 1664525 + 1013904223, then return state. u32 arithmetic wraps around, so no masking is needed."
+
+[[checks]]
+kind = "harness"
+name = "range stays inside and is spread out"
+harness = "checks/ranges_check.dc"
+hint = "span = hi - lo + 1; value = lo + ((next >> 16) % span). Use the high bits: shift right by 16 first."
+
+[[checks]]
+kind = "harness"
+name = "unit and chance"
+harness = "checks/unit_check.dc"
+hint = "unit: (next >> 8) as f32 divided by 16777216.0 (2 to the 24th). chance(percent): range(0, 99) < percent."

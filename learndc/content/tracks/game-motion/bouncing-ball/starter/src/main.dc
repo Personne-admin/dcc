@@ -1,0 +1,57 @@
+module main;
+
+import sdl3;
+import ball;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("Bouncing ball", 320, 240, 0, &window, &renderer) {
+        return 2;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+
+    ball::Ball b = ball::Ball { x = 40.0, y = 30.0, vx = 170.0, vy = 120.0, size = 16.0 };
+    i32 total = 0;
+    u64 last = sdl3::SDL_GetTicksNS();
+    bool running = true;
+    sdl3::SDL_Event ev;
+    while running {
+        while sdl3::SDL_PollEvent(&ev) {
+            if ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32) {
+                running = false;
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32) {
+                if ev.key.scancode == sdl3::SDL_Scancode::SDL_SCANCODE_ESCAPE {
+                    running = false;
+                }
+            }
+        }
+        u64 now = sdl3::SDL_GetTicksNS();
+        f32 dt = ((now - last) as f32) / 1000000000.0;
+        last = now;
+        if dt > 0.05 {
+            dt = 0.05;
+        }
+        total += ball::step(&b, dt);
+
+        sdl3::SDL_SetRenderDrawColor(renderer, 20, 24, 40, 255);
+        sdl3::SDL_RenderClear(renderer);
+        sdl3::SDL_FRect box = {x = b.x, y = b.y, w = b.size, h = b.size};
+        sdl3::SDL_SetRenderDrawColor(renderer, 230, 120, 40, 255);
+        sdl3::SDL_RenderFillRect(renderer, &box);
+        for i32 i = 0; i < total && i < 40; i++ {
+            sdl3::SDL_FRect pip = {x = 4.0 + (i as f32) * 7.0, y = 4.0, w = 5.0, h = 5.0};
+            sdl3::SDL_SetRenderDrawColor(renderer, 240, 220, 80, 255);
+            sdl3::SDL_RenderFillRect(renderer, &pip);
+        }
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(8);
+    }
+    return 0;
+}

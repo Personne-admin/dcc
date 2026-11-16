@@ -1,0 +1,43 @@
+module title_play_check;
+
+import game;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+void step(game::Game* g, bool confirm, bool hit, bool pause, bool hurt) {
+    game::Input in = game::Input { confirm = confirm, hit = hit, pause = pause, hurt = hurt };
+    game::update(g, in);
+}
+
+public i32 main() {
+    i32 failures = 0;
+    game::Game g = game::new_game();
+    step(&g, false, false, false, false);
+    failures += expect_that(g.scene == game::Scene::Title, "nothing happens on the title screen without input");
+    step(&g, true, false, false, false);
+    failures += expect_that(g.scene == game::Scene::Play, "confirm starts the game");
+    failures += expect_that(g.score == 0 && g.lives == 3, "a new game has score 0 and 3 lives");
+    step(&g, true, false, false, false);
+    failures += expect_that(g.score == 0, "the confirm key still held does not count as a hit");
+    step(&g, false, true, false, false);
+    failures += expect_that(g.score == 1, "hit scores a point");
+    step(&g, false, true, false, false);
+    step(&g, false, true, false, false);
+    failures += expect_that(g.score == 1, "holding hit for three frames scores once");
+    step(&g, false, false, false, false);
+    step(&g, false, true, false, false);
+    failures += expect_that(g.score == 2, "releasing and pressing again scores again");
+    step(&g, false, false, false, true);
+    failures += expect_that(g.lives == 2 && g.scene == game::Scene::Play, "hurt takes a life and the game goes on");
+    step(&g, false, false, false, true);
+    step(&g, false, false, false, true);
+    failures += expect_that(g.lives == 2, "holding hurt takes only one life");
+    return failures;
+}

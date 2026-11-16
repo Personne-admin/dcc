@@ -1,0 +1,6 @@
+schema = 1
+id = "game-loop"
+title = "Game Loops, Time and Input"
+summary = "Run a loop of events, update, draw and present; read keyboard and mouse; keep motion steady with delta time and fixed steps."
+goal = "Build an interactive window whose logic takes a plain Input struct and a time step, and is tested without a window."
+exercises = ["loop-time-input", "events-to-input", "held-keys", "frame-timing", "loop-drills", "boss-moving-square"]

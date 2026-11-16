@@ -1,0 +1,6 @@
+schema = 1
+id = "game-sprites"
+title = "Textures and Sprites"
+summary = "Turn pixel art into textures, pick frames from sprite sheets and save and load pictures."
+goal = "Create, draw and destroy textures built from text pixel art, sprite sheets and BMP files."
+exercises = ["textures-and-sprites", "first-texture", "ascii-sprite", "sprite-sheet", "bmp-roundtrip", "sprite-drills"]

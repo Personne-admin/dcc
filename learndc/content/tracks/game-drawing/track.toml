@@ -1,0 +1,6 @@
+schema = 1
+id = "game-drawing"
+title = "Drawing with the Renderer"
+summary = "Clear, color and draw shapes, drive drawing from data and scale a scene with logical presentation."
+goal = "Draw a scene of rectangles, lines and points from your own data and know exactly which pixels they cover."
+exercises = ["renderer-basics", "shapes-by-hand", "shapes-from-data", "logical-canvas", "drawing-drills"]

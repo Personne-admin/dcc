@@ -1,0 +1,28 @@
+module main;
+
+struct Rng {
+    u32 state;
+}
+
+u32 next(Rng* r) {
+    r.state = r.state * 1664525 + 1013904223;
+    return r.state;
+}
+
+i32 range(Rng* r, i32 lo, i32 hi) {
+    u32 span = (hi - lo + 1) as u32;
+    return lo + (((next(r) >> 16) % span) as i32);
+}
+
+void roll(u32 seed) {
+    Rng r = Rng { state = seed };
+    println("seed {}: {} {} {} {} {}", seed, range(&r, 1, 6), range(&r, 1, 6), range(&r, 1, 6),
+            range(&r, 1, 6), range(&r, 1, 6));
+}
+
+public Status(Error) main() {
+    roll(42);
+    roll(42);
+    roll(7);
+    return Status::Ok;
+}

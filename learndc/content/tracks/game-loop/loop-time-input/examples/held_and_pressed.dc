@@ -1,0 +1,42 @@
+module main;
+
+struct Input {
+    bool right_held;
+    bool jump_pressed;
+}
+
+void begin_frame(Input* in) {
+    in.jump_pressed = false;
+}
+
+void key_event(Input* in, bool right, bool down, bool repeat) {
+    if right {
+        in.right_held = down;
+    } else if down && !repeat {
+        in.jump_pressed = true;
+    }
+}
+
+void show(Input in, i32 frame) {
+    println("frame {}: right held = {}, jump pressed = {}", frame, in.right_held, in.jump_pressed);
+}
+
+public Status(Error) main() {
+    Input in = {};
+    begin_frame(&in);
+    key_event(&in, true, true, false);
+    key_event(&in, false, true, false);
+    show(in, 0);
+
+    begin_frame(&in);
+    key_event(&in, false, true, true);
+    show(in, 1);
+
+    begin_frame(&in);
+    show(in, 2);
+
+    begin_frame(&in);
+    key_event(&in, true, false, false);
+    show(in, 3);
+    return Status::Ok;
+}

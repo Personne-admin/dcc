@@ -1,0 +1,44 @@
+module main;
+
+const i32 W = 15;
+const i32 H = 6;
+
+struct Canvas {
+    char[90] cells;
+}
+
+void clear(Canvas* c) {
+    for usize i = 0; i < 90; i++ {
+        c.cells[i] = '.';
+    }
+}
+
+void fill_rect(Canvas* c, i32 x, i32 y, i32 w, i32 h) {
+    for i32 row = y; row < y + h; row++ {
+        for i32 col = x; col < x + w; col++ {
+            if col >= 0 && col < W && row >= 0 && row < H {
+                c.cells[(row * W + col) as usize] = '#';
+            }
+        }
+    }
+}
+
+void draw_bars(Canvas* c, []const i32 values, i32 bar_width, i32 gap, i32 baseline) {
+    i32 x = 0;
+    for value in values {
+        fill_rect(c, x, baseline - value, bar_width, value);
+        x += bar_width + gap;
+    }
+}
+
+public Status(Error) main() {
+    i32[4] values = {2, 5, 3, 1};
+    Canvas c = {};
+    clear(&c);
+    draw_bars(&c, values[0..4], 3, 1, H);
+    for i32 row = 0; row < H; row++ {
+        []const char line = c.cells[(row * W) as usize..((row + 1) * W) as usize];
+        println("{}", line)?;
+    }
+    return Status::Ok;
+}

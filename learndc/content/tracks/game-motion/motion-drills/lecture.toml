@@ -1,0 +1,181 @@
+schema = 1
+id = "game-motion/motion-drills"
+revision = 1
+kind = "drill"
+title = "Motion drills"
+summary = "Trace a bounce, find an overlap test that counts touching, compute lengths and wrap-around by hand and read a float/integer mismatch."
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = ["bounce", "AABB overlap", "vector length", "u32 wrap-around", "f32 and i32"]
+tags = ["drill", "games", "motion"]
+objectives = [
+    "Trace position and velocity through a wall bounce",
+    "Spot an overlap test that treats resting contact as a collision",
+    "Compute a length and a direction by hand",
+    "Read the error for mixing f32 and i32",
+]
+prerequisites = ["game-motion/seeded-random"]
+
+[[examples]]
+name = "bounce_steps"
+expect_stdout = """
+x = 10.0, vx = 4.0
+x = 6.0, vx = -4.0
+x = 2.0, vx = -4.0
+x = -2.0, vx = -4.0
+"""
+
+[[questions]]
+id = "trace-bounce"
+type = "trace"
+prompt = "A ball starts at x = 6 with vx = 4, and the wall is at x = 10 (the position is mirrored when it passes it). What is vx after the second step? Type the number."
+example = "bounce_steps"
+accept = ["-4"]
+expect = """
+x = 10.0, vx = 4.0
+x = 6.0, vx = -4.0
+x = 2.0, vx = -4.0
+x = -2.0, vx = -4.0
+"""
+explanation = "Step 1 ends exactly at the wall (10.0): no bounce yet, because the test is `>`. Step 2 would reach 14, which is 4 past the wall, so it is mirrored to 10 - 4 = 6 and the velocity flips to -4. The ball then keeps moving left: 2, then -2 (this example has no left wall)."
+
+[[questions]]
+id = "resting-contact"
+type = "bug"
+prompt = "A ball that rests exactly against a wall is reported as colliding. Which line is the bug?"
+code = """
+module main;
+
+struct Rect {
+    f32 x;
+    f32 w;
+}
+
+bool overlaps(Rect a, Rect b) {
+    return a.x <= b.x + b.w && b.x <= a.x + a.w;
+}
+
+public Status(Error) main() {
+    Rect ball = Rect { x = 0.0, w = 10.0 };
+    Rect resting = Rect { x = 10.0, w = 10.0 };
+    println("colliding: {}", overlaps(ball, resting))?;
+    return Status::Ok;
+}
+"""
+lines = [9]
+fixed = """
+module main;
+
+struct Rect {
+    f32 x;
+    f32 w;
+}
+
+bool overlaps(Rect a, Rect b) {
+    return a.x < b.x + b.w && b.x < a.x + a.w;
+}
+
+public Status(Error) main() {
+    Rect ball = Rect { x = 0.0, w = 10.0 };
+    Rect resting = Rect { x = 10.0, w = 10.0 };
+    println("colliding: {}", overlaps(ball, resting))?;
+    return Status::Ok;
+}
+"""
+expect = """
+colliding: false
+"""
+explanation = "With `<=` two rectangles that only share an edge count as overlapping, so a ball resting on the floor would collide every frame. Strict `<` treats touching as a gap of zero."
+
+[[questions]]
+id = "length-direction"
+type = "predict"
+prompt = "What does this program print? Type both lines."
+code = """
+module main;
+
+import std::math;
+
+public Status(Error) main() {
+    f32 x = 6.0;
+    f32 y = 8.0;
+    f32 len = std::math::sqrt((x * x + y * y) as f64) as f32;
+    println("length {:.1}", len)?;
+    println("direction ({:.1}, {:.1})", x / len, y / len)?;
+    return Status::Ok;
+}
+"""
+expect = """
+length 10.0
+direction (0.6, 0.8)
+"""
+explanation = "sqrt(6 * 6 + 8 * 8) is sqrt(100) = 10, and dividing both components by 10 gives the unit direction (0.6, 0.8)."
+
+[[questions]]
+id = "wrap"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+public Status(Error) main() {
+    u32 x = 4294967295;
+    x = x + 2;
+    println("{}", x)?;
+    return Status::Ok;
+}
+"""
+expect = """
+1
+"""
+explanation = "A u32 holds 0 to 4294967295. Adding 2 to the largest value wraps around to 1. A random number generator relies on exactly this: the multiplication wraps and keeps the number inside 32 bits."
+
+[[questions]]
+id = "float-int"
+type = "error"
+prompt = "A learner adds an `i32` counter to an `f32` position. What does the compiler say, and what is the fix?"
+code = """
+module main;
+
+public Status(Error) main() {
+    i32 count = 3;
+    f32 base = 1.5;
+    f32 total = base + count;
+    println("{}", total)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "type mismatch: left `f32`, right `i32`"
+choices = [
+    "Variables named total cannot be f32",
+    "f32 and i32 cannot be added silently; convert the integer with `count as f32`",
+    "println cannot print an f32",
+    "The addition must be written in a function",
+]
+answer = 2
+why = [
+    "Any name is fine.",
+    "",
+    "println formats f32 values.",
+    "Arithmetic works anywhere; the operand types differ.",
+]
+explanation = "DC never converts between integers and floats on its own. Where integer data (a counter, a pixel size) meets an f32 position, write the conversion: `base + (count as f32)`."
+
+[[questions]]
+id = "which-axis"
+type = "choice"
+prompt = "A square overlaps a wall by 2 pixels in x and by 30 pixels in y. Which way should it be pushed out?"
+choices = [
+    "Along y, because 30 is the larger overlap",
+    "Along x, because the smaller overlap is the side it entered through",
+    "Along both axes by the same amount",
+    "It cannot be decided from the overlap",
+]
+answer = 2
+why = [
+    "Pushing 30 pixels along y would teleport the square past the wall's whole height.",
+    "",
+    "Pushing diagonally moves it by more than it penetrated and changes its path.",
+    "The depth on each axis is exactly the information that decides it.",
+]
+explanation = "A shallow penetration means the object has only just crossed that edge. Undoing the smallest overlap puts it back where it came from."

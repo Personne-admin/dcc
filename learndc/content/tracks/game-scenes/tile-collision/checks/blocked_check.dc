@@ -1,0 +1,32 @@
+module blocked_check;
+
+import map;
+import collision;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    map::Map m = {};
+    if !map::parse(&m, map::LEVEL) {
+        println("FAIL the level parses");
+        return 1;
+    }
+    failures += expect_that(!collision::blocked(&m, 25.0, 25.0, 10.0, 10.0), "a box inside the start tile is free");
+    failures += expect_that(collision::blocked(&m, 15.0, 25.0, 10.0, 10.0), "a box overlapping the left wall is blocked");
+    failures += expect_that(collision::blocked(&m, 25.0, 15.0, 10.0, 10.0), "a box overlapping the top wall is blocked");
+    failures += expect_that(!collision::blocked(&m, 130.0, 25.0, 10.0, 10.0), "a box touching the wall at column 7 without overlapping is free");
+    failures += expect_that(collision::blocked(&m, 131.0, 25.0, 10.0, 10.0), "one pixel further it is blocked");
+    failures += expect_that(collision::blocked(&m, 135.0, 45.0, 10.0, 10.0), "a box straddling two tiles is blocked when either one is a wall");
+    failures += expect_that(!collision::blocked(&m, 20.0, 20.0, 20.0, 20.0), "a box exactly the size of a tile fits in one tile");
+    failures += expect_that(collision::blocked(&m, -3.0, 25.0, 10.0, 10.0), "left of the map is blocked");
+    failures += expect_that(collision::blocked(&m, 25.0, 235.0, 10.0, 10.0), "below the map is blocked");
+    return failures;
+}

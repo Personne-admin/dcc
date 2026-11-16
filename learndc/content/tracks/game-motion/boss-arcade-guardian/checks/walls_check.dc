@@ -1,0 +1,45 @@
+module walls_check;
+
+import pong;
+import input;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.01;
+}
+
+pong::Ball ball(f32 x, f32 y, f32 vx, f32 vy) {
+    return pong::Ball { x = x, y = y, vx = vx, vy = vy };
+}
+
+public i32 main() {
+    i32 failures = 0;
+    pong::Ball b = ball(100.0, 100.0, 200.0, -50.0);
+    pong::step_ball(&b, 0.1);
+    failures += expect(near(b.x, 120.0) && near(b.y, 95.0) && near(b.vx, 200.0) && near(b.vy, -50.0), "in the open the ball moves by velocity * dt");
+    b = ball(100.0, 345.0, 100.0, 50.0);
+    pong::step_ball(&b, 0.2);
+    failures += expect(near(b.x, 120.0) && near(b.y, 341.0) && near(b.vy, -50.0) && near(b.vx, 100.0), "the bottom wall: 355 is 7 past 348, mirrored to 341, vy flips, vx stays");
+    b = ball(100.0, 3.0, -100.0, -50.0);
+    pong::step_ball(&b, 0.2);
+    failures += expect(near(b.y, 7.0) && near(b.vy, 50.0) && near(b.vx, -100.0), "the top wall: -7 is mirrored to 7 and vy flips");
+    b = ball(-30.0, 100.0, -100.0, 0.0);
+    pong::step_ball(&b, 0.1);
+    failures += expect(near(b.x, -40.0) && near(b.vx, -100.0), "the left and right sides are not walls: the ball flies out (the score check handles it)");
+    b = ball(300.0, 348.0, 0.0, 10.0);
+    pong::step_ball(&b, 0.1);
+    failures += expect(near(b.y, 347.0) && near(b.vy, -10.0), "one unit past the limit is mirrored to one unit inside");
+    return failures;
+}

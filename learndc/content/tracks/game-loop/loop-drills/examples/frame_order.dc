@@ -1,0 +1,13 @@
+module main;
+
+public Status(Error) main() {
+    for i32 frame = 1; frame <= 2; frame++ {
+        println("-- frame {}", frame)?;
+        println("pump")?;
+        println("tick")?;
+        println("update")?;
+        println("draw")?;
+        println("present")?;
+    }
+    return Status::Ok;
+}

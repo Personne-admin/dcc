@@ -1,0 +1,35 @@
+schema = 1
+id = "game-sprites/ascii-sprite"
+revision = 1
+title = "Pixel art in text"
+summary = "Decode an 8 by 8 sprite drawn with characters into RGBA bytes and see it as a texture."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["sprite", "pixel art", "palette", "RGBA"]
+tags = ["games", "sdl3"]
+objectives = [
+    "Map characters to colors with a palette function",
+    "Write decoded pixels into a byte array row by row",
+    "Check that transparent pixels let the background through",
+]
+entry_file = "src/main.dc"
+product = "ascii_sprite"
+prerequisites = ["game-sprites/first-texture"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "color_for and decode write the right bytes"
+harness = "checks/decode_check.dc"
+hint = "Each character becomes four bytes at (y * width + x) * 4: red, green, blue, alpha. A dot and any unknown character are fully transparent (alpha 0)."
+
+[[checks]]
+kind = "harness"
+name = "The hero texture draws with a transparent background"
+harness = "checks/sprite_check.dc"
+hint = "Rendering reads the texture you built, so a decode that is right in the byte checks should draw right too. Transparent pixels must have alpha 0."

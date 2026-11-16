@@ -1,0 +1,26 @@
+module input;
+
+public import sdl3;
+
+public struct Input {
+    bool left;
+    bool right;
+    bool up;
+    bool down;
+    bool quit;
+    bool pause_pressed;
+    bool clicked;
+    f32 mouse_x;
+    f32 mouse_y;
+}
+
+public void begin_frame(Input* in) {
+    in.pause_pressed = false;
+    in.clicked = false;
+}
+
+public void apply_event(Input* in, const sdl3::SDL_Event* ev) {
+}
+
+public void pump(Input* in) {
+}

@@ -1,0 +1,28 @@
+module canvas;
+
+public import sdl3;
+
+public const i32 LOGICAL_W = 160;
+public const i32 LOGICAL_H = 90;
+
+public struct Mapping {
+    f32 scale;
+    f32 offset_x;
+    f32 offset_y;
+}
+
+public void setup(sdl3::SDL_Renderer* renderer) {
+}
+
+public Mapping letterbox(i32 window_w, i32 window_h) {
+    return Mapping { scale = 1.0, offset_x = 0.0, offset_y = 0.0 };
+}
+
+public sdl3::SDL_FPoint to_logical(Mapping m, f32 window_x, f32 window_y) {
+    return sdl3::SDL_FPoint { x = window_x, y = window_y };
+}
+
+public void draw(sdl3::SDL_Renderer* renderer) {
+    sdl3::SDL_SetRenderDrawColor(renderer, 20, 24, 40, 255);
+    sdl3::SDL_RenderClear(renderer);
+}

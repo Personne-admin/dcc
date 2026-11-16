@@ -1,0 +1,46 @@
+module vec2;
+
+import std::math;
+
+public struct Vec2 {
+    f32 x;
+    f32 y;
+}
+
+public struct Body {
+    Vec2 position;
+    Vec2 velocity;
+}
+
+public Vec2 add(Vec2 a, Vec2 b) {
+    return Vec2 { x = a.x + b.x, y = a.y + b.y };
+}
+
+public Vec2 sub(Vec2 a, Vec2 b) {
+    return Vec2 { x = a.x - b.x, y = a.y - b.y };
+}
+
+public Vec2 scale(Vec2 v, f32 k) {
+    return Vec2 { x = v.x * k, y = v.y * k };
+}
+
+public f32 dot(Vec2 a, Vec2 b) {
+    return a.x * b.x + a.y * b.y;
+}
+
+public f32 length(Vec2 v) {
+    return std::math::sqrt((v.x * v.x + v.y * v.y) as f64) as f32;
+}
+
+public Vec2 normalized(Vec2 v) {
+    f32 len = length(v);
+    if len == 0.0 {
+        return Vec2 { x = 0.0, y = 0.0 };
+    }
+    return Vec2 { x = v.x / len, y = v.y / len };
+}
+
+public void integrate(Body* body, Vec2 acceleration, f32 dt) {
+    body.velocity = add(body.velocity, scale(acceleration, dt));
+    body.position = add(body.position, scale(body.velocity, dt));
+}

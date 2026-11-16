@@ -1,0 +1,140 @@
+schema = 1
+id = "game-sprites/textures-and-sprites"
+revision = 1
+title = "Textures and sprites"
+summary = "Surfaces and textures, the byte layout of pixels, pixel art as text and source and destination rectangles."
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["surface", "texture", "pixel format", "pitch", "sprite", "sprite sheet", "scale mode"]
+tags = ["lecture", "games", "sdl3"]
+objectives = [
+    "Explain the difference between a surface and a texture and who owns each",
+    "Compute where a pixel lives from the width, pitch and pixel size",
+    "Turn pixel art written as text into RGBA bytes",
+    "Pick a frame of a sprite sheet with a source rectangle",
+]
+prerequisites = ["game-motion/boss-arcade-guardian"]
+
+[[examples]]
+name = "pixel_layout"
+expect_stdout = """
+3x2 pixels, 4 bytes each, pitch 12, total 24 bytes
+pixel (2, 1) starts at byte 20
+bytes 255 128 0 255
+byte 0 is 0: untouched pixels are transparent black
+"""
+
+[[examples]]
+name = "art_to_pixels"
+expect_stdout = """
+13 of 25 pixels are solid
+pixel 0 is transparent: alpha 0
+pixel 7 is blade: 220 220 235
+"""
+
+[[examples]]
+name = "frame_rects"
+expect_stdout = """
+frame 0: x 0 y 0 w 8 h 8
+frame 1: x 8 y 0 w 8 h 8
+frame 2: x 16 y 0 w 8 h 8
+frame 3: x 24 y 0 w 8 h 8
+frame 4: x 0 y 8 w 8 h 8
+frame 5: x 8 y 8 w 8 h 8
+draw it 32 x 32 at 100,40
+"""
+
+[[questions]]
+id = "surface-or-texture"
+type = "choice"
+prompt = "You want the hero drawn sixty times per second, quickly. Which handle do you keep for drawing?"
+choices = [
+    "An SDL_Surface, because you can read its pixels",
+    "An SDL_Texture made from the pixels once, because the renderer draws textures",
+    "A raw u8 array that you copy to the window every frame",
+    "A new SDL_Surface created every frame",
+]
+answer = 2
+why = [
+    "Surfaces live in CPU memory. They are good for building and loading pictures, but the renderer draws textures.",
+    "",
+    "Copying every pixel every frame is exactly the cost a texture avoids.",
+    "Creating and destroying a surface each frame wastes work and invites leaks.",
+]
+explanation = "A surface is a CPU-side picture you can edit; a texture is the renderer's copy, uploaded once and drawn cheaply. Keep textures for drawing."
+
+[[questions]]
+id = "pixel-offset"
+type = "short"
+prompt = "A texture is 8 pixels wide with 4 bytes per pixel and no padding. At which byte does the pixel (x = 1, y = 2) start?"
+accept = ["68"]
+explanation = "The pitch is 8 * 4 = 32 bytes per row. The offset is y * pitch + x * 4 = 2 * 32 + 1 * 4 = 68."
+
+[[questions]]
+id = "crisp"
+type = "multi"
+prompt = "A 16 by 16 sprite is drawn into a 64 by 64 rectangle and looks blurry. Which statements are true?"
+choices = [
+    "The default scale mode of a texture is linear, which smooths between pixels",
+    "SDL_SetTextureScaleMode with SDL_SCALEMODE_NEAREST gives sharp pixels",
+    "The destination rectangle must be the same size as the source rectangle",
+    "Passing null as the source rectangle draws the whole texture",
+]
+answers = [1, 2, 4]
+why = [
+    "",
+    "",
+    "The sizes may differ. That is how a sprite is scaled up.",
+    "",
+]
+explanation = "Linear filtering is the default and blurs enlarged pixel art. Nearest copies the closest pixel. Source and destination sizes are independent, and a null source means the whole texture."
+
+[[questions]]
+id = "pitch-bug"
+type = "bug"
+prompt = "Which line gives SDL the wrong pitch for a 5 pixel wide RGBA image?"
+code = """
+module main;
+
+public Status(Error) main() {
+    usize width = 5;
+    usize bytes_per_pixel = 4;
+    usize pitch = width;
+    println("pitch {}", pitch)?;
+    return Status::Ok;
+}
+"""
+lines = [6]
+fixed = """
+module main;
+
+public Status(Error) main() {
+    usize width = 5;
+    usize bytes_per_pixel = 4;
+    usize pitch = width * bytes_per_pixel;
+    println("pitch {}", pitch)?;
+    return Status::Ok;
+}
+"""
+expect = "pitch 20\n"
+explanation = "The pitch counts bytes per row, so it is the width times the bytes per pixel: 5 * 4 = 20."
+
+[[cards]]
+id = "surface-texture"
+front = "Surface versus texture in SDL3?"
+back = "A surface is a picture in CPU memory whose pixels you can read and write. A texture is a renderer-owned copy that the renderer draws quickly. Both are handles you must destroy."
+
+[[cards]]
+id = "pitch"
+front = "What is the pitch of an image?"
+back = "The number of bytes in one row. Without padding it is width * bytes per pixel; pixel (x, y) starts at y * pitch + x * bytes per pixel."
+
+[[cards]]
+id = "abgr-bytes"
+front = "Which byte order does SDL_PIXELFORMAT_ABGR8888 give on a little-endian machine?"
+back = "R, G, B, A in memory, which SDL also calls RGBA32. The name lists the bits of the 32-bit word from the highest down."
+
+[[cards]]
+id = "scale-nearest"
+front = "How do you keep scaled pixel art sharp?"
+back = "SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST) on the texture."

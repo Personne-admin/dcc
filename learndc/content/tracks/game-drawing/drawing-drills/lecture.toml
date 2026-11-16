@@ -1,0 +1,153 @@
+schema = 1
+id = "game-drawing/drawing-drills"
+revision = 1
+kind = "drill"
+title = "Drawing drills"
+summary = "Predict painter's order, find a color set at the wrong time, compute logical presentation and read a number-type error."
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = ["painter's order", "draw color", "y axis", "logical presentation", "f32"]
+tags = ["drill", "games", "sdl3", "drawing"]
+objectives = [
+    "Predict which shape is visible where shapes overlap",
+    "Spot a color change that comes after the draw call it was meant for",
+    "Compute the scale of a letterboxed canvas",
+    "Convert integers to f32 for SDL rectangles",
+]
+prerequisites = ["game-drawing/logical-canvas"]
+
+[[examples]]
+name = "stacking"
+expect_stdout = """
+aaccbbb.
+"""
+
+[[questions]]
+id = "who-is-on-top"
+type = "trace"
+prompt = "Three boxes are drawn onto a row of eight cells in list order, a (x 0, w 5), b (x 3, w 4), c (x 2, w 2). Which letter ends up in cell 3, counting from 0?"
+example = "stacking"
+accept = ["c"]
+expect = """
+aaccbbb.
+"""
+explanation = "Cell 3 is covered by all three boxes. The last one drawn, c, is on top; the same rule decides which shape you see in a game."
+
+[[questions]]
+id = "color-too-late"
+type = "bug"
+prompt = "The sun should be drawn in color 2, but the program prints color 1 for it. Which line is the bug?"
+code = """
+module main;
+
+struct Renderer {
+    i32 color;
+}
+
+void fill(Renderer* r, []const char name) {
+    println("{} is drawn in color {}", name, r.color);
+}
+
+public Status(Error) main() {
+    Renderer r = {};
+    r.color = 1;
+    fill(&r, "sky");
+    fill(&r, "sun");
+    r.color = 2;
+    return Status::Ok;
+}
+"""
+lines = [16]
+fixed = """
+module main;
+
+struct Renderer {
+    i32 color;
+}
+
+void fill(Renderer* r, []const char name) {
+    println("{} is drawn in color {}", name, r.color);
+}
+
+public Status(Error) main() {
+    Renderer r = {};
+    r.color = 1;
+    fill(&r, "sky");
+    r.color = 2;
+    fill(&r, "sun");
+    return Status::Ok;
+}
+"""
+expect = """
+sky is drawn in color 1
+sun is drawn in color 2
+"""
+explanation = "The color applies to the calls that come after it. Setting it after the sun was drawn changes nothing for the sun. With SDL it is the same: `SDL_SetRenderDrawColor` first, then the draw call."
+
+[[questions]]
+id = "bar-top"
+type = "short"
+prompt = "A bar of height 40 stands on the baseline y = 150. What is the y of its top edge?"
+accept = ["110"]
+explanation = "y grows downwards, so the top is `baseline - height` = 150 - 40 = 110."
+
+[[questions]]
+id = "logical-scale"
+type = "short"
+prompt = "A 160 x 90 logical canvas is letterboxed into an 800 x 450 window. What is the scale? Type the number."
+accept = ["5", "5.0"]
+explanation = "The scale is the smaller of 800 / 160 = 5 and 450 / 90 = 5. Both agree, so the canvas fills the window exactly and there are no bars."
+
+[[questions]]
+id = "bars-where"
+type = "choice"
+prompt = "A 160 x 90 logical canvas is letterboxed into an 800 x 300 window. Where are the black bars?"
+choices = [
+    "At the top and bottom",
+    "At the left and right",
+    "There are none, the canvas is stretched",
+    "Only at the bottom",
+]
+answer = 2
+why = [
+    "The window is wider than the canvas's proportions, so the height is the limit and the bars go to the sides.",
+    "",
+    "Stretching is a different mode (STRETCH); LETTERBOX keeps the proportions.",
+    "Letterboxing centers the canvas, so bars are split evenly.",
+]
+explanation = "The scale is the smaller of 800 / 160 = 5 and 300 / 90 = 3.33, so 3.33. The canvas is 533 pixels wide in an 800 pixel window: the rest is split into two bars at the left and the right."
+
+[[questions]]
+id = "int-to-float"
+type = "error"
+prompt = "A learner fills an SDL_FRect-like struct from an `i32` variable. What does the compiler report, and what is the fix?"
+code = """
+module main;
+
+struct Box {
+    f32 x;
+    f32 w;
+}
+
+public Status(Error) main() {
+    i32 count = 4;
+    Box b = Box { x = 1.0, w = count };
+    println("{}", b.w)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "type mismatch: expected `f32`, got `i32`"
+choices = [
+    "Struct literals cannot have two fields",
+    "An i32 is not an f32; convert it with `count as f32`",
+    "count must be declared before the struct",
+    "f32 fields can only be set with literals",
+]
+answer = 2
+why = [
+    "Struct literals can have any number of fields.",
+    "",
+    "count is declared before it is used.",
+    "Any f32 expression works, including a conversion.",
+]
+explanation = "SDL rectangles hold `f32` fields, while your game data is often integers. DC does not convert silently: write `count as f32` where the number enters the rectangle."

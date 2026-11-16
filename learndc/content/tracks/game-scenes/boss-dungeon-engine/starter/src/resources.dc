@@ -1,0 +1,24 @@
+module resources;
+
+public import sdl3;
+import art;
+
+public struct Resources {
+    sdl3::SDL_Texture* wall;
+    sdl3::SDL_Texture* floor;
+    sdl3::SDL_Texture* door;
+    sdl3::SDL_Texture* key;
+    sdl3::SDL_Texture* exit;
+    sdl3::SDL_Texture* hero;
+}
+
+public bool load(Resources* r, sdl3::SDL_Renderer* renderer) {
+    return load_with(r, renderer, art::KEY, art::HERO);
+}
+
+public void unload(Resources* r) {
+}
+
+public bool load_with(Resources* r, sdl3::SDL_Renderer* renderer, []const []const char key_art, []const []const char hero_art) {
+    return false;
+}

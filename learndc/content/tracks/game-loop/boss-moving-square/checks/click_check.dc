@@ -1,0 +1,49 @@
+module click_check;
+
+import game;
+import input;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.01;
+}
+
+bool at(game::State s, f32 x, f32 y) {
+    return near(s.x, x) && near(s.y, y);
+}
+
+public i32 main() {
+    i32 failures = 0;
+    input::Input none = {};
+    input::Input click = {};
+    click.clicked = true;
+    click.mouse_x = 320.0;
+    click.mouse_y = 240.0;
+
+    game::State s = game::new_state();
+    game::click(&s, none);
+    failures += expect(at(s, 300.0, 220.0) && s.color == 0, "no click: nothing changes");
+    game::click(&s, click);
+    failures += expect(at(s, 300.0, 220.0) && s.color == 1, "a click at the center puts the square's center there and cycles the color");
+    click.mouse_x = 100.0;
+    click.mouse_y = 60.0;
+    game::click(&s, click);
+    failures += expect(at(s, 80.0, 40.0) && s.color == 2, "the square is centered on the click: top left is click minus half the size");
+    game::click(&s, click);
+    failures += expect(s.color == 3, "color 3");
+    game::click(&s, click);
+    failures += expect(s.color == 0, "after the last color it wraps to 0");
+    return failures;
+}

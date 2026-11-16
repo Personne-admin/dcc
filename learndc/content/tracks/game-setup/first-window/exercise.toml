@@ -1,0 +1,35 @@
+schema = 1
+id = "game-setup/first-window"
+revision = 1
+title = "Open a window and close it again"
+summary = "Write open and close for a window and renderer, undoing every step that succeeded when a later one fails."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["SDL_Init", "SDL_CreateWindow", "SDL_CreateRenderer", "cleanup", "error paths"]
+tags = ["games", "sdl3", "cleanup"]
+objectives = [
+    "Initialize SDL and create a window and a renderer, checking every call",
+    "Undo exactly what succeeded when a later step fails",
+    "Release the handles in reverse order and make close safe to call twice",
+]
+entry_file = "src/main.dc"
+product = "first_window"
+prerequisites = ["game-setup/read-the-version"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "open creates the window and renderer, close releases them"
+harness = "checks/open_check.dc"
+hint = "open must call SDL_Init, SDL_CreateWindow with the title, width and height, and SDL_CreateRenderer with renderer_name, and store both handles in g."
+
+[[checks]]
+kind = "harness"
+name = "a failing step undoes the steps before it"
+harness = "checks/failure_check.dc"
+hint = "If the window fails, call SDL_Quit. If the renderer fails, destroy the window first and then call SDL_Quit. Return false and leave g empty."

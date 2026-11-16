@@ -1,0 +1,143 @@
+schema = 1
+id = "game-setup/what-is-sdl3"
+revision = 2
+title = "SDL3, native libraries and ownership"
+summary = "What SDL3 is, how DC calls a C library through a DPM package, why the executable becomes dynamic, what to do when SDL3 is missing and who frees what."
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["SDL3", "native library", "dpm dependency", "dynamic linking", "ownership"]
+tags = ["lecture", "games", "sdl3"]
+objectives = [
+    "Explain what SDL3 provides and why a DC program needs bindings to use it",
+    "Say what project.dcon, project.lock.dcon and the dpm cache do for a package dependency",
+    "Explain why linking libSDL3.so makes the executable dynamic and what happens when the library is missing",
+    "Release SDL handles in reverse order and check every call that can fail",
+]
+prerequisites = ["memory/boss-inventory-keeper"]
+
+[[examples]]
+name = "version_decode"
+expect_stdout = """
+SDL 3.4.20
+SDL 3.2.8
+"""
+
+[[examples]]
+name = "cleanup_order"
+expect_stdout = """
+SDL_Init
+SDL_CreateWindow
+SDL_CreateRenderer
+... the program runs ...
+SDL_DestroyRenderer
+SDL_DestroyWindow
+SDL_Quit
+"""
+
+[[examples]]
+name = "check_every_call"
+expect_stdout = """
+-- everything works
+init: ok
+window: ok
+ready
+code 0
+-- the window fails
+init: ok
+stop: window failed, undo the init first
+quit
+code 2
+-- init fails
+stop: init failed, nothing to undo
+code 1
+"""
+
+[[questions]]
+id = "why-dynamic"
+type = "choice"
+prompt = "Why does a program that links SDL3 become a dynamic executable?"
+choices = [
+    "dpm always builds dynamic executables",
+    "libSDL3.so is a shared library that the loader must find and map before main runs",
+    "SDL3 needs the compiler to run at startup",
+    "The bindings are compiled into the executable as a second program",
+]
+answer = 2
+why = [
+    "A project without shared libraries stays static, as before.",
+    "",
+    "The compiler is not involved when the program runs.",
+    "The bindings are only declarations; the code lives in the library.",
+]
+explanation = "A `-l` library that resolves to a `.so` file cannot be copied into the executable. The executable records the library it needs and a program interpreter, and the system loader maps the library before `main` runs."
+
+[[questions]]
+id = "cleanup-order"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+public Status(Error) main() {
+    println("init")?;
+    defer println("quit");
+    println("window")?;
+    defer println("destroy window");
+    println("loop")?;
+    return Status::Ok;
+}
+"""
+expect = """
+init
+window
+loop
+destroy window
+quit
+"""
+explanation = "Deferred statements run in reverse order, so the window created last is destroyed first and `quit` runs last."
+
+[[questions]]
+id = "borrowed"
+type = "multi"
+prompt = "Which of these are borrowed from SDL, so your program must not release them at all (no SDL_free, no Destroy call)?"
+choices = [
+    "the string returned by SDL_GetError()",
+    "a buffer returned by SDL_LoadFile",
+    "the string returned by SDL_GetRevision()",
+    "a window created by SDL_CreateWindow",
+]
+answers = [1, 3]
+why = [
+    "",
+    "You own this buffer: SDL_LoadFile transfers ownership, and you release it with SDL_free.",
+    "",
+    "You own the window too: you release it, with SDL_DestroyWindow rather than SDL_free.",
+]
+explanation = "`SDL_GetError` and `SDL_GetRevision` return borrowed pointers into SDL's own memory: never release them. Everything else here is yours to release, each with its own function: allocations such as `SDL_LoadFile` with `SDL_free`, handles such as a window with their matching Destroy function."
+
+[[questions]]
+id = "missing-library"
+type = "short"
+prompt = "Which learndc command prints the SDL3 setup guide and checks the library and the bindings? Type the sub-command name that follows `learndc`."
+accept = ["setup", "setup sdl3"]
+explanation = "`learndc setup sdl3` prints the guide and checks the shared library and the dpm package; `--fetch` also downloads the bindings. `learndc doctor` lists SDL3 as an optional item."
+
+[[cards]]
+id = "sdl-what"
+front = "What is SDL3, and who writes the game rules?"
+back = "A C library for windows, rendering, events and timing on every platform. The rules of the game are your own DC code."
+
+[[cards]]
+id = "sdl-bindings"
+front = "How does a DC project get the SDL3 bindings?"
+back = "As a dpm dependency in project.dcon, pinned by project.lock.dcon and kept in the dpm cache, so builds work offline."
+
+[[cards]]
+id = "sdl-dynamic"
+front = "What does linking libSDL3.so change about the executable?"
+back = "It becomes dynamic: it names the library (DT_NEEDED) and the loader, and the loader maps the library before main."
+
+[[cards]]
+id = "sdl-owner"
+front = "Which rule says who frees an SDL handle?"
+back = "Whoever creates it destroys it, in reverse order of creation; borrowed strings such as SDL_GetError are never freed."

@@ -1,0 +1,32 @@
+module main;
+
+struct Mapping {
+    f32 scale;
+    f32 offset_x;
+    f32 offset_y;
+}
+
+Mapping letterbox(i32 window_w, i32 window_h, i32 logical_w, i32 logical_h) {
+    f32 sx = (window_w as f32) / (logical_w as f32);
+    f32 sy = (window_h as f32) / (logical_h as f32);
+    f32 scale = if sx < sy { sx } else { sy };
+    f32 used_w = (logical_w as f32) * scale;
+    f32 used_h = (logical_h as f32) * scale;
+    return Mapping {
+        scale = scale,
+        offset_x = ((window_w as f32) - used_w) / 2.0,
+        offset_y = ((window_h as f32) - used_h) / 2.0,
+    };
+}
+
+public Status(Error) main() {
+    Mapping m = letterbox(320, 240, 160, 90);
+    println("scale {:.1}, offset {:.1}, {:.1}", m.scale, m.offset_x, m.offset_y)?;
+    f32 wx = 100.0;
+    f32 wy = 120.0;
+    println("window ({:.1}, {:.1}) is logical ({:.1}, {:.1})", wx, wy, (wx - m.offset_x) / m.scale,
+            (wy - m.offset_y) / m.scale)?;
+    Mapping wide = letterbox(640, 240, 160, 90);
+    println("wide window: scale {:.1}, offset {:.1}, {:.1}", wide.scale, wide.offset_x, wide.offset_y)?;
+    return Status::Ok;
+}

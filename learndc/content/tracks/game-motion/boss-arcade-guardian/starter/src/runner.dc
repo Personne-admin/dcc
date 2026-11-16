@@ -1,0 +1,26 @@
+module runner;
+
+public import sdl3;
+public import pong;
+import input;
+import timing;
+import render;
+
+public i32 run(sdl3::SDL_Renderer* renderer, pong::Game* game, i32 max_frames) {
+    input::Input in = {};
+    timing::Clock clock = {};
+    i32 frames = 0;
+    while frames != max_frames {
+        input::pump(&in);
+        if in.quit {
+            break;
+        }
+        f32 dt = timing::tick(&clock, sdl3::SDL_GetTicksNS());
+        pong::update(game, in, dt);
+        render::draw(renderer, *game);
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(4);
+        frames += 1;
+    }
+    return frames;
+}

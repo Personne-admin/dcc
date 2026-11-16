@@ -1,0 +1,56 @@
+module ai_check;
+
+import pong;
+import input;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.01;
+}
+
+pong::Ball ball(f32 x, f32 y, f32 vx, f32 vy) {
+    return pong::Ball { x = x, y = y, vx = vx, vy = vy };
+}
+
+public i32 main() {
+    i32 failures = 0;
+    pong::Game g = pong::new_game(1);
+    g.ball = ball(300.0, 20.0, 0.0, 0.0);
+    pong::ai_paddle(&g, 0.1);
+    failures += expect(near(g.right.y, 126.0), "ball above: the AI paddle moves up by 220 * 0.1 = 22");
+    failures += expect(near(g.left.y, 148.0) && near(g.ball.y, 20.0), "and nothing else changes");
+    g = pong::new_game(1);
+    g.ball = ball(300.0, 330.0, 0.0, 0.0);
+    pong::ai_paddle(&g, 0.1);
+    failures += expect(near(g.right.y, 170.0), "ball below: it moves down by 22");
+    g = pong::new_game(1);
+    g.ball = ball(300.0, 174.0 + 5.0, 0.0, 0.0);
+    pong::ai_paddle(&g, 0.1);
+    failures += expect(near(g.right.y, 148.0), "a ball within 10 pixels of the paddle's center: it stays still");
+    g = pong::new_game(1);
+    g.ball = ball(300.0, 174.0 + 11.0, 0.0, 0.0);
+    pong::ai_paddle(&g, 0.1);
+    failures += expect(near(g.right.y, 170.0), "just beyond the dead zone it follows");
+    g = pong::new_game(1);
+    g.right.y = 2.0;
+    g.ball = ball(300.0, 0.0, 0.0, 0.0);
+    pong::ai_paddle(&g, 1.0);
+    failures += expect(near(g.right.y, 0.0), "it never leaves the court");
+    g = pong::new_game(1);
+    g.ball = ball(300.0, 20.0, 0.0, 0.0);
+    pong::ai_paddle(&g, 1.0);
+    failures += expect(near(g.right.y, 0.0), "a long step still ends inside the court");
+    return failures;
+}

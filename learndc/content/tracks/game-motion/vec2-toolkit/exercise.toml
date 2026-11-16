@@ -1,0 +1,42 @@
+schema = 1
+id = "game-motion/vec2-toolkit"
+revision = 1
+title = "A Vec2 toolkit"
+summary = "Write the vector operations of a small game: add, subtract, scale, dot, length, normalize and one physics step."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["Vec2", "vector length", "normalization", "velocity", "acceleration", "semi-implicit Euler"]
+tags = ["games", "motion", "math", "structs"]
+objectives = [
+    "Write vector operations as functions on structs",
+    "Compute a length with std::math::sqrt and convert between f32 and f64",
+    "Normalize a vector and survive the zero vector",
+    "Advance a body one step: velocity first, then position",
+]
+entry_file = "src/main.dc"
+product = "vec2_toolkit"
+prerequisites = ["game-motion/vectors-and-collisions"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "add, sub, scale and dot"
+harness = "checks/ops_check.dc"
+hint = "Each returns a new Vec2 built from the two components. dot is a.x * b.x + a.y * b.y and returns an f32."
+
+[[checks]]
+kind = "harness"
+name = "length and normalized"
+harness = "checks/length_check.dc"
+hint = "length = sqrt(x*x + y*y) with std::math::sqrt on f64: convert with `as f64` and back with `as f32`. normalized divides both components by the length, unless the length is 0."
+
+[[checks]]
+kind = "harness"
+name = "integrate: velocity first, then position"
+harness = "checks/integrate_check.dc"
+hint = "body.velocity = add(body.velocity, scale(acceleration, dt)); then body.position = add(body.position, scale(body.velocity, dt))."

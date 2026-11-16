@@ -1,0 +1,55 @@
+module sprite;
+
+public import sdl3;
+
+public struct Rgba {
+    u8 r;
+    u8 g;
+    u8 b;
+    u8 a;
+}
+
+public []const []const char HERO = {
+    "..rrrr..",
+    ".rrrrrr.",
+    ".#oooo#.",
+    ".#o##o#.",
+    "..oooo..",
+    ".bbbbbb.",
+    ".b.bb.b.",
+    "..#..#..",
+};
+
+public Rgba color_for(char c) {
+    return Rgba { r = 0, g = 0, b = 0, a = 0 };
+}
+
+public void decode([]const []const char art, u8* pixels) {
+}
+
+public sdl3::SDL_Texture* create(sdl3::SDL_Renderer* renderer, []const []const char art) {
+    i32 width = art[0].len as i32;
+    i32 height = art.len as i32;
+    sdl3::SDL_Texture* texture = sdl3::SDL_CreateTexture(
+        renderer,
+        sdl3::SDL_PixelFormat::SDL_PIXELFORMAT_ABGR8888,
+        sdl3::SDL_TextureAccess::SDL_TEXTUREACCESS_STATIC,
+        width,
+        height);
+    if texture == null {
+        return null;
+    }
+    u8[256] pixels = {};
+    decode(art, &pixels[0]);
+    if !sdl3::SDL_UpdateTexture(texture, null, &pixels[0] as const void*, width * 4) {
+        sdl3::SDL_DestroyTexture(texture);
+        return null;
+    }
+    sdl3::SDL_SetTextureScaleMode(texture, sdl3::SDL_ScaleMode::SDL_SCALEMODE_NEAREST);
+    return texture;
+}
+
+public void draw(sdl3::SDL_Renderer* renderer, sdl3::SDL_Texture* texture, f32 x, f32 y, f32 scale) {
+    sdl3::SDL_FRect dst = {x = x, y = y, w = 8.0 * scale, h = 8.0 * scale};
+    sdl3::SDL_RenderTexture(renderer, texture, null, &dst);
+}

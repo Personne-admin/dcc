@@ -1,0 +1,46 @@
+module move_check;
+
+import map;
+import collision;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    map::Map m = {};
+    if !map::parse(&m, map::LEVEL) {
+        println("FAIL the level parses");
+        return 1;
+    }
+    collision::Body b = collision::Body { x = 25.0, y = 25.0, w = 10.0, h = 10.0 };
+    collision::move(&m, &b, 5.0, 0.0);
+    failures += expect_that(b.x == 30.0 && b.y == 25.0, "a free move goes all the way");
+    for i32 i in 0..40 {
+        collision::move(&m, &b, 5.0, 0.0);
+    }
+    failures += expect_that(b.x == 130.0, "walking right stops flush against the wall (x = 130)");
+    failures += expect_that(b.y == 25.0, "and y did not change");
+    collision::move(&m, &b, 5.0, 5.0);
+    failures += expect_that(b.x == 130.0 && b.y == 30.0, "a diagonal move into the wall slides along it");
+    for i32 i in 0..40 {
+        collision::move(&m, &b, 0.0, 5.0);
+    }
+    failures += expect_that(b.y == 70.0, "walking down stops flush against the wall (y = 70)");
+    for i32 i in 0..60 {
+        collision::move(&m, &b, 0.0, -5.0);
+    }
+    failures += expect_that(b.y == 20.0, "walking up stops flush against the top wall (y = 20)");
+    for i32 i in 0..60 {
+        collision::move(&m, &b, -5.0, 0.0);
+    }
+    failures += expect_that(b.x == 20.0, "walking left stops flush against the left wall (x = 20)");
+    failures += expect_that(!collision::blocked(&m, b.x, b.y, b.w, b.h), "the box never ends up inside a wall");
+    return failures;
+}

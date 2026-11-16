@@ -1,0 +1,59 @@
+module main;
+
+import sdl3;
+import game;
+import render;
+import resources;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("The Dungeon Engine", 320, 240, 0, &window, &renderer) {
+        return 2;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+    resources::Resources res = {};
+    if !resources::load(&res, renderer) {
+        return 3;
+    }
+    defer resources::unload(&res);
+    game::Game g = game::new_game();
+    u64 last = sdl3::SDL_GetTicks();
+    bool running = true;
+    sdl3::SDL_Event ev;
+    while running {
+        while sdl3::SDL_PollEvent(&ev) {
+            if ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32) {
+                running = false;
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32) {
+                if ev.key.key == sdl3::SDLK_ESCAPE {
+                    running = false;
+                }
+            }
+        }
+        u64 now = sdl3::SDL_GetTicks();
+        f32 dt = ((now - last) as f32) / 1000.0;
+        last = now;
+        const bool* keys = sdl3::SDL_GetKeyboardState(null);
+        game::Input in = game::Input {
+            left = keys[sdl3::SDL_Scancode::SDL_SCANCODE_LEFT as i32],
+            right = keys[sdl3::SDL_Scancode::SDL_SCANCODE_RIGHT as i32],
+            up = keys[sdl3::SDL_Scancode::SDL_SCANCODE_UP as i32],
+            down = keys[sdl3::SDL_Scancode::SDL_SCANCODE_DOWN as i32],
+            confirm = keys[sdl3::SDL_Scancode::SDL_SCANCODE_RETURN as i32],
+            pause = keys[sdl3::SDL_Scancode::SDL_SCANCODE_P as i32],
+            use = keys[sdl3::SDL_Scancode::SDL_SCANCODE_SPACE as i32],
+        };
+        game::update(&g, in, dt);
+        render::draw(renderer, &g, &res);
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(16);
+    }
+    return 0;
+}

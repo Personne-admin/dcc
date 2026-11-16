@@ -1,0 +1,34 @@
+module length_check;
+
+import vec2;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.001;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    failures += expect(near(vec2::length(vec2::Vec2 { x = 3.0, y = 4.0 }), 5.0), "length of (3, 4) is 5");
+    failures += expect(near(vec2::length(vec2::Vec2 { x = -6.0, y = -8.0 }), 10.0), "signs do not matter: (-6, -8) has length 10");
+    failures += expect(near(vec2::length(vec2::Vec2 { x = 0.0, y = 0.0 }), 0.0), "the zero vector has length 0");
+    vec2::Vec2 n = vec2::normalized(vec2::Vec2 { x = 3.0, y = 4.0 });
+    failures += expect(near(n.x, 0.6) && near(n.y, 0.8), "normalized (3, 4) is (0.6, 0.8)");
+    vec2::Vec2 d = vec2::normalized(vec2::Vec2 { x = 5.0, y = -5.0 });
+    failures += expect(near(vec2::length(d), 1.0) && d.x > 0.0 && d.y < 0.0, "a normalized vector has length 1 and keeps its direction");
+    vec2::Vec2 z = vec2::normalized(vec2::Vec2 { x = 0.0, y = 0.0 });
+    failures += expect(near(z.x, 0.0) && near(z.y, 0.0), "normalizing the zero vector gives zero, not NaN");
+    return failures;
+}

@@ -1,0 +1,37 @@
+module anim;
+
+public import sdl3;
+import lamp;
+
+public struct Anim {
+    u32 elapsed;
+    u32 frame_ms;
+    i32 count;
+    bool looping;
+}
+
+public Anim make(u32 frame_ms, i32 count, bool looping) {
+    return Anim { elapsed = 0, frame_ms = frame_ms, count = count, looping = looping };
+}
+
+public void restart(Anim* a) {
+    a.elapsed = 0;
+}
+
+public i32 current(Anim* a) {
+    return frame_at(a.elapsed, a.frame_ms, a.count, a.looping);
+}
+
+public i32 frame_at(u32 elapsed_ms, u32 frame_ms, i32 count, bool looping) {
+    return 0;
+}
+
+public void advance(Anim* a, u32 dt_ms) {
+}
+
+public bool finished(Anim* a) {
+    return false;
+}
+
+public void draw(sdl3::SDL_Renderer* renderer, sdl3::SDL_Texture* sheet, Anim* a, f32 x, f32 y, f32 scale) {
+}

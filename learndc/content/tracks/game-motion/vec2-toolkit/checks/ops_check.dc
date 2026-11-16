@@ -1,0 +1,39 @@
+module ops_check;
+
+import vec2;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.001;
+}
+
+bool is(vec2::Vec2 v, f32 x, f32 y) {
+    return near(v.x, x) && near(v.y, y);
+}
+
+public i32 main() {
+    i32 failures = 0;
+    vec2::Vec2 a = vec2::Vec2 { x = 3.0, y = 4.0 };
+    vec2::Vec2 b = vec2::Vec2 { x = -1.0, y = 2.5 };
+    failures += expect(is(vec2::add(a, b), 2.0, 6.5), "add adds both components");
+    failures += expect(is(vec2::sub(a, b), 4.0, 1.5), "sub subtracts both components");
+    failures += expect(is(vec2::scale(a, 2.0), 6.0, 8.0), "scale multiplies both components");
+    failures += expect(is(vec2::scale(a, 0.0), 0.0, 0.0), "scale by 0 is the zero vector");
+    failures += expect(near(vec2::dot(a, b), 7.0), "dot is x*x + y*y: 3*-1 + 4*2.5 = 7");
+    vec2::Vec2 right = vec2::Vec2 { x = 1.0, y = 0.0 };
+    vec2::Vec2 up = vec2::Vec2 { x = 0.0, y = 1.0 };
+    failures += expect(near(vec2::dot(right, up), 0.0), "perpendicular vectors have dot 0");
+    return failures;
+}

@@ -1,0 +1,64 @@
+module scene_check;
+
+import game;
+import level;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+game::Input keys(bool confirm, bool pause, bool right) {
+    game::Input in = game::no_input();
+    in.confirm = confirm;
+    in.pause = pause;
+    in.right = right;
+    return in;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    game::Game g = game::new_game();
+    failures += expect_that(g.scene == game::Scene::Title, "a new game shows the title");
+    game::update(&g, keys(false, false, true), 0.125);
+    failures += expect_that(g.scene == game::Scene::Title && g.player.x == 0.0, "nothing moves on the title screen");
+    game::update(&g, keys(true, false, false), 0.125);
+    failures += expect_that(g.scene == game::Scene::Play, "confirm starts the game");
+    failures += expect_that(g.player.x == 24.0 && g.keys == 0 && g.level.keys_total == 2, "the level is loaded and the player is at the start");
+    game::update(&g, keys(true, false, false), 0.125);
+    failures += expect_that(g.scene == game::Scene::Play, "a held confirm does nothing in play");
+    u32 before = g.elapsed_ms;
+    for i32 i in 0..8 {
+        game::update(&g, keys(false, false, true), 0.125);
+    }
+    failures += expect_that(g.player.x == 88.0, "the player walks right until the wall stops it");
+    failures += expect_that(g.elapsed_ms - before == 1000, "play time counts the frames (8 * 125 ms)");
+    game::update(&g, keys(false, true, false), 0.125);
+    failures += expect_that(g.scene == game::Scene::Pause, "pause opens the pause scene");
+    f32 x = g.player.x;
+    u32 t = g.elapsed_ms;
+    game::update(&g, keys(false, true, true), 0.125);
+    failures += expect_that(g.scene == game::Scene::Pause, "holding pause does not close it");
+    game::update(&g, keys(false, false, true), 0.125);
+    failures += expect_that(g.player.x == x && g.elapsed_ms == t, "the world is frozen while paused");
+    game::update(&g, keys(false, true, false), 0.125);
+    failures += expect_that(g.scene == game::Scene::Play, "a second press resumes");
+    g.collected = 2;
+    g.player.x = 284.0;
+    g.player.y = 24.0;
+    game::update(&g, keys(false, false, false), 0.125);
+    failures += expect_that(g.scene == game::Scene::Win, "reaching the exit with every key wins");
+    game::update(&g, keys(false, false, true), 0.125);
+    failures += expect_that(g.scene == game::Scene::Win, "play input does nothing on the win screen");
+    game::update(&g, keys(true, false, false), 0.125);
+    failures += expect_that(g.scene == game::Scene::Title, "confirm returns to the title");
+    game::update(&g, keys(false, false, false), 0.125);
+    game::update(&g, keys(true, false, false), 0.125);
+    failures += expect_that(g.scene == game::Scene::Play && g.player.x == 24.0 && g.collected == 0 && !g.exit_reached, "the next game starts fresh");
+    failures += expect_that(level::tile_at(&g.level, 2, 5) == level::Tile::Key, "the keys are back in the new level");
+    return failures;
+}

@@ -1,0 +1,169 @@
+schema = 1
+id = "game-sprites/sprite-drills"
+revision = 1
+kind = "drill"
+title = "Sprite drills"
+summary = "Compute pixel offsets and frame rectangles, spot leaks and swapped rectangles, and recall who owns what."
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["pitch", "sprite sheet", "texture ownership", "surface", "defer"]
+tags = ["drill", "games", "sdl3"]
+objectives = [
+    "Compute pixel offsets and sheet rectangles by hand",
+    "Spot a leaked surface and swapped source and destination rectangles",
+    "Say which SDL handles you must destroy",
+]
+prerequisites = ["game-sprites/bmp-roundtrip"]
+
+[[questions]]
+id = "sheet-math"
+type = "predict"
+prompt = "A sheet has 3 columns of 16 pixel frames. Where does frame 7 start? Type the output."
+code = """
+module main;
+
+public Status(Error) main() {
+    usize columns = 3;
+    usize index = 7;
+    usize size = 16;
+    usize x = (index % columns) * size;
+    usize y = (index / columns) * size;
+    println("{} {}", x, y)?;
+    return Status::Ok;
+}
+"""
+expect = "16 32\n"
+explanation = "Frame 7 is in column 7 % 3 = 1 and row 7 / 3 = 2, so it starts at x = 1 * 16 = 16 and y = 2 * 16 = 32."
+
+[[questions]]
+id = "decode-trace"
+type = "predict"
+prompt = "The art is decoded like in the exercise, four bytes per pixel. What do the solid pixels count and the start of the last solid pixel come to?"
+code = """
+module main;
+
+[]const []const char ART = {"#.#", ".#.", "#.#"};
+
+public Status(Error) main() {
+    usize solid = 0;
+    usize last = 0;
+    usize y = 0;
+    for row in ART {
+        usize x = 0;
+        for c in row {
+            if c == '#' {
+                solid += 1;
+                last = (y * 3 + x) * 4;
+            }
+            x += 1;
+        }
+        y += 1;
+    }
+    println("{} {}", solid, last)?;
+    return Status::Ok;
+}
+"""
+expect = "5 32\n"
+explanation = "Five characters are '#'. The last one is at x = 2, y = 2 of a 3 pixel wide picture, so its pixel number is 2 * 3 + 2 = 8 and it starts at byte 8 * 4 = 32."
+
+[[questions]]
+id = "mixed-types"
+type = "error"
+prompt = "A pixel offset is computed from an i32 row and a usize pitch. What does the compiler say?"
+code = """
+module main;
+
+public Status(Error) main() {
+    i32 y = 2;
+    usize pitch = 20;
+    usize at = y * pitch + 4;
+    println("{}", at)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "type mismatch"
+choices = [
+    "It converts y silently, because both are integers",
+    "It rejects the multiplication: i32 and usize are different types and need an explicit cast",
+    "It warns and uses the smaller type",
+    "It fails only when the picture is larger than 256 pixels",
+]
+answer = 2
+why = [
+    "DC does not mix integer types implicitly in arithmetic.",
+    "",
+    "There is no warning mode for this; it is an error.",
+    "The check is about types, not about the values.",
+]
+explanation = "Arithmetic needs both sides of the same type. Convert the row first: (y as usize) * pitch. SDL functions take i32 for sizes, so offsets into byte arrays are a place where you cast on purpose."
+
+[[questions]]
+id = "leaked-surface"
+type = "bug"
+prompt = "This function loads a picture and makes a texture from it. Which line leaks memory when the texture cannot be created?"
+code = """
+sdl3::SDL_Texture* load(sdl3::SDL_Renderer* renderer, const char* path) {
+    sdl3::SDL_Surface* surface = sdl3::SDL_LoadBMP(path);
+    if surface == null {
+        return null;
+    }
+    sdl3::SDL_Texture* texture = sdl3::SDL_CreateTextureFromSurface(renderer, surface);
+    if texture == null {
+        return null;
+    }
+    sdl3::SDL_DestroySurface(surface);
+    return texture;
+}
+"""
+lines = [8]
+explanation = "The early return on line 8 skips the SDL_DestroySurface call on line 10. A `defer sdl3::SDL_DestroySurface(surface);` right after the first null check would cover every later exit."
+
+[[questions]]
+id = "swapped-rects"
+type = "bug"
+prompt = "The sprite shows the top left corner of the sheet scaled over the whole window instead of frame 2 at (40, 40). Which line is wrong?"
+code = """
+sdl3::SDL_FRect src = frame_rect(2, 4, 16);
+sdl3::SDL_FRect dst = {x = 40.0, y = 40.0, w = 64.0, h = 64.0};
+sdl3::SDL_RenderTexture(renderer, sheet, &dst, &src);
+"""
+lines = [3]
+explanation = "SDL_RenderTexture takes the source rectangle (part of the texture, in texture pixels) before the destination rectangle (part of the window). Swapped, SDL reads a 64 by 64 area at (40, 40) from the texture and draws it into the small rectangle."
+
+[[questions]]
+id = "who-destroys"
+type = "multi"
+prompt = "Which of these must your program release itself? Pick all."
+choices = [
+    "The texture returned by SDL_CreateTexture",
+    "The surface returned by SDL_LoadBMP",
+    "The text returned by SDL_GetError()",
+    "The SDL_FRect you declared in a function",
+    "The texture returned by SDL_CreateTextureFromSurface",
+]
+answers = [1, 2, 5]
+why = [
+    "",
+    "",
+    "SDL owns that string and reuses its buffer. Never free it.",
+    "It is an ordinary local value; it disappears with the function.",
+    "",
+]
+explanation = "Everything an SDL_Create* or SDL_Load* call returns is yours: texture with SDL_DestroyTexture, surface with SDL_DestroySurface. Borrowed strings such as SDL_GetError() and plain structs are not."
+
+[[questions]]
+id = "which-call"
+type = "short"
+prompt = "Which SDL function turns a loaded surface into a texture the renderer can draw? Type its name."
+accept = ["SDL_CreateTextureFromSurface", "sdl3::SDL_CreateTextureFromSurface"]
+explanation = "SDL_CreateTextureFromSurface(renderer, surface) copies the surface's pixels into a new texture owned by the renderer. The surface can be destroyed afterwards."
+
+[[cards]]
+id = "frame-index"
+front = "How do you turn a frame index into a source rectangle on a sheet with C columns?"
+back = "column = index % C and row = index / C; x = column * frame width, y = row * frame height."
+
+[[cards]]
+id = "temporary-surface"
+front = "A surface only exists to build a texture. When is it destroyed?"
+back = "As soon as the texture exists, on every path: defer SDL_DestroySurface right after the null check."

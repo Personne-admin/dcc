@@ -1,0 +1,28 @@
+module render;
+
+public import sdl3;
+public import game;
+
+public struct Color {
+    u8 r;
+    u8 g;
+    u8 b;
+}
+
+public Color palette(i32 index) {
+    if index == 1 {
+        return Color { r = 70, g = 150, b = 230 };
+    }
+    if index == 2 {
+        return Color { r = 90, g = 200, b = 120 };
+    }
+    if index == 3 {
+        return Color { r = 230, g = 80, b = 100 };
+    }
+    return Color { r = 230, g = 120, b = 40 };
+}
+
+public void draw(sdl3::SDL_Renderer* renderer, game::State state) {
+    sdl3::SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    sdl3::SDL_RenderClear(renderer);
+}

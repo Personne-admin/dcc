@@ -1,0 +1,220 @@
+schema = 1
+id = "game-scenes/boss-dungeon-engine"
+revision = 1
+title = "The Dungeon Engine"
+summary = "Build a small tile-based dungeon game: a level loaded from text, a player that collides with walls, keys and doors, scenes, animated sprites and textures that are released on every path."
+kind = "challenge"
+difficulty = "advanced"
+estimated_minutes = 90
+concepts = ["scene", "tile map", "collision", "resources", "animation", "defer", "state machine"]
+tags = ["boss", "games", "sdl3"]
+objectives = [
+    "Load a level from text into a typed tile grid and reject broken levels",
+    "Walk with tile collision and open doors with collected keys",
+    "Switch between title, play, pause and win scenes and restart cleanly",
+    "Own six textures with an all or nothing load and a repeatable unload",
+    "Draw tiles, an animated hero and the scene screens",
+]
+entry_file = "src/main.dc"
+product = "dungeon_engine"
+prerequisites = ["game-scenes/scene-drills"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 4
+story = """
+The old dungeon keeper has left the lamps burning and the doors locked, and the only tool he left behind is a half
+finished engine. Two keys lie scattered in the cellars; two doors stand between a visitor and the exit. Make the engine
+load the dungeon from its plan, let the visitor walk, open and win, and make sure that when the lights go out every texture
+is put back where it belongs.
+"""
+
+[[stages]]
+id = "legacy-main"
+title = "Read the legacy main"
+summary = "Find the leak in the keeper's old main function before you write your own."
+questions = ["legacy-leak", "where-defer"]
+hints = ["Follow what happens to the window and the renderer when the resources fail to load."]
+
+[[stages]]
+id = "load-level"
+title = "Load the dungeon"
+summary = "level::load turns the text plan into typed tiles, tile_at and solid answer questions about them."
+hints = [
+    "Tile (col, row) is cells[row * COLS + col]. The characters are # wall, . floor, @ start (floor), k key, D door, E exit. Count the keys as you go and remember whether you saw the start and the exit.",
+    "tile_at returns Tile::Wall outside the grid. solid is true for walls and doors only. Return false from load for the wrong size, an unknown character, a missing start or a missing exit.",
+]
+
+[[stages]]
+id = "walk"
+title = "Walk and bump"
+summary = "game::walk turns the held arrows into movement of SPEED * dt pixels and lets collision::move do the rest."
+hints = [
+    "Add or subtract SPEED * dt to dx for left and right and to dy for up and down, then make one call to collision::move(&g.level, &g.player, dx, dy).",
+    "Doors already stop the player once level::solid is right: collision::move asks level::solid for every tile under the player.",
+]
+
+[[stages]]
+id = "keys-doors"
+title = "Keys, doors and the exit"
+summary = "game::interact picks up keys, opens the neighbouring door when use is pressed and notices the exit."
+hints = [
+    "The player's tile is the tile under the center of its box: (x + w / 2) / TILE and (y + h / 2) / TILE.",
+    "A key tile becomes Floor when picked up and raises keys and collected. A door opens only on a press of use (use now, not use last frame), only when keys > 0, and only for one of the four direct neighbours. Opening costs one key.",
+    "exit_reached becomes true on the Exit tile when collected equals level.keys_total.",
+]
+
+[[stages]]
+id = "scenes"
+title = "Scenes"
+summary = "game::update runs the title, play, pause and win scenes and remembers the input."
+hints = [
+    "Use the pressed-not-held pattern with g.prev for confirm and pause, and store g.prev = in at the end of update.",
+    "Title: confirm calls game::start. Play: a pause press opens the pause; otherwise add dt in milliseconds to elapsed_ms, call walk and interact, and go to Win when exit_reached. Pause: a pause press resumes. Win: confirm goes back to Title.",
+]
+
+[[stages]]
+id = "resources"
+title = "Own every texture"
+summary = "resources::load_with creates six textures all or nothing and resources::unload releases whatever exists."
+hints = [
+    "The order is wall, floor, door, key, exit, hero. After each art::make, check for null and call unload before returning false.",
+    "unload checks each field against null, destroys it and sets it to null, so it is safe to call twice and after a failed load.",
+]
+
+[[stages]]
+id = "draw"
+title = "Draw the dungeon"
+summary = "render::draw shows the title, the dungeon with an animated hero, the pause overlay and the win screen."
+hints = [
+    "Scenes: Title is a (20, 30, 80) screen with an orange (230, 120, 40) bar at (60, 100) of size 200 by 40. Win is (20, 70, 40) with a (240, 220, 60) box at (100, 90), 120 by 60. Pause is the play drawing plus two (230, 230, 230) bars at (130, 90) and (170, 90), 20 by 60.",
+    "The dungeon: for every tile first draw the floor texture into its 20 by 20 cell, then on top the wall, door, key or exit texture of that tile (a wall needs no floor under it). The player is drawn after the tiles.",
+    "The hero texture is a sheet of two 8 by 8 frames. The frame is (g.elapsed_ms / 200) % 2, the source is 8 pixels wide at x = frame * 8 and the destination is the player's 12 by 12 box.",
+]
+
+[[stages]]
+id = "hud"
+title = "Bonus: the key counter"
+summary = "Draw one key icon for every key the visitor holds in the top left corner of the play and pause scenes."
+optional = true
+hints = ["After drawing the world, draw the key texture 16 by 16 at x = 4 + i * 18, y = 4 for every key in g.keys."]
+
+[[questions]]
+id = "legacy-leak"
+type = "bug"
+prompt = "The keeper's old main leaves the window, the renderer and SDL itself open whenever the textures fail to load. Which line is the problem?"
+code = """
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("Dungeon", 320, 240, 0, &window, &renderer) {
+        return 2;
+    }
+    resources::Resources res = {};
+    if !resources::load(&res, renderer) {
+        return 3;
+    }
+    run(renderer, &res);
+    resources::unload(&res);
+    sdl3::SDL_DestroyRenderer(renderer);
+    sdl3::SDL_DestroyWindow(window);
+    sdl3::SDL_Quit();
+    return 0;
+}
+"""
+lines = [13]
+explanation = "The cleanup is written once at the bottom, so every early return above it skips it. The return on line 13 leaves the renderer, the window and SDL open (and the return on line 9 leaves SDL open). Writing each release as a defer right after its acquire covers every exit."
+
+[[questions]]
+id = "where-defer"
+type = "choice"
+prompt = "In the fixed main, where does `defer resources::unload(&res);` belong, and why?"
+choices = [
+    "Before the call to resources::load, so it cannot be forgotten",
+    "Right after the load succeeded, below the defers of the window and the renderer, so it runs before them",
+    "At the very end of main, after the loop",
+    "Inside the game loop, once per frame",
+]
+answer = 2
+why = [
+    "Before a successful load there is nothing to unload, and the failing return would also run the unload.",
+    "",
+    "A defer at the end of main is not registered if an earlier return happens, and a plain call at the end is the leak you just found.",
+    "That would destroy the textures after the first frame.",
+]
+explanation = "Deferred statements run in reverse order, so the texture table, registered last, is released first and the renderer (which the textures depend on) afterwards. The defer sits right after the successful load because that is the moment there is something to release."
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "The dungeon plan loads into typed tiles"
+stage = "load-level"
+harness = "checks/level_check.dc"
+hint = "The start is column 1, row 1 and is floor. There are two keys (k) and two doors (D). tile_at answers Wall outside the grid."
+
+[[checks]]
+kind = "harness"
+name = "Broken plans are rejected"
+stage = "load-level"
+harness = "checks/level_invalid_check.dc"
+hint = "load returns false for the wrong number of rows, a wrong row width, an unknown character, no start and no exit."
+
+[[checks]]
+kind = "harness"
+name = "walk moves, slides and stops at walls and doors"
+stage = "walk"
+harness = "checks/walk_check.dc"
+hint = "dx and dy are SPEED * dt in the held directions, passed in one call to collision::move. level::solid must be true for doors."
+
+[[checks]]
+kind = "harness"
+name = "Keys, doors and the exit"
+stage = "keys-doors"
+harness = "checks/interact_check.dc"
+hint = "Pick up on the center tile, open only for a press of use with keys > 0 and only for orthogonal neighbours, spend the key, and exit_reached needs collected == keys_total."
+
+[[checks]]
+kind = "harness"
+name = "The four scenes"
+stage = "scenes"
+harness = "checks/scene_check.dc"
+hint = "Title confirm starts, Play handles pause press, walking and the exit, Pause only listens to pause, Win confirm goes to Title. Store g.prev = in at the end."
+
+[[checks]]
+kind = "harness"
+name = "Resources load and unload"
+stage = "resources"
+harness = "checks/res_load_check.dc"
+hint = "load_with fills six fields with art::make, in the order wall, floor, door, key, exit, hero."
+
+[[checks]]
+kind = "harness"
+name = "A failed load leaves nothing behind and unload repeats safely"
+stage = "resources"
+harness = "checks/res_fail_check.dc"
+hint = "Every failing return calls unload first. unload destroys only non-null fields and nulls them."
+
+[[checks]]
+kind = "harness"
+name = "Every scene draws, the hero animates"
+stage = "draw"
+harness = "checks/render_check.dc"
+hint = "Floor under every non-wall tile, then the tile's own texture, then the hero frame (elapsed_ms / 200) % 2. Title, Pause and Win use the filled rectangles of the hints."
+
+[[checks]]
+kind = "harness"
+name = "The key counter shows the held keys"
+stage = "hud"
+harness = "checks/hud_check.dc"
+hint = "One 16 by 16 key icon per key at x = 4 + i * 18, y = 4, drawn after the world."

@@ -1,0 +1,41 @@
+module timing;
+
+public const f32 MAX_DT = 0.25;
+public const i32 MAX_STEPS = 5;
+
+public struct Clock {
+    u64 last_ns;
+    bool started;
+}
+
+public struct Stepper {
+    f32 accumulator;
+}
+
+public f32 tick(Clock* clock, u64 now_ns) {
+    if !clock.started {
+        clock.started = true;
+        clock.last_ns = now_ns;
+        return 0.0;
+    }
+    u64 elapsed_ns = now_ns - clock.last_ns;
+    clock.last_ns = now_ns;
+    f32 dt = (elapsed_ns as f32) / 1000000000.0;
+    if dt > MAX_DT {
+        dt = MAX_DT;
+    }
+    return dt;
+}
+
+public i32 steps_due(Stepper* stepper, f32 frame_time, f32 step) {
+    stepper.accumulator += frame_time;
+    i32 steps = 0;
+    while stepper.accumulator >= step && steps < MAX_STEPS {
+        stepper.accumulator -= step;
+        steps += 1;
+    }
+    if steps == MAX_STEPS {
+        stepper.accumulator = 0.0;
+    }
+    return steps;
+}

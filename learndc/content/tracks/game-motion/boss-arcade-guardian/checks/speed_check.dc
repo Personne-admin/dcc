@@ -1,0 +1,46 @@
+module speed_check;
+
+import pong;
+import input;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.01;
+}
+
+pong::Ball ball(f32 x, f32 y, f32 vx, f32 vy) {
+    return pong::Ball { x = x, y = y, vx = vx, vy = vy };
+}
+
+public i32 main() {
+    i32 failures = 0;
+    pong::Ball b = ball(300.0, 100.0, 300.0, 40.0);
+    pong::speed_up(&b);
+    failures += expect(near(b.vx, 315.0) && near(b.vy, 40.0), "speed_up multiplies vx by 1.05 and leaves vy");
+    b = ball(300.0, 100.0, -300.0, 40.0);
+    pong::speed_up(&b);
+    failures += expect(near(b.vx, -315.0), "it works for a ball moving left");
+    b = ball(300.0, 100.0, 590.0, 0.0);
+    pong::speed_up(&b);
+    failures += expect(near(b.vx, 600.0), "the speed stops at MAX_BALL_SPEED = 600");
+    b = ball(300.0, 100.0, -598.0, 0.0);
+    pong::speed_up(&b);
+    failures += expect(near(b.vx, -600.0), "also to the left");
+    pong::Paddle left = pong::Paddle { y = 100.0 };
+    b = ball(22.0, 126.0, -300.0, 0.0);
+    bool hit = pong::hit_paddle(&b, left, 1);
+    failures += expect(hit && near(b.vx, 315.0), "a paddle hit calls speed_up: 300 becomes 315");
+    return failures;
+}

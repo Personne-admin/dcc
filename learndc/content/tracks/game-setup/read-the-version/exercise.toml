@@ -1,0 +1,44 @@
+schema = 1
+id = "game-setup/read-the-version"
+revision = 1
+title = "Reading what SDL tells you"
+summary = "Decode SDL's packed version number and turn a C string such as the error message into DC text."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["SDL_GetVersion", "SDL_GetError", "C strings", "borrowed pointers"]
+tags = ["games", "sdl3", "interop"]
+objectives = [
+    "Decode a packed version number with integer arithmetic",
+    "Convert a const char* into a []const char without copying",
+    "Handle a null C string",
+]
+entry_file = "src/main.dc"
+product = "read_version"
+prerequisites = ["game-setup/what-is-sdl3"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "decode_version splits the packed number"
+harness = "checks/version_check.dc"
+hint = "major is the packed number divided by 1000000; minor is (packed / 1000) % 1000; patch is packed % 1000."
+
+[[checks]]
+kind = "harness"
+name = "c_text converts C strings and handles null"
+harness = "checks/text_check.dc"
+hint = "Count bytes until the zero byte, then build the slice with core::slice::from_raw_const(pointer, count). Return an empty text for null."
+
+[[checks]]
+kind = "run"
+name = "The program reports SDL 3 and the error text"
+stdout_match = "contains"
+expect_stdout = """
+error text: this is a test error
+"""
+hint = "main prints the error text through c_text; it stays empty until c_text works."

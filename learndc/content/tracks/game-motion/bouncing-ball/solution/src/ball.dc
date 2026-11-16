@@ -1,0 +1,39 @@
+module ball;
+
+public const f32 WIDTH = 320.0;
+public const f32 HEIGHT = 240.0;
+
+public struct Ball {
+    f32 x;
+    f32 y;
+    f32 vx;
+    f32 vy;
+    f32 size;
+}
+
+public i32 step(Ball* b, f32 dt) {
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    i32 bounces = 0;
+    f32 max_x = WIDTH - b.size;
+    f32 max_y = HEIGHT - b.size;
+    if b.x < 0.0 {
+        b.x = 0.0 - b.x;
+        b.vx = 0.0 - b.vx;
+        bounces += 1;
+    } else if b.x > max_x {
+        b.x = max_x - (b.x - max_x);
+        b.vx = 0.0 - b.vx;
+        bounces += 1;
+    }
+    if b.y < 0.0 {
+        b.y = 0.0 - b.y;
+        b.vy = 0.0 - b.vy;
+        bounces += 1;
+    } else if b.y > max_y {
+        b.y = max_y - (b.y - max_y);
+        b.vy = 0.0 - b.vy;
+        bounces += 1;
+    }
+    return bounces;
+}

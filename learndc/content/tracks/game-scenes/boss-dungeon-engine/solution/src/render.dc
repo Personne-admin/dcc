@@ -1,0 +1,71 @@
+module render;
+
+public import sdl3;
+public import game;
+public import resources;
+import level;
+
+void fill(sdl3::SDL_Renderer* renderer, u8 r, u8 g, u8 b, f32 x, f32 y, f32 w, f32 h) {
+    sdl3::SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+    sdl3::SDL_FRect rect = {x = x, y = y, w = w, h = h};
+    sdl3::SDL_RenderFillRect(renderer, &rect);
+}
+
+void draw_tile(sdl3::SDL_Renderer* renderer, resources::Resources* res, sdl3::SDL_Texture* texture, i32 col, i32 row) {
+    sdl3::SDL_FRect dst = {x = (col * level::TILE) as f32, y = (row * level::TILE) as f32, w = level::TILE as f32, h = level::TILE as f32};
+    sdl3::SDL_RenderTexture(renderer, texture, null, &dst);
+}
+
+void draw_world(sdl3::SDL_Renderer* renderer, game::Game* g, resources::Resources* res) {
+    for i32 row in 0..level::ROWS {
+        for i32 col in 0..level::COLS {
+            level::Tile t = level::tile_at(&g.level, col, row);
+            if t == level::Tile::Wall {
+                draw_tile(renderer, res, res.wall, col, row);
+            } else {
+                draw_tile(renderer, res, res.floor, col, row);
+                if t == level::Tile::Door {
+                    draw_tile(renderer, res, res.door, col, row);
+                } else if t == level::Tile::Key {
+                    draw_tile(renderer, res, res.key, col, row);
+                } else if t == level::Tile::Exit {
+                    draw_tile(renderer, res, res.exit, col, row);
+                }
+            }
+        }
+    }
+    i32 frame = ((g.elapsed_ms / 200) % 2) as i32;
+    sdl3::SDL_FRect src = {x = (frame * 8) as f32, y = 0.0, w = 8.0, h = 8.0};
+    sdl3::SDL_FRect dst = {x = g.player.x, y = g.player.y, w = g.player.w, h = g.player.h};
+    sdl3::SDL_RenderTexture(renderer, res.hero, &src, &dst);
+}
+
+void draw_hud(sdl3::SDL_Renderer* renderer, game::Game* g, resources::Resources* res) {
+    for i32 i in 0..g.keys {
+        sdl3::SDL_FRect dst = {x = 4.0 + (i * 18) as f32, y = 4.0, w = 16.0, h = 16.0};
+        sdl3::SDL_RenderTexture(renderer, res.key, null, &dst);
+    }
+}
+
+public void draw(sdl3::SDL_Renderer* renderer, game::Game* g, resources::Resources* res) {
+    match g.scene {
+        game::Scene::Title => {
+            fill(renderer, 20, 30, 80, 0.0, 0.0, 320.0, 240.0);
+            fill(renderer, 230, 120, 40, 60.0, 100.0, 200.0, 40.0);
+        },
+        game::Scene::Play => {
+            draw_world(renderer, g, res);
+            draw_hud(renderer, g, res);
+        },
+        game::Scene::Pause => {
+            draw_world(renderer, g, res);
+            draw_hud(renderer, g, res);
+            fill(renderer, 230, 230, 230, 130.0, 90.0, 20.0, 60.0);
+            fill(renderer, 230, 230, 230, 170.0, 90.0, 20.0, 60.0);
+        },
+        game::Scene::Win => {
+            fill(renderer, 20, 70, 40, 0.0, 0.0, 320.0, 240.0);
+            fill(renderer, 240, 220, 60, 100.0, 90.0, 120.0, 60.0);
+        },
+    }
+}

@@ -1,0 +1,12 @@
+module main;
+
+public Status(Error) main() {
+    println("SDL_Init")?;
+    defer println("SDL_Quit");
+    println("SDL_CreateWindow")?;
+    defer println("SDL_DestroyWindow");
+    println("SDL_CreateRenderer")?;
+    defer println("SDL_DestroyRenderer");
+    println("... the program runs ...")?;
+    return Status::Ok;
+}

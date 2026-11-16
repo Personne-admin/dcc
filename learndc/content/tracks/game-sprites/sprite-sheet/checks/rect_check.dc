@@ -1,0 +1,30 @@
+module rect_check;
+
+import sheet;
+import sdl3;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    sdl3::SDL_FRect a = sheet::frame_rect(0, 2, 8);
+    sdl3::SDL_FRect b = sheet::frame_rect(1, 2, 8);
+    sdl3::SDL_FRect c = sheet::frame_rect(2, 2, 8);
+    sdl3::SDL_FRect d = sheet::frame_rect(3, 2, 8);
+    failures += expect_that(a.x == 0.0 && a.y == 0.0 && a.w == 8.0 && a.h == 8.0, "frame 0 is at (0, 0) and 8 by 8");
+    failures += expect_that(b.x == 8.0 && b.y == 0.0, "frame 1 is one frame to the right");
+    failures += expect_that(c.x == 0.0 && c.y == 8.0, "frame 2 starts the second row");
+    failures += expect_that(d.x == 8.0 && d.y == 8.0, "frame 3 is at (8, 8)");
+    sdl3::SDL_FRect e = sheet::frame_rect(5, 4, 16);
+    failures += expect_that(e.x == 16.0 && e.y == 16.0 && e.w == 16.0 && e.h == 16.0, "frame 5 of a 4 column sheet of 16 pixel frames is at (16, 16)");
+    sdl3::SDL_FRect f = sheet::frame_rect(7, 4, 16);
+    failures += expect_that(f.x == 48.0 && f.y == 16.0, "frame 7 of 4 columns is the last of the second row");
+    return failures;
+}

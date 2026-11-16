@@ -1,0 +1,56 @@
+module unit_check;
+
+import rng;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    rng::Rng r = rng::seeded(42);
+    f32 first = rng::unit(&r);
+    failures += expect(first > 0.2523 && first < 0.2524, "the first unit value of seed 42 is 0.25234");
+
+    rng::Rng s = rng::seeded(7);
+    bool inside = true;
+    f32 sum = 0.0;
+    for i32 i = 0; i < 1000; i++ {
+        f32 u = rng::unit(&s);
+        if u < 0.0 || u >= 1.0 {
+            inside = false;
+        }
+        sum += u;
+    }
+    failures += expect(inside, "unit is always at least 0 and below 1");
+    failures += expect(sum > 450.0 && sum < 550.0, "the average of 1000 values is about 0.5");
+
+    rng::Rng c = rng::seeded(7);
+    i32 yes = 0;
+    for i32 i = 0; i < 1000; i++ {
+        if rng::chance(&c, 30) {
+            yes += 1;
+        }
+    }
+    failures += expect(yes == 295, "chance(30) is true 295 times out of 1000 for seed 7");
+    rng::Rng never = rng::seeded(1);
+    rng::Rng always = rng::seeded(1);
+    bool zero_ok = true;
+    bool hundred_ok = true;
+    for i32 i = 0; i < 200; i++ {
+        if rng::chance(&never, 0) {
+            zero_ok = false;
+        }
+        if !rng::chance(&always, 100) {
+            hundred_ok = false;
+        }
+    }
+    failures += expect(zero_ok, "chance(0) is never true");
+    failures += expect(hundred_ok, "chance(100) is always true");
+    return failures;
+}

@@ -1,0 +1,36 @@
+schema = 1
+id = "game-motion/bouncing-ball"
+revision = 1
+title = "A ball that bounces off four walls"
+summary = "Move a ball by velocity times dt and reflect it, with position correction, at every edge of a 320 x 240 box."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["reflection", "position correction", "bounds", "bounce counting"]
+tags = ["games", "motion", "collision"]
+objectives = [
+    "Move a ball and detect that it left the box on one or both axes",
+    "Mirror the overshoot back inside instead of snapping to the wall",
+    "Flip only the velocity component that points into the wall",
+    "Return how many axes bounced",
+]
+entry_file = "src/main.dc"
+product = "bouncing_ball"
+prerequisites = ["game-motion/vec2-toolkit"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "step moves and bounces at every wall"
+harness = "checks/walls_check.dc"
+hint = "Move first. If x < 0, set x = -x; if x > max_x set x = max_x - (x - max_x). Flip vx in both cases and count one bounce. The same for y."
+
+[[checks]]
+kind = "harness"
+name = "the ball never leaves the box over 3000 steps"
+harness = "checks/long_run_check.dc"
+hint = "The mirrored position must itself be inside the box; use the limit WIDTH - size (not WIDTH) for the right and HEIGHT - size for the bottom."

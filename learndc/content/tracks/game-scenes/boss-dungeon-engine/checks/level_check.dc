@@ -1,0 +1,30 @@
+module level_check;
+
+import level;
+
+i32 expect_that(bool cond, []const char what) {
+    if cond {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    level::Level l = {};
+    failures += expect_that(level::load(&l, level::LEVEL), "the level loads");
+    failures += expect_that(l.start_col == 1 && l.start_row == 1, "the start is at column 1, row 1");
+    failures += expect_that(l.keys_total == 2, "the level has two keys");
+    failures += expect_that(level::tile_at(&l, 0, 0) == level::Tile::Wall, "the corner is a wall");
+    failures += expect_that(level::tile_at(&l, 1, 1) == level::Tile::Floor, "the start tile is floor");
+    failures += expect_that(level::tile_at(&l, 5, 3) == level::Tile::Door, "there is a door at column 5, row 3");
+    failures += expect_that(level::tile_at(&l, 11, 3) == level::Tile::Door, "there is a second door at column 11, row 3");
+    failures += expect_that(level::tile_at(&l, 2, 5) == level::Tile::Key && level::tile_at(&l, 8, 2) == level::Tile::Key, "the keys are where the k characters are");
+    failures += expect_that(level::tile_at(&l, 14, 1) == level::Tile::Exit, "the exit is at column 14, row 1");
+    failures += expect_that(level::tile_at(&l, -1, 1) == level::Tile::Wall && level::tile_at(&l, 3, 12) == level::Tile::Wall, "outside the map is wall");
+    failures += expect_that(level::solid(&l, 0, 0) && level::solid(&l, 5, 3), "walls and doors are solid");
+    failures += expect_that(!level::solid(&l, 1, 1) && !level::solid(&l, 2, 5) && !level::solid(&l, 14, 1), "floor, keys and the exit can be walked on");
+    return failures;
+}

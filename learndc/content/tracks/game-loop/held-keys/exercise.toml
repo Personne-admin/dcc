@@ -1,0 +1,36 @@
+schema = 1
+id = "game-loop/held-keys"
+revision = 1
+title = "Held keys and mouse buttons"
+summary = "Read the keyboard state array and the mouse button mask, and turn two keys into a movement axis."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["SDL_GetKeyboardState", "scancode index", "SDL_GetMouseState", "bit mask", "axis"]
+tags = ["games", "sdl3", "input"]
+objectives = [
+    "Index the keyboard state array with a scancode",
+    "Combine arrow keys and WASD into held directions",
+    "Turn a pair of opposite keys into -1, 0 or 1",
+    "Test one button in the mouse button mask",
+]
+entry_file = "src/main.dc"
+product = "held_keys"
+prerequisites = ["game-loop/events-to-input"]
+requires = ["dcc", "dpm", "sdl3"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "harness"
+name = "read_keyboard reads the state array"
+harness = "checks/keys_check.dc"
+hint = "keys is indexed by scancode: keys[sdl3::SDL_Scancode::SDL_SCANCODE_LEFT as usize]. A direction is held when its arrow or its WASD key is down."
+
+[[checks]]
+kind = "harness"
+name = "axis and button_down"
+harness = "checks/axis_check.dc"
+hint = "axis starts at 0, subtracts 1 for the negative key and adds 1 for the positive key. Button b is bit b - 1 of the mask."

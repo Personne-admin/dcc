@@ -1,0 +1,39 @@
+module boost_check;
+
+import game;
+import input;
+
+i32 expect(bool good, []const char what) {
+    if good {
+        println("ok   {}", what);
+        return 0;
+    }
+    println("FAIL {}", what);
+    return 1;
+}
+
+bool near(f32 a, f32 b) {
+    f32 d = a - b;
+    if d < 0.0 {
+        d = 0.0 - d;
+    }
+    return d < 0.01;
+}
+
+bool at(game::State s, f32 x, f32 y) {
+    return near(s.x, x) && near(s.y, y);
+}
+
+public i32 main() {
+    i32 failures = 0;
+    input::Input plain = {};
+    input::Input fast = {};
+    fast.boost = true;
+    failures += expect(near(game::current_speed(plain), 240.0), "normal speed is 240");
+    failures += expect(near(game::current_speed(fast), 480.0), "boost doubles the speed");
+    fast.right = true;
+    game::State s = {x = 100.0, y = 100.0, color = 0, paused = false};
+    game::move_square(&s, fast, 0.5);
+    failures += expect(at(s, 340.0, 100.0), "move_square uses the boosted speed");
+    return failures;
+}

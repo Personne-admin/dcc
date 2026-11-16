@@ -1,0 +1,25 @@
+module chart;
+
+public import sdl3;
+
+public struct Color {
+    u8 r;
+    u8 g;
+    u8 b;
+}
+
+public struct Shape {
+    sdl3::SDL_FRect rect;
+    Color color;
+    bool filled;
+}
+
+public void set_color(sdl3::SDL_Renderer* renderer, Color color) {
+    sdl3::SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, 255);
+}
+
+public void draw_shapes(sdl3::SDL_Renderer* renderer, []const Shape shapes) {
+}
+
+public void draw_bars(sdl3::SDL_Renderer* renderer, []const i32 values, i32 bar_width, i32 gap, i32 baseline, Color color) {
+}

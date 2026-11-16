@@ -1,0 +1,10 @@
+dpm::v1::Project {
+    name = "logical_canvas",
+    version = "0.1.0",
+    products = {
+        { name = "logical_canvas", entry = "src/main.dc" },
+    },
+    dependencies = {
+        { location = "github.com/Personne-admin/sdl3-dc", version = "0.1.0" },
+    },
+}

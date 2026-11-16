@@ -1,0 +1,44 @@
+module main;
+
+import sdl3;
+import canvas;
+
+public i32 main() {
+    sdl3::SDL_SetMainReady();
+    if !sdl3::SDL_Init(sdl3::SDL_INIT_VIDEO) {
+        return 1;
+    }
+    defer sdl3::SDL_Quit();
+    sdl3::SDL_Window* window = null;
+    sdl3::SDL_Renderer* renderer = null;
+    if !sdl3::SDL_CreateWindowAndRenderer("Logical canvas", 640, 480, sdl3::SDL_WINDOW_RESIZABLE, &window, &renderer) {
+        return 2;
+    }
+    defer sdl3::SDL_DestroyWindow(window);
+    defer sdl3::SDL_DestroyRenderer(renderer);
+    canvas::setup(renderer);
+    bool running = true;
+    sdl3::SDL_Event ev;
+    while running {
+        while sdl3::SDL_PollEvent(&ev) {
+            if ev.type == (sdl3::SDL_EventType::SDL_EVENT_QUIT as u32) {
+                running = false;
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_KEY_DOWN as u32) {
+                if ev.key.key == sdl3::SDLK_ESCAPE {
+                    running = false;
+                }
+            } else if ev.type == (sdl3::SDL_EventType::SDL_EVENT_MOUSE_BUTTON_DOWN as u32) {
+                i32 w = 0;
+                i32 h = 0;
+                sdl3::SDL_GetWindowSize(window, &w, &h);
+                canvas::Mapping m = canvas::letterbox(w, h);
+                sdl3::SDL_FPoint p = canvas::to_logical(m, ev.button.x, ev.button.y);
+                println("click at logical ({:.1}, {:.1})", p.x, p.y);
+            }
+        }
+        canvas::draw(renderer);
+        sdl3::SDL_RenderPresent(renderer);
+        sdl3::SDL_Delay(16);
+    }
+    return 0;
+}
