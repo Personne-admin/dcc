@@ -1,0 +1,23 @@
+module stats;
+
+import probe;
+
+public struct MinMax {
+    i32 min;
+    i32 max;
+}
+
+public MinMax min_max([]const i32 values) {
+    i32 low = probe::read(values, 0);
+    i32 high = low;
+    for usize i = 1; i < values.len; i++ {
+        i32 v = probe::read(values, i);
+        if v < low {
+            low = v;
+        }
+        if v > high {
+            high = v;
+        }
+    }
+    return MinMax { min = low, max = high };
+}

@@ -13,7 +13,26 @@ tracks = [
     "projects",
     "library",
     "generics",
+    "lab",
+    "clinic",
+    "reading",
+    "challenges",
+    "mastery",
 ]
+
+[[paths]]
+id = "core"
+title = "Core curriculum"
+summary = "The beginner journey: programs, values, functions, decisions, loops, data, errors, memory, modules and generics, one concept at a time."
+kind = "core"
+tracks = ["first-steps", "values", "functions", "decisions", "loops", "collections", "data", "errors", "memory", "projects", "library", "generics"]
+
+[[paths]]
+id = "practice"
+title = "Projects and challenges"
+summary = "Optional practice in any order: projects to build, realistic bugs to diagnose, unfamiliar programs to read, sharp challenges and mastery tests."
+kind = "practice"
+tracks = ["lab", "clinic", "reading", "challenges", "mastery"]
 
 [renamed]
 "fundamentals/hello-world" = "first-steps/hello-world"

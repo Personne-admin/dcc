@@ -1,0 +1,13 @@
+module main;
+
+import above;
+import probe;
+
+public Status(Error) main() {
+    i32[5] data = { 1, 2, 3, 10, 12 };
+    probe::reset();
+    u32 n = above::count_above_average(data);
+    println("above average: {}", n)?;
+    println("reads: {}", probe::reads())?;
+    return Status::Ok;
+}

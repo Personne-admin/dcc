@@ -1,0 +1,56 @@
+module converting;
+
+import units;
+using units::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool near(f64 a, f64 b) {
+    f64 d = a - b;
+    if d < 0.0 {
+        d = -d;
+    }
+    return d < 0.0001;
+}
+
+bool gives(Result(f64, ConvertError) r, f64 expected) {
+    match r {
+        Result::Ok(v) => return near(v, expected),
+        Result::Err(e) => return false,
+    }
+}
+
+bool fails_with(Result(f64, ConvertError) r, ConvertError expected) {
+    match r {
+        Result::Ok(v) => return false,
+        Result::Err(e) => return e == expected,
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(gives(convert(1.0, "km", "m"), 1000.0), "1 km is 1000 m", &failures);
+    expect(gives(convert(1500.0, "m", "km"), 1.5), "1500 m is 1.5 km", &failures);
+    expect(gives(convert(1.0, "mi", "km"), 1.609344), "1 mi is 1.609344 km", &failures);
+    expect(gives(convert(12.0, "in", "ft"), 1.0), "12 in is 1 ft", &failures);
+    expect(gives(convert(2.0, "kg", "lb"), 4.409245), "2 kg is 4.409245 lb", &failures);
+    expect(gives(convert(16.0, "oz", "lb"), 1.0), "16 oz is 1 lb", &failures);
+    expect(gives(convert(7.0, "m", "m"), 7.0), "the same unit changes nothing", &failures);
+    expect(gives(convert(100.0, "C", "F"), 212.0), "100 C is 212 F", &failures);
+    expect(gives(convert(-40.0, "C", "F"), -40.0), "-40 C is -40 F", &failures);
+    expect(gives(convert(32.0, "F", "C"), 0.0), "32 F is 0 C", &failures);
+    expect(gives(convert(0.0, "K", "C"), -273.15), "0 K is -273.15 C", &failures);
+    expect(fails_with(convert(1.0, "furlong", "m"), ConvertError::UnknownUnit), "an unknown source unit", &failures);
+    expect(fails_with(convert(1.0, "m", "parsec"), ConvertError::UnknownUnit), "an unknown target unit", &failures);
+    expect(fails_with(convert(1.0, "kg", "m"), ConvertError::DimensionMismatch), "mass to length is refused", &failures);
+    expect(fails_with(convert(1.0, "C", "g"), ConvertError::DimensionMismatch), "temperature to mass is refused", &failures);
+    expect(fails_with(convert(1.0, "xx", "kg"), ConvertError::UnknownUnit), "unknown wins over everything else", &failures);
+    return failures;
+}

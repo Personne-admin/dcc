@@ -1,0 +1,29 @@
+module collatz;
+
+public u64 steps(u64 n) {
+    u64 count = 0;
+    while n != 1 {
+        if n % 2 == 0 {
+            n = n / 2;
+        } else {
+            n = 3 * n + 1;
+        }
+        count += 1;
+    }
+    return count;
+}
+
+public u64 peak(u64 n) {
+    u64 highest = n;
+    while n != 1 {
+        if n % 2 == 0 {
+            n = n / 2;
+        } else {
+            n = 3 * n + 1;
+        }
+        if n > highest {
+            highest = n;
+        }
+    }
+    return highest;
+}

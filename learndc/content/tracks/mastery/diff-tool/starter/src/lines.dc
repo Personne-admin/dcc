@@ -1,0 +1,5 @@
+module lines;
+
+public Status(AllocError) intern([]const []const char text, Array([]const char)* table, Array(u32)* ids) {
+    return Status::Ok;
+}

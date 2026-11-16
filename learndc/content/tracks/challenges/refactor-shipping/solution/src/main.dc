@@ -1,0 +1,21 @@
+module main;
+
+import shipping;
+using shipping::*;
+
+Status(Error) show(Speed speed, i32 kilos) {
+    match speed {
+        Speed::Standard => print("standard")?,
+        Speed::Fast => print("fast")?,
+        Speed::Overnight => print("overnight")?,
+    }
+    println(": fee {}, days {}", fee(speed, kilos), days(speed))?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    show(Speed::Standard, 3)?;
+    show(Speed::Fast, 3)?;
+    show(Speed::Overnight, 3)?;
+    return Status::Ok;
+}

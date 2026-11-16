@@ -1,0 +1,35 @@
+module main;
+
+import lcs;
+import lines;
+
+Status(Error) show(const []const []const char old, const []const []const char updated) {
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const []const char before = {
+        "module greeting;",
+        "",
+        "public void hello() {",
+        "    println(\"hello\");",
+        "    println(\"world\");",
+        "}",
+    };
+    []const []const char after = {
+        "module greeting;",
+        "",
+        "import std::fmt;",
+        "",
+        "public void hello() {",
+        "    println(\"hello\");",
+        "}",
+    };
+    show(before, after)?;
+    println("----")?;
+    []const char kitten = "kitten";
+    []const char sitting = "sitting";
+    Result(usize, lcs::DiffError) common = lcs::lcs_length(kitten, sitting);
+    println("common letters of kitten and sitting: {}", common.unwrap())?;
+    return Status::Ok;
+}

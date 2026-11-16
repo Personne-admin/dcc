@@ -1,0 +1,23 @@
+module main;
+
+import calc;
+using calc::*;
+
+public Status(Error) main() {
+    []const []const char expressions = {
+        "1 + 2 * 3",
+        "(1 + 2) * 3",
+        "-(4 - 10) % 4",
+        "2 * (3 + 4) * 5",
+        "100 / 7 / 2",
+        "7 - 3 - 2",
+        "2--3",
+        "2 +",
+        "(1 + )",
+        "4 $ 4",
+        "8 / (4 - 4)",
+        "9223372036854775807 + 1",
+        "",
+    };
+    return Status::Ok;
+}

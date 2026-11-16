@@ -1,0 +1,89 @@
+module life;
+
+public const usize WIDTH = 8;
+public const usize HEIGHT = 8;
+public const usize CELLS = 64;
+
+public bool next_state(bool alive, u32 neighbours) {
+    if alive {
+        return neighbours == 2 || neighbours == 3;
+    }
+    return neighbours == 3;
+}
+
+public bool alive_at([]const bool cells, i32 row, i32 col) {
+    if row < 0 || col < 0 || row >= HEIGHT as i32 || col >= WIDTH as i32 {
+        return false;
+    }
+    return cells[row as usize * WIDTH + col as usize];
+}
+
+public u32 neighbours([]const bool cells, i32 row, i32 col) {
+    u32 count = 0;
+    for i32 dr in -1..=1 {
+        for i32 dc in -1..=1 {
+            if dr == 0 && dc == 0 {
+                continue;
+            }
+            if alive_at(cells, row + dr, col + dc) {
+                count += 1;
+            }
+        }
+    }
+    return count;
+}
+
+public void step([]const bool current, []bool next) {
+    for i32 row in 0..HEIGHT as i32 {
+        for i32 col in 0..WIDTH as i32 {
+            usize index = row as usize * WIDTH + col as usize;
+            next[index] = next_state(current[index], neighbours(current, row, col));
+        }
+    }
+}
+
+public usize population([]const bool cells) {
+    usize total = 0;
+    for cell in cells {
+        if cell {
+            total += 1;
+        }
+    }
+    return total;
+}
+
+public Status(Error) render([]const bool cells) {
+    for usize row in 0..HEIGHT {
+        for usize col in 0..WIDTH {
+            if cells[row * WIDTH + col] {
+                print("#")?;
+            } else {
+                print(".")?;
+            }
+        }
+        println("")?;
+    }
+    return Status::Ok;
+}
+
+public usize settle([]const bool start, usize limit) {
+    bool[CELLS] a = {};
+    bool[CELLS] b = {};
+    for usize i in 0..CELLS {
+        a[i] = start[i];
+    }
+    for usize n in 0..limit {
+        step(a, b);
+        bool same = true;
+        for usize i in 0..CELLS {
+            if a[i] != b[i] {
+                same = false;
+            }
+        }
+        if same {
+            return n;
+        }
+        a = b;
+    }
+    return limit;
+}

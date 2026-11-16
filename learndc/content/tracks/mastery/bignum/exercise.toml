@@ -1,0 +1,94 @@
+schema = 1
+id = "mastery/bignum"
+revision = 1
+title = "Big Numbers"
+summary = "Implement unsigned numbers of any size as arrays of base 10^9 limbs: add, subtract, multiply, divide by a small number, compare and print, then compute 100 factorial, 2 to the 1000 and Fibonacci numbers exactly."
+kind = "challenge"
+difficulty = "advanced"
+estimated_minutes = 100
+concepts = ["Array", "carry and borrow", "u64 intermediates", "normalization", "aliasing", "custom errors", "modules"]
+tags = ["mastery", "arithmetic", "memory", "errors"]
+objectives = [
+    "Choose a representation (limbs in base 10^9, least significant first) and keep every result in its one normal form",
+    "Carry and borrow between limbs using wider intermediate values",
+    "Handle arguments that alias each other, such as add(&a, &a), while the array may grow",
+    "Refuse subtraction below zero and division by zero with a typed error that leaves the number unchanged",
+]
+entry_file = "src/main.dc"
+product = "bignum"
+prerequisites = ["generics/boss-generic-toolkit"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "set_u64, to_text and compare"
+harness = "checks/basics.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Limbs are least significant first, every limb is below 10^9, and the top limb is never 0 unless the whole number is the single limb 0."
+
+[[checks]]
+kind = "harness"
+name = "add and mul_small, including aliasing"
+harness = "checks/growing.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Do the intermediate arithmetic in u64: a limb times a u32 plus a carry does not fit in 32 bits."
+
+[[checks]]
+kind = "harness"
+name = "mul of two big numbers"
+harness = "checks/products.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "out gets a.len + b.len limbs before you start; normalize at the end."
+
+[[checks]]
+kind = "harness"
+name = "sub and divmod_small with their errors"
+harness = "checks/shrinking.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Compare before you subtract, so Underflow leaves a untouched. Divide from the most significant limb and carry the remainder down."
+
+[[checks]]
+kind = "harness"
+name = "Random cases against native u64 arithmetic"
+harness = "checks/property.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "A failing case almost always has a limb boundary in it: numbers around 999999999 and 1000000000."
+
+[[checks]]
+kind = "harness"
+name = "Large computations: 2^1000, Fibonacci 4782, powers"
+harness = "checks/scale.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "mul_small and add have to keep working while the number grows to hundreds of digits."
+
+[[checks]]
+kind = "run"
+name = "The report"
+expect_stdout = """
+25! = 15511210043330985984000000
+2^100 = 1267650600228229401496703205376
+2^200 = 1606938044258990275541962092341162602522202993782792835301376
+fib(100) = 354224848179261915075
+100! has 158 digits, digit sum 648
+2^1000 has 302 digits, digit sum 1366
+(2^64 - 1) * 2 / 7 = 5270498306774157604 remainder 2
+1000 - 2000: underflow
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Eight lines: the exact values, the digit counts and sums, the division and the refused subtraction."

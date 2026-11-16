@@ -1,0 +1,214 @@
+module calc;
+
+public enum CalcError {
+    @implicit_construction Alloc(AllocError),
+    InvalidCharacter(usize),
+    UnexpectedToken(usize),
+    UnexpectedEnd(usize),
+    DivideByZero(usize),
+    Overflow(usize),
+}
+
+enum TokenKind { Number, Plus, Minus, Star, Slash, Percent, Open, Close }
+
+struct Token {
+    TokenKind kind;
+    i64 value;
+    usize position;
+}
+
+struct Binary {
+    TokenKind op;
+    usize left;
+    usize right;
+    usize position;
+}
+
+struct Negation {
+    usize operand;
+    usize position;
+}
+
+enum Node {
+    Number(i64),
+    Negate(Negation),
+    Calc(Binary),
+}
+
+Result(bool, CalcError) tokenize([]const char text, Array(Token)* tokens) {
+    usize i = 0;
+    while i < text.len {
+        char c = text[i];
+        if c == ' ' || c == '\t' {
+            i += 1;
+        } else if c >= '0' && c <= '9' {
+            usize start = i;
+            i64 value = 0;
+            while i < text.len && text[i] >= '0' && text[i] <= '9' {
+                i64 digit = text[i] as i64 - '0' as i64;
+                if value > (9223372036854775807 - digit) / 10 {
+                    return Result::Err(CalcError::Overflow(start));
+                }
+                value = value * 10 + digit;
+                i += 1;
+            }
+            tokens.push(Token { kind = TokenKind::Number, value = value, position = start })?;
+        } else {
+            TokenKind kind = TokenKind::Plus;
+            if c == '+' {
+                kind = TokenKind::Plus;
+            } else if c == '-' {
+                kind = TokenKind::Minus;
+            } else if c == '*' {
+                kind = TokenKind::Star;
+            } else if c == '/' {
+                kind = TokenKind::Slash;
+            } else if c == '%' {
+                kind = TokenKind::Percent;
+            } else if c == '(' {
+                kind = TokenKind::Open;
+            } else if c == ')' {
+                kind = TokenKind::Close;
+            } else {
+                return Result::Err(CalcError::InvalidCharacter(i));
+            }
+            tokens.push(Token { kind = kind, value = 0, position = i })?;
+            i += 1;
+        }
+    }
+    return Result::Ok(true);
+}
+
+
+Result(usize, CalcError) parse_primary(const Array(Token)* tokens, Array(Node)* nodes, usize* at, usize end) {
+    if *at >= tokens.len() {
+        return Result::Err(CalcError::UnexpectedEnd(end));
+    }
+    Token token = tokens.items()[*at];
+    if token.kind == TokenKind::Number {
+        *at += 1;
+        nodes.push(Node::Number(token.value))?;
+        return Result::Ok(nodes.len() - 1);
+    }
+    if token.kind == TokenKind::Minus {
+        *at += 1;
+        usize operand = parse_primary(tokens, nodes, at, end)?;
+        nodes.push(Node::Negate(Negation { operand = operand, position = token.position }))?;
+        return Result::Ok(nodes.len() - 1);
+    }
+    if token.kind == TokenKind::Open {
+        *at += 1;
+        usize inner = parse_expr(tokens, nodes, at, end)?;
+        if *at >= tokens.len() {
+            return Result::Err(CalcError::UnexpectedEnd(end));
+        }
+        if tokens.items()[*at].kind != TokenKind::Close {
+            return Result::Err(CalcError::UnexpectedToken(tokens.items()[*at].position));
+        }
+        *at += 1;
+        return Result::Ok(inner);
+    }
+    return Result::Err(CalcError::UnexpectedToken(token.position));
+}
+
+Result(usize, CalcError) parse_term(const Array(Token)* tokens, Array(Node)* nodes, usize* at, usize end) {
+    usize left = parse_primary(tokens, nodes, at, end)?;
+    while *at < tokens.len() {
+        Token token = tokens.items()[*at];
+        if token.kind != TokenKind::Star && token.kind != TokenKind::Slash && token.kind != TokenKind::Percent {
+            break;
+        }
+        *at += 1;
+        usize right = parse_primary(tokens, nodes, at, end)?;
+        nodes.push(Node::Calc(Binary { op = token.kind, left = left, right = right, position = token.position }))?;
+        left = nodes.len() - 1;
+    }
+    return Result::Ok(left);
+}
+
+Result(usize, CalcError) parse_expr(const Array(Token)* tokens, Array(Node)* nodes, usize* at, usize end) {
+    usize left = parse_term(tokens, nodes, at, end)?;
+    while *at < tokens.len() {
+        Token token = tokens.items()[*at];
+        if token.kind != TokenKind::Plus && token.kind != TokenKind::Minus {
+            break;
+        }
+        *at += 1;
+        usize right = parse_term(tokens, nodes, at, end)?;
+        nodes.push(Node::Calc(Binary { op = token.kind, left = left, right = right, position = token.position }))?;
+        left = nodes.len() - 1;
+    }
+    return Result::Ok(left);
+}
+
+Result(i64, CalcError) eval(const Array(Node)* nodes, usize index) {
+    Node node = nodes.items()[index];
+    match node {
+        Node::Number(n) => return Result::Ok(n),
+        Node::Negate(neg) => {
+            i64 v = eval(nodes, neg.operand)?;
+            if v == -9223372036854775807 - 1 {
+                return Result::Err(CalcError::Overflow(neg.position));
+            }
+            return Result::Ok(-v);
+        },
+        Node::Calc(b) => {
+            i64 x = eval(nodes, b.left)?;
+            i64 y = eval(nodes, b.right)?;
+            i64 min = -9223372036854775807 - 1;
+            i64 max = 9223372036854775807;
+            if b.op == TokenKind::Plus {
+                if (y > 0 && x > max - y) || (y < 0 && x < min - y) {
+                    return Result::Err(CalcError::Overflow(b.position));
+                }
+                return Result::Ok(x + y);
+            }
+            if b.op == TokenKind::Minus {
+                if (y < 0 && x > max + y) || (y > 0 && x < min + y) {
+                    return Result::Err(CalcError::Overflow(b.position));
+                }
+                return Result::Ok(x - y);
+            }
+            if b.op == TokenKind::Star {
+                if x != 0 && y != 0 {
+                    if (x == -1 && y == min) || (y == -1 && x == min) {
+                        return Result::Err(CalcError::Overflow(b.position));
+                    }
+                    i64 p = x * y;
+                    if p / y != x {
+                        return Result::Err(CalcError::Overflow(b.position));
+                    }
+                    return Result::Ok(p);
+                }
+                return Result::Ok(0);
+            }
+            if y == 0 {
+                return Result::Err(CalcError::DivideByZero(b.position));
+            }
+            if b.op == TokenKind::Slash {
+                if x == min && y == -1 {
+                    return Result::Err(CalcError::Overflow(b.position));
+                }
+                return Result::Ok(x / y);
+            }
+            if y == -1 {
+                return Result::Ok(0);
+            }
+            return Result::Ok(x % y);
+        },
+    }
+}
+
+public Result(i64, CalcError) evaluate([]const char text) {
+    Array(Token) tokens = {};
+    defer tokens.deinit();
+    Array(Node) nodes = {};
+    defer nodes.deinit();
+    tokenize(text, &tokens)?;
+    usize at = 0;
+    usize root = parse_expr(&tokens, &nodes, &at, text.len)?;
+    if at < tokens.len() {
+        return Result::Err(CalcError::UnexpectedToken(tokens.items()[at].position));
+    }
+    return eval(&nodes, root);
+}

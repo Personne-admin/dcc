@@ -1,0 +1,61 @@
+module evaluating;
+
+import std::slice;
+import rpn;
+using rpn::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool refused(Status(CalcError) s, CalcError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+bool gives(Result(i64, CalcError) r, i64 expected) {
+    match r {
+        Result::Ok(v) => return v == expected,
+        Result::Err(e) => return false,
+    }
+}
+
+bool fails(Result(i64, CalcError) r, CalcError expected) {
+    match r {
+        Result::Ok(v) => return false,
+        Result::Err(e) => return e == expected,
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(gives(evaluate("42"), 42), "a single number", &failures);
+    expect(gives(evaluate("-42"), -42), "a negative number", &failures);
+    expect(gives(evaluate("3 4 +"), 7), "3 4 +", &failures);
+    expect(gives(evaluate("5 1 2 + 4 * + 3 -"), 14), "the classic example", &failures);
+    expect(gives(evaluate("  7   8  * "), 56), "extra blanks", &failures);
+    expect(gives(evaluate("2 3 4 * +"), 14), "multiplication binds first when written that way", &failures);
+    expect(gives(evaluate("2 3 + 4 *"), 20), "and addition first when written that way", &failures);
+    expect(gives(evaluate("100 7 /"), 14), "division", &failures);
+    expect(gives(evaluate("10 3 - 2 - 1 -"), 4), "a chain of subtractions", &failures);
+    expect(gives(evaluate("1 2 3 4 5 + + + +"), 15), "a deep stack", &failures);
+    expect(fails(evaluate(""), CalcError::EmptyExpression), "an empty text", &failures);
+    expect(fails(evaluate("   "), CalcError::EmptyExpression), "blanks only", &failures);
+    expect(fails(evaluate("1 +"), CalcError::StackUnderflow), "an operator without operands", &failures);
+    expect(fails(evaluate("+"), CalcError::StackUnderflow), "a lone operator", &failures);
+    expect(fails(evaluate("1 2"), CalcError::LeftOverValues), "two values left", &failures);
+    expect(fails(evaluate("1 2 3 +"), CalcError::LeftOverValues), "an operator that does not use every value", &failures);
+    expect(fails(evaluate("2 x *"), CalcError::BadToken), "an unknown token", &failures);
+    expect(fails(evaluate("1.5 2 +"), CalcError::BadToken), "a decimal is not a number here", &failures);
+    expect(fails(evaluate("5 0 /"), CalcError::DivideByZero), "dividing by zero", &failures);
+    expect(fails(evaluate("5 0 / +"), CalcError::DivideByZero), "the first error wins", &failures);
+    expect(gives(evaluate("8"), 8) && gives(evaluate("9"), 9), "evaluate keeps no state between calls", &failures);
+    return failures;
+}

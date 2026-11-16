@@ -1,0 +1,58 @@
+schema = 1
+id = "challenges/refactor-invoice"
+revision = 1
+title = "Refactor: split the invoice out of main"
+summary = "A working invoice program has everything inside main with copy and paste; move the logic into a module with a given interface without changing the output."
+kind = "refactor"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = [
+    "refactoring",
+    "modules",
+    "structs",
+    "duplication",
+]
+tags = [
+    "refactoring",
+    "modules",
+    "structs",
+    "intermediate",
+]
+objectives = [
+    "Change structure without changing behaviour",
+    "Replace repeated code by one function and a data type",
+]
+entry_file = "src/main.dc"
+product = "refactor_invoice"
+prerequisites = ["projects/module-design"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The program output is unchanged"
+expect_stdout = """
+widget: 3 x 250 = 750
+bolt: 12 x 15 = 162
+gear: 10 x 80 = 720
+total: 1632
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The output must match exactly."
+
+[[checks]]
+kind = "harness"
+name = "The harness passes"
+harness = "checks/invoice_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Read the FAIL lines of the harness output."

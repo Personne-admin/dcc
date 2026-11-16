@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "unit_converter",
+    version = "0.1.0",
+    products = {
+        { name = "unit_converter", entry = "src/main.dc" },
+    },
+}

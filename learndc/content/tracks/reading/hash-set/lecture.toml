@@ -1,0 +1,282 @@
+schema = 1
+id = "reading/hash-set"
+revision = 1
+title = "Reading a hash set"
+summary = "A fixed-size hash set with linear probing, simplified from what a library map does: collisions, lookups and a full table."
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = [
+    "hashing",
+    "linear probing",
+    "Optional",
+    "arrays",
+    "code reading",
+]
+tags = [
+    "reading",
+    "data-structures",
+    "hashing",
+    "tracing",
+]
+objectives = [
+    "Explain what a collision is and how linear probing resolves it",
+    "Trace slots for a sequence of insertions",
+    "Say why `find` stops at the first unused slot",
+]
+prerequisites = ["data/struct-pointers"]
+optional = true
+kind = "lecture"
+
+[[examples]]
+name = "hashset"
+expect_stdout = """
+added 3 (count 1)
+added 11 (count 2)
+added 19 (count 3)
+skipped 11
+added 4 (count 4)
+19 is in slot 5
+4 is in slot 6
+27 is missing
+"""
+
+[[questions]]
+id = "slot-of-19"
+type = "trace"
+prompt = "In which slot does 19 end up? Answer with the slot number."
+example = "hashset"
+accept = [
+    "5",
+]
+explanation = "19 % 8 = 3. Slot 3 holds 3 and slot 4 holds 11, so the probe ends in slot 5."
+
+[[questions]]
+id = "other-keys"
+type = "predict"
+prompt = "The calls in `main` are replaced by the ones below. What does the program print?"
+code = """
+module main;
+
+struct Set {
+    u32[8] keys;
+    bool[8] used;
+    usize count;
+}
+
+usize home_slot(u32 key) {
+    return (key % 8) as usize;
+}
+
+Optional(usize) find(Set* set, u32 key) {
+    usize slot = home_slot(key);
+    for usize probe = 0; probe < 8; probe++ {
+        if !set.used[slot] {
+            return Optional::None;
+        }
+        if set.keys[slot] == key {
+            return Optional::Some(slot);
+        }
+        slot = (slot + 1) % 8;
+    }
+    return Optional::None;
+}
+
+bool insert(Set* set, u32 key) {
+    if find(set, key).is_some() {
+        return false;
+    }
+    if set.count == 8 {
+        return false;
+    }
+    usize slot = home_slot(key);
+    while set.used[slot] {
+        slot = (slot + 1) % 8;
+    }
+    set.keys[slot] = key;
+    set.used[slot] = true;
+    set.count += 1;
+    return true;
+}
+
+Status(Error) add(Set* set, u32 key) {
+    if insert(set, key) {
+        println("added {} (count {})", key, set.count)?;
+    } else {
+        println("skipped {}", key)?;
+    }
+    return Status::Ok;
+}
+
+Status(Error) lookup(Set* set, u32 key) {
+    match find(set, key) {
+        Optional::Some(slot) => println("{} is in slot {}", key, slot)?,
+        Optional::None => println("{} is missing", key)?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Set set = Set {
+        keys = { 0, 0, 0, 0, 0, 0, 0, 0 },
+        used = { false, false, false, false, false, false, false, false },
+        count = 0,
+    };
+    add(&set, 7)?;
+    add(&set, 15)?;
+    add(&set, 8)?;
+    add(&set, 16)?;
+    lookup(&set, 7)?;
+    lookup(&set, 15)?;
+    lookup(&set, 16)?;
+    lookup(&set, 24)?;
+    return Status::Ok;
+}
+"""
+expect = """
+added 7 (count 1)
+added 15 (count 2)
+added 8 (count 3)
+added 16 (count 4)
+7 is in slot 7
+15 is in slot 0
+16 is in slot 2
+24 is missing
+"""
+explanation = "7 lives in slot 7. 15 has home slot 7, which is taken, so it wraps around to slot 0. 8 has home slot 0, which 15 occupies, so it goes to slot 1; 16 (home slot 0) ends in slot 2. 24 has home slot 0, probes 0, 1, 2 (all other keys) and then reaches the unused slot 3, so it is missing."
+
+[[questions]]
+id = "no-duplicate-check"
+type = "predict"
+prompt = "The three lines of the `find(set, key).is_some()` check are removed from `insert`. What does the program print?"
+code = """
+module main;
+
+struct Set {
+    u32[8] keys;
+    bool[8] used;
+    usize count;
+}
+
+usize home_slot(u32 key) {
+    return (key % 8) as usize;
+}
+
+Optional(usize) find(Set* set, u32 key) {
+    usize slot = home_slot(key);
+    for usize probe = 0; probe < 8; probe++ {
+        if !set.used[slot] {
+            return Optional::None;
+        }
+        if set.keys[slot] == key {
+            return Optional::Some(slot);
+        }
+        slot = (slot + 1) % 8;
+    }
+    return Optional::None;
+}
+
+bool insert(Set* set, u32 key) {
+    if set.count == 8 {
+        return false;
+    }
+    usize slot = home_slot(key);
+    while set.used[slot] {
+        slot = (slot + 1) % 8;
+    }
+    set.keys[slot] = key;
+    set.used[slot] = true;
+    set.count += 1;
+    return true;
+}
+
+Status(Error) add(Set* set, u32 key) {
+    if insert(set, key) {
+        println("added {} (count {})", key, set.count)?;
+    } else {
+        println("skipped {}", key)?;
+    }
+    return Status::Ok;
+}
+
+Status(Error) lookup(Set* set, u32 key) {
+    match find(set, key) {
+        Optional::Some(slot) => println("{} is in slot {}", key, slot)?,
+        Optional::None => println("{} is missing", key)?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Set set = Set {
+        keys = { 0, 0, 0, 0, 0, 0, 0, 0 },
+        used = { false, false, false, false, false, false, false, false },
+        count = 0,
+    };
+    add(&set, 3)?;
+    add(&set, 11)?;
+    add(&set, 19)?;
+    add(&set, 11)?;
+    add(&set, 4)?;
+    lookup(&set, 19)?;
+    lookup(&set, 4)?;
+    lookup(&set, 27)?;
+    return Status::Ok;
+}
+"""
+expect = """
+added 3 (count 1)
+added 11 (count 2)
+added 19 (count 3)
+added 11 (count 4)
+added 4 (count 5)
+19 is in slot 5
+4 is in slot 7
+27 is missing
+"""
+explanation = "The second `add(&set, 11)` is no longer refused: `insert` walks to the first unused slot (6) and stores 11 a second time, so the count reaches 4. The key 4 then finds slots 4, 5 and 6 used and ends in slot 7. A set must not contain a key twice; the check at the top of `insert` is what makes it a set."
+
+[[questions]]
+id = "set-facts"
+type = "multi"
+prompt = "Which statements about the hash set are true?"
+choices = [
+    "A key is always stored in its home slot",
+    "`find` returns `None` as soon as it reaches an unused slot",
+    "`insert` and `find` probe the slots in the same order",
+    "The set grows when it is full",
+    "Two keys with the same home slot can both be stored",
+]
+answers = [2, 3, 5]
+why = [
+    "Collisions move keys to later slots.",
+    "",
+    "",
+    "The capacity is fixed at eight; a full set refuses the key.",
+    "",
+]
+explanation = "Linear probing keeps the probing order of `insert` and `find` identical: that is what guarantees that a stored key is found."
+
+[[questions]]
+id = "probe-step"
+type = "order"
+prompt = "Put the lines of the probing loop in `insert` in order: the loop runs while the slot is used and moves on with wrap-around."
+example = "hashset"
+code = """
+    usize slot = home_slot(key);
+    while set.used[slot] {
+        slot = (slot + 1) % 8;
+    }
+    set.keys[slot] = key;
+    set.used[slot] = true;
+"""
+explanation = "The probe starts at the home slot, the loop advances while the slot is used, and the key is written only after the loop has found an unused slot."
+
+[[cards]]
+id = "collision"
+front = "What is a hash collision and how does linear probing handle it?"
+back = "Two keys with the same home slot. Probing tries the following slots, wrapping around, until it finds an unused one."
+
+[[cards]]
+id = "probe-stop"
+front = "Why may find stop at the first unused slot?"
+back = "Insert never skips an unused slot, so a stored key is always reachable from its home slot without crossing one."

@@ -1,0 +1,270 @@
+schema = 1
+id = "reading/tiny-interpreter"
+revision = 1
+title = "Reading an interpreter loop"
+summary = "Follow a stack machine that runs a list of instructions with a match inside a while loop, jumps included."
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = [
+    "tagged enums",
+    "match",
+    "while loops",
+    "stack",
+    "code reading",
+]
+tags = [
+    "reading",
+    "interpreter",
+    "enums",
+    "tracing",
+]
+objectives = [
+    "Explain the fetch, advance and execute cycle of an interpreter loop",
+    "Trace the stack and the program counter by hand",
+    "Predict the effect of a changed instruction list",
+]
+prerequisites = ["data/tagged-enums"]
+optional = true
+kind = "lecture"
+
+[[examples]]
+name = "vm"
+expect_stdout = """
+out 3
+out 2
+out 1
+halt after 20 steps, stack depth 1
+"""
+
+[[questions]]
+id = "steps"
+type = "trace"
+prompt = "How many instructions does the machine execute before it halts? Answer with the number printed after `halt after`."
+example = "vm"
+accept = [
+    "20",
+]
+explanation = "`Push(3)` runs once, six instructions run in each of the three rounds (18), and `Halt` runs once: 1 + 18 + 1 = 20."
+
+[[questions]]
+id = "other-program"
+type = "predict"
+prompt = "Only the program list in `main` is changed. What does the machine print?"
+code = """
+module main;
+
+enum Op {
+    Push(i32),
+    Add,
+    Dup,
+    Print,
+    JumpNonZero(usize),
+    Halt,
+}
+
+struct Machine {
+    i32[8] stack;
+    usize sp;
+    usize pc;
+    i32 steps;
+}
+
+void push(Machine* m, i32 value) {
+    m.stack[m.sp] = value;
+    m.sp += 1;
+}
+
+i32 pop(Machine* m) {
+    m.sp -= 1;
+    return m.stack[m.sp];
+}
+
+Status(Error) run([]const Op program) {
+    Machine m = Machine { stack = { 0, 0, 0, 0, 0, 0, 0, 0 }, sp = 0, pc = 0, steps = 0 };
+    while m.pc < program.len {
+        Op op = program[m.pc];
+        m.pc += 1;
+        m.steps += 1;
+        match op {
+            Op::Push(v) => push(&m, v),
+            Op::Add => {
+                i32 b = pop(&m);
+                i32 a = pop(&m);
+                push(&m, a + b);
+            },
+            Op::Dup => {
+                i32 top = pop(&m);
+                push(&m, top);
+                push(&m, top);
+            },
+            Op::Print => println("out {}", pop(&m))?,
+            Op::JumpNonZero(target) => {
+                if pop(&m) != 0 {
+                    m.pc = target;
+                }
+            },
+            Op::Halt => {
+                println("halt after {} steps, stack depth {}", m.steps, m.sp)?;
+                return Status::Ok;
+            },
+        }
+    }
+    println("fell off the end after {} steps", m.steps)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const Op countdown = {
+        Op::Push(2),
+        Op::Dup,
+        Op::Add,
+        Op::Dup,
+        Op::Print,
+        Op::Push(5),
+        Op::Add,
+        Op::Print,
+    };
+    run(countdown)?;
+    return Status::Ok;
+}
+"""
+expect = """
+out 4
+out 9
+fell off the end after 8 steps
+"""
+explanation = "The stack goes `[2]`, `[2, 2]`, `[4]`, `[4, 4]`; `Print` pops one 4 and prints it; `Push(5)` and `Add` turn the remaining 4 into 9, which the second `Print` prints. The list has no `Halt`, so the loop ends by running past the last instruction."
+
+[[questions]]
+id = "step-by-two"
+type = "predict"
+prompt = "`Op::Push(3)` is changed to `Op::Push(4)` and `Op::Push(-1)` to `Op::Push(-2)`. What does the program print?"
+code = """
+module main;
+
+enum Op {
+    Push(i32),
+    Add,
+    Dup,
+    Print,
+    JumpNonZero(usize),
+    Halt,
+}
+
+struct Machine {
+    i32[8] stack;
+    usize sp;
+    usize pc;
+    i32 steps;
+}
+
+void push(Machine* m, i32 value) {
+    m.stack[m.sp] = value;
+    m.sp += 1;
+}
+
+i32 pop(Machine* m) {
+    m.sp -= 1;
+    return m.stack[m.sp];
+}
+
+Status(Error) run([]const Op program) {
+    Machine m = Machine { stack = { 0, 0, 0, 0, 0, 0, 0, 0 }, sp = 0, pc = 0, steps = 0 };
+    while m.pc < program.len {
+        Op op = program[m.pc];
+        m.pc += 1;
+        m.steps += 1;
+        match op {
+            Op::Push(v) => push(&m, v),
+            Op::Add => {
+                i32 b = pop(&m);
+                i32 a = pop(&m);
+                push(&m, a + b);
+            },
+            Op::Dup => {
+                i32 top = pop(&m);
+                push(&m, top);
+                push(&m, top);
+            },
+            Op::Print => println("out {}", pop(&m))?,
+            Op::JumpNonZero(target) => {
+                if pop(&m) != 0 {
+                    m.pc = target;
+                }
+            },
+            Op::Halt => {
+                println("halt after {} steps, stack depth {}", m.steps, m.sp)?;
+                return Status::Ok;
+            },
+        }
+    }
+    println("fell off the end after {} steps", m.steps)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const Op countdown = {
+        Op::Push(4),
+        Op::Dup,
+        Op::Print,
+        Op::Push(-2),
+        Op::Add,
+        Op::Dup,
+        Op::JumpNonZero(1),
+        Op::Halt,
+    };
+    run(countdown)?;
+    return Status::Ok;
+}
+"""
+expect = """
+out 4
+out 2
+halt after 14 steps, stack depth 1
+"""
+explanation = "The counter takes the values 4, 2 and 0: the loop prints 4 and 2 and leaves when `JumpNonZero` pops 0. That is one `Push`, two rounds of six instructions and the `Halt`: 1 + 12 + 1 = 14 steps."
+
+[[questions]]
+id = "vm-facts"
+type = "multi"
+prompt = "Which statements about the interpreter are true?"
+choices = [
+    "`pc` is advanced before the instruction is executed",
+    "`Print` leaves the printed value on the stack",
+    "`JumpNonZero` pops the value it tests",
+    "The program is stored as values of the enum `Op`",
+    "`Halt` is required for the loop to end",
+]
+answers = [1, 3, 4]
+why = [
+    "",
+    "`Print` pops its value, which is why the countdown duplicates before printing.",
+    "",
+    "",
+    "The loop also ends when `pc` reaches the end of the program, as the message `fell off the end` shows.",
+]
+explanation = "Fetch, advance, execute: because `pc` moves first, a jump simply overwrites it. Every operation works on the stack top."
+
+[[questions]]
+id = "add-body"
+type = "order"
+prompt = "Put the lines of the `Op::Add` arm in order so that the instruction adds the top two values and pushes the sum. The braces and the pop of the top value come as written."
+example = "vm"
+code = """
+            Op::Add => {
+                i32 b = pop(&m);
+                i32 a = pop(&m);
+                push(&m, a + b);
+            },
+"""
+explanation = "The arm header comes first. The two pops take the operands off the stack (`b` is the top), and the push of the sum comes after both pops, otherwise it would be popped again."
+
+[[cards]]
+id = "fetch-cycle"
+front = "What are the three steps of an interpreter loop?"
+back = "Fetch the instruction at pc, advance pc, execute it. A jump works by overwriting the already advanced pc."
+
+[[cards]]
+id = "stack-op"
+front = "How does a stack machine run `Add`?"
+back = "It pops two operands from the stack and pushes their sum."

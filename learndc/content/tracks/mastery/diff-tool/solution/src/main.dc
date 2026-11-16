@@ -1,0 +1,73 @@
+module main;
+
+import lcs;
+import lines;
+
+Status(Error) show(const []const []const char old, const []const []const char updated) {
+    Array([]const char) table = {};
+    defer table.deinit();
+    Array(u32) a = {};
+    defer a.deinit();
+    Array(u32) b = {};
+    defer b.deinit();
+    lines::intern(old, &table, &a)?;
+    lines::intern(updated, &table, &b)?;
+
+    Array(lcs::Edit) script = {};
+    defer script.deinit();
+    match lcs::diff(a.items(), b.items(), &script) {
+        Status::Ok => {},
+        Status::Err(e) => {
+            println("cannot diff these files")?;
+            return Status::Ok;
+        },
+    }
+    usize kept = 0;
+    usize removed = 0;
+    usize added = 0;
+    for edit in script.items() {
+        match edit.kind {
+            lcs::EditKind::Keep => {
+                println("  {}", old[edit.index])?;
+                kept += 1;
+            },
+            lcs::EditKind::Remove => {
+                println("- {}", old[edit.index])?;
+                removed += 1;
+            },
+            lcs::EditKind::Add => {
+                println("+ {}", updated[edit.index])?;
+                added += 1;
+            },
+        }
+    }
+    println("{} unchanged, {} removed, {} added", kept, removed, added)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const []const char before = {
+        "module greeting;",
+        "",
+        "public void hello() {",
+        "    println(\"hello\");",
+        "    println(\"world\");",
+        "}",
+    };
+    []const []const char after = {
+        "module greeting;",
+        "",
+        "import std::fmt;",
+        "",
+        "public void hello() {",
+        "    println(\"hello\");",
+        "}",
+    };
+    show(before, after)?;
+    println("----")?;
+    []const char kitten = "kitten";
+    []const char sitting = "sitting";
+    Result(usize, lcs::DiffError) common = lcs::lcs_length(kitten, sitting);
+    println("common letters of kitten and sitting: {}", common.unwrap())?;
+    return Status::Ok;
+}

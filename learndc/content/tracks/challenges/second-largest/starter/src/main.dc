@@ -1,0 +1,23 @@
+module main;
+
+import ranking;
+
+Status(Error) show([]const char label, []const i32 values) {
+    match ranking::second_largest(values) {
+        Optional::Some(v) => println("{}: {}", label, v)?,
+        Optional::None => println("{}: none", label)?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    i32[5] a = { 4, 9, 2, 9, 7 };
+    i32[3] b = { 5, 5, 5 };
+    i32[1] c = { 3 };
+    i32[2] d = { -4, -9 };
+    show("[4, 9, 2, 9, 7]", a)?;
+    show("[5, 5, 5]", b)?;
+    show("[3]", c)?;
+    show("[-4, -9]", d)?;
+    return Status::Ok;
+}

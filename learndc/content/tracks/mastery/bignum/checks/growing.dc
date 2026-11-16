@@ -1,0 +1,105 @@
+module growing;
+
+import std::slice;
+import bignum;
+using bignum::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool is_text(const Array(u32)* n, []const char expected) {
+    Array(char) text = {};
+    defer text.deinit();
+    if !to_text(n, &text).is_ok() {
+        return false;
+    }
+    []const char got = text.items();
+    bool same = std::slice::eq(got, expected);
+    if !same {
+        println("      got [{}], expected [{}]", got, expected);
+    }
+    return same;
+}
+
+bool is_normal(const Array(u32)* n) {
+    if n.len() == 0 {
+        return false;
+    }
+    for limb in n.items() {
+        if limb >= BASE {
+            return false;
+        }
+    }
+    return n.len() == 1 || n.items()[n.len() - 1] != 0;
+}
+
+Status(AllocError) from(Array(u32)* n, u64 value) {
+    return set_u64(n, value);
+}
+
+bool refused(Status(BigError) s, BigError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array(u32) a = {};
+    defer a.deinit();
+    Array(u32) b = {};
+    defer b.deinit();
+
+    from(&a, 999999999999999999).unwrap();
+    from(&b, 1).unwrap();
+    add(&a, &b).unwrap();
+    expect(is_text(&a, "1000000000000000000") && is_normal(&a), "a carry runs through two limbs", &failures);
+    from(&a, 5).unwrap();
+    from(&b, 123456789012345678).unwrap();
+    add(&a, &b).unwrap();
+    expect(is_text(&a, "123456789012345683"), "a short number plus a long one", &failures);
+    from(&a, 123456789012345678).unwrap();
+    from(&b, 5).unwrap();
+    add(&a, &b).unwrap();
+    expect(is_text(&a, "123456789012345683"), "a long number plus a short one", &failures);
+    from(&a, 0).unwrap();
+    from(&b, 0).unwrap();
+    add(&a, &b).unwrap();
+    expect(is_text(&a, "0") && a.len() == 1, "0 + 0", &failures);
+    from(&a, 18446744073709551615).unwrap();
+    add(&a, &a).unwrap();
+    expect(is_text(&a, "36893488147419103230") && is_normal(&a), "a number added to itself", &failures);
+    add(&a, &a).unwrap();
+    add(&a, &a).unwrap();
+    expect(is_text(&a, "147573952589676412920"), "doubled twice more", &failures);
+    from(&b, 8).unwrap();
+    expect(is_text(&b, "8"), "b was not changed by add", &failures);
+
+    from(&a, 12345).unwrap();
+    mul_small(&a, 0).unwrap();
+    expect(is_text(&a, "0") && a.len() == 1, "times 0 is the single limb 0", &failures);
+    from(&a, 12345).unwrap();
+    mul_small(&a, 1).unwrap();
+    expect(is_text(&a, "12345"), "times 1", &failures);
+    from(&a, 999999999999999999).unwrap();
+    mul_small(&a, 4294967295).unwrap();
+    expect(is_text(&a, "4294967294999999995705032705") && is_normal(&a), "a large number times the largest u32", &failures);
+    from(&a, 1).unwrap();
+    for u32 k in 2..=30 {
+        mul_small(&a, k).unwrap();
+    }
+    expect(is_text(&a, "265252859812191058636308480000000"), "30 factorial", &failures);
+    from(&a, 1).unwrap();
+    for usize k in 0..100 {
+        mul_small(&a, 2).unwrap();
+    }
+    expect(is_text(&a, "1267650600228229401496703205376"), "2 to the power of 100", &failures);
+    return failures;
+}

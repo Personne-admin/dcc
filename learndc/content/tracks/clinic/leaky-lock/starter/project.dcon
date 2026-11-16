@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "leaky_lock",
+    version = "0.1.0",
+    products = {
+        { name = "leaky_lock", entry = "src/main.dc" },
+    },
+}

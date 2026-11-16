@@ -1,0 +1,45 @@
+schema = 1
+id = "challenges/binary-search-budget"
+revision = 1
+title = "Optimize: a comparison budget"
+summary = "A linear search over sorted data is correct but slow; stay within a budget of comparisons that a harness counts."
+kind = "challenge"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = [
+    "binary search",
+    "complexity",
+    "sorted data",
+    "measuring",
+]
+tags = [
+    "optimization",
+    "search",
+    "algorithms",
+    "intermediate",
+]
+objectives = [
+    "Exploit sorted data to halve the search range",
+    "Measure improvement by counting operations instead of time",
+]
+entry_file = "src/main.dc"
+product = "binary_search_budget"
+prerequisites = ["library/sort-and-search"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "The harness passes"
+harness = "checks/search_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Read the FAIL lines of the harness output."

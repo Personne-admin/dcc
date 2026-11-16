@@ -1,0 +1,24 @@
+module table;
+
+import units;
+using units::*;
+
+Status(Error) show() {
+    []const f64 temps = { 0.0, 37.0, 100.0 };
+    print_table("C", "F", temps)?;
+    []const f64 lengths = { 1.0, 26.2 };
+    print_table("mi", "km", lengths)?;
+    []const f64 masses = { 1.0, 2.0 };
+    print_table("kg", "m", masses)?;
+    print_table("zz", "m", masses)?;
+    []const f64 none = {};
+    print_table("m", "ft", none)?;
+    return Status::Ok;
+}
+
+public i32 main() {
+    if !show().is_ok() {
+        return 1;
+    }
+    return 0;
+}

@@ -1,0 +1,39 @@
+module stats_checks;
+
+import probe;
+import stats;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    i32[5] a = { 4, 9, 2, 9, 7 };
+    probe::reset();
+    stats::MinMax r = stats::min_max(a);
+    expect(r.min == 2 && r.max == 9, "minimum 2 and maximum 9", &failures);
+    expect(probe::reads() <= 5, "at most 5 reads for 5 values", &failures);
+    i32[1] b = { -3 };
+    probe::reset();
+    r = stats::min_max(b);
+    expect(r.min == -3 && r.max == -3, "one value is minimum and maximum", &failures);
+    expect(probe::reads() <= 1, "one read for one value", &failures);
+    i32[100] c = {};
+    for usize i = 0; i < 100; i++ {
+        c[i] = ((i * 37) % 101) as i32 - 50;
+    }
+    probe::reset();
+    r = stats::min_max(c);
+    expect(r.min == -50 && r.max == 50, "100 values", &failures);
+    expect(probe::reads() <= 100, "at most 100 reads for 100 values", &failures);
+    i32[3] d = { 9, 9, 9 };
+    r = stats::min_max(d);
+    expect(r.min == 9 && r.max == 9, "equal values", &failures);
+    return failures;
+}

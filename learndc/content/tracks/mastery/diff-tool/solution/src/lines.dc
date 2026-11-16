@@ -1,0 +1,21 @@
+module lines;
+
+import std::slice;
+
+public Status(AllocError) intern([]const []const char text, Array([]const char)* table, Array(u32)* ids) {
+    for line in text {
+        bool found = false;
+        for usize i in 0..table.len() {
+            if std::slice::eq(table.items()[i], line) {
+                ids.push(i as u32)?;
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            ids.push(table.len() as u32)?;
+            table.push(line)?;
+        }
+    }
+    return Status::Ok;
+}

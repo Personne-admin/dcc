@@ -1,0 +1,6 @@
+schema = 1
+id = "mastery"
+title = "Mastery Challenges"
+summary = "Difficult exercises that combine errors, memory, generics and modules with little scaffolding."
+goal = "Design and implement a complete component from a precise specification."
+exercises = ["expression-parser", "diff-tool", "bignum"]

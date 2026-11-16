@@ -1,0 +1,38 @@
+module life;
+
+public const usize WIDTH = 8;
+public const usize HEIGHT = 8;
+public const usize CELLS = 64;
+
+public bool next_state(bool alive, u32 neighbours) {
+    return false;
+}
+
+public bool alive_at([]const bool cells, i32 row, i32 col) {
+    return false;
+}
+
+public u32 neighbours([]const bool cells, i32 row, i32 col) {
+    return 0;
+}
+
+public void step([]const bool current, []bool next) {
+}
+
+public usize population([]const bool cells) {
+    usize total = 0;
+    for cell in cells {
+        if cell {
+            total += 1;
+        }
+    }
+    return total;
+}
+
+public Status(Error) render([]const bool cells) {
+    return Status::Ok;
+}
+
+public usize settle([]const bool start, usize limit) {
+    return 0;
+}

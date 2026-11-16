@@ -1,0 +1,26 @@
+module longest;
+
+import std::slice;
+import textstats;
+using textstats::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(longest_word("").len == 0, "no words gives an empty slice", &failures);
+    expect(longest_word("...").len == 0, "only separators gives an empty slice", &failures);
+    expect(std::slice::eq(longest_word("hello"), "hello"), "a single word", &failures);
+    expect(std::slice::eq(longest_word("a bb ccc dd"), "ccc"), "the longest of several", &failures);
+    expect(std::slice::eq(longest_word("one two six"), "one"), "the first word wins a tie", &failures);
+    expect(std::slice::eq(longest_word("ab, cde. fghij"), "fghij"), "the last word can be the longest", &failures);
+    expect(std::slice::eq(longest_word("tiny, enormous!"), "enormous"), "punctuation is not part of a word", &failures);
+    return failures;
+}

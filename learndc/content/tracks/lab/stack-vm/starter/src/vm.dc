@@ -1,0 +1,121 @@
+module vm;
+
+import std::slice;
+
+public enum Instr {
+    Push(i64),
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Dup,
+    Over,
+    Swap,
+    Drop,
+    Jump(usize),
+    JumpIfZero(usize),
+    Print,
+    Halt,
+}
+
+public enum VmError {
+    @implicit_construction Alloc(AllocError),
+    UnknownOp,
+    MissingOperand,
+    BadOperand,
+    ExtraOperand,
+    UnknownLabel,
+    StackUnderflow,
+    DivideByZero,
+    BadJump,
+    StepLimit,
+}
+
+public Status(Error) print_error(VmError e) {
+    match e {
+        VmError::Alloc(a) => println("out of memory")?,
+        VmError::UnknownOp => println("unknown instruction")?,
+        VmError::MissingOperand => println("missing operand")?,
+        VmError::BadOperand => println("bad operand")?,
+        VmError::ExtraOperand => println("unexpected operand")?,
+        VmError::UnknownLabel => println("unknown label")?,
+        VmError::StackUnderflow => println("stack underflow")?,
+        VmError::DivideByZero => println("divide by zero")?,
+        VmError::BadJump => println("jump outside the program")?,
+        VmError::StepLimit => println("step limit reached")?,
+    }
+    return Status::Ok;
+}
+
+public []const char trim([]const char text) {
+    usize start = 0;
+    usize end = text.len;
+    while start < end && text[start] == ' ' {
+        start += 1;
+    }
+    while end > start && text[end - 1] == ' ' {
+        end -= 1;
+    }
+    return text[start..end];
+}
+
+public Status(AllocError) split(Array([]const char)* out, []const char text) {
+    usize start = 0;
+    bool inside = false;
+    for usize i = 0; i <= text.len; i++ {
+        bool blank = i == text.len || text[i] == ' ';
+        if !blank && !inside {
+            start = i;
+            inside = true;
+        } else if blank && inside {
+            inside = false;
+            out.push(text[start..i])?;
+        }
+    }
+    return Status::Ok;
+}
+
+public Optional(i64) parse_int([]const char token) {
+    usize start = 0;
+    if token.len > 0 && token[0] == '-' {
+        start = 1;
+    }
+    if token.len == start || token.len - start > 18 {
+        return Optional::None;
+    }
+    i64 value = 0;
+    for usize i = start; i < token.len; i++ {
+        if token[i] < '0' || token[i] > '9' {
+            return Optional::None;
+        }
+        value = value * 10 + (token[i] as i64 - '0' as i64);
+    }
+    if start == 1 {
+        value = -value;
+    }
+    return Optional::Some(value);
+}
+
+bool is_op([]const char token, []const char name) {
+    return std::slice::eq(token, name);
+}
+
+public Result(Instr, VmError) parse_instruction([]const char line) {
+    return Result::Err(VmError::UnknownOp);
+}
+
+public Status(VmError) assemble([]const []const char lines, Array(Instr)* program, usize* bad_line) {
+    return Status::Ok;
+}
+
+public Status(VmError) run([]const Instr program, Array(i64)* out, usize max_steps) {
+    return Status::Ok;
+}
+
+public Status(Error) listing([]const Instr program) {
+    return Status::Ok;
+}
+
+public Status(VmError) assemble_labels([]const []const char lines, Array(Instr)* program, usize* bad_line) {
+    return Status::Ok;
+}

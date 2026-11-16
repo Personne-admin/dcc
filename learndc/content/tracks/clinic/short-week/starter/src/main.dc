@@ -1,0 +1,37 @@
+module main;
+
+i32 total([]const i32 sales) {
+    i32 sum = 0;
+    for value in sales {
+        sum += value;
+    }
+    return sum;
+}
+
+usize busiest_day([]const i32 sales) {
+    usize best = 0;
+    for usize i = 1; i < sales.len - 1; i++ {
+        if sales[i] > sales[best] {
+            best = i;
+        }
+    }
+    return best;
+}
+
+usize quietest_day([]const i32 sales) {
+    usize best = 0;
+    for usize i = 1; i < sales.len; i++ {
+        if sales[i] < sales[best] {
+            best = i;
+        }
+    }
+    return best;
+}
+
+public Status(Error) main() {
+    i32[7] week = { 120, 95, 140, 110, 180, 260, 310 };
+    println("total: {}", total(week))?;
+    println("busiest day: {}", busiest_day(week) + 1)?;
+    println("quietest day: {}", quietest_day(week) + 1)?;
+    return Status::Ok;
+}

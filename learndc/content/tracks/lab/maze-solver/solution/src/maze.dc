@@ -1,0 +1,168 @@
+module maze;
+
+public enum MazeError {
+    @implicit_construction Alloc(AllocError),
+    NoStart,
+    NoExit,
+    NoPath,
+}
+
+public Optional(usize) locate([]const []const char rows, char target) {
+    for usize row = 0; row < rows.len; row++ {
+        for usize col = 0; col < rows[row].len; col++ {
+            if rows[row][col] == target {
+                return Optional::Some(row * rows[0].len + col);
+            }
+        }
+    }
+    return Optional::None;
+}
+
+public Status(AllocError) open_neighbours([]const []const char rows, usize cell, Array(usize)* out) {
+    usize width = rows[0].len;
+    usize row = cell / width;
+    usize col = cell % width;
+    if row > 0 && rows[row - 1][col] != '#' {
+        out.push(cell - width)?;
+    }
+    if col + 1 < width && rows[row][col + 1] != '#' {
+        out.push(cell + 1)?;
+    }
+    if row + 1 < rows.len && rows[row + 1][col] != '#' {
+        out.push(cell + width)?;
+    }
+    if col > 0 && rows[row][col - 1] != '#' {
+        out.push(cell - 1)?;
+    }
+    return Status::Ok;
+}
+
+public Status(AllocError) distances([]const []const char rows, usize start, Array(i32)* dist) {
+    dist.clear();
+    for usize i in 0..rows.len * rows[0].len {
+        dist.push(-1)?;
+    }
+    Array(usize) queue = {};
+    defer queue.deinit();
+    Array(usize) next = {};
+    defer next.deinit();
+    dist.items()[start] = 0;
+    queue.push(start)?;
+    usize head = 0;
+    while head < queue.len() {
+        usize cell = queue.items()[head];
+        head += 1;
+        next.clear();
+        open_neighbours(rows, cell, &next)?;
+        for n in next.items() {
+            if dist.items()[n] == -1 {
+                dist.items()[n] = dist.items()[cell] + 1;
+                queue.push(n)?;
+            }
+        }
+    }
+    return Status::Ok;
+}
+
+public Result(i32, MazeError) shortest([]const []const char rows) {
+    Optional(usize) start = locate(rows, 'S');
+    Optional(usize) exit = locate(rows, 'E');
+    if start.is_none() {
+        return Result::Err(MazeError::NoStart);
+    }
+    if exit.is_none() {
+        return Result::Err(MazeError::NoExit);
+    }
+    Array(i32) dist = {};
+    defer dist.deinit();
+    distances(rows, start.unwrap_some(), &dist)?;
+    i32 steps = dist.items()[exit.unwrap_some()];
+    if steps < 0 {
+        return Result::Err(MazeError::NoPath);
+    }
+    return Result::Ok(steps);
+}
+
+public Status(MazeError) find_path([]const []const char rows, Array(usize)* path) {
+    Optional(usize) start = locate(rows, 'S');
+    Optional(usize) exit = locate(rows, 'E');
+    if start.is_none() {
+        return MazeError::NoStart;
+    }
+    if exit.is_none() {
+        return MazeError::NoExit;
+    }
+    Array(i32) dist = {};
+    defer dist.deinit();
+    distances(rows, start.unwrap_some(), &dist)?;
+    if dist.items()[exit.unwrap_some()] < 0 {
+        return MazeError::NoPath;
+    }
+    Array(usize) next = {};
+    defer next.deinit();
+    path.clear();
+    usize cell = exit.unwrap_some();
+    path.push(cell)?;
+    while dist.items()[cell] > 0 {
+        next.clear();
+        open_neighbours(rows, cell, &next)?;
+        for n in next.items() {
+            if dist.items()[n] == dist.items()[cell] - 1 {
+                cell = n;
+                break;
+            }
+        }
+        path.push(cell)?;
+    }
+    usize i = 0;
+    usize j = path.len() - 1;
+    while i < j {
+        usize tmp = path.items()[i];
+        path.items()[i] = path.items()[j];
+        path.items()[j] = tmp;
+        i += 1;
+        j -= 1;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) draw([]const []const char rows, const Array(usize)* path) {
+    usize width = rows[0].len;
+    for usize row in 0..rows.len {
+        for usize col in 0..width {
+            char c = rows[row][col];
+            bool on_path = false;
+            for cell in path.items() {
+                if cell == row * width + col {
+                    on_path = true;
+                }
+            }
+            if on_path && c == '.' {
+                print("*")?;
+            } else {
+                print("{}", c)?;
+            }
+        }
+        println("")?;
+    }
+    return Status::Ok;
+}
+
+public usize farthest([]const []const char rows) {
+    Optional(usize) start = locate(rows, 'S');
+    if start.is_none() {
+        return 0;
+    }
+    Array(i32) dist = {};
+    defer dist.deinit();
+    if !distances(rows, start.unwrap_some(), &dist).is_ok() {
+        return 0;
+    }
+    i32 best = 0;
+    for d in dist.items() {
+        if d > best {
+            best = d;
+        }
+    }
+    return best as usize;
+}

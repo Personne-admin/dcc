@@ -1,0 +1,42 @@
+module main;
+
+import maze;
+using maze::*;
+
+Status(Error) explore(usize number, []const []const char rows) {
+    println("maze {}", number)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const []const char castle = {
+        "#########",
+        "#S..#...#",
+        "#.#.#.#.#",
+        "#.#...#E#",
+        "#.#####.#",
+        "#.......#",
+        "#########",
+    };
+    []const []const char walled = {
+        "#######",
+        "#S..#E#",
+        "#...#.#",
+        "#######",
+    };
+    []const []const char cave = {
+        "#####",
+        "#S..#",
+        "#####",
+    };
+    []const []const char ruin = {
+        "#####",
+        "#..E#",
+        "#####",
+    };
+    explore(1, castle)?;
+    explore(2, walled)?;
+    explore(3, cave)?;
+    explore(4, ruin)?;
+    return Status::Ok;
+}

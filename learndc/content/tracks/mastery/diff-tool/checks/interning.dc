@@ -1,0 +1,55 @@
+module interning;
+
+import std::slice;
+import lines;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool ids_are(const Array(u32)* got, []const u32 expected) {
+    if got.len() != expected.len {
+        return false;
+    }
+    for usize i in 0..expected.len {
+        if got.items()[i] != expected[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array([]const char) table = {};
+    defer table.deinit();
+    Array(u32) first = {};
+    defer first.deinit();
+    Array(u32) second = {};
+    defer second.deinit();
+
+    []const []const char one = { "alpha", "beta", "alpha", "", "gamma", "" };
+    expect(lines::intern(one, &table, &first).is_ok(), "intern the first file", &failures);
+    expect(ids_are(&first, { 0, 1, 0, 2, 3, 2 }), "equal lines get equal ids, new lines the next id", &failures);
+    expect(table.len() == 4, "the table holds each distinct line once", &failures);
+    expect(table.len() == 4 && std::slice::eq(table.items()[2], "") && std::slice::eq(table.items()[3], "gamma"), "in order of first appearance", &failures);
+
+    []const []const char two = { "gamma", "delta", "alpha", "alphA" };
+    expect(lines::intern(two, &table, &second).is_ok(), "intern a second file with the same table", &failures);
+    expect(ids_are(&second, { 3, 4, 0, 5 }), "known lines keep their id, case matters", &failures);
+    expect(table.len() == 6, "two new lines were added", &failures);
+    expect(first.len() == 6, "the first ids are untouched", &failures);
+
+    []const []const char none = {};
+    expect(lines::intern(none, &table, &second).is_ok() && second.len() == 4 && table.len() == 6, "no lines changes nothing", &failures);
+    []const []const char prefix = { "alph", "alphaa" };
+    Array(u32) third = {};
+    defer third.deinit();
+    expect(lines::intern(prefix, &table, &third).is_ok() && ids_are(&third, { 6, 7 }), "prefixes and extensions are different lines", &failures);
+    return failures;
+}

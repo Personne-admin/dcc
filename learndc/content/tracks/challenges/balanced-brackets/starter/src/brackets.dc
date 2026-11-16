@@ -1,0 +1,5 @@
+module brackets;
+
+public bool is_balanced([]const char text) {
+    return false;
+}

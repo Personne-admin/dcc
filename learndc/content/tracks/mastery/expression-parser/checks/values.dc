@@ -1,0 +1,95 @@
+module values;
+
+import calc;
+using calc::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+usize position_of(CalcError e) {
+    match e {
+        CalcError::Alloc(a) => return 1000000,
+        CalcError::InvalidCharacter(p) => return p,
+        CalcError::UnexpectedToken(p) => return p,
+        CalcError::UnexpectedEnd(p) => return p,
+        CalcError::DivideByZero(p) => return p,
+        CalcError::Overflow(p) => return p,
+    }
+}
+
+bool gives([]const char text, i64 expected) {
+    match evaluate(text) {
+        Result::Ok(v) => {
+            if v != expected {
+                println("      {} gave {}, expected {}", text, v, expected);
+            }
+            return v == expected;
+        },
+        Result::Err(e) => {
+            println("      {} failed at {}", text, position_of(e));
+            return false;
+        },
+    }
+}
+
+bool fails([]const char text, CalcError kind, usize position) {
+    match evaluate(text) {
+        Result::Ok(v) => {
+            println("      [{}] gave {}, expected an error at {}", text, v, position);
+            return false;
+        },
+        Result::Err(e) => {
+            bool right = e == kind && position_of(e) == position;
+            if !right {
+                println("      [{}] failed with another error or position: {}", text, position_of(e));
+            }
+            return right;
+        },
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(gives("0", 0), "zero", &failures);
+    expect(gives("42", 42), "a literal", &failures);
+    expect(gives("007", 7), "leading zeros", &failures);
+    expect(gives("9223372036854775807", 9223372036854775807), "the largest literal", &failures);
+    expect(gives("  7  ", 7), "blanks around", &failures);
+    expect(gives("\t1\t+\t2 ", 3), "tabs and blanks between tokens", &failures);
+    expect(gives("1+2", 3), "no blanks at all", &failures);
+    expect(gives("1 + 2 * 3", 7), "* binds tighter than +", &failures);
+    expect(gives("2 * 3 + 4", 10), "and on the other side", &failures);
+    expect(gives("(1 + 2) * 3", 9), "parentheses", &failures);
+    expect(gives("((((5))))", 5), "nested parentheses", &failures);
+    expect(gives("2 * (3 + 4) * 5", 70), "a product of three", &failures);
+    expect(gives("7 - 3 - 2", 2), "- is left associative", &failures);
+    expect(gives("100 / 7 / 2", 7), "/ is left associative", &failures);
+    expect(gives("100 / (7 / 2)", 33), "parentheses change the grouping", &failures);
+    expect(gives("17 % 5", 2), "remainder", &failures);
+    expect(gives("17 % 5 * 3", 6), "% and * share a level, left to right", &failures);
+    expect(gives("-7 / 2", -3), "division truncates toward zero", &failures);
+    expect(gives("-7 % 3", -1), "remainder keeps the sign of the left operand", &failures);
+    expect(gives("7 % -3", 1), "even with a negative right operand", &failures);
+    expect(gives("-5", -5), "unary minus", &failures);
+    expect(gives("--5", 5), "twice", &failures);
+    expect(gives("- - - 5", -5), "three times, with blanks", &failures);
+    expect(gives("2--3", 5), "binary then unary minus", &failures);
+    expect(gives("2 - -3", 5), "the same with blanks", &failures);
+    expect(gives("-2 * 3", -6), "unary minus binds tighter than *", &failures);
+    expect(gives("-(2 + 3)", -5), "unary minus on a group", &failures);
+    expect(gives("-(4 - 10) % 4", 2), "a mixed expression", &failures);
+    expect(gives("1 - 2 - 3 - 4", -8), "a chain of subtractions", &failures);
+    expect(gives("2 * 3 % 4 + 10 / 3 - 1", 4), "all five operators", &failures);
+    expect(gives("0 * 9223372036854775807", 0), "zero times the largest value", &failures);
+    expect(gives("9223372036854775807 - 9223372036854775807", 0), "the largest value minus itself", &failures);
+    expect(gives("0 - 9223372036854775807 - 1", -9223372036854775807 - 1), "the smallest value is reachable", &failures);
+    expect(gives("4611686018427387904 * -2", -9223372036854775807 - 1), "and so is a product that lands on it", &failures);
+    expect(gives("(0 - 9223372036854775807 - 1) % -1", 0), "the smallest value modulo -1 is 0", &failures);
+    return failures;
+}

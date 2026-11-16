@@ -1,0 +1,215 @@
+schema = 1
+id = "lab/life"
+revision = 1
+title = "Game of Life"
+summary = "Simulate Conway's Game of Life on an 8 by 8 board: neighbour counting, the birth and death rules, one generation at a time and a glider that walks across the screen."
+kind = "challenge"
+difficulty = "intermediate"
+estimated_minutes = 60
+concepts = ["fixed arrays", "nested loops", "index arithmetic", "bounds handling", "functions"]
+tags = ["project", "arrays", "loops", "simulation"]
+objectives = [
+    "Store a two dimensional grid in one flat array and compute row * WIDTH + col",
+    "Count neighbours without reading outside the board",
+    "Compute a whole generation from the previous one without mixing old and new cells",
+]
+entry_file = "src/main.dc"
+product = "life"
+prerequisites = ["loops/boss-number-oracle", "collections/collections-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[stages]]
+id = "rules"
+title = "The rules of life"
+summary = "next_state decides whether a cell is alive in the next generation from its state and its live neighbours."
+hints = [
+    "A live cell survives with 2 or 3 live neighbours. A dead cell is born with exactly 3. Every other case is dead.",
+    "Branch on alive first: when it is true return neighbours == 2 || neighbours == 3, otherwise return neighbours == 3.",
+]
+
+[[stages]]
+id = "edges"
+title = "Read a cell safely"
+summary = "alive_at reads the cell at a row and column and treats everything outside the board as dead."
+hints = [
+    "Rows and columns are i32 so that -1 is allowed. Return false when either is below 0 or not below HEIGHT or WIDTH, before you touch the array.",
+    "The board is a flat array, row after row, so cell (row, col) is at index row as usize * WIDTH + col as usize.",
+]
+
+[[stages]]
+id = "counting"
+title = "Count the neighbours"
+summary = "neighbours counts the live cells around a position, never the cell itself."
+hints = [
+    "The eight neighbours are the offsets dr and dc in -1..=1 except the pair (0, 0).",
+    "Two nested loops, for i32 dr in -1..=1 and for i32 dc in -1..=1. Skip (0, 0) with continue, and ask alive_at(cells, row + dr, col + dc).",
+]
+
+[[stages]]
+id = "stepping"
+title = "One generation"
+summary = "step computes the next generation into a second array without changing the current one."
+hints = [
+    "Every new cell depends only on the old board, so read from current and write into next. Updating one array in place would let new cells leak into the counting.",
+    "For every row and col: next[index] = next_state(current[index], neighbours(current, row, col)); with index = row * WIDTH + col.",
+]
+
+[[stages]]
+id = "drawing"
+title = "Draw the board"
+summary = "render prints one line per row, # for a live cell and . for a dead one."
+hints = [
+    "Print the cells of a row with print and end the row with println(\"\")?.",
+    "Two nested loops over HEIGHT and WIDTH, each cell is cells[row * WIDTH + col]. Use print(\"#\")? or print(\".\")?.",
+]
+
+[[stages]]
+id = "show"
+title = "Watch a glider"
+summary = "main steps the board four times, printing the generation number, population and board each time."
+hints = [
+    "You need two boards: one holds the current generation, the other receives the result of step. Both are already declared.",
+    "Loop generation over 0..=4: print the heading line, render(a), step(a, b), then a = b; to copy the new generation back.",
+]
+
+[[stages]]
+id = "settle"
+title = "Bonus: when does it settle?"
+summary = "settle counts the steps until a generation equals the one after it, giving up at a limit."
+optional = true
+hints = [
+    "Copy the start into your own arrays, then step repeatedly and compare each new board with the previous.",
+    "Return n as soon as the board after step number n equals the board before it. If that never happens within limit steps, return limit. Two local bool[CELLS] arrays are enough.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "next_state follows the rules"
+stage = "rules"
+harness = "checks/rules.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "alive_at stays inside the board"
+stage = "edges"
+harness = "checks/edges.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "neighbours counts eight cells"
+stage = "counting"
+harness = "checks/counting.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "step computes a generation"
+stage = "stepping"
+harness = "checks/stepping.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "render draws the board"
+stage = "drawing"
+harness = "checks/drawing.dc"
+expect_stdout = """
+#.......
+.#......
+........
+........
+........
+........
+........
+.......#
+--
+........
+........
+........
+........
+........
+........
+........
+........
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Eight lines of eight characters, # for live and . for dead, and nothing else."
+
+[[checks]]
+kind = "run"
+name = "The glider walks"
+stage = "show"
+expect_stdout = """
+generation 0, population 5
+.#......
+..#.....
+###.....
+........
+........
+........
+........
+........
+generation 1, population 5
+........
+#.#.....
+.##.....
+.#......
+........
+........
+........
+........
+generation 2, population 5
+........
+..#.....
+#.#.....
+.##.....
+........
+........
+........
+........
+generation 3, population 5
+........
+.#......
+..##....
+.##.....
+........
+........
+........
+........
+generation 4, population 5
+........
+..#.....
+...#....
+.###....
+........
+........
+........
+........
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Five boards: generation 0 to 4. Print the heading, draw, then step and copy the new generation back."
+
+[[checks]]
+kind = "harness"
+name = "settle finds the end"
+stage = "settle"
+harness = "checks/settling.dc"
+expect_exit = 0
+max_seconds = 10

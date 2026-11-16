@@ -1,0 +1,76 @@
+module main;
+
+struct Set {
+    u32[8] keys;
+    bool[8] used;
+    usize count;
+}
+
+usize home_slot(u32 key) {
+    return (key % 8) as usize;
+}
+
+Optional(usize) find(Set* set, u32 key) {
+    usize slot = home_slot(key);
+    for usize probe = 0; probe < 8; probe++ {
+        if !set.used[slot] {
+            return Optional::None;
+        }
+        if set.keys[slot] == key {
+            return Optional::Some(slot);
+        }
+        slot = (slot + 1) % 8;
+    }
+    return Optional::None;
+}
+
+bool insert(Set* set, u32 key) {
+    if find(set, key).is_some() {
+        return false;
+    }
+    if set.count == 8 {
+        return false;
+    }
+    usize slot = home_slot(key);
+    while set.used[slot] {
+        slot = (slot + 1) % 8;
+    }
+    set.keys[slot] = key;
+    set.used[slot] = true;
+    set.count += 1;
+    return true;
+}
+
+Status(Error) add(Set* set, u32 key) {
+    if insert(set, key) {
+        println("added {} (count {})", key, set.count)?;
+    } else {
+        println("skipped {}", key)?;
+    }
+    return Status::Ok;
+}
+
+Status(Error) lookup(Set* set, u32 key) {
+    match find(set, key) {
+        Optional::Some(slot) => println("{} is in slot {}", key, slot)?,
+        Optional::None => println("{} is missing", key)?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Set set = Set {
+        keys = { 0, 0, 0, 0, 0, 0, 0, 0 },
+        used = { false, false, false, false, false, false, false, false },
+        count = 0,
+    };
+    add(&set, 3)?;
+    add(&set, 11)?;
+    add(&set, 19)?;
+    add(&set, 11)?;
+    add(&set, 4)?;
+    lookup(&set, 19)?;
+    lookup(&set, 4)?;
+    lookup(&set, 27)?;
+    return Status::Ok;
+}

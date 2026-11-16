@@ -1,0 +1,51 @@
+module main;
+
+enum JobError { EmptyName, TooBig }
+
+i32 locks_held = 0;
+i32 done = 0;
+
+void take_lock() {
+    locks_held += 1;
+}
+
+void release_lock() {
+    locks_held -= 1;
+}
+
+Status(JobError) check(i32 size, []const char name) {
+    if name.len == 0 {
+        return JobError::EmptyName;
+    }
+    if size > 100 {
+        return JobError::TooBig;
+    }
+    return Status::Ok;
+}
+
+Status(JobError) run_job([]const char name, i32 size) {
+    take_lock();
+    defer release_lock();
+    check(size, name)?;
+    done += size;
+    return Status::Ok;
+}
+
+Status(Error) report(i32 number, Status(JobError) result) {
+    if result.is_ok() {
+        println("job {}: ok", number)?;
+    } else {
+        println("job {}: failed", number)?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    report(1, run_job("backup", 40))?;
+    report(2, run_job("", 10))?;
+    report(3, run_job("archive", 500))?;
+    report(4, run_job("index", 25))?;
+    println("work done: {}", done)?;
+    println("locks held: {}", locks_held)?;
+    return Status::Ok;
+}

@@ -1,0 +1,127 @@
+module rpn;
+
+import std::slice;
+
+public enum CalcError {
+    @implicit_construction Alloc(AllocError),
+    BadToken,
+    StackUnderflow,
+    DivideByZero,
+    EmptyExpression,
+    LeftOverValues,
+}
+
+public Optional(i64) parse_number([]const char token) {
+    usize start = 0;
+    if token.len > 0 && token[0] == '-' {
+        start = 1;
+    }
+    if token.len == start || token.len - start > 18 {
+        return Optional::None;
+    }
+    i64 value = 0;
+    for usize i = start; i < token.len; i++ {
+        if token[i] < '0' || token[i] > '9' {
+            return Optional::None;
+        }
+        value = value * 10 + (token[i] as i64 - '0' as i64);
+    }
+    if start == 1 {
+        value = -value;
+    }
+    return Optional::Some(value);
+}
+
+public Status(AllocError) tokenize(Array([]const char)* out, []const char text) {
+    usize start = 0;
+    bool inside = false;
+    for usize i = 0; i <= text.len; i++ {
+        bool blank = i == text.len || text[i] == ' ';
+        if !blank && !inside {
+            start = i;
+            inside = true;
+        } else if blank && inside {
+            inside = false;
+            out.push(text[start..i])?;
+        }
+    }
+    return Status::Ok;
+}
+
+public Status(CalcError) apply(Array(i64)* stack, []const char token) {
+    if std::slice::eq(token, "dup") {
+        if stack.len() < 1 {
+            return CalcError::StackUnderflow;
+        }
+        stack.push(stack.items()[stack.len() - 1])?;
+        return Status::Ok;
+    }
+    if std::slice::eq(token, "neg") {
+        if stack.len() < 1 {
+            return CalcError::StackUnderflow;
+        }
+        stack.items()[stack.len() - 1] = -stack.items()[stack.len() - 1];
+        return Status::Ok;
+    }
+    if std::slice::eq(token, "swap") {
+        if stack.len() < 2 {
+            return CalcError::StackUnderflow;
+        }
+        i64 top = stack.items()[stack.len() - 1];
+        stack.items()[stack.len() - 1] = stack.items()[stack.len() - 2];
+        stack.items()[stack.len() - 2] = top;
+        return Status::Ok;
+    }
+    if !(std::slice::eq(token, "+") || std::slice::eq(token, "-") || std::slice::eq(token, "*") || std::slice::eq(token, "/") || std::slice::eq(token, "%")) {
+        return CalcError::BadToken;
+    }
+    if stack.len() < 2 {
+        return CalcError::StackUnderflow;
+    }
+    i64 b = stack.items()[stack.len() - 1];
+    i64 a = stack.items()[stack.len() - 2];
+    i64 result = 0;
+    if std::slice::eq(token, "+") {
+        result = a + b;
+    } else if std::slice::eq(token, "-") {
+        result = a - b;
+    } else if std::slice::eq(token, "*") {
+        result = a * b;
+    } else {
+        if b == 0 {
+            return CalcError::DivideByZero;
+        }
+        if std::slice::eq(token, "/") {
+            result = a / b;
+        } else {
+            result = a % b;
+        }
+    }
+    stack.pop();
+    stack.pop();
+    stack.push(result)?;
+    return Status::Ok;
+}
+
+public Result(i64, CalcError) evaluate([]const char text) {
+    Array([]const char) tokens = {};
+    defer tokens.deinit();
+    Array(i64) stack = {};
+    defer stack.deinit();
+    tokenize(&tokens, text)?;
+    if tokens.len() == 0 {
+        return Result::Err(CalcError::EmptyExpression);
+    }
+    for token in tokens.items() {
+        Optional(i64) number = parse_number(token);
+        if number.is_some() {
+            stack.push(number.unwrap_some())?;
+        } else {
+            apply(&stack, token)?;
+        }
+    }
+    if stack.len() != 1 {
+        return Result::Err(CalcError::LeftOverValues);
+    }
+    return Result::Ok(stack.items()[0]);
+}

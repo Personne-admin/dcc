@@ -1,0 +1,61 @@
+module main;
+
+struct Ring {
+    i32[4] items;
+    usize head;
+    usize count;
+}
+
+usize capacity(Ring* ring) {
+    return 4;
+}
+
+bool is_full(Ring* ring) {
+    return ring.count == capacity(ring);
+}
+
+bool push(Ring* ring, i32 value) {
+    if is_full(ring) {
+        return false;
+    }
+    usize tail = (ring.head + ring.count) % capacity(ring);
+    ring.items[tail] = value;
+    ring.count += 1;
+    return true;
+}
+
+Optional(i32) pop(Ring* ring) {
+    if ring.count == 0 {
+        return Optional::None;
+    }
+    i32 value = ring.items[ring.head];
+    ring.head = (ring.head + 1) % capacity(ring);
+    ring.count -= 1;
+    return Optional::Some(value);
+}
+
+Status(Error) show_pop(Ring* ring) {
+    match pop(ring) {
+        Optional::Some(v) => println("pop {}", v)?,
+        Optional::None => println("pop: empty")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Ring ring = Ring { items = { 0, 0, 0, 0 }, head = 0, count = 0 };
+    for i32 n in 1..=5 {
+        if !push(&ring, n * 10) {
+            println("full, dropped {}", n * 10)?;
+        }
+    }
+    show_pop(&ring)?;
+    show_pop(&ring)?;
+    push(&ring, 60);
+    push(&ring, 70);
+    println("head {}, count {}", ring.head, ring.count)?;
+    for i32 k in 0..6 {
+        show_pop(&ring)?;
+    }
+    return Status::Ok;
+}

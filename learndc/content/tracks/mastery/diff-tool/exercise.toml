@@ -1,0 +1,81 @@
+schema = 1
+id = "mastery/diff-tool"
+revision = 1
+title = "Diff Tool"
+summary = "Write a generic longest-common-subsequence diff that works on any element type, a line interner that turns text into ids, and a tool that prints the differences between two versions of a file."
+kind = "challenge"
+difficulty = "advanced"
+estimated_minutes = 120
+concepts = ["generic functions", "dynamic programming", "modules", "Array", "custom errors", "Result", "interning"]
+tags = ["mastery", "generics", "algorithms", "memory", "modules"]
+objectives = [
+    "Write generic functions over slices whose elements are compared with ==",
+    "Fill a two dimensional table stored in one flat owning array and backtrack through it with a precise tie-break rule",
+    "Guard memory use with a typed TooLarge error before allocating",
+    "Connect generic and non-generic modules: text lines become integer ids, the diff works on the ids",
+]
+entry_file = "src/main.dc"
+product = "diff_tool"
+prerequisites = ["generics/boss-generic-toolkit"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "lcs_length on several element types and its size limit"
+harness = "checks/lengths.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "The table has (a.len + 1) * (b.len + 1) cells and may have at most MAX_CELLS; the check must not overflow either."
+
+[[checks]]
+kind = "harness"
+name = "diff scripts, tie-breaks and error handling"
+harness = "checks/scripts.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Follow the backtracking rule exactly: Keep on equal elements, otherwise Remove when the table says it is at least as good, else Add."
+
+[[checks]]
+kind = "harness"
+name = "Random pairs: scripts replay both sequences"
+harness = "checks/property.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "A script must consume every element of both sequences exactly once, in order, and its Keeps must equal the LCS length."
+
+[[checks]]
+kind = "harness"
+name = "intern gives equal lines equal ids"
+harness = "checks/interning.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "The table persists across calls, so a second file reuses the ids of the first."
+
+[[checks]]
+kind = "run"
+name = "The report"
+expect_stdout = """
+  module greeting;
+  
++ import std::fmt;
++ 
+  public void hello() {
+      println("hello");
+-     println("world");
+  }
+5 unchanged, 1 removed, 2 added
+----
+common letters of kitten and sitting: 4
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Keep lines print two spaces first, Remove lines print '- ' and Add lines '+ '; the summary counts unchanged, removed, then added."

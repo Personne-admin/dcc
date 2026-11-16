@@ -1,0 +1,40 @@
+module letters;
+
+import textstats;
+using textstats::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    u32[26] none = {};
+    count_letters("", none);
+    u32 total = 0;
+    for n in none {
+        total += n;
+    }
+    expect(total == 0, "an empty text counts nothing", &failures);
+
+    u32[26] counts = {};
+    count_letters("Banana! 123", counts);
+    expect(counts[0] == 3, "a appears 3 times", &failures);
+    expect(counts[1] == 1, "capital B counts as b", &failures);
+    expect(counts[13] == 2, "n appears 2 times", &failures);
+    total = 0;
+    for n in counts {
+        total += n;
+    }
+    expect(total == 6, "digits, spaces and punctuation are ignored", &failures);
+
+    count_letters("zz", counts);
+    expect(counts[25] == 2, "z is the last box", &failures);
+    expect(counts[0] == 3, "counts add up over several calls", &failures);
+    return failures;
+}

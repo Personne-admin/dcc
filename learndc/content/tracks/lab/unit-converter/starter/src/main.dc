@@ -1,0 +1,27 @@
+module main;
+
+import units;
+using units::*;
+
+struct Request {
+    f64 value;
+    []const char from;
+    []const char to;
+}
+
+public Status(Error) main() {
+    []const Request requests = {
+        { 12.5, "km", "mi" },
+        { 100.0, "C", "F" },
+        { 3.0, "lb", "kg" },
+        { 72.0, "in", "ft" },
+        { 5.0, "kg", "m" },
+        { 1.0, "furlong", "m" },
+        { 0.0, "K", "C" },
+    };
+    usize done = 0;
+    usize failed = 0;
+
+    println("{} converted, {} refused", done, failed)?;
+    return Status::Ok;
+}

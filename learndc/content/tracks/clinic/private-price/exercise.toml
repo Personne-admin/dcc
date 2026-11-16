@@ -1,0 +1,89 @@
+schema = 1
+id = "clinic/private-price"
+revision = 1
+title = "The function that cannot be found"
+summary = "The compiler says a path is unknown although the function is right there: read the diagnostic carefully."
+kind = "repair-compilation"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = [
+    "modules",
+    "public",
+    "diagnostics",
+]
+tags = [
+    "clinic",
+    "modules",
+    "visibility",
+    "diagnostics",
+]
+objectives = [
+    "Read a diagnostic for what it can and cannot know",
+    "Publish a function with `public` so another module can call it",
+    "Prove the fix with the expected output",
+]
+entry_file = "src/main.dc"
+product = "private_price"
+prerequisites = ["projects/module-design"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-build"
+optional = true
+
+[[stages]]
+id = "locate"
+title = "Locate the cause"
+summary = "Reproduce the symptom, narrow it down and name the faulty line before you change anything."
+hints = [
+    "Read the message literally: the compiler says the path is unknown, not that the name is wrong. What things make a path unknown that exist in the source?",
+    "The same module offers another function that does resolve. Compare the two declarations in `prices.dc`.",
+]
+questions = ["read-the-diagnostic"]
+
+[[stages]]
+id = "fix"
+title = "Fix and prove it"
+summary = "Make the program print the expected output."
+hints = [
+    "Only `public` declarations can be used from another module.",
+    "Compare the signatures of `with_tax` and `tax_for` in `src/prices.dc`.",
+    "Write `public i32 tax_for(i32 net) {` in `src/prices.dc`.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the expected output"
+stage = "fix"
+expect_stdout = """
+net 100
+tax 20
+total 120
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The program must build and print the three lines. `tax_for` has to be callable from `main`."
+
+[[questions]]
+id = "read-the-diagnostic"
+type = "choice"
+prompt = "The compiler reports: \"unknown path `prices::tax_for`\" for a call in `main.dc`. `prices.dc` really contains `i32 tax_for(i32 net) { ... }`, and `prices::with_tax` (a `public` function of the same module) is found. What is the most likely cause?"
+choices = [
+    "The function name is misspelled in `main.dc`",
+    "The module `prices` is not imported",
+    "`tax_for` is not `public`, so it is invisible outside its module",
+    "Functions cannot be called with a module prefix",
+]
+answer = 3
+why = [
+    "The spelling is identical in both files, and the neighbouring call `prices::with_tax` resolves.",
+    "The import is there, otherwise `prices::with_tax` would fail the same way.",
+    "",
+    "The same prefix works for `prices::with_tax`.",
+]
+explanation = "A private function is not part of the surface of its module, so from outside it simply does not exist: the compiler reports an unknown path, not \"private\". The hint is in the evidence: another function of the same module resolves, so the module and the import are fine, and the only difference is `public`. Add `public` to `tax_for` (or keep it private and use `with_tax` only if the tax should not be exposed)."

@@ -1,0 +1,28 @@
+module rpn;
+
+import std::slice;
+
+public enum CalcError {
+    @implicit_construction Alloc(AllocError),
+    BadToken,
+    StackUnderflow,
+    DivideByZero,
+    EmptyExpression,
+    LeftOverValues,
+}
+
+public Optional(i64) parse_number([]const char token) {
+    return Optional::None;
+}
+
+public Status(AllocError) tokenize(Array([]const char)* out, []const char text) {
+    return Status::Ok;
+}
+
+public Status(CalcError) apply(Array(i64)* stack, []const char token) {
+    return CalcError::BadToken;
+}
+
+public Result(i64, CalcError) evaluate([]const char text) {
+    return Result::Err(CalcError::EmptyExpression);
+}

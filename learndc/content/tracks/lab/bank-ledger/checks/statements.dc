@@ -1,0 +1,47 @@
+module statements;
+
+import std::slice;
+import ledger;
+using ledger::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool refused(Status(LedgerError) s, LedgerError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+Status(Error) show() {
+    Array(Account) accounts = {};
+    defer accounts.deinit();
+    Array(Entry) journal = {};
+    defer journal.deinit();
+    open(&accounts, "ann").unwrap();
+    open(&accounts, "bob").unwrap();
+    open(&accounts, "cy").unwrap();
+    deposit(&accounts, &journal, "ann", 12050).unwrap();
+    deposit(&accounts, &journal, "bob", 99).unwrap();
+    transfer(&accounts, &journal, "ann", "bob", 2000).unwrap();
+    withdraw(&accounts, &journal, "ann", 5).unwrap();
+    statement(&accounts, &journal, "ann")?;
+    statement(&accounts, &journal, "bob")?;
+    statement(&accounts, &journal, "cy")?;
+    statement(&accounts, &journal, "zed")?;
+    return Status::Ok;
+}
+
+public i32 main() {
+    if !show().is_ok() {
+        return 1;
+    }
+    return 0;
+}

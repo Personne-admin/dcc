@@ -1,0 +1,144 @@
+schema = 1
+id = "lab/unit-converter"
+revision = 1
+title = "Unit Converter"
+summary = "Convert lengths, masses and temperatures through a table of units, refuse nonsense conversions with a typed error and print a conversion table."
+kind = "challenge"
+difficulty = "intermediate"
+estimated_minutes = 55
+concepts = ["struct tables", "Optional", "Result", "custom errors", "f64", "formatting"]
+tags = ["project", "errors", "structs", "formatting"]
+objectives = [
+    "Look entries up in a table of structs",
+    "Express every unit as base = value * factor + offset and convert through the base unit",
+    "Return a typed error for unknown units and for conversions between different kinds of unit",
+    "Print an aligned table with format specs",
+]
+entry_file = "src/main.dc"
+product = "unit_converter"
+prerequisites = ["errors/boss-config-parser"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[stages]]
+id = "lookup"
+title = "Look a unit up"
+summary = "find_unit returns the index of a unit in UNITS by its exact name, or None."
+hints = [
+    "UNITS is a slice of Unit structs. Walk it with an index and compare the names, which are text.",
+    "Text is compared with std::slice::eq(a, b), not ==. Return Optional::Some(i) from inside the loop and Optional::None after it.",
+]
+
+[[stages]]
+id = "formulas"
+title = "Through the base unit"
+summary = "to_base and from_base change a value into the base unit of its dimension and back."
+hints = [
+    "Every unit is described by factor and offset: base = value * factor + offset. Celsius has factor 1 and offset 273.15 against kelvin.",
+    "to_base returns value * unit.factor + unit.offset. from_base undoes that: subtract the offset first, then divide by the factor.",
+]
+
+[[stages]]
+id = "convert"
+title = "Convert with refusals"
+summary = "convert finds both units, refuses unknown ones and mismatched dimensions, and converts through the base unit."
+hints = [
+    "Two jobs before any arithmetic: both names must exist (UnknownUnit otherwise) and both units must share a dimension (DimensionMismatch otherwise). Check unknown names first.",
+    "Look both units up with find_unit, copy them with Unit source = UNITS[index]; and return Result::Err(...) for the refusals. The answer is Result::Ok(from_base(target, to_base(source, value))).",
+]
+
+[[stages]]
+id = "table"
+title = "Print a conversion table"
+summary = "print_table prints a heading and one aligned row per value, and stops at the first refusal with print_error."
+hints = [
+    "Print the heading first, then match on convert(value, from, to) inside a loop over values.",
+    "Row format: \"{:>10.2} {} = {:>10.3} {}\" with value, from, result, to. On Err(e) call print_error(value, from, to, e)? and return Status::Ok so the table stops there.",
+]
+
+[[stages]]
+id = "report"
+title = "The conversion desk"
+summary = "main converts every request, reports refusals, counts both kinds and prints a temperature table."
+hints = [
+    "main already declares the requests and the two counters. Loop over the requests and match on convert like print_table does.",
+    "On success print \"{:.2} {} = {:.2} {}\" and add to done; on an error call print_error and add to failed. Finish with the summary line and print_table(\"C\", \"F\", steps) for the values 0, 10, 37 and 100.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "find_unit looks names up"
+stage = "lookup"
+harness = "checks/lookup.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "to_base and from_base use factor and offset"
+stage = "formulas"
+harness = "checks/formulas.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "convert converts and refuses"
+stage = "convert"
+harness = "checks/converting.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "print_table prints aligned rows"
+stage = "table"
+harness = "checks/table.dc"
+expect_stdout = """
+C -> F
+      0.00 C =     32.000 F
+     37.00 C =     98.600 F
+    100.00 C =    212.000 F
+mi -> km
+      1.00 mi =      1.609 km
+     26.20 mi =     42.165 km
+kg -> m
+1.00 kg to m: different kinds of unit
+zz -> m
+1.00 zz to m: unknown unit
+m -> ft
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Each table starts with 'from -> to'. Values are right-aligned in 10 columns, with 2 decimals for the input and 3 for the result. A refusal prints one print_error line and ends that table."
+
+[[checks]]
+kind = "run"
+name = "The conversion desk"
+stage = "report"
+expect_stdout = """
+12.50 km = 7.77 mi
+100.00 C = 212.00 F
+3.00 lb = 1.36 kg
+72.00 in = 6.00 ft
+5.00 kg to m: different kinds of unit
+1.00 furlong to m: unknown unit
+0.00 K = -273.15 C
+5 converted, 2 refused
+C -> F
+      0.00 C =     32.000 F
+     10.00 C =     50.000 F
+     37.00 C =     98.600 F
+    100.00 C =    212.000 F
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Requests are handled in order. A refused request prints its print_error line and counts as refused."

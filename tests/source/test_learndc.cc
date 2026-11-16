@@ -6631,6 +6631,13 @@ TEST_CASE("markdown renders every bundled exercise cleanly at 100 and 60 columns
                         CHECK(clean);
                     }
                     auto const plain_out = md::render_plain(body, width);
+                    if (!fits_width(plain_out, std::max(width, 120)))
+                        for (auto const& l : text::split_lines(plain_out))
+                            if (static_cast<int>(text::display_width(l)) > std::max(width, 120))
+                            {
+                                std::println(std::cerr, "      {} {} at {}: line too wide: {}", ex.id, label, width, l);
+                                break;
+                            }
                     CHECK(fits_width(plain_out, std::max(width, 120)));
                     for (char c : plain_out)
                         CHECK(static_cast<unsigned char>(c) < 0x80);

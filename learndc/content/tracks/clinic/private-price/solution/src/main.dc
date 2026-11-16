@@ -1,0 +1,11 @@
+module main;
+
+import prices;
+
+public Status(Error) main() {
+    i32 net = 100;
+    println("net {}", net)?;
+    println("tax {}", prices::tax_for(net))?;
+    println("total {}", prices::with_tax(net))?;
+    return Status::Ok;
+}

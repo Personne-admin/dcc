@@ -1,0 +1,37 @@
+module ranking_checks;
+
+import ranking;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool is(Optional(i32) got, i32 want) {
+    return got.is_some() && got.some_or(0) == want;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    i32[0] none = {};
+    i32[1] one = { 3 };
+    i32[3] same = { 5, 5, 5 };
+    i32[5] mixed = { 4, 9, 2, 9, 7 };
+    i32[2] neg = { -4, -9 };
+    i32[3] asc = { 1, 2, 3 };
+    i32[4] desc = { 8, 7, 7, 1 };
+    i32[3] zero = { 0, 0, -1 };
+    expect(ranking::second_largest(none[0..0]).is_none(), "an empty slice has no second value", &failures);
+    expect(ranking::second_largest(one).is_none(), "one value has no second value", &failures);
+    expect(ranking::second_largest(same).is_none(), "equal values have no second value", &failures);
+    expect(is(ranking::second_largest(mixed), 7), "duplicates of the maximum do not count", &failures);
+    expect(is(ranking::second_largest(neg), -9), "negative numbers", &failures);
+    expect(is(ranking::second_largest(asc), 2), "ascending input", &failures);
+    expect(is(ranking::second_largest(desc), 7), "descending input with a duplicate", &failures);
+    expect(is(ranking::second_largest(zero), -1), "a real 0 is not 'no value'", &failures);
+    return failures;
+}

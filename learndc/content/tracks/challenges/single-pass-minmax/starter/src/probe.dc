@@ -1,0 +1,16 @@
+module probe;
+
+usize count = 0;
+
+public i32 read([]const i32 values, usize index) {
+    count += 1;
+    return values[index];
+}
+
+public usize reads() {
+    return count;
+}
+
+public void reset() {
+    count = 0;
+}

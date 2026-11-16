@@ -1,0 +1,192 @@
+schema = 1
+id = "lab/maze-solver"
+revision = 1
+title = "The Maze Solver"
+summary = "Find the shortest way through a text maze with a breadth-first search: locate cells, list neighbours, measure distances, walk the route back and draw it."
+kind = "challenge"
+difficulty = "advanced"
+estimated_minutes = 90
+concepts = ["breadth-first search", "queue", "Array", "grid indexing", "Optional", "Result", "defer"]
+tags = ["boss", "project", "algorithms", "memory", "errors"]
+objectives = [
+    "Turn rows of text into cell numbers and back with row * width + col",
+    "Search a maze breadth first with an owning Array used as a queue and a distance array",
+    "Rebuild the shortest route from the distances alone and draw it",
+    "Report an impossible maze with a typed error instead of crashing or looping forever",
+]
+entry_file = "src/main.dc"
+product = "maze_solver"
+prerequisites = ["memory/boss-inventory-keeper"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[stages]]
+id = "old-solver"
+title = "Read the old solver"
+summary = "Find the bug that made the apprentice's search run forever."
+questions = ["old-search"]
+hints = ["Look at what tells the search a cell has already been seen."]
+
+[[stages]]
+id = "locate"
+title = "Find a cell"
+summary = "locate returns the cell number of the first occurrence of a character, scanning row by row."
+hints = [
+    "Walk rows with an index and, inside, the columns of that row: for usize row = 0; row < rows.len; row++ and then rows[row].len.",
+    "A cell number is row * width + col with width = rows[0].len. Return Optional::Some(...) at the first match and Optional::None after both loops.",
+]
+
+[[stages]]
+id = "neighbours"
+title = "Look around"
+summary = "open_neighbours pushes the open cells above, right of, below and left of a cell, in that order."
+hints = [
+    "A cell number splits back into row = cell / width and col = cell % width. A neighbour exists only when it is inside the maze and is not '#'.",
+    "Four ifs in the order up, right, down, left. Up needs row > 0 (cell - width), right needs col + 1 < width (cell + 1), down needs row + 1 < rows.len (cell + width), left needs col > 0 (cell - 1). Check bounds before you index.",
+]
+
+[[stages]]
+id = "distances"
+title = "Breadth first"
+summary = "distances fills one entry per cell with the number of steps from the start, and -1 for walls and unreachable cells."
+hints = [
+    "A queue visits cells in order of distance: everything 1 step away before anything 2 steps away. An Array(usize) plus a head index is a queue; you never remove from the front.",
+    "Reset dist to the right size filled with -1, set the start to 0 and push it. While head < queue.len(): take queue.items()[head], head += 1, collect its open neighbours (clear your scratch array first) and for each one still at -1 set distance + 1 and push it.",
+]
+
+[[stages]]
+id = "shortest"
+title = "How far is the exit?"
+summary = "shortest returns the number of steps from S to E, or NoStart, NoExit or NoPath."
+hints = [
+    "Find both cells first and report NoStart before NoExit. Run distances from the start; the answer is the entry of the exit cell.",
+    "distances(rows, start, &dist)? lets an allocation failure become MazeError::Alloc. A distance of -1 at the exit means NoPath. dist is a local Array(i32) with defer dist.deinit().",
+]
+
+[[stages]]
+id = "route"
+title = "Walk it back"
+summary = "find_path fills the array with the cells of a shortest route from S to E, in order."
+hints = [
+    "Start at E and repeatedly step to a neighbour whose distance is one less. You do not need to remember where you came from: the distances already say.",
+    "Clear the path, push the exit cell, then while the current distance is above 0 look through open_neighbours for the first with distance - 1, move there and push it. At the end reverse the array in place with two indices that meet in the middle.",
+]
+
+[[stages]]
+id = "report"
+title = "Draw the route"
+summary = "draw prints the maze with * on the route, and main explores four mazes."
+hints = [
+    "draw prints every cell: '*' when the cell is on the route and the maze character is '.', otherwise the character itself. print(\"{}\", c) prints a char.",
+    "In explore, match on find_path(rows, &path): on Ok print the heading with path.len() - 1 steps and call draw; on Err match every MazeError variant and print its message. main only calls explore four times.",
+]
+
+[[stages]]
+id = "farthest"
+title = "Bonus: how deep is the maze?"
+summary = "farthest returns the largest finite distance from the start, or 0 when there is no start."
+optional = true
+hints = [
+    "The distances array already contains the answer: it is the largest entry.",
+    "Locate S, build the distances and return the maximum as usize. Entries of -1 never win because the best starts at 0.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "locate finds characters in row order"
+stage = "locate"
+harness = "checks/locating.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "open_neighbours respects walls and edges"
+stage = "neighbours"
+harness = "checks/neighbours.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "distances measures every cell"
+stage = "distances"
+harness = "checks/distance_map.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "shortest counts steps and refuses"
+stage = "shortest"
+harness = "checks/routes.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "find_path rebuilds a shortest route"
+stage = "route"
+harness = "checks/pathing.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "The gardener's four mazes"
+stage = "report"
+expect_stdout = """
+maze 1: 12 steps
+#########
+#S**#***#
+#.#*#*#*#
+#.#***#E#
+#.#####.#
+#.......#
+#########
+maze 2: no path
+maze 3: no exit
+maze 4: no start
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Maze 1 prints its step count and the drawing, the other three print one line each."
+
+[[checks]]
+kind = "harness"
+name = "farthest finds the deepest cell"
+stage = "farthest"
+harness = "checks/reach.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[questions]]
+id = "old-search"
+type = "bug"
+prompt = "The apprentice's search never finishes on a maze with a loop in it. Which line is the bug?"
+code = """
+usize head = 0;
+dist.items()[start] = 0;
+queue.push(start)?;
+while head < queue.len() {
+    usize cell = queue.items()[head];
+    head += 1;
+    next.clear();
+    open_neighbours(rows, cell, &next)?;
+    for n in next.items() {
+        if dist.items()[n] == -1 {
+            queue.push(n)?;
+        }
+    }
+}
+"""
+lines = [11]
+explanation = "Line 11 queues a neighbour without ever changing its distance, so it still looks unvisited the next time any other cell looks at it. In a corridor with a loop the same cells are queued again and again and the queue grows forever. A cell must be marked visited at the moment it is queued: `dist.items()[n] = dist.items()[cell] + 1;` before the push."

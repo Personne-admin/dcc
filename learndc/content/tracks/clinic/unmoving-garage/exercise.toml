@@ -1,0 +1,155 @@
+schema = 1
+id = "clinic/unmoving-garage"
+revision = 1
+title = "The garage that never fills"
+summary = "Cars enter the garage but the board never changes; a struct is copied where a pointer was meant."
+kind = "fix-behavior"
+difficulty = "beginner"
+estimated_minutes = 15
+concepts = [
+    "struct copy",
+    "pointers",
+    "debugging",
+]
+tags = [
+    "clinic",
+    "structs",
+    "pointers",
+]
+objectives = [
+    "Recognise that a struct argument is a copy",
+    "Pass a pointer so a function changes the caller's value",
+    "Prove the fix with the expected output",
+]
+entry_file = "src/main.dc"
+product = "unmoving_garage"
+prerequisites = ["data/copies-and-pointers"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[stages]]
+id = "locate"
+title = "Locate the cause"
+summary = "Reproduce the symptom, narrow it down and name the faulty line before you change anything."
+hints = [
+    "Both functions change `g.free` and `g.parked`, so the arithmetic is not the problem. What is different in how each function receives the garage?",
+    "Print `g.parked` at the end of `enter` and again in `main` right after the call. If the first is 1 and the second 0, the change got lost between the two.",
+]
+questions = ["find-the-copy"]
+
+[[stages]]
+id = "fix"
+title = "Fix and prove it"
+summary = "Make the program print the expected output."
+hints = [
+    "A struct passed by value is copied. To change the caller's struct the function needs its address.",
+    "Mirror `leave`: take a `Garage*` and call `enter` with `&g`.",
+    "Write `void enter(Garage* g)` and change the three calls to `enter(&g);`. The body stays as it is, because field access works through the pointer.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the expected output"
+stage = "fix"
+expect_stdout = """
+parked 2, free 0
+parked 1, free 1
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "After the fix `enter` must change the garage in `main`: three cars, two places."
+
+[[questions]]
+id = "find-the-copy"
+type = "bug"
+prompt = "`enter` and `leave` look alike, yet only `leave` changes the garage. Which line is the root cause?"
+code = """
+module main;
+
+struct Garage {
+    i32 free;
+    i32 parked;
+}
+
+void enter(Garage g) {
+    if g.free > 0 {
+        g.free -= 1;
+        g.parked += 1;
+    }
+}
+
+void leave(Garage* g) {
+    if g.parked > 0 {
+        g.free += 1;
+        g.parked -= 1;
+    }
+}
+
+Status(Error) board(Garage g) {
+    println("parked {}, free {}", g.parked, g.free)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Garage g = Garage { free = 2, parked = 0 };
+    enter(g);
+    enter(g);
+    enter(g);
+    board(g)?;
+    leave(&g);
+    board(g)?;
+    return Status::Ok;
+}
+"""
+lines = [8, 29, 30, 31]
+fixed = """
+module main;
+
+struct Garage {
+    i32 free;
+    i32 parked;
+}
+
+void enter(Garage* g) {
+    if g.free > 0 {
+        g.free -= 1;
+        g.parked += 1;
+    }
+}
+
+void leave(Garage* g) {
+    if g.parked > 0 {
+        g.free += 1;
+        g.parked -= 1;
+    }
+}
+
+Status(Error) board(Garage g) {
+    println("parked {}, free {}", g.parked, g.free)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Garage g = Garage { free = 2, parked = 0 };
+    enter(&g);
+    enter(&g);
+    enter(&g);
+    board(g)?;
+    leave(&g);
+    board(g)?;
+    return Status::Ok;
+}
+"""
+expect = """
+parked 2, free 0
+parked 1, free 1
+"""
+explanation = "`enter` takes the `Garage` by value: the function receives its own copy, changes the copy and throws it away when it returns. `leave` takes a `Garage*` and writes through the pointer, so the caller sees the change. The calls `enter(g)` are fine for a value parameter; to fix the bug the parameter becomes `Garage* g` and the calls become `enter(&g)`."

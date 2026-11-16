@@ -1,0 +1,27 @@
+module main;
+
+import textstats;
+using textstats::*;
+
+public Status(Error) main() {
+    []const char text = "The quick brown fox jumps over the lazy dog. The dog sleeps; the fox runs on.";
+    u32[26] counts = {};
+    count_letters(text, counts);
+    char top = most_common(counts);
+
+    println("characters: {}", text.len)?;
+    println("words: {}", count_words(text))?;
+    println("longest word: {}", longest_word(text))?;
+    println("most common letter: {} ({})", top, counts[(top as u32 - 97) as usize])?;
+    println("letters seen 3 or more times:")?;
+    for usize i in 0..26 {
+        if counts[i] >= 3 {
+            print("{} ", (i as u32 + 97) as char)?;
+            for usize n in 0..counts[i] as usize {
+                print("#")?;
+            }
+            println(" {}", counts[i])?;
+        }
+    }
+    return Status::Ok;
+}

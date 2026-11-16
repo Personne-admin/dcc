@@ -1,0 +1,21 @@
+module main;
+
+u32 to_kb(u32 bytes) {
+    return (bytes / 1024) as u32;
+}
+
+Status(Error) line(u32 bytes) {
+    println("{} bytes = {} KB", bytes, to_kb(bytes))?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    u32[3] files = { 3000, 5242880, 73400320 };
+    u32 total = 0;
+    for f in files {
+        line(f)?;
+        total += to_kb(f) as u32;
+    }
+    println("total {} KB", total)?;
+    return Status::Ok;
+}

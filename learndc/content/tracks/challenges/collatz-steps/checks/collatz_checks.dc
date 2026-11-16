@@ -1,0 +1,26 @@
+module collatz_checks;
+
+import collatz;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(collatz::steps(1) == 0, "1 needs no steps", &failures);
+    expect(collatz::steps(2) == 1, "2 needs one step", &failures);
+    expect(collatz::steps(6) == 8, "6 needs 8 steps", &failures);
+    expect(collatz::steps(97) == 118, "97 needs 118 steps", &failures);
+    expect(collatz::steps(27) == 111, "27 needs 111 steps", &failures);
+    expect(collatz::peak(1) == 1, "the peak of 1 is 1", &failures);
+    expect(collatz::peak(16) == 16, "the start can be the peak", &failures);
+    expect(collatz::peak(6) == 16, "the peak of 6 is 16", &failures);
+    expect(collatz::peak(27) == 9232, "the peak of 27 is 9232", &failures);
+    return failures;
+}

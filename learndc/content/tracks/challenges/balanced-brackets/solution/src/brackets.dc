@@ -1,0 +1,26 @@
+module brackets;
+
+public bool is_balanced([]const char text) {
+    char[256] stack = {};
+    usize depth = 0;
+    for c in text {
+        if c == '(' || c == '[' || c == '{' {
+            if depth == 256 {
+                return false;
+            }
+            stack[depth] = c;
+            depth += 1;
+        } else if c == ')' || c == ']' || c == '}' {
+            if depth == 0 {
+                return false;
+            }
+            char open = stack[depth - 1];
+            bool matches = (c == ')' && open == '(') || (c == ']' && open == '[') || (c == '}' && open == '{');
+            if !matches {
+                return false;
+            }
+            depth -= 1;
+        }
+    }
+    return depth == 0;
+}

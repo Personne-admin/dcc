@@ -1,0 +1,93 @@
+module basics;
+
+import std::slice;
+import bignum;
+using bignum::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool is_text(const Array(u32)* n, []const char expected) {
+    Array(char) text = {};
+    defer text.deinit();
+    if !to_text(n, &text).is_ok() {
+        return false;
+    }
+    []const char got = text.items();
+    bool same = std::slice::eq(got, expected);
+    if !same {
+        println("      got [{}], expected [{}]", got, expected);
+    }
+    return same;
+}
+
+bool is_normal(const Array(u32)* n) {
+    if n.len() == 0 {
+        return false;
+    }
+    for limb in n.items() {
+        if limb >= BASE {
+            return false;
+        }
+    }
+    return n.len() == 1 || n.items()[n.len() - 1] != 0;
+}
+
+Status(AllocError) from(Array(u32)* n, u64 value) {
+    return set_u64(n, value);
+}
+
+bool refused(Status(BigError) s, BigError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array(u32) n = {};
+    defer n.deinit();
+    Array(u32) m = {};
+    defer m.deinit();
+
+    from(&n, 0).unwrap();
+    expect(is_text(&n, "0") && n.len() == 1 && n.items()[0] == 0, "zero is one limb holding 0", &failures);
+    from(&n, 7).unwrap();
+    expect(is_text(&n, "7") && n.len() == 1, "7", &failures);
+    from(&n, 999999999).unwrap();
+    expect(is_text(&n, "999999999") && n.len() == 1, "the largest single limb", &failures);
+    from(&n, 1000000000).unwrap();
+    expect(is_text(&n, "1000000000") && n.len() == 2 && n.items()[0] == 0 && n.items()[1] == 1, "the base needs two limbs, little endian", &failures);
+    from(&n, 1000000001).unwrap();
+    expect(is_text(&n, "1000000001"), "the inner limb is padded to 9 digits", &failures);
+    from(&n, 123456789012345678).unwrap();
+    expect(is_text(&n, "123456789012345678") && n.len() == 2, "18 digits", &failures);
+    from(&n, 100000000000000000).unwrap();
+    expect(is_text(&n, "100000000000000000") && n.items()[0] == 0, "zero limbs in the middle print as nine zeros", &failures);
+    from(&n, 18446744073709551615).unwrap();
+    expect(is_text(&n, "18446744073709551615") && n.len() == 3 && is_normal(&n), "the largest u64 uses three limbs", &failures);
+    from(&n, 5).unwrap();
+    expect(is_text(&n, "5") && n.len() == 1, "set_u64 replaces the old contents", &failures);
+
+    from(&n, 1000000000).unwrap();
+    from(&m, 999999999).unwrap();
+    expect(compare(&n, &m) == 1 && compare(&m, &n) == -1, "more limbs is larger", &failures);
+    from(&m, 1000000001).unwrap();
+    expect(compare(&n, &m) == -1 && compare(&m, &n) == 1, "same length: the top limb decides first, then the lower ones", &failures);
+    from(&n, 1000000001).unwrap();
+    expect(compare(&n, &m) == 0, "equal numbers", &failures);
+    from(&n, 2000000000).unwrap();
+    from(&m, 1999999999).unwrap();
+    expect(compare(&n, &m) == 1, "a difference in the top limb", &failures);
+    from(&n, 0).unwrap();
+    from(&m, 0).unwrap();
+    expect(compare(&n, &m) == 0, "zero equals zero", &failures);
+    return failures;
+}

@@ -1,0 +1,32 @@
+module drawing;
+
+import life;
+using life::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+Status(Error) show() {
+    bool[CELLS] cells = {};
+    cells[0] = true;
+    cells[WIDTH + 1] = true;
+    cells[63] = true;
+    render(cells)?;
+    println("--")?;
+    bool[CELLS] none = {};
+    render(none)?;
+    return Status::Ok;
+}
+
+public i32 main() {
+    if !show().is_ok() {
+        return 1;
+    }
+    return 0;
+}

@@ -1,0 +1,19 @@
+module shipping;
+
+public enum Speed { Standard, Fast, Overnight }
+
+public i32 fee(Speed speed, i32 kilos) {
+    return match speed {
+        Speed::Standard => 5 + kilos,
+        Speed::Fast => 9 + 2 * kilos,
+        Speed::Overnight => 20 + 3 * kilos,
+    };
+}
+
+public i32 days(Speed speed) {
+    return match speed {
+        Speed::Standard => 5,
+        Speed::Fast => 2,
+        Speed::Overnight => 1,
+    };
+}

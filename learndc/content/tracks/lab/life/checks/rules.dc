@@ -1,0 +1,23 @@
+module rules;
+
+import life;
+using life::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    for u32 n in 0..=8 {
+        bool lives = n == 2 || n == 3;
+        expect(next_state(true, n) == lives, "a live cell with n neighbours (survives on 2 or 3)", &failures);
+        expect(next_state(false, n) == (n == 3), "a dead cell with n neighbours (born on exactly 3)", &failures);
+    }
+    return failures;
+}

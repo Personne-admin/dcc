@@ -1,0 +1,19 @@
+module money;
+
+public Status(Error) print_money(i64 cents) {
+    i64 value = cents;
+    if value < 0 {
+        print("-")?;
+        value = -value;
+    }
+    print("{}.{:02}", value / 100, value % 100)?;
+    return Status::Ok;
+}
+
+public Status(Error) print_signed(i64 cents) {
+    if cents >= 0 {
+        print("+")?;
+    }
+    print_money(cents)?;
+    return Status::Ok;
+}

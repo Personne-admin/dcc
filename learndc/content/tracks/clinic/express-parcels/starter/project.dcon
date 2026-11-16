@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "express_parcels",
+    version = "0.1.0",
+    products = {
+        { name = "express_parcels", entry = "src/main.dc" },
+    },
+}

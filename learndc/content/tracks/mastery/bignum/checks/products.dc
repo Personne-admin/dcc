@@ -1,0 +1,111 @@
+module products;
+
+import std::slice;
+import bignum;
+using bignum::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool is_text(const Array(u32)* n, []const char expected) {
+    Array(char) text = {};
+    defer text.deinit();
+    if !to_text(n, &text).is_ok() {
+        return false;
+    }
+    []const char got = text.items();
+    bool same = std::slice::eq(got, expected);
+    if !same {
+        println("      got [{}], expected [{}]", got, expected);
+    }
+    return same;
+}
+
+bool is_normal(const Array(u32)* n) {
+    if n.len() == 0 {
+        return false;
+    }
+    for limb in n.items() {
+        if limb >= BASE {
+            return false;
+        }
+    }
+    return n.len() == 1 || n.items()[n.len() - 1] != 0;
+}
+
+Status(AllocError) from(Array(u32)* n, u64 value) {
+    return set_u64(n, value);
+}
+
+bool refused(Status(BigError) s, BigError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array(u32) a = {};
+    defer a.deinit();
+    Array(u32) b = {};
+    defer b.deinit();
+    Array(u32) out = {};
+    defer out.deinit();
+
+    from(&a, 1000000000000000000).unwrap();
+    from(&b, 1000000000000000000).unwrap();
+    mul(&a, &b, &out).unwrap();
+    expect(is_text(&out, "1000000000000000000000000000000000000") && is_normal(&out), "10^18 times 10^18: carries through empty limbs", &failures);
+    from(&a, 0).unwrap();
+    from(&b, 99999).unwrap();
+    mul(&a, &b, &out).unwrap();
+    expect(is_text(&out, "0") && out.len() == 1, "zero times a number is normalized to one limb", &failures);
+    mul(&b, &a, &out).unwrap();
+    expect(is_text(&out, "0") && out.len() == 1, "and the other way round", &failures);
+    from(&a, 1).unwrap();
+    mul(&a, &a, &out).unwrap();
+    expect(is_text(&out, "1"), "1 times 1 (out is cleared first)", &failures);
+
+    from(&a, 1).unwrap();
+    for usize k in 0..100 {
+        mul_small(&a, 2).unwrap();
+    }
+    mul(&a, &a, &out).unwrap();
+    expect(is_text(&out, "1606938044258990275541962092341162602522202993782792835301376") && is_normal(&out), "2^100 times 2^100 is 2^200", &failures);
+
+    from(&a, 999999999).unwrap();
+    from(&b, 999999999).unwrap();
+    mul(&a, &b, &out).unwrap();
+    expect(is_text(&out, "999999998000000001") && is_normal(&out), "the largest limb squared", &failures);
+    from(&a, 18446744073709551615).unwrap();
+    mul(&a, &a, &out).unwrap();
+    expect(is_text(&out, "340282366920938463426481119284349108225"), "the largest u64 squared", &failures);
+    Array(u32) c = {};
+    defer c.deinit();
+    from(&c, 3).unwrap();
+    mul(&out, &c, &b).unwrap();
+    expect(is_text(&b, "1020847100762815390279443357853047324675"), "multiplying the result again", &failures);
+
+    Array(u32) f = {};
+    defer f.deinit();
+    from(&f, 1).unwrap();
+    for u32 k in 2..=100 {
+        mul_small(&f, k).unwrap();
+    }
+    u32 digit_sum = 0;
+    Array(char) text = {};
+    defer text.deinit();
+    to_text(&f, &text).unwrap();
+    for c in text.items() {
+        digit_sum += c as u32 - '0' as u32;
+    }
+    expect(text.len() == 158 && digit_sum == 648, "100! has 158 digits with digit sum 648", &failures);
+    return failures;
+}

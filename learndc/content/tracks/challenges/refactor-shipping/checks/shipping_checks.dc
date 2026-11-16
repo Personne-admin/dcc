@@ -1,0 +1,27 @@
+module shipping_checks;
+
+import shipping;
+using shipping::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(fee(Speed::Standard, 0) == 5, "standard base fee", &failures);
+    expect(fee(Speed::Standard, 3) == 8, "standard 3 kg", &failures);
+    expect(fee(Speed::Fast, 0) == 9, "fast base fee", &failures);
+    expect(fee(Speed::Fast, 10) == 29, "fast 10 kg", &failures);
+    expect(fee(Speed::Overnight, 0) == 20, "overnight base fee", &failures);
+    expect(fee(Speed::Overnight, 4) == 32, "overnight 4 kg", &failures);
+    expect(days(Speed::Standard) == 5, "standard takes 5 days", &failures);
+    expect(days(Speed::Fast) == 2, "fast takes 2 days", &failures);
+    expect(days(Speed::Overnight) == 1, "overnight takes 1 day", &failures);
+    return failures;
+}

@@ -1,0 +1,9 @@
+module prices;
+
+public i32 tax_for(i32 net) {
+    return net * 20 / 100;
+}
+
+public i32 with_tax(i32 net) {
+    return net + tax_for(net);
+}

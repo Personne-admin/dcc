@@ -1,0 +1,9 @@
+module main;
+
+import bignum;
+using bignum::*;
+
+public Status(Error) main() {
+    println("big numbers")?;
+    return Status::Ok;
+}

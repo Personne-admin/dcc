@@ -1,0 +1,79 @@
+module reach;
+
+import maze;
+using maze::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool is_err(Result(i32, MazeError) r, MazeError expected) {
+    match r {
+        Result::Ok(v) => return false,
+        Result::Err(e) => return e == expected,
+    }
+}
+
+bool steps_are(Result(i32, MazeError) r, i32 expected) {
+    match r {
+        Result::Ok(v) => return v == expected,
+        Result::Err(e) => return false,
+    }
+}
+
+bool refused(Status(MazeError) s, MazeError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+bool sequence(const Array(usize)* got, []const usize expected) {
+    if got.len() != expected.len {
+        return false;
+    }
+    for usize i in 0..expected.len {
+        if got.items()[i] != expected[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    []const []const char castle = {
+        "#########",
+        "#S..#...#",
+        "#.#.#.#.#",
+        "#.#...#E#",
+        "#.#####.#",
+        "#.......#",
+        "#########",
+    };
+    expect(farthest(castle) == 12, "the farthest cell of the castle is the exit", &failures);
+    []const []const char alone = {
+        "###",
+        "#S#",
+        "###",
+    };
+    expect(farthest(alone) == 0, "a start with no open neighbour reaches nothing", &failures);
+    []const []const char hall = {
+        "S....#.....",
+    };
+    expect(farthest(hall) == 4, "cells behind a wall are not counted", &failures);
+    []const []const char none = { "...." };
+    expect(farthest(none) == 0, "no start gives 0", &failures);
+    []const []const char grid = {
+        "S..",
+        "...",
+        "...",
+    };
+    expect(farthest(grid) == 4, "an open room: the far corner is 4 steps away", &failures);
+    return failures;
+}

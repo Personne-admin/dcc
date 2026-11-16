@@ -1,0 +1,130 @@
+module ledger;
+
+import std::slice;
+import money;
+
+public struct Account {
+    []const char name;
+    i64 balance;
+}
+
+public struct Entry {
+    usize account;
+    i64 delta;
+    []const char note;
+}
+
+public enum LedgerError {
+    @implicit_construction Alloc(AllocError),
+    UnknownAccount,
+    DuplicateAccount,
+    InvalidAmount,
+    InsufficientFunds,
+    SameAccount,
+}
+
+public Optional(usize) find(const Array(Account)* accounts, []const char name) {
+    usize index = 0;
+    for account in accounts.items() {
+        if std::slice::eq(account.name, name) {
+            return Optional::Some(index);
+        }
+        index += 1;
+    }
+    return Optional::None;
+}
+
+public Status(LedgerError) open(Array(Account)* accounts, []const char name) {
+    if find(accounts, name).is_some() {
+        return LedgerError::DuplicateAccount;
+    }
+    accounts.push(Account { name = name, balance = 0 })?;
+    return Status::Ok;
+}
+
+public Optional(i64) balance_of(const Array(Account)* accounts, []const char name) {
+    return match find(accounts, name) {
+        Optional::Some(index) => Optional::Some(accounts.items()[index].balance),
+        Optional::None => Optional::None,
+    };
+}
+
+public Status(LedgerError) deposit(Array(Account)* accounts, Array(Entry)* journal, []const char name, i64 amount) {
+    if amount <= 0 {
+        return LedgerError::InvalidAmount;
+    }
+    Optional(usize) found = find(accounts, name);
+    if found.is_none() {
+        return LedgerError::UnknownAccount;
+    }
+    usize index = found.unwrap_some();
+    journal.push(Entry { account = index, delta = amount, note = "deposit" })?;
+    accounts.items()[index].balance += amount;
+    return Status::Ok;
+}
+
+public Status(LedgerError) withdraw(Array(Account)* accounts, Array(Entry)* journal, []const char name, i64 amount) {
+    if amount <= 0 {
+        return LedgerError::InvalidAmount;
+    }
+    Optional(usize) found = find(accounts, name);
+    if found.is_none() {
+        return LedgerError::UnknownAccount;
+    }
+    usize index = found.unwrap_some();
+    if accounts.items()[index].balance < amount {
+        return LedgerError::InsufficientFunds;
+    }
+    journal.push(Entry { account = index, delta = -amount, note = "withdrawal" })?;
+    accounts.items()[index].balance -= amount;
+    return Status::Ok;
+}
+
+public Status(LedgerError) transfer(Array(Account)* accounts, Array(Entry)* journal, []const char from, []const char to, i64 amount) {
+    if amount <= 0 {
+        return LedgerError::InvalidAmount;
+    }
+    Optional(usize) source = find(accounts, from);
+    Optional(usize) target = find(accounts, to);
+    if source.is_none() || target.is_none() {
+        return LedgerError::UnknownAccount;
+    }
+    usize a = source.unwrap_some();
+    usize b = target.unwrap_some();
+    if a == b {
+        return LedgerError::SameAccount;
+    }
+    if accounts.items()[a].balance < amount {
+        return LedgerError::InsufficientFunds;
+    }
+    journal.push(Entry { account = a, delta = -amount, note = "transfer out" })?;
+    journal.push(Entry { account = b, delta = amount, note = "transfer in" })?;
+    accounts.items()[a].balance -= amount;
+    accounts.items()[b].balance += amount;
+    return Status::Ok;
+}
+
+public Status(Error) statement(const Array(Account)* accounts, const Array(Entry)* journal, []const char name) {
+    Optional(usize) found = find(accounts, name);
+    if found.is_none() {
+        println("statement for {}: no such account", name)?;
+        return Status::Ok;
+    }
+    usize index = found.unwrap_some();
+    println("statement for {}", name)?;
+    i64 running = 0;
+    for entry in journal.items() {
+        if entry.account == index {
+            running += entry.delta;
+            print("  {:<13} ", entry.note)?;
+            money::print_signed(entry.delta)?;
+            print("  balance ")?;
+            money::print_money(running)?;
+            println("")?;
+        }
+    }
+    print("closing balance ")?;
+    money::print_money(accounts.items()[index].balance)?;
+    println("")?;
+    return Status::Ok;
+}

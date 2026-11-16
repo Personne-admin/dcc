@@ -1,0 +1,45 @@
+module main;
+
+i32 fee(i32 code, i32 kilos) {
+    if code == 0 {
+        return 5 + kilos;
+    }
+    if code == 1 {
+        return 9 + 2 * kilos;
+    }
+    if code == 2 {
+        return 20 + 3 * kilos;
+    }
+    return -1;
+}
+
+i32 days(i32 code) {
+    if code == 0 {
+        return 5;
+    }
+    if code == 1 {
+        return 2;
+    }
+    return 1;
+}
+
+Status(Error) show(i32 code, i32 kilos) {
+    if code == 0 {
+        print("standard")?;
+    }
+    if code == 1 {
+        print("fast")?;
+    }
+    if code == 2 {
+        print("overnight")?;
+    }
+    println(": fee {}, days {}", fee(code, kilos), days(code))?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    show(0, 3)?;
+    show(1, 3)?;
+    show(2, 3)?;
+    return Status::Ok;
+}

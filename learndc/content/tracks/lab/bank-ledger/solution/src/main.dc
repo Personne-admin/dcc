@@ -1,0 +1,72 @@
+module main;
+
+import ledger;
+import money;
+using ledger::*;
+
+enum TxKind { Open, Deposit, Withdraw, Transfer }
+
+struct Tx {
+    TxKind kind;
+    []const char verb;
+    []const char first;
+    []const char second;
+    i64 amount;
+}
+
+Status(LedgerError) apply(Array(Account)* accounts, Array(Entry)* journal, Tx tx) {
+    match tx.kind {
+        TxKind::Open => open(accounts, tx.first)?,
+        TxKind::Deposit => deposit(accounts, journal, tx.first, tx.amount)?,
+        TxKind::Withdraw => withdraw(accounts, journal, tx.first, tx.amount)?,
+        TxKind::Transfer => transfer(accounts, journal, tx.first, tx.second, tx.amount)?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Array(Account) accounts = {};
+    defer accounts.deinit();
+    Array(Entry) journal = {};
+    defer journal.deinit();
+
+    []const Tx txs = {
+        { TxKind::Open, "open", "ann", "", 0 },
+        { TxKind::Open, "open", "bob", "", 0 },
+        { TxKind::Open, "open", "ann", "", 0 },
+        { TxKind::Deposit, "deposit", "ann", "", 10000 },
+        { TxKind::Deposit, "deposit", "bob", "", 5000 },
+        { TxKind::Withdraw, "withdraw", "bob", "", 8000 },
+        { TxKind::Transfer, "transfer", "ann", "bob", 3000 },
+        { TxKind::Transfer, "transfer", "ann", "ann", 500 },
+        { TxKind::Transfer, "transfer", "ann", "zed", 500 },
+        { TxKind::Withdraw, "withdraw", "ann", "", 0 },
+        { TxKind::Withdraw, "withdraw", "ann", "", 2000 },
+    };
+    usize number = 0;
+    for tx in txs {
+        number += 1;
+        print("{} {} {}", number, tx.verb, tx.first)?;
+        if tx.kind == TxKind::Transfer {
+            print(" {}", tx.second)?;
+        }
+        if tx.kind != TxKind::Open {
+            print(" ")?;
+            money::print_money(tx.amount)?;
+        }
+        match apply(&accounts, &journal, tx) {
+            Status::Ok => println(": ok")?,
+            Status::Err(e) => match e {
+                LedgerError::Alloc(a) => println(": out of memory")?,
+                LedgerError::UnknownAccount => println(": refused, unknown account")?,
+                LedgerError::DuplicateAccount => println(": refused, account exists")?,
+                LedgerError::InvalidAmount => println(": refused, invalid amount")?,
+                LedgerError::InsufficientFunds => println(": refused, insufficient funds")?,
+                LedgerError::SameAccount => println(": refused, same account")?,
+            },
+        }
+    }
+    statement(&accounts, &journal, "ann")?;
+    statement(&accounts, &journal, "bob")?;
+    return Status::Ok;
+}

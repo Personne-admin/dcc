@@ -1,0 +1,46 @@
+module search_checks;
+
+import counter;
+import search;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool at(Optional(usize) got, usize want) {
+    return got.is_some() && got.some_or(0) == want;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    i32[1000] data = {};
+    for usize i = 0; i < 1000; i++ {
+        data[i] = (i * 2) as i32;
+    }
+    counter::reset();
+    expect(at(search::find_sorted(data, 998), 499), "finds 998 at index 499", &failures);
+    expect(counter::comparisons() <= 11, "998 within 11 comparisons", &failures);
+    counter::reset();
+    expect(at(search::find_sorted(data, 0), 0), "finds the first value", &failures);
+    expect(counter::comparisons() <= 11, "first value within 11 comparisons", &failures);
+    counter::reset();
+    expect(at(search::find_sorted(data, 1998), 999), "finds the last value", &failures);
+    expect(counter::comparisons() <= 11, "last value within 11 comparisons", &failures);
+    counter::reset();
+    expect(search::find_sorted(data, 999).is_none(), "an odd key is missing", &failures);
+    expect(counter::comparisons() <= 11, "a miss within 11 comparisons", &failures);
+    expect(search::find_sorted(data, -5).is_none(), "a key below all values", &failures);
+    expect(search::find_sorted(data, 5000).is_none(), "a key above all values", &failures);
+    i32[1] one = { 42 };
+    counter::reset();
+    expect(at(search::find_sorted(one, 42), 0), "a single value", &failures);
+    expect(counter::comparisons() <= 1, "a single value takes one comparison", &failures);
+    i32[0] empty = {};
+    expect(search::find_sorted(empty[0..0], 1).is_none(), "an empty slice", &failures);
+    return failures;
+}

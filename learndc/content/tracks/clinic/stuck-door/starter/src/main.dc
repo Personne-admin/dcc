@@ -1,0 +1,42 @@
+module main;
+
+enum State { Closed, Open, Locked }
+enum Event { Push, Pull, Lock, Unlock }
+
+State next(State state, Event event) {
+    return match state {
+        State::Closed => match event {
+            Event::Pull => State::Open,
+            Event::Lock => State::Locked,
+            _ => State::Closed,
+        },
+        State::Open => match event {
+            Event::Push => State::Closed,
+            Event::Lock => State::Locked,
+            _ => State::Open,
+        },
+        State::Locked => match event {
+            Event::Unlock => State::Closed,
+            _ => State::Locked,
+        },
+    };
+}
+
+Status(Error) show(State state) {
+    match state {
+        State::Closed => println("closed")?,
+        State::Open => println("open")?,
+        State::Locked => println("locked")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    State s = State::Closed;
+    []const Event script = { Event::Pull, Event::Lock, Event::Push, Event::Lock, Event::Pull, Event::Unlock, Event::Pull };
+    for e in script {
+        s = next(s, e);
+        show(s)?;
+    }
+    return Status::Ok;
+}

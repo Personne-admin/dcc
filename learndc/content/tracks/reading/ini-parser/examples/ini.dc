@@ -1,0 +1,70 @@
+module main;
+
+struct Entry {
+    []const char key;
+    []const char value;
+}
+
+bool is_space(char c) {
+    return c == ' ' || c == '\t';
+}
+
+[]const char trim([]const char text) {
+    usize start = 0;
+    usize end = text.len;
+    while start < end && is_space(text[start]) {
+        start++;
+    }
+    while end > start && is_space(text[end - 1]) {
+        end--;
+    }
+    return text[start..end];
+}
+
+Optional(Entry) split_pair([]const char line) {
+    for usize i = 0; i < line.len; i++ {
+        if line[i] == '=' {
+            Entry entry = Entry {
+                key = trim(line[0..i]),
+                value = trim(line[i + 1..line.len]),
+            };
+            return Optional::Some(entry);
+        }
+    }
+    return Optional::None;
+}
+
+public Status(Error) main() {
+    []const char text = "; settings\n[server]\nhost = example.org\nport=8080\n\n"
+                        "[client]\n  retries = 3\nbogus line\n";
+    []const char section = "top";
+    i32 entries = 0;
+    i32 rejected = 0;
+    usize start = 0;
+    for usize i = 0; i <= text.len; i++ {
+        if i < text.len && text[i] != '\n' {
+            continue;
+        }
+        []const char line = trim(text[start..i]);
+        start = i + 1;
+        if line.len == 0 || line[0] == ';' {
+            continue;
+        }
+        if line[0] == '[' {
+            section = line[1..line.len - 1];
+            continue;
+        }
+        match split_pair(line) {
+            Optional::Some(entry) => {
+                println("{}.{} = {}", section, entry.key, entry.value)?;
+                entries++;
+            },
+            Optional::None => {
+                println("rejected: {}", line)?;
+                rejected++;
+            },
+        }
+    }
+    println("{} entries, {} rejected", entries, rejected)?;
+    return Status::Ok;
+}

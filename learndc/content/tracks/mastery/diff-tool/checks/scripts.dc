@@ -1,0 +1,89 @@
+module scripts;
+
+import lcs;
+using lcs::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool matches(const Array(Edit)* got, []const char kinds, []const usize indexes) {
+    if got.len() != kinds.len || kinds.len != indexes.len {
+        return false;
+    }
+    for usize i in 0..kinds.len {
+        char want = kinds[i];
+        EditKind kind = got.items()[i].kind;
+        bool kind_ok = (want == 'K' && kind == EditKind::Keep) || (want == 'R' && kind == EditKind::Remove) || (want == 'A' && kind == EditKind::Add);
+        if !kind_ok || got.items()[i].index != indexes[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool lcs_is(Result(usize, DiffError) r, usize expected) {
+    match r {
+        Result::Ok(n) => return n == expected,
+        Result::Err(e) => return false,
+    }
+}
+
+bool too_large(Result(usize, DiffError) r) {
+    match r {
+        Result::Ok(n) => return false,
+        Result::Err(e) => return e == DiffError::TooLarge,
+    }
+}
+
+bool script_is([]const char a, []const char b, []const char kinds, []const usize indexes) {
+    Array(Edit) out = {};
+    defer out.deinit();
+    if !diff(a, b, &out).is_ok() {
+        return false;
+    }
+    return matches(&out, kinds, indexes);
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(script_is("abc", "abc", "KKK", { 0, 1, 2 }), "identical: three Keeps", &failures);
+    expect(script_is("", "abc", "AAA", { 0, 1, 2 }), "from nothing: three Adds, indexes into the second sequence", &failures);
+    expect(script_is("abc", "", "RRR", { 0, 1, 2 }), "to nothing: three Removes, indexes into the first", &failures);
+    expect(script_is("", "", "", {}), "two empty sequences: an empty script", &failures);
+    expect(script_is("abc", "xyz", "RRRAAA", { 0, 1, 2, 0, 1, 2 }), "nothing in common: all removes, then all adds", &failures);
+    expect(script_is("axb", "ayb", "KRAK", { 0, 1, 1, 2 }), "a replacement is a Remove followed by an Add", &failures);
+    expect(script_is("aab", "ab", "KRK", { 0, 1, 2 }), "the earlier of two equal elements is kept: Keep index is into the first sequence", &failures);
+    expect(script_is("ab", "ba", "RKA", { 0, 1, 1 }), "ties prefer Remove over Add", &failures);
+    expect(script_is("kitten", "sitting", "RAKKKRAKA", { 0, 0, 1, 2, 3, 4, 4, 5, 6 }), "kitten to sitting", &failures);
+    expect(script_is("abcbdab", "bdcaba", "RKRRKAKKA", { 0, 1, 2, 3, 4, 2, 5, 6, 5 }), "the classic example, with its tie-breaks", &failures);
+
+    Array(Edit) out = {};
+    defer out.deinit();
+    out.push(Edit { kind = EditKind::Add, index = 99 }).unwrap();
+    out.push(Edit { kind = EditKind::Add, index = 98 }).unwrap();
+    expect(diff("ab", "ab", &out).is_ok() && matches(&out, "KK", { 0, 1 }), "diff clears the output array first", &failures);
+
+    u8[1000] long_a = {};
+    u8[1000] long_b = {};
+    Array(Edit) kept = {};
+    defer kept.deinit();
+    kept.push(Edit { kind = EditKind::Keep, index = 5 }).unwrap();
+    match diff(long_a, long_b, &kept) {
+        Status::Ok => expect(false, "1000 by 1000 is too large", &failures),
+        Status::Err(e) => expect(e == DiffError::TooLarge, "1000 by 1000 is too large", &failures),
+    }
+    expect(kept.len() == 1 && kept.items()[0].index == 5, "and the output is untouched on error", &failures);
+
+    []const i32 xs = { 1, 2, 3, 4 };
+    []const i32 ys = { 2, 4, 5 };
+    Array(Edit) numbers = {};
+    defer numbers.deinit();
+    expect(diff(xs, ys, &numbers).is_ok() && matches(&numbers, "RKRKA", { 0, 1, 2, 3, 2 }), "the same function on i32", &failures);
+    return failures;
+}

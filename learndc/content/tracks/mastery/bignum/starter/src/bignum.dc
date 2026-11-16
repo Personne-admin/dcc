@@ -1,0 +1,41 @@
+module bignum;
+
+public const u32 BASE = 1000000000;
+
+public enum BigError {
+    @implicit_construction Alloc(AllocError),
+    Underflow,
+    DivideByZero,
+}
+
+public Status(AllocError) set_u64(Array(u32)* n, u64 value) {
+    return Status::Ok;
+}
+
+public Status(AllocError) to_text(const Array(u32)* n, Array(char)* out) {
+    return Status::Ok;
+}
+
+public i32 compare(const Array(u32)* a, const Array(u32)* b) {
+    return 0;
+}
+
+public Status(AllocError) add(Array(u32)* a, const Array(u32)* b) {
+    return Status::Ok;
+}
+
+public Status(AllocError) mul_small(Array(u32)* a, u32 m) {
+    return Status::Ok;
+}
+
+public Status(AllocError) mul(const Array(u32)* a, const Array(u32)* b, Array(u32)* out) {
+    return Status::Ok;
+}
+
+public Status(BigError) sub(Array(u32)* a, const Array(u32)* b) {
+    return Status::Ok;
+}
+
+public Result(u32, BigError) divmod_small(Array(u32)* a, u32 d) {
+    return Result::Ok(0);
+}

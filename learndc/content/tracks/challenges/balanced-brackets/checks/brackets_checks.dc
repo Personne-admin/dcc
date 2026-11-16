@@ -1,0 +1,38 @@
+module brackets_checks;
+
+import brackets;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(brackets::is_balanced(""), "the empty text is balanced", &failures);
+    expect(brackets::is_balanced("no brackets at all"), "text without brackets is balanced", &failures);
+    expect(brackets::is_balanced("()[]{}"), "three pairs in a row", &failures);
+    expect(brackets::is_balanced("{[()]}"), "nested pairs", &failures);
+    expect(brackets::is_balanced("a(b)c[d]"), "other characters are ignored", &failures);
+    expect(!brackets::is_balanced("(]"), "wrong partner", &failures);
+    expect(!brackets::is_balanced("{[(])}"), "wrong closing order", &failures);
+    expect(!brackets::is_balanced("(("), "never closed", &failures);
+    expect(!brackets::is_balanced("))"), "never opened", &failures);
+    expect(!brackets::is_balanced(")("), "closed before opened", &failures);
+    char[600] deep = {};
+    for usize i = 0; i < 200; i++ {
+        deep[i] = '(';
+        deep[399 - i] = ')';
+    }
+    expect(brackets::is_balanced(deep[0..400]), "200 levels deep", &failures);
+    for usize i = 0; i < 300; i++ {
+        deep[i] = '[';
+        deep[599 - i] = ']';
+    }
+    expect(!brackets::is_balanced(deep[0..600]), "300 levels deep exceeds the stack", &failures);
+    return failures;
+}

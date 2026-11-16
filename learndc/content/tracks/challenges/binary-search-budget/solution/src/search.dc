@@ -1,0 +1,21 @@
+module search;
+
+import counter;
+
+public Optional(usize) find_sorted([]const i32 values, i32 key) {
+    usize lo = 0;
+    usize hi = values.len;
+    while lo < hi {
+        usize mid = lo + (hi - lo) / 2;
+        i32 order = counter::compare(values[mid], key);
+        if order == 0 {
+            return Optional::Some(mid);
+        }
+        if order < 0 {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    return Optional::None;
+}

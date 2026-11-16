@@ -1,0 +1,364 @@
+module vm;
+
+import std::slice;
+
+public enum Instr {
+    Push(i64),
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Dup,
+    Over,
+    Swap,
+    Drop,
+    Jump(usize),
+    JumpIfZero(usize),
+    Print,
+    Halt,
+}
+
+public enum VmError {
+    @implicit_construction Alloc(AllocError),
+    UnknownOp,
+    MissingOperand,
+    BadOperand,
+    ExtraOperand,
+    UnknownLabel,
+    StackUnderflow,
+    DivideByZero,
+    BadJump,
+    StepLimit,
+}
+
+public Status(Error) print_error(VmError e) {
+    match e {
+        VmError::Alloc(a) => println("out of memory")?,
+        VmError::UnknownOp => println("unknown instruction")?,
+        VmError::MissingOperand => println("missing operand")?,
+        VmError::BadOperand => println("bad operand")?,
+        VmError::ExtraOperand => println("unexpected operand")?,
+        VmError::UnknownLabel => println("unknown label")?,
+        VmError::StackUnderflow => println("stack underflow")?,
+        VmError::DivideByZero => println("divide by zero")?,
+        VmError::BadJump => println("jump outside the program")?,
+        VmError::StepLimit => println("step limit reached")?,
+    }
+    return Status::Ok;
+}
+
+public []const char trim([]const char text) {
+    usize start = 0;
+    usize end = text.len;
+    while start < end && text[start] == ' ' {
+        start += 1;
+    }
+    while end > start && text[end - 1] == ' ' {
+        end -= 1;
+    }
+    return text[start..end];
+}
+
+public Status(AllocError) split(Array([]const char)* out, []const char text) {
+    usize start = 0;
+    bool inside = false;
+    for usize i = 0; i <= text.len; i++ {
+        bool blank = i == text.len || text[i] == ' ';
+        if !blank && !inside {
+            start = i;
+            inside = true;
+        } else if blank && inside {
+            inside = false;
+            out.push(text[start..i])?;
+        }
+    }
+    return Status::Ok;
+}
+
+public Optional(i64) parse_int([]const char token) {
+    usize start = 0;
+    if token.len > 0 && token[0] == '-' {
+        start = 1;
+    }
+    if token.len == start || token.len - start > 18 {
+        return Optional::None;
+    }
+    i64 value = 0;
+    for usize i = start; i < token.len; i++ {
+        if token[i] < '0' || token[i] > '9' {
+            return Optional::None;
+        }
+        value = value * 10 + (token[i] as i64 - '0' as i64);
+    }
+    if start == 1 {
+        value = -value;
+    }
+    return Optional::Some(value);
+}
+
+bool is_op([]const char token, []const char name) {
+    return std::slice::eq(token, name);
+}
+
+public Result(Instr, VmError) parse_instruction([]const char line) {
+    Array([]const char) words = {};
+    defer words.deinit();
+    split(&words, line)?;
+    if words.len() == 0 {
+        return Result::Err(VmError::UnknownOp);
+    }
+    []const char op = words.items()[0];
+    bool takes_operand = is_op(op, "push") || is_op(op, "jump") || is_op(op, "jz");
+    bool known = takes_operand || is_op(op, "add") || is_op(op, "sub") || is_op(op, "mul") || is_op(op, "div") || is_op(op, "dup") || is_op(op, "over") || is_op(op, "swap") || is_op(op, "drop") || is_op(op, "print") || is_op(op, "halt");
+    if !known {
+        return Result::Err(VmError::UnknownOp);
+    }
+    if takes_operand {
+        if words.len() < 2 {
+            return Result::Err(VmError::MissingOperand);
+        }
+        if words.len() > 2 {
+            return Result::Err(VmError::ExtraOperand);
+        }
+        Optional(i64) number = parse_int(words.items()[1]);
+        if number.is_none() {
+            return Result::Err(VmError::BadOperand);
+        }
+        i64 n = number.unwrap_some();
+        if is_op(op, "push") {
+            return Result::Ok(Instr::Push(n));
+        }
+        if n < 0 {
+            return Result::Err(VmError::BadOperand);
+        }
+        if is_op(op, "jump") {
+            return Result::Ok(Instr::Jump(n as usize));
+        }
+        return Result::Ok(Instr::JumpIfZero(n as usize));
+    }
+    if words.len() > 1 {
+        return Result::Err(VmError::ExtraOperand);
+    }
+    if is_op(op, "add") {
+        return Result::Ok(Instr::Add);
+    }
+    if is_op(op, "sub") {
+        return Result::Ok(Instr::Sub);
+    }
+    if is_op(op, "mul") {
+        return Result::Ok(Instr::Mul);
+    }
+    if is_op(op, "div") {
+        return Result::Ok(Instr::Div);
+    }
+    if is_op(op, "dup") {
+        return Result::Ok(Instr::Dup);
+    }
+    if is_op(op, "over") {
+        return Result::Ok(Instr::Over);
+    }
+    if is_op(op, "swap") {
+        return Result::Ok(Instr::Swap);
+    }
+    if is_op(op, "drop") {
+        return Result::Ok(Instr::Drop);
+    }
+    if is_op(op, "print") {
+        return Result::Ok(Instr::Print);
+    }
+    return Result::Ok(Instr::Halt);
+}
+
+public Status(VmError) assemble([]const []const char lines, Array(Instr)* program, usize* bad_line) {
+    for usize i in 0..lines.len {
+        []const char line = trim(lines[i]);
+        if line.len == 0 || line[0] == ';' {
+            continue;
+        }
+        match parse_instruction(line) {
+            Result::Ok(instr) => program.push(instr)?,
+            Result::Err(e) => {
+                *bad_line = i + 1;
+                return e;
+            },
+        }
+    }
+    return Status::Ok;
+}
+
+Status(VmError) need(const Array(i64)* stack, usize count) {
+    if stack.len() < count {
+        return VmError::StackUnderflow;
+    }
+    return Status::Ok;
+}
+
+public Status(VmError) run([]const Instr program, Array(i64)* out, usize max_steps) {
+    Array(i64) stack = {};
+    defer stack.deinit();
+    usize pc = 0;
+    usize steps = 0;
+    while pc < program.len {
+        if steps == max_steps {
+            return VmError::StepLimit;
+        }
+        steps += 1;
+        usize next = pc + 1;
+        match program[pc] {
+            Instr::Push(n) => stack.push(n)?,
+            Instr::Add => {
+                need(&stack, 2)?;
+                i64 b = stack.pop().unwrap_some();
+                i64 a = stack.pop().unwrap_some();
+                stack.push(a + b)?;
+            },
+            Instr::Sub => {
+                need(&stack, 2)?;
+                i64 b = stack.pop().unwrap_some();
+                i64 a = stack.pop().unwrap_some();
+                stack.push(a - b)?;
+            },
+            Instr::Mul => {
+                need(&stack, 2)?;
+                i64 b = stack.pop().unwrap_some();
+                i64 a = stack.pop().unwrap_some();
+                stack.push(a * b)?;
+            },
+            Instr::Div => {
+                need(&stack, 2)?;
+                if stack.items()[stack.len() - 1] == 0 {
+                    return VmError::DivideByZero;
+                }
+                i64 b = stack.pop().unwrap_some();
+                i64 a = stack.pop().unwrap_some();
+                stack.push(a / b)?;
+            },
+            Instr::Dup => {
+                need(&stack, 1)?;
+                stack.push(stack.items()[stack.len() - 1])?;
+            },
+            Instr::Over => {
+                need(&stack, 2)?;
+                stack.push(stack.items()[stack.len() - 2])?;
+            },
+            Instr::Swap => {
+                need(&stack, 2)?;
+                i64 b = stack.pop().unwrap_some();
+                i64 a = stack.pop().unwrap_some();
+                stack.push(b)?;
+                stack.push(a)?;
+            },
+            Instr::Drop => {
+                need(&stack, 1)?;
+                stack.pop();
+            },
+            Instr::Jump(target) => {
+                if target > program.len {
+                    return VmError::BadJump;
+                }
+                next = target;
+            },
+            Instr::JumpIfZero(target) => {
+                need(&stack, 1)?;
+                if target > program.len {
+                    return VmError::BadJump;
+                }
+                i64 v = stack.pop().unwrap_some();
+                if v == 0 {
+                    next = target;
+                }
+            },
+            Instr::Print => {
+                need(&stack, 1)?;
+                out.push(stack.pop().unwrap_some())?;
+            },
+            Instr::Halt => {
+                return Status::Ok;
+            },
+        }
+        pc = next;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) listing([]const Instr program) {
+    for usize i in 0..program.len {
+        match program[i] {
+            Instr::Push(n) => println("{:>3}  push {}", i, n)?,
+            Instr::Add => println("{:>3}  add", i)?,
+            Instr::Sub => println("{:>3}  sub", i)?,
+            Instr::Mul => println("{:>3}  mul", i)?,
+            Instr::Div => println("{:>3}  div", i)?,
+            Instr::Dup => println("{:>3}  dup", i)?,
+            Instr::Over => println("{:>3}  over", i)?,
+            Instr::Swap => println("{:>3}  swap", i)?,
+            Instr::Drop => println("{:>3}  drop", i)?,
+            Instr::Jump(t) => println("{:>3}  jump {}", i, t)?,
+            Instr::JumpIfZero(t) => println("{:>3}  jz {}", i, t)?,
+            Instr::Print => println("{:>3}  print", i)?,
+            Instr::Halt => println("{:>3}  halt", i)?,
+        }
+    }
+    return Status::Ok;
+}
+
+Optional(usize) label_address(const Array([]const char)* names, const Array(usize)* addrs, []const char name) {
+    for usize i in 0..names.len() {
+        if std::slice::eq(names.items()[i], name) {
+            return Optional::Some(addrs.items()[i]);
+        }
+    }
+    return Optional::None;
+}
+
+public Status(VmError) assemble_labels([]const []const char lines, Array(Instr)* program, usize* bad_line) {
+    Array([]const char) names = {};
+    defer names.deinit();
+    Array(usize) addrs = {};
+    defer addrs.deinit();
+    usize count = 0;
+    for raw in lines {
+        []const char line = trim(raw);
+        if line.len == 0 || line[0] == ';' {
+            continue;
+        }
+        if line[line.len - 1] == ':' {
+            names.push(line[0..line.len - 1])?;
+            addrs.push(count)?;
+        } else {
+            count += 1;
+        }
+    }
+    for usize i in 0..lines.len {
+        []const char line = trim(lines[i]);
+        if line.len == 0 || line[0] == ';' || line[line.len - 1] == ':' {
+            continue;
+        }
+        Array([]const char) words = {};
+        defer words.deinit();
+        split(&words, line)?;
+        bool is_jump = std::slice::eq(words.items()[0], "jump");
+        bool is_jz = std::slice::eq(words.items()[0], "jz");
+        if (is_jump || is_jz) && words.len() == 2 && parse_int(words.items()[1]).is_none() {
+            Optional(usize) target = label_address(&names, &addrs, words.items()[1]);
+            if target.is_none() {
+                *bad_line = i + 1;
+                return VmError::UnknownLabel;
+            }
+            if is_jump {
+                program.push(Instr::Jump(target.unwrap_some()))?;
+            } else {
+                program.push(Instr::JumpIfZero(target.unwrap_some()))?;
+            }
+        } else {
+            match parse_instruction(line) {
+                Result::Ok(instr) => program.push(instr)?,
+                Result::Err(e) => {
+                    *bad_line = i + 1;
+                    return e;
+                },
+            }
+        }
+    }
+    return Status::Ok;
+}

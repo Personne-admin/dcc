@@ -1,0 +1,27 @@
+module words;
+
+import textstats;
+using textstats::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(count_words("") == 0, "an empty text has no words", &failures);
+    expect(count_words("   ,.; ") == 0, "separators alone make no words", &failures);
+    expect(count_words("one") == 1, "one word", &failures);
+    expect(count_words("two words") == 2, "two words", &failures);
+    expect(count_words("  spaced    out   text  ") == 3, "extra separators create no words", &failures);
+    expect(count_words("Hello, World!") == 2, "punctuation separates words", &failures);
+    expect(count_words("it's") == 2, "an apostrophe separates too", &failures);
+    expect(count_words("a-b-c") == 3, "hyphens separate", &failures);
+    expect(count_words("end.") == 1, "a word at the very end counts", &failures);
+    return failures;
+}

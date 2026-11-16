@@ -1,0 +1,36 @@
+module main;
+
+import calc;
+using calc::*;
+
+public Status(Error) main() {
+    []const []const char expressions = {
+        "1 + 2 * 3",
+        "(1 + 2) * 3",
+        "-(4 - 10) % 4",
+        "2 * (3 + 4) * 5",
+        "100 / 7 / 2",
+        "7 - 3 - 2",
+        "2--3",
+        "2 +",
+        "(1 + )",
+        "4 $ 4",
+        "8 / (4 - 4)",
+        "9223372036854775807 + 1",
+        "",
+    };
+    for text in expressions {
+        match evaluate(text) {
+            Result::Ok(value) => println("[{}] = {}", text, value)?,
+            Result::Err(e) => match e {
+                CalcError::Alloc(a) => println("[{}] error: out of memory", text)?,
+                CalcError::InvalidCharacter(at) => println("[{}] error: invalid character at {}", text, at)?,
+                CalcError::UnexpectedToken(at) => println("[{}] error: unexpected token at {}", text, at)?,
+                CalcError::UnexpectedEnd(at) => println("[{}] error: unexpected end at {}", text, at)?,
+                CalcError::DivideByZero(at) => println("[{}] error: division by zero at {}", text, at)?,
+                CalcError::Overflow(at) => println("[{}] error: overflow at {}", text, at)?,
+            },
+        }
+    }
+    return Status::Ok;
+}

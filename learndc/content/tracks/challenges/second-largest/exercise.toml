@@ -1,0 +1,57 @@
+schema = 1
+id = "challenges/second-largest"
+revision = 1
+title = "The second largest value"
+summary = "Return the second largest distinct value of a slice, or nothing when there is none."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = [
+    "Optional",
+    "slices",
+    "edge cases",
+]
+tags = [
+    "optional",
+    "slices",
+    "edge-cases",
+    "intermediate",
+]
+objectives = [
+    "Return `Optional` when an answer may not exist",
+    "Handle duplicates and short inputs",
+]
+entry_file = "src/main.dc"
+product = "second_largest"
+prerequisites = ["errors/optional"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The program output is unchanged"
+expect_stdout = """
+[4, 9, 2, 9, 7]: 7
+[5, 5, 5]: none
+[3]: none
+[-4, -9]: -9
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The output must match exactly."
+
+[[checks]]
+kind = "harness"
+name = "The harness passes"
+harness = "checks/ranking_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Read the FAIL lines of the harness output."

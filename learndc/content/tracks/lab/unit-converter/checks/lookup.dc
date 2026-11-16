@@ -1,0 +1,36 @@
+module lookup;
+
+import std::slice;
+import units;
+using units::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool names(Optional(usize) found, []const char name) {
+    if found.is_none() {
+        return false;
+    }
+    return std::slice::eq(UNITS[found.unwrap_some()].name, name);
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(names(find_unit("km"), "km"), "km is found", &failures);
+    expect(names(find_unit("m"), "m"), "m is not confused with mm or mi", &failures);
+    expect(names(find_unit("mm"), "mm"), "mm is found", &failures);
+    expect(names(find_unit("K"), "K"), "the last unit in the table is found", &failures);
+    expect(names(find_unit("mm"), "mm") && find_unit("mm").unwrap_some() == 0, "the index is the position in UNITS", &failures);
+    expect(find_unit("furlong").is_none(), "an unknown name is None", &failures);
+    expect(find_unit("").is_none(), "the empty name is None", &failures);
+    expect(find_unit("KM").is_none(), "names are case sensitive", &failures);
+    expect(find_unit("c").is_none(), "c is not C", &failures);
+    expect(find_unit("kgs").is_none(), "a longer name is not a match", &failures);
+    return failures;
+}

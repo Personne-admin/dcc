@@ -1,0 +1,123 @@
+module shrinking;
+
+import std::slice;
+import bignum;
+using bignum::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool is_text(const Array(u32)* n, []const char expected) {
+    Array(char) text = {};
+    defer text.deinit();
+    if !to_text(n, &text).is_ok() {
+        return false;
+    }
+    []const char got = text.items();
+    bool same = std::slice::eq(got, expected);
+    if !same {
+        println("      got [{}], expected [{}]", got, expected);
+    }
+    return same;
+}
+
+bool is_normal(const Array(u32)* n) {
+    if n.len() == 0 {
+        return false;
+    }
+    for limb in n.items() {
+        if limb >= BASE {
+            return false;
+        }
+    }
+    return n.len() == 1 || n.items()[n.len() - 1] != 0;
+}
+
+Status(AllocError) from(Array(u32)* n, u64 value) {
+    return set_u64(n, value);
+}
+
+bool refused(Status(BigError) s, BigError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+bool quotient_is(Array(u32)* a, u32 d, []const char quotient, u32 remainder) {
+    match divmod_small(a, d) {
+        Result::Ok(r) => return r == remainder && is_text(a, quotient) && is_normal(a),
+        Result::Err(e) => return false,
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array(u32) a = {};
+    defer a.deinit();
+    Array(u32) b = {};
+    defer b.deinit();
+
+    from(&a, 1000000000000000000).unwrap();
+    from(&b, 1).unwrap();
+    expect(sub(&a, &b).is_ok() && is_text(&a, "999999999999999999") && is_normal(&a), "10^18 - 1: the borrow runs through the limbs and the top limb disappears", &failures);
+    from(&a, 12345).unwrap();
+    from(&b, 12345).unwrap();
+    expect(sub(&a, &b).is_ok() && is_text(&a, "0") && a.len() == 1, "equal numbers give the single limb 0", &failures);
+    from(&a, 1000000005).unwrap();
+    from(&b, 6).unwrap();
+    expect(sub(&a, &b).is_ok() && is_text(&a, "999999999"), "borrowing from the next limb", &failures);
+    from(&a, 3000000000000000000).unwrap();
+    from(&b, 2999999999999999999).unwrap();
+    expect(sub(&a, &b).is_ok() && is_text(&a, "1") && a.len() == 1, "two long numbers with a tiny difference", &failures);
+    from(&a, 10).unwrap();
+    from(&b, 0).unwrap();
+    expect(sub(&a, &b).is_ok() && is_text(&a, "10"), "minus zero", &failures);
+    from(&a, 77).unwrap();
+    expect(sub(&a, &a).is_ok() && is_text(&a, "0") && a.len() == 1, "a number minus itself", &failures);
+
+    from(&a, 5).unwrap();
+    from(&b, 6).unwrap();
+    expect(refused(sub(&a, &b), BigError::Underflow) && is_text(&a, "5"), "a smaller number minus a larger one: Underflow, and a is unchanged", &failures);
+    from(&a, 999999999).unwrap();
+    from(&b, 1000000000).unwrap();
+    expect(refused(sub(&a, &b), BigError::Underflow) && is_text(&a, "999999999"), "shorter minus longer", &failures);
+    from(&a, 1000000000000000000).unwrap();
+    from(&b, 1000000000000000001).unwrap();
+    expect(refused(sub(&a, &b), BigError::Underflow) && is_text(&a, "1000000000000000000"), "same length, lower limb decides", &failures);
+
+    from(&a, 1).unwrap();
+    for usize k in 0..100 {
+        mul_small(&a, 2).unwrap();
+    }
+    expect(quotient_is(&a, 7, "181092942889747057356671886482", 2), "2^100 divided by 7", &failures);
+    from(&a, 1).unwrap();
+    for usize k in 0..100 {
+        mul_small(&a, 2).unwrap();
+    }
+    expect(quotient_is(&a, 4294967295, "295147905248072302608", 16), "by the largest u32", &failures);
+    from(&a, 1).unwrap();
+    for usize k in 0..100 {
+        mul_small(&a, 2).unwrap();
+    }
+    expect(quotient_is(&a, 1, "1267650600228229401496703205376", 0), "by 1", &failures);
+    from(&a, 1000000000000000000).unwrap();
+    expect(quotient_is(&a, 1000000000, "1000000000", 0), "an exact division drops limbs", &failures);
+    from(&a, 5).unwrap();
+    expect(quotient_is(&a, 9, "0", 5), "a quotient of zero is the single limb 0", &failures);
+    from(&a, 0).unwrap();
+    expect(quotient_is(&a, 3, "0", 0), "0 divided by 3", &failures);
+
+    from(&a, 12345678901234567890).unwrap();
+    match divmod_small(&a, 0) {
+        Result::Ok(r) => expect(false, "dividing by zero is refused", &failures),
+        Result::Err(e) => expect(e == BigError::DivideByZero && is_text(&a, "12345678901234567890"), "dividing by zero is refused and leaves the number alone", &failures),
+    }
+    return failures;
+}

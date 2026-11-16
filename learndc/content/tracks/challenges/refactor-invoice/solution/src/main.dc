@@ -1,0 +1,17 @@
+module main;
+
+import invoice;
+using invoice::*;
+
+public Status(Error) main() {
+    Line[3] lines = {
+        Line { name = "widget", qty = 3, unit = 250 },
+        Line { name = "bolt", qty = 12, unit = 15 },
+        Line { name = "gear", qty = 10, unit = 80 },
+    };
+    for line in lines {
+        println("{}: {} x {} = {}", line.name, line.qty, line.unit, line_total(line))?;
+    }
+    println("total: {}", invoice_total(lines))?;
+    return Status::Ok;
+}

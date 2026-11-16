@@ -1,0 +1,23 @@
+module lcs;
+
+public const usize MAX_CELLS = 1000000;
+
+public enum EditKind { Keep, Remove, Add }
+
+public struct Edit {
+    EditKind kind;
+    usize index;
+}
+
+public enum DiffError {
+    @implicit_construction Alloc(AllocError),
+    TooLarge,
+}
+
+public Result(usize, DiffError) lcs_length(T)([]const T a, []const T b) {
+    return Result::Ok(0);
+}
+
+public Status(DiffError) diff(T)([]const T a, []const T b, Array(Edit)* out) {
+    return Status::Ok;
+}

@@ -1,0 +1,59 @@
+module cash;
+
+import std::slice;
+import ledger;
+using ledger::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool refused(Status(LedgerError) s, LedgerError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array(Account) accounts = {};
+    defer accounts.deinit();
+    Array(Entry) journal = {};
+    defer journal.deinit();
+    if !open(&accounts, "ann").is_ok() || !open(&accounts, "bob").is_ok() {
+        return 1;
+    }
+
+    expect(deposit(&accounts, &journal, "ann", 10000).is_ok(), "deposit 100.00 into ann", &failures);
+    expect(accounts.items()[0].balance == 10000, "the balance grew", &failures);
+    expect(journal.len() == 1 && journal.items()[0].account == 0 && journal.items()[0].delta == 10000, "one journal entry with a positive delta", &failures);
+    expect(journal.len() == 1 && std::slice::eq(journal.items()[0].note, "deposit"), "its note is deposit", &failures);
+
+    expect(withdraw(&accounts, &journal, "ann", 2500).is_ok(), "withdraw 25.00 from ann", &failures);
+    expect(accounts.items()[0].balance == 7500, "the balance shrank", &failures);
+    expect(journal.len() == 2 && journal.items()[1].delta == -2500, "a negative delta is journaled", &failures);
+    expect(journal.len() == 2 && std::slice::eq(journal.items()[1].note, "withdrawal"), "its note is withdrawal", &failures);
+
+    expect(withdraw(&accounts, &journal, "ann", 7500).is_ok(), "withdrawing everything is allowed", &failures);
+    expect(accounts.items()[0].balance == 0, "balance 0", &failures);
+
+    usize entries = journal.len();
+    expect(refused(withdraw(&accounts, &journal, "ann", 1), LedgerError::InsufficientFunds), "an empty account cannot pay", &failures);
+    expect(refused(withdraw(&accounts, &journal, "bob", 1), LedgerError::InsufficientFunds), "neither can a new one", &failures);
+    expect(refused(deposit(&accounts, &journal, "ann", 0), LedgerError::InvalidAmount), "depositing 0 is invalid", &failures);
+    expect(refused(deposit(&accounts, &journal, "ann", -5), LedgerError::InvalidAmount), "depositing a negative amount is invalid", &failures);
+    expect(refused(withdraw(&accounts, &journal, "ann", 0), LedgerError::InvalidAmount), "withdrawing 0 is invalid", &failures);
+    expect(refused(withdraw(&accounts, &journal, "ann", -5), LedgerError::InvalidAmount), "withdrawing a negative amount is invalid", &failures);
+    expect(refused(deposit(&accounts, &journal, "zed", 100), LedgerError::UnknownAccount), "an unknown account cannot receive", &failures);
+    expect(refused(withdraw(&accounts, &journal, "zed", 100), LedgerError::UnknownAccount), "an unknown account cannot pay", &failures);
+    expect(refused(deposit(&accounts, &journal, "zed", 0), LedgerError::InvalidAmount), "the amount is checked before the name", &failures);
+    expect(journal.len() == entries, "refusals leave the journal alone", &failures);
+    expect(accounts.items()[0].balance == 0 && accounts.items()[1].balance == 0, "refusals leave the balances alone", &failures);
+    return failures;
+}

@@ -1,0 +1,251 @@
+schema = 1
+id = "reading/ring-buffer"
+revision = 1
+title = "Reading a ring buffer"
+summary = "Follow the head and count of a fixed-size queue that reuses its slots and wraps around with a remainder."
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = [
+    "struct pointers",
+    "arrays",
+    "modulo",
+    "Optional",
+    "code reading",
+]
+tags = [
+    "reading",
+    "data-structures",
+    "tracing",
+]
+objectives = [
+    "Explain how a ring buffer stores a queue in a fixed array",
+    "Trace head and count through pushes and pops",
+    "Predict what changes when a guard is removed",
+]
+prerequisites = ["data/struct-pointers"]
+optional = true
+kind = "lecture"
+
+[[examples]]
+name = "ring"
+expect_stdout = """
+full, dropped 50
+pop 10
+pop 20
+head 2, count 4
+pop 30
+pop 40
+pop 60
+pop 70
+pop: empty
+pop: empty
+"""
+
+[[questions]]
+id = "head-after"
+type = "trace"
+prompt = "What is the value of `ring.head` after the two successful pops? Answer with the number."
+example = "ring"
+accept = [
+    "2",
+]
+explanation = "Each pop moves `head` one slot on: 0, then 1, then 2. The program prints `head 2, count 4` after the two later pushes."
+
+[[questions]]
+id = "wrap-around"
+type = "predict"
+prompt = "The pushes in `main` are changed to ten, twenty and thirty and then five pops. What does the program print?"
+code = """
+module main;
+
+struct Ring {
+    i32[4] items;
+    usize head;
+    usize count;
+}
+
+usize capacity(Ring* ring) {
+    return 4;
+}
+
+bool is_full(Ring* ring) {
+    return ring.count == capacity(ring);
+}
+
+bool push(Ring* ring, i32 value) {
+    if is_full(ring) {
+        return false;
+    }
+    usize tail = (ring.head + ring.count) % capacity(ring);
+    ring.items[tail] = value;
+    ring.count += 1;
+    return true;
+}
+
+Optional(i32) pop(Ring* ring) {
+    if ring.count == 0 {
+        return Optional::None;
+    }
+    i32 value = ring.items[ring.head];
+    ring.head = (ring.head + 1) % capacity(ring);
+    ring.count -= 1;
+    return Optional::Some(value);
+}
+
+Status(Error) show_pop(Ring* ring) {
+    match pop(ring) {
+        Optional::Some(v) => println("pop {}", v)?,
+        Optional::None => println("pop: empty")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Ring ring = Ring { items = { 0, 0, 0, 0 }, head = 0, count = 0 };
+    push(&ring, 10);
+    push(&ring, 20);
+    push(&ring, 30);
+    show_pop(&ring)?;
+    show_pop(&ring)?;
+    push(&ring, 40);
+    push(&ring, 50);
+    push(&ring, 60);
+    println("head {}, count {}", ring.head, ring.count)?;
+    for i32 k in 0..5 {
+        show_pop(&ring)?;
+    }
+    return Status::Ok;
+}
+"""
+expect = """
+pop 10
+pop 20
+head 2, count 4
+pop 30
+pop 40
+pop 50
+pop 60
+pop: empty
+"""
+explanation = "After pushing 10, 20, 30 and popping two, `head` is 2 and `count` is 1. The pushes of 40, 50 and 60 go to slots 3, 0 and 1: the tail wraps around the end of the array, so the buffer is full again with `head 2, count 4`. The four pops return 30, 40, 50 and 60 in the order they were pushed, and the fifth finds the buffer empty."
+
+[[questions]]
+id = "no-full-guard"
+type = "predict"
+prompt = "The three lines of the `if is_full(ring)` check are removed from `push`. What does the program print?"
+code = """
+module main;
+
+struct Ring {
+    i32[4] items;
+    usize head;
+    usize count;
+}
+
+usize capacity(Ring* ring) {
+    return 4;
+}
+
+bool is_full(Ring* ring) {
+    return ring.count == capacity(ring);
+}
+
+bool push(Ring* ring, i32 value) {
+    usize tail = (ring.head + ring.count) % capacity(ring);
+    ring.items[tail] = value;
+    ring.count += 1;
+    return true;
+}
+
+Optional(i32) pop(Ring* ring) {
+    if ring.count == 0 {
+        return Optional::None;
+    }
+    i32 value = ring.items[ring.head];
+    ring.head = (ring.head + 1) % capacity(ring);
+    ring.count -= 1;
+    return Optional::Some(value);
+}
+
+Status(Error) show_pop(Ring* ring) {
+    match pop(ring) {
+        Optional::Some(v) => println("pop {}", v)?,
+        Optional::None => println("pop: empty")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Ring ring = Ring { items = { 0, 0, 0, 0 }, head = 0, count = 0 };
+    for i32 n in 1..=5 {
+        if !push(&ring, n * 10) {
+            println("full, dropped {}", n * 10)?;
+        }
+    }
+    show_pop(&ring)?;
+    show_pop(&ring)?;
+    push(&ring, 60);
+    push(&ring, 70);
+    println("head {}, count {}", ring.head, ring.count)?;
+    for i32 k in 0..6 {
+        show_pop(&ring)?;
+    }
+    return Status::Ok;
+}
+"""
+expect = """
+pop 50
+pop 20
+head 2, count 5
+pop 70
+pop 40
+pop 50
+pop 60
+pop 70
+pop: empty
+"""
+explanation = "Without the guard the fifth push (50) writes at `(0 + 4) % 4 = 0`, over the oldest element, and raises `count` to 5. No `full, dropped` message appears, and the first pop returns 50 instead of 10. Later pushes keep overwriting valid slots (the push of 70 destroys 30) and `count` reaches 5 in a buffer of four. The guard protects the invariant `count <= capacity`."
+
+[[questions]]
+id = "ring-facts"
+type = "multi"
+prompt = "Which statements about the ring buffer are true?"
+choices = [
+    "`pop` moves the remaining elements one slot to the front",
+    "`head + count` taken modulo the capacity is the next free slot",
+    "A popped value stays in the array until overwritten",
+    "The buffer grows when it is full",
+    "`pop` on an empty buffer returns `Optional::None`",
+]
+answers = [2, 3, 5]
+why = [
+    "Nothing is moved: only `head` advances. That is the point of the structure.",
+    "",
+    "",
+    "The capacity is fixed; a full buffer refuses new values.",
+    "",
+]
+explanation = "Fixed storage plus two numbers is the whole structure. Pushes and pops are constant time because no element ever moves."
+
+[[questions]]
+id = "pop-body"
+type = "order"
+prompt = "Put the lines of `pop` after the empty check in order: read the oldest value first, then advance `head`, then lower `count`, then return the value as `Some`."
+example = "ring"
+code = """
+    i32 value = ring.items[ring.head];
+    ring.head = (ring.head + 1) % capacity(ring);
+    ring.count -= 1;
+    return Optional::Some(value);
+"""
+explanation = "The value must be read before `head` moves, or the program would return the next element. `return` ends the function, so it comes last."
+
+[[cards]]
+id = "ring-tail"
+front = "Where does a ring buffer write the next element?"
+back = "At (head + count) % capacity: behind the last valid element, wrapped into the array."
+
+[[cards]]
+id = "ring-pop"
+front = "What does pop change in a ring buffer?"
+back = "Only head and count. The element stays in its slot until it is overwritten."

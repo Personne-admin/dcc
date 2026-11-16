@@ -1,0 +1,116 @@
+module pathing;
+
+import maze;
+using maze::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool is_err(Result(i32, MazeError) r, MazeError expected) {
+    match r {
+        Result::Ok(v) => return false,
+        Result::Err(e) => return e == expected,
+    }
+}
+
+bool steps_are(Result(i32, MazeError) r, i32 expected) {
+    match r {
+        Result::Ok(v) => return v == expected,
+        Result::Err(e) => return false,
+    }
+}
+
+bool refused(Status(MazeError) s, MazeError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+bool sequence(const Array(usize)* got, []const usize expected) {
+    if got.len() != expected.len {
+        return false;
+    }
+    for usize i in 0..expected.len {
+        if got.items()[i] != expected[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool valid_route([]const []const char rows, const Array(usize)* path) {
+    usize width = rows[0].len;
+    Optional(usize) s = locate(rows, 'S');
+    Optional(usize) e = locate(rows, 'E');
+    if path.len() == 0 || s.is_none() || e.is_none() {
+        return false;
+    }
+    if path.items()[0] != s.unwrap_some() || path.items()[path.len() - 1] != e.unwrap_some() {
+        return false;
+    }
+    for usize i in 0..path.len() {
+        usize cell = path.items()[i];
+        if rows[cell / width][cell % width] == '#' {
+            return false;
+        }
+        if i > 0 {
+            usize before = path.items()[i - 1];
+            usize rd = if cell / width > before / width { cell / width - before / width } else { before / width - cell / width };
+            usize cd = if cell % width > before % width { cell % width - before % width } else { before % width - cell % width };
+            if rd + cd != 1 {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array(usize) path = {};
+    defer path.deinit();
+    []const []const char castle = {
+        "#########",
+        "#S..#...#",
+        "#.#.#.#.#",
+        "#.#...#E#",
+        "#.#####.#",
+        "#.......#",
+        "#########",
+    };
+    path.push(999).unwrap();
+    expect(find_path(castle, &path).is_ok(), "the castle has a path", &failures);
+    expect(path.len() == 13, "13 cells for 12 steps, and a stale path is replaced", &failures);
+    expect(valid_route(castle, &path), "it starts at S, ends at E and every step is to an open neighbour", &failures);
+    expect(sequence(&path, { 10, 11, 12, 21, 30, 31, 32, 23, 14, 15, 16, 25, 34 }), "equal routes: the walk back from E prefers up, right, down, left", &failures);
+
+    []const []const char next_to = { "SE" };
+    expect(find_path(next_to, &path).is_ok() && sequence(&path, { 0, 1 }), "two cells", &failures);
+    []const []const char loop = {
+        "S..",
+        "#.#",
+        "#.E",
+    };
+    expect(find_path(loop, &path).is_ok() && sequence(&path, { 0, 1, 4, 7, 8 }), "a bent corridor gives exactly its cells", &failures);
+    expect(path.len() == 5 && valid_route(loop, &path), "and it is a valid route", &failures);
+
+    []const []const char walled = {
+        "#######",
+        "#S..#E#",
+        "#...#.#",
+        "#######",
+    };
+    expect(refused(find_path(walled, &path), MazeError::NoPath), "NoPath", &failures);
+    []const []const char cave = { "S..." };
+    expect(refused(find_path(cave, &path), MazeError::NoExit), "NoExit", &failures);
+    []const []const char ruin = { "...E" };
+    expect(refused(find_path(ruin, &path), MazeError::NoStart), "NoStart", &failures);
+    return failures;
+}

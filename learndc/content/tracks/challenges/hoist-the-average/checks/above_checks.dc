@@ -1,0 +1,33 @@
+module above_checks;
+
+import above;
+import probe;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    i32[5] a = { 1, 2, 3, 10, 12 };
+    probe::reset();
+    expect(above::count_above_average(a) == 2, "two values above the average 5", &failures);
+    expect(probe::reads() <= 10, "at most 10 reads for 5 values", &failures);
+    i32[0] none = {};
+    expect(above::count_above_average(none[0..0]) == 0, "an empty slice", &failures);
+    i32[3] same = { 4, 4, 4 };
+    expect(above::count_above_average(same) == 0, "equal values are not above the average", &failures);
+    i32[100] big = {};
+    for usize i = 0; i < 100; i++ {
+        big[i] = (i * i) as i32;
+    }
+    probe::reset();
+    expect(above::count_above_average(big) == 42, "100 squares", &failures);
+    expect(probe::reads() <= 200, "at most 200 reads for 100 values", &failures);
+    return failures;
+}

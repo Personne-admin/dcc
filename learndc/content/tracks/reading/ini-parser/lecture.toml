@@ -1,0 +1,257 @@
+schema = 1
+id = "reading/ini-parser"
+revision = 1
+title = "Reading an INI parser"
+summary = "Read a 70-line text parser that cuts lines, sections and key=value pairs out of one string without copying."
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = [
+    "slices",
+    "Optional",
+    "parsing",
+    "code reading",
+]
+tags = [
+    "reading",
+    "slices",
+    "parsing",
+]
+objectives = [
+    "Say what each function of a parser is responsible for",
+    "Predict the output of the parser for new input",
+    "Find which line handles a given case",
+]
+prerequisites = ["collections/text-slices"]
+optional = true
+kind = "lecture"
+
+[[examples]]
+name = "ini"
+expect_stdout = """
+server.host = example.org
+server.port = 8080
+client.retries = 3
+rejected: bogus line
+3 entries, 1 rejected
+"""
+
+[[questions]]
+id = "which-section"
+type = "trace"
+prompt = "When `retries` is printed, which section name is printed in front of it? Answer with the name only."
+example = "ini"
+accept = [
+    "client",
+]
+explanation = "`section` is changed only by the `[` branch. The last such line before `retries` is `[client]`, so the entry prints as `client.retries`."
+
+[[questions]]
+id = "odd-input"
+type = "predict"
+prompt = "Only the text in `main` was changed. What does the program print?"
+code = '''
+module main;
+
+struct Entry {
+    []const char key;
+    []const char value;
+}
+
+bool is_space(char c) {
+    return c == ' ' || c == '\t';
+}
+
+[]const char trim([]const char text) {
+    usize start = 0;
+    usize end = text.len;
+    while start < end && is_space(text[start]) {
+        start++;
+    }
+    while end > start && is_space(text[end - 1]) {
+        end--;
+    }
+    return text[start..end];
+}
+
+Optional(Entry) split_pair([]const char line) {
+    for usize i = 0; i < line.len; i++ {
+        if line[i] == '=' {
+            Entry entry = Entry {
+                key = trim(line[0..i]),
+                value = trim(line[i + 1..line.len]),
+            };
+            return Optional::Some(entry);
+        }
+    }
+    return Optional::None;
+}
+
+public Status(Error) main() {
+    []const char text = "[a]\nx = 1 = 2\n =lonely\n; y = 5\nz";
+    []const char section = "top";
+    i32 entries = 0;
+    i32 rejected = 0;
+    usize start = 0;
+    for usize i = 0; i <= text.len; i++ {
+        if i < text.len && text[i] != '\n' {
+            continue;
+        }
+        []const char line = trim(text[start..i]);
+        start = i + 1;
+        if line.len == 0 || line[0] == ';' {
+            continue;
+        }
+        if line[0] == '[' {
+            section = line[1..line.len - 1];
+            continue;
+        }
+        match split_pair(line) {
+            Optional::Some(entry) => {
+                println("{}.{} = {}", section, entry.key, entry.value)?;
+                entries++;
+            },
+            Optional::None => {
+                println("rejected: {}", line)?;
+                rejected++;
+            },
+        }
+    }
+    println("{} entries, {} rejected", entries, rejected)?;
+    return Status::Ok;
+}
+'''
+expect = """
+a.x = 1 = 2
+a. = lonely
+rejected: z
+2 entries, 1 rejected
+"""
+explanation = "`x = 1 = 2` is cut at the first `=`: key `x`, value `1 = 2`. The line ` =lonely` is trimmed to `=lonely`: the key is empty, which the parser accepts. `; y = 5` is a comment and is skipped before `split_pair`. `z` has no `=` and is rejected."
+
+[[questions]]
+id = "without-sections"
+type = "predict"
+prompt = "The five lines of the `if line[0] == '['` block are removed from the loop. What does the program print for the original text?"
+code = '''
+module main;
+
+struct Entry {
+    []const char key;
+    []const char value;
+}
+
+bool is_space(char c) {
+    return c == ' ' || c == '\t';
+}
+
+[]const char trim([]const char text) {
+    usize start = 0;
+    usize end = text.len;
+    while start < end && is_space(text[start]) {
+        start++;
+    }
+    while end > start && is_space(text[end - 1]) {
+        end--;
+    }
+    return text[start..end];
+}
+
+Optional(Entry) split_pair([]const char line) {
+    for usize i = 0; i < line.len; i++ {
+        if line[i] == '=' {
+            Entry entry = Entry {
+                key = trim(line[0..i]),
+                value = trim(line[i + 1..line.len]),
+            };
+            return Optional::Some(entry);
+        }
+    }
+    return Optional::None;
+}
+
+public Status(Error) main() {
+    []const char text = "; settings\n[server]\nhost = example.org\nport=8080\n\n"
+                        "[client]\n  retries = 3\nbogus line\n";
+    []const char section = "top";
+    i32 entries = 0;
+    i32 rejected = 0;
+    usize start = 0;
+    for usize i = 0; i <= text.len; i++ {
+        if i < text.len && text[i] != '\n' {
+            continue;
+        }
+        []const char line = trim(text[start..i]);
+        start = i + 1;
+        if line.len == 0 || line[0] == ';' {
+            continue;
+        }
+        match split_pair(line) {
+            Optional::Some(entry) => {
+                println("{}.{} = {}", section, entry.key, entry.value)?;
+                entries++;
+            },
+            Optional::None => {
+                println("rejected: {}", line)?;
+                rejected++;
+            },
+        }
+    }
+    println("{} entries, {} rejected", entries, rejected)?;
+    return Status::Ok;
+}
+'''
+expect = """
+rejected: [server]
+top.host = example.org
+top.port = 8080
+rejected: [client]
+top.retries = 3
+rejected: bogus line
+3 entries, 3 rejected
+"""
+explanation = "Without the branch, `[server]` and `[client]` reach `split_pair`. They contain no `=`, so they are rejected, and every entry keeps the initial section name `top`."
+
+[[questions]]
+id = "parser-facts"
+type = "multi"
+prompt = "Which statements about the program are true?"
+choices = [
+    "`trim` allocates a new text for its result",
+    "`split_pair` splits at the first `=` only",
+    "A comment line is skipped before `split_pair` is called",
+    "A line without `=` that is not a section is counted as rejected",
+    "A section header must be followed by an entry",
+]
+answers = [2, 3, 4]
+why = [
+    "The result is a slice of the original text: nothing is copied or allocated.",
+    "",
+    "",
+    "",
+    "Nothing checks that; a section without entries is simply never printed.",
+]
+explanation = "The parser works on slices of one text. The order of the tests in the loop (blank or comment, section, pair) decides which function sees which line."
+
+[[questions]]
+id = "cut-the-line"
+type = "order"
+prompt = "Put these lines of the loop in order: cut the line out with the current `start`, only then move `start` behind the newline, then skip blank and comment lines."
+example = "ini"
+code = """
+        []const char line = trim(text[start..i]);
+        start = i + 1;
+        if line.len == 0 || line[0] == ';' {
+            continue;
+        }
+"""
+explanation = "The slice must be cut before `start` moves, otherwise it would start after the newline. The `continue` test needs the trimmed `line`, so it comes last."
+
+[[cards]]
+id = "slice-copy"
+front = "Does cutting `text[a..b]` copy characters?"
+back = "No. A slice is a view of the original characters; it is valid as long as the original lives."
+
+[[cards]]
+id = "read-order"
+front = "In which order do you read an unfamiliar program?"
+back = "Signatures and data types first, then the loop or function that drives everything, then the details of the helpers."

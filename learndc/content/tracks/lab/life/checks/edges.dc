@@ -1,0 +1,34 @@
+module edges;
+
+import life;
+using life::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    bool[CELLS] cells = {};
+    cells[0] = true;
+    cells[7] = true;
+    cells[3 * WIDTH + 5] = true;
+    cells[63] = true;
+    expect(alive_at(cells, 0, 0), "top left corner", &failures);
+    expect(alive_at(cells, 0, 7), "top right corner", &failures);
+    expect(alive_at(cells, 3, 5), "a cell in the middle uses row * WIDTH + col", &failures);
+    expect(!alive_at(cells, 5, 3), "row and column are not swapped", &failures);
+    expect(alive_at(cells, 7, 7), "bottom right corner", &failures);
+    expect(!alive_at(cells, 7, 0), "a dead cell", &failures);
+    expect(!alive_at(cells, -1, 0), "above the grid is dead", &failures);
+    expect(!alive_at(cells, 0, -1), "left of the grid is dead", &failures);
+    expect(!alive_at(cells, 8, 7), "below the grid is dead", &failures);
+    expect(!alive_at(cells, 7, 8), "right of the grid is dead and does not wrap to the next row", &failures);
+    expect(!alive_at(cells, 1, -1), "left of row 1 does not wrap to the end of row 0", &failures);
+    return failures;
+}

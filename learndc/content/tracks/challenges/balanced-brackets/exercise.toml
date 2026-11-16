@@ -1,0 +1,58 @@
+schema = 1
+id = "challenges/balanced-brackets"
+revision = 1
+title = "Balanced brackets"
+summary = "Check that every bracket in a text is closed by the right partner in the right order, using a stack in a fixed array."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = [
+    "stack",
+    "arrays",
+    "text",
+    "characters",
+]
+tags = [
+    "arrays",
+    "text",
+    "stack",
+    "intermediate",
+]
+objectives = [
+    "Use a fixed array and a depth counter as a stack",
+    "Match opening and closing characters",
+]
+entry_file = "src/main.dc"
+product = "balanced_brackets"
+prerequisites = ["collections/arrays-and-slices"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The program output is unchanged"
+expect_stdout = """
+{[()]} balanced
+(] not balanced
+a(b)c[d] balanced
+(( not balanced
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The output must match exactly."
+
+[[checks]]
+kind = "harness"
+name = "The harness passes"
+harness = "checks/brackets_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Read the FAIL lines of the harness output."

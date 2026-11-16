@@ -1,0 +1,15 @@
+module main;
+
+void swap(i32* a, i32* b) {
+    i32 tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+
+public Status(Error) main() {
+    i32 x = 3;
+    i32 y = 8;
+    swap(&x, &y);
+    println("{} {}", x, y)?;
+    return Status::Ok;
+}

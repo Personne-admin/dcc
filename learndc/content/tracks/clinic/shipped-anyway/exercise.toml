@@ -1,0 +1,153 @@
+schema = 1
+id = "clinic/shipped-anyway"
+revision = 1
+title = "Shipped anyway"
+summary = "Orders without items or address are shipped because the failing status of the validator is simply dropped."
+kind = "fix-behavior"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = [
+    "Status",
+    "ignored results",
+    "match",
+    "custom errors",
+]
+tags = [
+    "clinic",
+    "errors",
+    "status",
+]
+objectives = [
+    "Notice that a discarded status compiles silently and checks nothing",
+    "Match on a `Status` to react to each error",
+    "Prove the fix with the expected output",
+]
+entry_file = "src/main.dc"
+product = "shipped_anyway"
+prerequisites = ["errors/custom-errors"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[stages]]
+id = "locate"
+title = "Locate the cause"
+summary = "Reproduce the symptom, narrow it down and name the faulty line before you change anything."
+hints = [
+    "Test the validator on its own by printing its result for the bad order. If it already works, the problem is in the caller.",
+    "Look at how `ship` uses what `validate(order)` returns. What happens to a value that is not stored or matched?",
+]
+questions = ["find-the-ignored-status"]
+
+[[stages]]
+id = "fix"
+title = "Fix and prove it"
+summary = "Make the program print the expected output."
+hints = [
+    "A function result you do not use is lost. `Status` has two cases, Ok and Err with the error value.",
+    "Use `match validate(order)`: the `Status::Ok` arm ships, the `Status::Err(why)` arm matches `why` on the two `OrderError` variants.",
+    "Each arm of the inner match prints `order N rejected: no items` or `order N rejected: no address`; the Ok arm prints the shipped line. End each arm with `?` as for any print.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the expected output"
+stage = "fix"
+expect_stdout = """
+order 1 shipped
+order 2 rejected: no items
+order 3 rejected: no address
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Orders 2 and 3 must be rejected with the reason and must not be shipped."
+
+[[questions]]
+id = "find-the-ignored-status"
+type = "bug"
+prompt = "The validator is correct, but it has no effect on what is shipped. Which line throws its answer away?"
+code = """
+module main;
+
+enum OrderError { NoItems, NoAddress }
+
+struct Order {
+    i32 items;
+    bool has_address;
+}
+
+Status(OrderError) validate(Order order) {
+    if order.items == 0 {
+        return OrderError::NoItems;
+    }
+    if !order.has_address {
+        return OrderError::NoAddress;
+    }
+    return Status::Ok;
+}
+
+Status(Error) ship(i32 number, Order order) {
+    validate(order);
+    println("order {} shipped", number)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    ship(1, Order { items = 2, has_address = true })?;
+    ship(2, Order { items = 0, has_address = true })?;
+    ship(3, Order { items = 1, has_address = false })?;
+    return Status::Ok;
+}
+"""
+lines = [21]
+fixed = """
+module main;
+
+enum OrderError { NoItems, NoAddress }
+
+struct Order {
+    i32 items;
+    bool has_address;
+}
+
+Status(OrderError) validate(Order order) {
+    if order.items == 0 {
+        return OrderError::NoItems;
+    }
+    if !order.has_address {
+        return OrderError::NoAddress;
+    }
+    return Status::Ok;
+}
+
+Status(Error) ship(i32 number, Order order) {
+    match validate(order) {
+        Status::Ok => println("order {} shipped", number)?,
+        Status::Err(why) => match why {
+            OrderError::NoItems => println("order {} rejected: no items", number)?,
+            OrderError::NoAddress => println("order {} rejected: no address", number)?,
+        },
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    ship(1, Order { items = 2, has_address = true })?;
+    ship(2, Order { items = 0, has_address = true })?;
+    ship(3, Order { items = 1, has_address = false })?;
+    return Status::Ok;
+}
+"""
+expect = """
+order 1 shipped
+order 2 rejected: no items
+order 3 rejected: no address
+"""
+explanation = "`validate(order);` calls the function and discards the returned `Status(OrderError)`. DC compiles that without a word, so nothing connects the verdict to the next line. Use the status: `match validate(order) { Status::Ok => ..., Status::Err(why) => ... }`, or `?` when the caller can pass the error on. Here the caller must print a reason for each error, so it matches."

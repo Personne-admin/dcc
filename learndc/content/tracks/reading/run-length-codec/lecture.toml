@@ -1,0 +1,212 @@
+schema = 1
+id = "reading/run-length-codec"
+revision = 1
+title = "Reading a run-length encoder"
+summary = "Read an encoder and decoder that compress repeated characters into runs stored in an owning Array."
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = [
+    "Array",
+    "ownership",
+    "nested loops",
+    "code reading",
+]
+tags = [
+    "reading",
+    "algorithms",
+    "arrays",
+]
+objectives = [
+    "Read a nested loop by naming what each loop variable stands for",
+    "Say who owns the Array and who borrows it",
+    "Find the line that handles a particular input",
+]
+prerequisites = ["memory/ownership-drills"]
+optional = true
+kind = "lecture"
+
+[[examples]]
+name = "rle"
+expect_stdout = """
+4 runs
+3a1b2c5d
+aaabccddddd
+"""
+
+[[questions]]
+id = "run-count"
+type = "trace"
+prompt = "How many runs does the text `aaabccddddd` produce? Answer with the number."
+example = "rle"
+accept = [
+    "4",
+]
+explanation = "The runs are `aaa`, `b`, `cc` and `ddddd`: the first line of the output says `4 runs`."
+
+[[questions]]
+id = "another-text"
+type = "predict"
+prompt = "Only the text passed to `encode` is changed to `zzzzyyxzz`. What does the program print?"
+code = """
+module main;
+
+struct Run {
+    char symbol;
+    u32 length;
+}
+
+Status(Error) encode([]const char text, Array(Run)* runs) {
+    usize i = 0;
+    while i < text.len {
+        char symbol = text[i];
+        u32 length = 0;
+        while i < text.len && text[i] == symbol {
+            length += 1;
+            i += 1;
+        }
+        runs.push(Run { symbol = symbol, length = length })?;
+    }
+    return Status::Ok;
+}
+
+Status(Error) show(Array(Run)* runs) {
+    for run in runs.items() {
+        print("{}{}", run.length, run.symbol)?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+Status(Error) decode(Array(Run)* runs) {
+    for run in runs.items() {
+        for u32 n in 0..run.length {
+            print("{}", run.symbol)?;
+        }
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Array(Run) runs = {};
+    defer runs.deinit();
+    encode("zzzzyyxzz", &runs)?;
+    println("{} runs", runs.len())?;
+    show(&runs)?;
+    decode(&runs)?;
+    return Status::Ok;
+}
+"""
+expect = """
+4 runs
+4z2y1x2z
+zzzzyyxzz
+"""
+explanation = "The runs are `zzzz`, `yy`, `x` and `zz`: four runs, encoded as `4z2y1x2z`. Decoding prints the original text again."
+
+[[questions]]
+id = "no-inner-advance"
+type = "predict"
+prompt = "The line `i += 1;` of the inner loop is replaced by `i += 2;`. What does the program print?"
+code = """
+module main;
+
+struct Run {
+    char symbol;
+    u32 length;
+}
+
+Status(Error) encode([]const char text, Array(Run)* runs) {
+    usize i = 0;
+    while i < text.len {
+        char symbol = text[i];
+        u32 length = 0;
+        while i < text.len && text[i] == symbol {
+            length += 1;
+            i += 2;
+        }
+        runs.push(Run { symbol = symbol, length = length })?;
+    }
+    return Status::Ok;
+}
+
+Status(Error) show(Array(Run)* runs) {
+    for run in runs.items() {
+        print("{}{}", run.length, run.symbol)?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+Status(Error) decode(Array(Run)* runs) {
+    for run in runs.items() {
+        for u32 n in 0..run.length {
+            print("{}", run.symbol)?;
+        }
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Array(Run) runs = {};
+    defer runs.deinit();
+    encode("aaabccddddd", &runs)?;
+    println("{} runs", runs.len())?;
+    show(&runs)?;
+    decode(&runs)?;
+    return Status::Ok;
+}
+"""
+expect = """
+3 runs
+2a1c3d
+aacddd
+"""
+explanation = "The inner loop now steps over every second character. The first run counts positions 0 and 2 and lands on position 4, so the `b` at position 3 is never seen. Then `c` at position 4 is counted once (position 6 is a `d`), and the `d` run counts positions 6, 8 and 10. The encoding `2a1c3d` decodes to `aacddd`, not to the original text: a loop variable that moves by the wrong amount silently loses data."
+
+[[questions]]
+id = "owner"
+type = "multi"
+prompt = "Which statements about the ownership of the array are true?"
+choices = [
+    "`main` creates the array and frees it with `defer runs.deinit()`",
+    "`encode` frees the array before it returns",
+    "`show` and `decode` borrow the array through a pointer",
+    "`runs.push(...)` can fail, so `encode` returns a `Status`",
+    "Each helper has its own copy of the array",
+]
+answers = [1, 3, 4]
+why = [
+    "",
+    "If `encode` freed it, `show` would read freed memory.",
+    "",
+    "",
+    "Only a pointer is passed; there is exactly one array.",
+]
+explanation = "One owner, several borrowers: the variable that created the array is the one that frees it, on every way out of `main`."
+
+[[questions]]
+id = "encode-inner"
+type = "order"
+prompt = "Put the lines of the run counting in `encode` in order: remember the symbol, start the count at zero, then count while the same symbol continues."
+example = "rle"
+code = """
+        char symbol = text[i];
+        u32 length = 0;
+        while i < text.len && text[i] == symbol {
+            length += 1;
+            i += 1;
+        }
+"""
+explanation = "The symbol is read before the count starts, and the count is reset for every run. The inner loop checks `i < text.len` before it reads `text[i]`."
+
+[[cards]]
+id = "rle"
+front = "What does run-length encoding do?"
+back = "It replaces every run of equal characters with a count and the character: aaab becomes 3a1b."
+
+[[cards]]
+id = "owner-borrower"
+front = "Who frees an Array that helper functions fill and print?"
+back = "The variable that created it, usually in main with defer deinit. Helpers borrow it through a pointer."

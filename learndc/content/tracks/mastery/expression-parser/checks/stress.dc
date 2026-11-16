@@ -1,0 +1,115 @@
+module stress;
+
+import calc;
+using calc::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+usize position_of(CalcError e) {
+    match e {
+        CalcError::Alloc(a) => return 1000000,
+        CalcError::InvalidCharacter(p) => return p,
+        CalcError::UnexpectedToken(p) => return p,
+        CalcError::UnexpectedEnd(p) => return p,
+        CalcError::DivideByZero(p) => return p,
+        CalcError::Overflow(p) => return p,
+    }
+}
+
+bool gives([]const char text, i64 expected) {
+    match evaluate(text) {
+        Result::Ok(v) => {
+            if v != expected {
+                println("      {} gave {}, expected {}", text, v, expected);
+            }
+            return v == expected;
+        },
+        Result::Err(e) => {
+            println("      {} failed at {}", text, position_of(e));
+            return false;
+        },
+    }
+}
+
+bool fails([]const char text, CalcError kind, usize position) {
+    match evaluate(text) {
+        Result::Ok(v) => {
+            println("      [{}] gave {}, expected an error at {}", text, v, position);
+            return false;
+        },
+        Result::Err(e) => {
+            bool right = e == kind && position_of(e) == position;
+            if !right {
+                println("      [{}] failed with another error or position: {}", text, position_of(e));
+            }
+            return right;
+        },
+    }
+}
+
+
+Status(Error) check(i32* failures) {
+    Array(char) text = {};
+    defer text.deinit();
+
+    for usize i in 0..1000 {
+        if i > 0 {
+            text.push('+')?;
+        }
+        text.push('1')?;
+    }
+    expect(gives(text.items(), 1000), "a thousand terms", failures);
+
+    text.clear();
+    for usize i in 0..200 {
+        text.push('(')?;
+    }
+    text.push('7')?;
+    for usize i in 0..200 {
+        text.push(')')?;
+    }
+    expect(gives(text.items(), 7), "200 nested groups", failures);
+
+    text.clear();
+    for usize i in 0..501 {
+        text.push('-')?;
+    }
+    text.push('5')?;
+    expect(gives(text.items(), -5), "501 unary minus signs", failures);
+
+    text.clear();
+    for usize i in 0..200 {
+        text.push('(')?;
+    }
+    text.push('7')?;
+    expect(fails(text.items(), CalcError::UnexpectedEnd(0), 201), "200 groups that are never closed", failures);
+
+    i64 total = 0;
+    for usize i in 0..2000 {
+        match evaluate("(1 + 2) * 3") {
+            Result::Ok(v) => total += v,
+            Result::Err(e) => total -= 1000000,
+        }
+        match evaluate("1 +") {
+            Result::Ok(v) => total -= 1000000,
+            Result::Err(e) => total += 0,
+        }
+    }
+    expect(total == 18000, "two thousand repeated evaluations, successful and failing", failures);
+    return Status::Ok;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    if !check(&failures).is_ok() {
+        return 100;
+    }
+    return failures;
+}

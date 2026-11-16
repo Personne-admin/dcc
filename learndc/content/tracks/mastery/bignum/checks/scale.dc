@@ -1,0 +1,120 @@
+module scale;
+
+import std::slice;
+import bignum;
+using bignum::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool is_text(const Array(u32)* n, []const char expected) {
+    Array(char) text = {};
+    defer text.deinit();
+    if !to_text(n, &text).is_ok() {
+        return false;
+    }
+    []const char got = text.items();
+    bool same = std::slice::eq(got, expected);
+    if !same {
+        println("      got [{}], expected [{}]", got, expected);
+    }
+    return same;
+}
+
+bool is_normal(const Array(u32)* n) {
+    if n.len() == 0 {
+        return false;
+    }
+    for limb in n.items() {
+        if limb >= BASE {
+            return false;
+        }
+    }
+    return n.len() == 1 || n.items()[n.len() - 1] != 0;
+}
+
+Status(AllocError) from(Array(u32)* n, u64 value) {
+    return set_u64(n, value);
+}
+
+bool refused(Status(BigError) s, BigError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+u32 digit_sum(const Array(u32)* n) {
+    Array(char) text = {};
+    defer text.deinit();
+    to_text(n, &text).unwrap();
+    u32 total = 0;
+    for c in text.items() {
+        total += c as u32 - '0' as u32;
+    }
+    return total;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array(u32) power = {};
+    defer power.deinit();
+    from(&power, 1).unwrap();
+    for usize k in 0..1000 {
+        mul_small(&power, 2).unwrap();
+    }
+    expect(digit_sum(&power) == 1366 && is_normal(&power), "the digits of 2^1000 add up to 1366", &failures);
+
+    Array(u32) a = {};
+    defer a.deinit();
+    Array(u32) b = {};
+    defer b.deinit();
+    Array(u32) next = {};
+    defer next.deinit();
+    from(&a, 1).unwrap();
+    from(&b, 1).unwrap();
+    usize index = 2;
+    Array(char) text = {};
+    defer text.deinit();
+    to_text(&b, &text).unwrap();
+    while text.len() < 1000 {
+        from(&next, 0).unwrap();
+        add(&next, &a).unwrap();
+        add(&next, &b).unwrap();
+        a.clear();
+        for limb in b.items() {
+            a.push(limb).unwrap();
+        }
+        b.clear();
+        for limb in next.items() {
+            b.push(limb).unwrap();
+        }
+        index += 1;
+        to_text(&b, &text).unwrap();
+    }
+    expect(index == 4782, "the first Fibonacci number with 1000 digits is number 4782", &failures);
+
+    Array(u32) big = {};
+    defer big.deinit();
+    from(&big, 1).unwrap();
+    for usize k in 0..64 {
+        mul_small(&big, 1000000007).unwrap();
+    }
+    Array(u32) square = {};
+    defer square.deinit();
+    mul(&big, &big, &square).unwrap();
+    for usize k in 0..64 {
+        u32 r = divmod_small(&square, 1000000007).unwrap();
+        if r != 0 {
+            expect(false, "every division is exact", &failures);
+        }
+    }
+    expect(compare(&square, &big) == 0, "(p^64)^2 divided exactly 64 times by p is p^64", &failures);
+    return failures;
+}

@@ -1,0 +1,41 @@
+module counting;
+
+import life;
+using life::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    bool[CELLS] empty = {};
+    expect(neighbours(empty, 3, 3) == 0, "an empty grid has no neighbours", &failures);
+
+    bool[CELLS] ring = {};
+    for i32 r in 2..=4 {
+        for i32 c in 2..=4 {
+            ring[r as usize * WIDTH + c as usize] = true;
+        }
+    }
+    expect(neighbours(ring, 3, 3) == 8, "the middle of a 3x3 block has 8 neighbours", &failures);
+    expect(neighbours(ring, 2, 2) == 3, "a corner of the block has 3 neighbours", &failures);
+    expect(neighbours(ring, 2, 3) == 5, "an edge of the block has 5 neighbours", &failures);
+    expect(neighbours(ring, 1, 1) == 1, "a dead cell next to the corner counts 1", &failures);
+
+    bool[CELLS] corner = {};
+    corner[0] = true;
+    corner[1] = true;
+    corner[WIDTH] = true;
+    expect(neighbours(corner, 0, 0) == 2, "the cell itself is not counted, edges do not wrap", &failures);
+    expect(neighbours(corner, 1, 1) == 3, "all three neighbours of the inner cell", &failures);
+    corner[63] = true;
+    expect(neighbours(corner, 0, 0) == 2, "the far corner is not a neighbour", &failures);
+    expect(neighbours(corner, 7, 7) == 0, "the bottom right corner has no neighbours here", &failures);
+    return failures;
+}

@@ -1,0 +1,86 @@
+module lcs;
+
+public const usize MAX_CELLS = 1000000;
+
+public enum EditKind { Keep, Remove, Add }
+
+public struct Edit {
+    EditKind kind;
+    usize index;
+}
+
+public enum DiffError {
+    @implicit_construction Alloc(AllocError),
+    TooLarge,
+}
+
+bool fits(usize n, usize m) {
+    return m + 1 <= MAX_CELLS / (n + 1);
+}
+
+Status(AllocError) fill_table(T)([]const T a, []const T b, Array(u32)* table) {
+    usize width = b.len + 1;
+    table.clear();
+    for usize i in 0..(a.len + 1) * width {
+        table.push(0)?;
+    }
+    for usize ri in 0..a.len {
+        usize i = a.len - 1 - ri;
+        for usize rj in 0..b.len {
+            usize j = b.len - 1 - rj;
+            if a[i] == b[j] {
+                table.items()[i * width + j] = table.items()[(i + 1) * width + j + 1] + 1;
+            } else {
+                u32 down = table.items()[(i + 1) * width + j];
+                u32 right = table.items()[i * width + j + 1];
+                table.items()[i * width + j] = if down >= right { down } else { right };
+            }
+        }
+    }
+    return Status::Ok;
+}
+
+public Result(usize, DiffError) lcs_length(T)([]const T a, []const T b) {
+    if !fits(a.len, b.len) {
+        return Result::Err(DiffError::TooLarge);
+    }
+    Array(u32) table = {};
+    defer table.deinit();
+    fill_table(a, b, &table)?;
+    return Result::Ok(table.items()[0] as usize);
+}
+
+public Status(DiffError) diff(T)([]const T a, []const T b, Array(Edit)* out) {
+    if !fits(a.len, b.len) {
+        return DiffError::TooLarge;
+    }
+    Array(u32) table = {};
+    defer table.deinit();
+    fill_table(a, b, &table)?;
+    out.clear();
+    usize width = b.len + 1;
+    usize i = 0;
+    usize j = 0;
+    while i < a.len && j < b.len {
+        if a[i] == b[j] {
+            out.push(Edit { kind = EditKind::Keep, index = i })?;
+            i += 1;
+            j += 1;
+        } else if table.items()[(i + 1) * width + j] >= table.items()[i * width + j + 1] {
+            out.push(Edit { kind = EditKind::Remove, index = i })?;
+            i += 1;
+        } else {
+            out.push(Edit { kind = EditKind::Add, index = j })?;
+            j += 1;
+        }
+    }
+    while i < a.len {
+        out.push(Edit { kind = EditKind::Remove, index = i })?;
+        i += 1;
+    }
+    while j < b.len {
+        out.push(Edit { kind = EditKind::Add, index = j })?;
+        j += 1;
+    }
+    return Status::Ok;
+}

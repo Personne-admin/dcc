@@ -1,0 +1,55 @@
+schema = 1
+id = "challenges/collatz-steps"
+revision = 1
+title = "Collatz steps and peaks"
+summary = "Count the steps of the Collatz sequence and find the highest value it reaches."
+kind = "implement-function"
+difficulty = "beginner"
+estimated_minutes = 15
+concepts = [
+    "while loops",
+    "integers",
+    "u64",
+]
+tags = [
+    "loops",
+    "integers",
+    "beginner",
+]
+objectives = [
+    "Write a loop whose length is not known in advance",
+    "Track a maximum while looping",
+]
+entry_file = "src/main.dc"
+product = "collatz_steps"
+prerequisites = ["loops/while-loops"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The program output is unchanged"
+expect_stdout = """
+6: 8 steps, peak 16
+7: 16 steps, peak 52
+27: 111 steps, peak 9232
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The output must match exactly."
+
+[[checks]]
+kind = "harness"
+name = "The harness passes"
+harness = "checks/collatz_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Read the FAIL lines of the harness output."

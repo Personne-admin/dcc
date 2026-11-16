@@ -1,0 +1,128 @@
+schema = 1
+id = "lab/text-stats"
+revision = 1
+title = "Text Statistics"
+summary = "Count words, find the longest one, tally letters and print a small report about a text."
+kind = "challenge"
+difficulty = "beginner"
+estimated_minutes = 40
+concepts = ["text slices", "index loops", "fixed arrays", "char arithmetic", "functions"]
+tags = ["project", "text", "arrays"]
+objectives = [
+    "Walk through text one character at a time and track whether you are inside a word",
+    "Keep 26 counters in a fixed array and index it with a character",
+    "Combine small tested functions into a printed report",
+]
+entry_file = "src/main.dc"
+product = "text_stats"
+prerequisites = ["collections/collections-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[stages]]
+id = "words"
+title = "Count the words"
+summary = "count_words counts the runs of letters in a text."
+hints = [
+    "A word is a run of letters. You count it when you step from a non-letter onto a letter, so you need to remember whether the previous character was a letter.",
+    "Keep a bool inside, false at the start. For each character: if it is a letter and inside is false, add 1 to the count. Then set inside to is_letter(c).",
+]
+
+[[stages]]
+id = "longest"
+title = "Find the longest word"
+summary = "longest_word returns a slice of the text that holds the first longest word."
+hints = [
+    "Remember where the current word started and compare its length with the best one so far when the word ends.",
+    "Use an index loop that runs to i <= text.len and treat the position text.len as a separator, so a word that ends the text is still closed. A word is text[start..i].",
+]
+
+[[stages]]
+id = "letters"
+title = "Tally the letters"
+summary = "count_letters adds 1 to counts[0..26] for every letter, ignoring case."
+hints = [
+    "Box 0 is a, box 1 is b and so on. A letter's box number is its character code minus the code of 'a'.",
+    "Skip anything that is not a letter, convert with lower(c) and compute (lower(c) as u32 - 97) as usize, since 97 is the code of 'a'. Then counts[box] += 1.",
+]
+
+[[stages]]
+id = "favourite"
+title = "Pick the favourite letter"
+summary = "most_common returns the letter with the highest count, the earlier letter on a tie, and '-' when every count is 0."
+hints = [
+    "Remember the index of the best box so far, starting at 0, and look at the others one by one.",
+    "Replace the best only when a count is strictly larger, so ties keep the earlier letter. At the end, a best count of 0 means no letters. Turn the index back into a letter with (best as u32 + 97) as char.",
+]
+
+[[stages]]
+id = "report"
+title = "Print the report"
+summary = "main prints the characters, words, longest word, most common letter and a bar for every letter seen 3 or more times."
+hints = [
+    "count_letters needs the counts array that main already declared. Call it once and reuse the array.",
+    "For the bars, loop i over 0..26 and print only boxes with counts[i] >= 3: the letter is (i as u32 + 97) as char, then a # for every count, then the number.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "count_words counts runs of letters"
+stage = "words"
+harness = "checks/words.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "longest_word finds the first longest word"
+stage = "longest"
+harness = "checks/longest.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "count_letters tallies ignoring case"
+stage = "letters"
+harness = "checks/letters.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "most_common picks the favourite"
+stage = "favourite"
+harness = "checks/favourite.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "The report"
+stage = "report"
+expect_stdout = """
+characters: 77
+words: 16
+longest word: sleeps
+most common letter: e (7)
+letters seen 3 or more times:
+e ####### 7
+h #### 4
+n ### 3
+o ####### 7
+r ### 3
+s #### 4
+t #### 4
+u ### 3
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "e and o both appear 7 times: the tie goes to e. Only letters seen 3 or more times get a bar."

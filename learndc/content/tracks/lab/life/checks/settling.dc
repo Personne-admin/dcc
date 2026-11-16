@@ -1,0 +1,45 @@
+module settling;
+
+import life;
+using life::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    bool[CELLS] empty = {};
+    expect(settle(empty, 10) == 0, "an empty world is settled at once", &failures);
+
+    bool[CELLS] block = {};
+    block[2 * WIDTH + 2] = true;
+    block[2 * WIDTH + 3] = true;
+    block[3 * WIDTH + 2] = true;
+    block[3 * WIDTH + 3] = true;
+    expect(settle(block, 10) == 0, "a block is settled from the start", &failures);
+
+    bool[CELLS] lonely = {};
+    lonely[10] = true;
+    expect(settle(lonely, 10) == 1, "a lonely cell is settled after one step (empty twice in a row)", &failures);
+
+    bool[CELLS] blinker = {};
+    blinker[3 * WIDTH + 2] = true;
+    blinker[3 * WIDTH + 3] = true;
+    blinker[3 * WIDTH + 4] = true;
+    expect(settle(blinker, 6) == 6, "a blinker never settles: the answer is the limit", &failures);
+
+    bool[CELLS] trio = {};
+    trio[0] = true;
+    trio[1] = true;
+    trio[WIDTH] = true;
+    expect(settle(trio, 10) == 1, "an L tromino becomes a block after one step", &failures);
+    expect(population(block) == 4 && block[27], "the start generation is not modified", &failures);
+    expect(settle(block, 0) == 0, "a limit of zero returns zero", &failures);
+    return failures;
+}

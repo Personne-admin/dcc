@@ -1,0 +1,57 @@
+schema = 1
+id = "challenges/refactor-shipping"
+revision = 1
+title = "Refactor: integer codes to an enum"
+summary = "A shipping program uses the numbers 0, 1 and 2 for speeds; replace them with an enum and a module while the output stays the same."
+kind = "refactor"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = [
+    "refactoring",
+    "enum",
+    "match",
+    "magic numbers",
+]
+tags = [
+    "refactoring",
+    "enums",
+    "match",
+    "intermediate",
+]
+objectives = [
+    "Replace magic numbers by an enum",
+    "Let exhaustive match replace if chains",
+]
+entry_file = "src/main.dc"
+product = "refactor_shipping"
+prerequisites = ["data/tagged-enums"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The program output is unchanged"
+expect_stdout = """
+standard: fee 8, days 5
+fast: fee 15, days 2
+overnight: fee 29, days 1
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The output must match exactly."
+
+[[checks]]
+kind = "harness"
+name = "The harness passes"
+harness = "checks/shipping_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Read the FAIL lines of the harness output."

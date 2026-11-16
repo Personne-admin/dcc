@@ -1,0 +1,183 @@
+schema = 1
+id = "lab/bank-ledger"
+revision = 1
+title = "Bank Ledger"
+summary = "Build a small bank: owning arrays of accounts and journal entries, typed refusals that leave everything unchanged, atomic transfers and printed statements."
+kind = "challenge"
+difficulty = "intermediate"
+estimated_minutes = 75
+concepts = ["Array", "ownership", "custom errors", "Status", "Optional", "validation order", "defer"]
+tags = ["project", "errors", "memory", "structs"]
+objectives = [
+    "Own two growing arrays in main and lend them to the ledger functions through pointers",
+    "Validate everything first, change state last, so a refused operation changes nothing",
+    "Return a typed error for every way an operation can be refused and report each one",
+    "Replay a journal to print a statement with running balances",
+]
+entry_file = "src/main.dc"
+product = "bank_ledger"
+prerequisites = ["memory/boss-inventory-keeper"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[stages]]
+id = "review"
+title = "Read the old ledger"
+summary = "Find the bug that made money disappear in the old transfer function."
+questions = ["old-transfer"]
+hints = ["Follow what happens to the balances when the target account does not exist."]
+
+[[stages]]
+id = "accounts"
+title = "Open accounts"
+summary = "find, open and balance_of keep the account list: names are unique and kept in opening order."
+hints = [
+    "find walks accounts.items() with its own index counter and compares names with std::slice::eq.",
+    "open refuses a duplicate with return LedgerError::DuplicateAccount; and otherwise pushes Account { name = name, balance = 0 } with ?. balance_of matches on find and reads accounts.items()[index].balance in the Some arm.",
+]
+
+[[stages]]
+id = "cash"
+title = "Deposits and withdrawals"
+summary = "deposit and withdraw check the amount, the account and the funds in that order, then journal the change and apply it."
+hints = [
+    "Validate in a fixed order and return at the first problem: amount <= 0 is InvalidAmount, a missing account is UnknownAccount, and a withdrawal larger than the balance is InsufficientFunds.",
+    "Only after every check, push Entry { account = index, delta = amount, note = \"deposit\" } onto the journal and change accounts.items()[index].balance. A withdrawal journals the negative amount with the note withdrawal.",
+]
+
+[[stages]]
+id = "transfers"
+title = "Transfers that never lose money"
+summary = "transfer moves money between two accounts and journals a debit and a credit, or refuses without changing anything."
+hints = [
+    "Look up both accounts, then validate in this order: amount, unknown names, the same account twice, funds. No balance or journal changes before the last check has passed.",
+    "After validation push two entries (transfer out with the negative delta on the source, transfer in on the target) and then subtract from one balance and add to the other.",
+]
+
+[[stages]]
+id = "statements"
+title = "Print a statement"
+summary = "statement replays the journal entries of one account with running balances."
+hints = [
+    "Find the account first; print the no-such-account line and return when it is missing. Then walk journal.items() and look only at entries whose account index equals yours.",
+    "Keep an i64 running total, add entry.delta for each matching entry and print the note, signed amount and running balance with money::print_signed and money::print_money. Finish with the closing balance line.",
+]
+
+[[stages]]
+id = "desk"
+title = "A day at the bank"
+summary = "main applies every transaction, prints one numbered line with its outcome and then the statements of ann and bob."
+hints = [
+    "apply already dispatches on the kind of transaction. Print the numbered description first, then match on its Status for the outcome.",
+    "Print number, verb and the first name; the second name only for a transfer; the amount with money::print_money unless the kind is Open. Then match: Status::Ok => println(\": ok\")?, Status::Err(e) => match e { ... } with one arm per LedgerError variant. Finish with statement(&accounts, &journal, \"ann\") and \"bob\".",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "find, open and balance_of"
+stage = "accounts"
+harness = "checks/accounts.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "deposit and withdraw validate before they change anything"
+stage = "cash"
+harness = "checks/cash.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "transfer is all or nothing"
+stage = "transfers"
+harness = "checks/transfers.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "statement prints running balances"
+stage = "statements"
+harness = "checks/statements.dc"
+expect_stdout = """
+statement for ann
+  deposit       +120.50  balance 120.50
+  transfer out  -20.00  balance 100.50
+  withdrawal    -0.05  balance 100.45
+closing balance 100.45
+statement for bob
+  deposit       +0.99  balance 0.99
+  transfer in   +20.00  balance 20.99
+closing balance 20.99
+statement for cy
+closing balance 0.00
+statement for zed: no such account
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Each line is two spaces, the note padded to 13 characters with {:<13}, a space, the signed amount, two spaces and 'balance ' with the running total. An account without entries prints only the heading and the closing balance."
+
+[[checks]]
+kind = "run"
+name = "A day at the bank"
+stage = "desk"
+expect_stdout = """
+1 open ann: ok
+2 open bob: ok
+3 open ann: refused, account exists
+4 deposit ann 100.00: ok
+5 deposit bob 50.00: ok
+6 withdraw bob 80.00: refused, insufficient funds
+7 transfer ann bob 30.00: ok
+8 transfer ann ann 5.00: refused, same account
+9 transfer ann zed 5.00: refused, unknown account
+10 withdraw ann 0.00: refused, invalid amount
+11 withdraw ann 20.00: ok
+statement for ann
+  deposit       +100.00  balance 100.00
+  transfer out  -30.00  balance 70.00
+  withdrawal    -20.00  balance 50.00
+closing balance 50.00
+statement for bob
+  deposit       +50.00  balance 50.00
+  transfer in   +30.00  balance 80.00
+closing balance 80.00
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Eleven numbered lines, then ann's statement, then bob's. A transfer line shows both names."
+
+[[questions]]
+id = "old-transfer"
+type = "bug"
+prompt = "The old bookkeeper's `transfer` sometimes made money disappear. Which line is responsible?"
+code = """
+public Status(LedgerError) transfer(Array(Account)* accounts, []const char from, []const char to, i64 amount) {
+    Optional(usize) source = find(accounts, from);
+    Optional(usize) target = find(accounts, to);
+    if source.is_none() {
+        return LedgerError::UnknownAccount;
+    }
+    if accounts.items()[source.unwrap_some()].balance < amount {
+        return LedgerError::InsufficientFunds;
+    }
+    accounts.items()[source.unwrap_some()].balance -= amount;
+    if target.is_none() {
+        return LedgerError::UnknownAccount;
+    }
+    accounts.items()[target.unwrap_some()].balance += amount;
+    return Status::Ok;
+}
+"""
+lines = [10]
+explanation = "Line 10 takes the money out of the source before line 11 checks that the target exists. When the target is unknown the function returns an error after the debit, and nobody ever receives the money. Every refusal must be decided before the first change: validate everything, then change."

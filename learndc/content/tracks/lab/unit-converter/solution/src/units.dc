@@ -1,0 +1,84 @@
+module units;
+
+import std::slice;
+
+public enum Dimension { Length, Mass, Temperature }
+
+public struct Unit {
+    []const char name;
+    Dimension dimension;
+    f64 factor;
+    f64 offset;
+}
+
+public enum ConvertError { UnknownUnit, DimensionMismatch }
+
+public const []const Unit UNITS = {
+    { "mm", Dimension::Length, 0.001, 0.0 },
+    { "cm", Dimension::Length, 0.01, 0.0 },
+    { "m", Dimension::Length, 1.0, 0.0 },
+    { "km", Dimension::Length, 1000.0, 0.0 },
+    { "in", Dimension::Length, 0.0254, 0.0 },
+    { "ft", Dimension::Length, 0.3048, 0.0 },
+    { "mi", Dimension::Length, 1609.344, 0.0 },
+    { "g", Dimension::Mass, 0.001, 0.0 },
+    { "kg", Dimension::Mass, 1.0, 0.0 },
+    { "lb", Dimension::Mass, 0.45359237, 0.0 },
+    { "oz", Dimension::Mass, 0.028349523125, 0.0 },
+    { "C", Dimension::Temperature, 1.0, 273.15 },
+    { "F", Dimension::Temperature, 0.5555555555555556, 255.37222222222223 },
+    { "K", Dimension::Temperature, 1.0, 0.0 },
+};
+
+public Status(Error) print_error(f64 value, []const char from, []const char to, ConvertError e) {
+    match e {
+        ConvertError::UnknownUnit => println("{:.2} {} to {}: unknown unit", value, from, to)?,
+        ConvertError::DimensionMismatch => println("{:.2} {} to {}: different kinds of unit", value, from, to)?,
+    }
+    return Status::Ok;
+}
+
+public Optional(usize) find_unit([]const char name) {
+    for usize i = 0; i < UNITS.len; i++ {
+        if std::slice::eq(UNITS[i].name, name) {
+            return Optional::Some(i);
+        }
+    }
+    return Optional::None;
+}
+
+public f64 to_base(Unit unit, f64 value) {
+    return value * unit.factor + unit.offset;
+}
+
+public f64 from_base(Unit unit, f64 base) {
+    return (base - unit.offset) / unit.factor;
+}
+
+public Result(f64, ConvertError) convert(f64 value, []const char from, []const char to) {
+    Optional(usize) a = find_unit(from);
+    Optional(usize) b = find_unit(to);
+    if a.is_none() || b.is_none() {
+        return Result::Err(ConvertError::UnknownUnit);
+    }
+    Unit source = UNITS[a.unwrap_some()];
+    Unit target = UNITS[b.unwrap_some()];
+    if source.dimension != target.dimension {
+        return Result::Err(ConvertError::DimensionMismatch);
+    }
+    return Result::Ok(from_base(target, to_base(source, value)));
+}
+
+public Status(Error) print_table([]const char from, []const char to, []const f64 values) {
+    println("{} -> {}", from, to)?;
+    for value in values {
+        match convert(value, from, to) {
+            Result::Ok(result) => println("{:>10.2} {} = {:>10.3} {}", value, from, result, to)?,
+            Result::Err(e) => {
+                print_error(value, from, to, e)?;
+                return Status::Ok;
+            },
+        }
+    }
+    return Status::Ok;
+}

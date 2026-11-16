@@ -1,0 +1,6 @@
+schema = 1
+id = "reading"
+title = "Code Reading"
+summary = "Read realistic programs written by someone else: find the structure, trace the state and predict the behaviour."
+goal = "Understand an unfamiliar program by its structure and by tracing it by hand before running it."
+exercises = ["ini-parser", "ring-buffer", "tiny-interpreter", "hash-set", "run-length-codec", "reading-drill"]

@@ -1,0 +1,31 @@
+module favourite;
+
+import textstats;
+using textstats::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    u32[26] counts = {};
+    expect(most_common(counts) == '-', "no letters gives a dash", &failures);
+    counts[4] = 3;
+    expect(most_common(counts) == 'e', "a single letter", &failures);
+    counts[0] = 1;
+    counts[25] = 9;
+    expect(most_common(counts) == 'z', "the largest count wins, even in the last box", &failures);
+    counts[25] = 3;
+    expect(most_common(counts) == 'e', "a tie goes to the earlier letter", &failures);
+    counts[0] = 3;
+    expect(most_common(counts) == 'a', "a tie with the first box", &failures);
+    []const u32 part = { 0, 2, 5, 5 };
+    expect(most_common(part) == 'c', "works on any slice", &failures);
+    return failures;
+}

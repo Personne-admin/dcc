@@ -1,0 +1,45 @@
+module numbers;
+
+import std::slice;
+import rpn;
+using rpn::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool refused(Status(CalcError) s, CalcError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+bool is(Optional(i64) got, i64 expected) {
+    return got.is_some() && got.unwrap_some() == expected;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(is(parse_number("0"), 0), "0", &failures);
+    expect(is(parse_number("42"), 42), "42", &failures);
+    expect(is(parse_number("-17"), -17), "-17", &failures);
+    expect(is(parse_number("007"), 7), "leading zeros are fine", &failures);
+    expect(is(parse_number("123456789012345678"), 123456789012345678), "18 digits are fine", &failures);
+    expect(is(parse_number("-123456789012345678"), -123456789012345678), "18 digits with a sign are fine", &failures);
+    expect(parse_number("1234567890123456789").is_none(), "19 digits are refused", &failures);
+    expect(parse_number("").is_none(), "an empty token is not a number", &failures);
+    expect(parse_number("-").is_none(), "a lone minus is the subtraction operator", &failures);
+    expect(parse_number("+").is_none(), "a lone plus is not a number", &failures);
+    expect(parse_number("+5").is_none(), "a plus sign is not allowed", &failures);
+    expect(parse_number("12a").is_none(), "a letter inside", &failures);
+    expect(parse_number("1.5").is_none(), "a decimal point", &failures);
+    expect(parse_number("--5").is_none(), "two minus signs", &failures);
+    expect(parse_number("5-").is_none(), "a minus at the end", &failures);
+    return failures;
+}

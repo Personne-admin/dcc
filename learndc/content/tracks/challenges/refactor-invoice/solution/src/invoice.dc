@@ -1,0 +1,23 @@
+module invoice;
+
+public struct Line {
+    []const char name;
+    i32 qty;
+    i32 unit;
+}
+
+public i32 line_total(Line line) {
+    i32 total = line.qty * line.unit;
+    if line.qty >= 10 {
+        total = total - total / 10;
+    }
+    return total;
+}
+
+public i32 invoice_total([]const Line lines) {
+    i32 sum = 0;
+    for line in lines {
+        sum += line_total(line);
+    }
+    return sum;
+}

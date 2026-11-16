@@ -1,0 +1,202 @@
+schema = 1
+id = "reading/reading-drill"
+revision = 1
+kind = "drill"
+title = "Reading drill"
+summary = "Predict, trace, debug and reorder short programs without running them."
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["code reading", "tracing", "loops", "slices"]
+tags = ["reading", "drill"]
+objectives = [
+    "Predict the output of short programs with early exits",
+    "Trace a loop with continue and break",
+    "Spot a wrong condition and a type mismatch by reading",
+]
+prerequisites = ["loops/loops-drill"]
+optional = true
+
+[[examples]]
+name = "swap"
+expect_stdout = """
+8 3
+"""
+
+[[questions]]
+id = "first-negative"
+type = "predict"
+prompt = "What does this program print? Follow the early return."
+code = """
+module main;
+
+i32 first_negative([]const i32 values) {
+    for value in values {
+        if value < 0 {
+            return value;
+        }
+    }
+    return 0;
+}
+
+public Status(Error) main() {
+    i32[5] a = { 4, 7, -2, 9, -5 };
+    i32[3] b = { 1, 2, 3 };
+    println("{} {}", first_negative(a), first_negative(b))?;
+    return Status::Ok;
+}
+"""
+expect = """
+-2 0
+"""
+explanation = "The loop returns at the first negative value, -2, and never looks at -5. The second array has no negative value, so the loop ends and the final return gives 0."
+
+[[questions]]
+id = "count-the-rounds"
+type = "trace"
+prompt = "How many times does the body of the loop reach the line `total += i;`? Answer with the number."
+code = """
+module main;
+
+public Status(Error) main() {
+    i32 total = 0;
+    for i32 i = 1; i <= 10; i++ {
+        if i % 3 == 0 {
+            continue;
+        }
+        if i > 7 {
+            break;
+        }
+        total += i;
+    }
+    println("{}", total)?;
+    return Status::Ok;
+}
+"""
+accept = ["5"]
+expect = """
+19
+"""
+explanation = "`continue` skips 3 and 6, `break` ends the loop at 8. The line runs for 1, 2, 4, 5 and 7: five times, and the total is 1 + 2 + 4 + 5 + 7 = 19."
+
+[[questions]]
+id = "count-evens"
+type = "bug"
+prompt = "The function should count the even numbers, but the program prints 2 for the list below, which holds 4 even numbers. Which line is wrong?"
+code = """
+module main;
+
+i32 count_even([]const i32 values) {
+    i32 count = 0;
+    for value in values {
+        if value % 2 == 1 {
+            count += 1;
+        }
+    }
+    return count;
+}
+
+public Status(Error) main() {
+    i32[6] data = { 2, 3, 4, 5, 6, 8 };
+    println("{}", count_even(data))?;
+    return Status::Ok;
+}
+"""
+lines = [7]
+fixed = """
+module main;
+
+i32 count_even([]const i32 values) {
+    i32 count = 0;
+    for value in values {
+        if value % 2 == 0 {
+            count += 1;
+        }
+    }
+    return count;
+}
+
+public Status(Error) main() {
+    i32[6] data = { 2, 3, 4, 5, 6, 8 };
+    println("{}", count_even(data))?;
+    return Status::Ok;
+}
+"""
+expect = """
+4
+"""
+explanation = "The condition tests for remainder 1, which counts the odd numbers: 3 and 5 give the 2 that is printed. Reading the condition against the name of the function is the quickest check: `count_even` must test for remainder 0."
+
+[[questions]]
+id = "mixed-types"
+type = "error"
+prompt = "The compiler rejects this program. What is the real cause?"
+code = """
+module main;
+
+i32 average([]const i32 values) {
+    i32 sum = 0;
+    for value in values {
+        sum += value;
+    }
+    return sum / values.len;
+}
+
+public Status(Error) main() {
+    i32[3] data = { 2, 4, 9 };
+    println("{}", average(data))?;
+    return Status::Ok;
+}
+"""
+diagnostic = "binary operator `/` type mismatch"
+choices = [
+    "Division of integers is not allowed",
+    "`sum` is an `i32` but `values.len` is a `usize`; the two types are not mixed implicitly",
+    "`average` must return a `usize`",
+    "A slice has no `len`",
+]
+answer = 2
+why = [
+    "Integer division works; the operands only have different types.",
+    "",
+    "The return type is not the problem; the division itself is rejected.",
+    "`len` exists and is a `usize`, which is exactly what the message hints at.",
+]
+explanation = "A length is a `usize`, a sum of `i32` values is an `i32`, and the compiler does not convert silently between them. Convert one side on purpose, for example `sum / (values.len as i32)`."
+
+[[questions]]
+id = "swap-order"
+type = "order"
+prompt = "Put the three lines of the body of `swap` in order so that the two values are exchanged. The first line saves a value that would otherwise be lost."
+example = "swap"
+code = """
+    i32 tmp = *a;
+    *a = *b;
+    *b = tmp;
+"""
+explanation = "The old value of `a` is saved first, then `a` takes the value of `b`, and finally `b` receives the saved value. Any other order loses one of the two values."
+
+[[questions]]
+id = "reading-strategy"
+type = "multi"
+prompt = "Which habits help when you read a program you did not write?"
+choices = [
+    "Start with the signatures and the data types",
+    "Find the loop or function that drives everything and follow the data from there",
+    "Run the program and read only the output",
+    "Keep a table of the variables and update it line by line for a small input",
+    "Assume a helper does what its name says without reading it",
+]
+answers = [1, 2, 4]
+why = [
+    "",
+    "",
+    "Output tells you what happens, not why; reading is what lets you predict it.",
+    "",
+    "Names can be wrong or incomplete; a quick look at the body is cheap.",
+]
+explanation = "Structure first, then behaviour on a small input. Tracing by hand is slow but it is the only way to find out what you misunderstand before the program runs."
+
+[[cards]]
+id = "trace-table"
+front = "How do you trace a small program by hand?"
+back = "Write down every variable, then update the table line by line for a small input, writing what each branch and loop does."

@@ -1,0 +1,38 @@
+module formulas;
+
+import units;
+using units::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool near(f64 a, f64 b) {
+    f64 d = a - b;
+    if d < 0.0 {
+        d = -d;
+    }
+    return d < 0.000001;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Unit km = Unit { name = "km", dimension = Dimension::Length, factor = 1000.0, offset = 0.0 };
+    Unit celsius = Unit { name = "C", dimension = Dimension::Temperature, factor = 1.0, offset = 273.15 };
+    Unit half = Unit { name = "h", dimension = Dimension::Mass, factor = 0.5, offset = 10.0 };
+
+    expect(near(to_base(km, 2.5), 2500.0), "2.5 km is 2500 base units", &failures);
+    expect(near(from_base(km, 2500.0), 2.5), "2500 base units are 2.5 km", &failures);
+    expect(near(to_base(km, 0.0), 0.0), "zero stays zero without an offset", &failures);
+    expect(near(to_base(celsius, 0.0), 273.15), "0 C is 273.15 base units", &failures);
+    expect(near(from_base(celsius, 373.15), 100.0), "373.15 base units are 100 C", &failures);
+    expect(near(to_base(half, 4.0), 12.0), "base = value * factor + offset", &failures);
+    expect(near(from_base(half, 12.0), 4.0), "value = (base - offset) / factor", &failures);
+    expect(near(from_base(half, to_base(half, -7.5)), -7.5), "the two functions undo each other", &failures);
+    return failures;
+}

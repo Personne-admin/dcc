@@ -1,0 +1,15 @@
+module main;
+
+import collatz;
+
+Status(Error) row(u64 n) {
+    println("{}: {} steps, peak {}", n, collatz::steps(n), collatz::peak(n))?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    row(6)?;
+    row(7)?;
+    row(27)?;
+    return Status::Ok;
+}

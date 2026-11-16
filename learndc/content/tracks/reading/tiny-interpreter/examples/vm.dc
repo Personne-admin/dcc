@@ -1,0 +1,76 @@
+module main;
+
+enum Op {
+    Push(i32),
+    Add,
+    Dup,
+    Print,
+    JumpNonZero(usize),
+    Halt,
+}
+
+struct Machine {
+    i32[8] stack;
+    usize sp;
+    usize pc;
+    i32 steps;
+}
+
+void push(Machine* m, i32 value) {
+    m.stack[m.sp] = value;
+    m.sp += 1;
+}
+
+i32 pop(Machine* m) {
+    m.sp -= 1;
+    return m.stack[m.sp];
+}
+
+Status(Error) run([]const Op program) {
+    Machine m = Machine { stack = { 0, 0, 0, 0, 0, 0, 0, 0 }, sp = 0, pc = 0, steps = 0 };
+    while m.pc < program.len {
+        Op op = program[m.pc];
+        m.pc += 1;
+        m.steps += 1;
+        match op {
+            Op::Push(v) => push(&m, v),
+            Op::Add => {
+                i32 b = pop(&m);
+                i32 a = pop(&m);
+                push(&m, a + b);
+            },
+            Op::Dup => {
+                i32 top = pop(&m);
+                push(&m, top);
+                push(&m, top);
+            },
+            Op::Print => println("out {}", pop(&m))?,
+            Op::JumpNonZero(target) => {
+                if pop(&m) != 0 {
+                    m.pc = target;
+                }
+            },
+            Op::Halt => {
+                println("halt after {} steps, stack depth {}", m.steps, m.sp)?;
+                return Status::Ok;
+            },
+        }
+    }
+    println("fell off the end after {} steps", m.steps)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const Op countdown = {
+        Op::Push(3),
+        Op::Dup,
+        Op::Print,
+        Op::Push(-1),
+        Op::Add,
+        Op::Dup,
+        Op::JumpNonZero(1),
+        Op::Halt,
+    };
+    run(countdown)?;
+    return Status::Ok;
+}

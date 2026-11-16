@@ -1,0 +1,113 @@
+module parsing;
+
+import vm;
+using vm::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool pushes(Result(Instr, VmError) r, i64 value) {
+    match r {
+        Result::Ok(i) => match i {
+            Instr::Push(n) => return n == value,
+            _ => return false,
+        },
+        Result::Err(e) => return false,
+    }
+}
+
+bool jumps(Result(Instr, VmError) r, usize target) {
+    match r {
+        Result::Ok(i) => match i {
+            Instr::Jump(t) => return t == target,
+            _ => return false,
+        },
+        Result::Err(e) => return false,
+    }
+}
+
+bool jumps_if_zero(Result(Instr, VmError) r, usize target) {
+    match r {
+        Result::Ok(i) => match i {
+            Instr::JumpIfZero(t) => return t == target,
+            _ => return false,
+        },
+        Result::Err(e) => return false,
+    }
+}
+
+bool plain(Result(Instr, VmError) r, Instr expected) {
+    match r {
+        Result::Ok(i) => return i == expected,
+        Result::Err(e) => return false,
+    }
+}
+
+bool fails(Result(Instr, VmError) r, VmError expected) {
+    match r {
+        Result::Ok(i) => return false,
+        Result::Err(e) => return e == expected,
+    }
+}
+
+bool refused(Status(VmError) s, VmError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+bool outputs(const Array(i64)* out, []const i64 expected) {
+    if out.len() != expected.len {
+        return false;
+    }
+    for usize i in 0..expected.len {
+        if out.items()[i] != expected[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(pushes(parse_instruction("push 5"), 5), "push 5", &failures);
+    expect(pushes(parse_instruction("push -12"), -12), "push with a negative number", &failures);
+    expect(pushes(parse_instruction("  push   7  "), 7), "extra blanks are fine", &failures);
+    expect(jumps(parse_instruction("jump 3"), 3), "jump 3", &failures);
+    expect(jumps_if_zero(parse_instruction("jz 0"), 0), "jz 0", &failures);
+    expect(plain(parse_instruction("add"), Instr::Add), "add", &failures);
+    expect(plain(parse_instruction("sub"), Instr::Sub), "sub", &failures);
+    expect(plain(parse_instruction("mul"), Instr::Mul), "mul", &failures);
+    expect(plain(parse_instruction("div"), Instr::Div), "div", &failures);
+    expect(plain(parse_instruction("dup"), Instr::Dup), "dup", &failures);
+    expect(plain(parse_instruction("over"), Instr::Over), "over", &failures);
+    expect(plain(parse_instruction("swap"), Instr::Swap), "swap", &failures);
+    expect(plain(parse_instruction("drop"), Instr::Drop), "drop", &failures);
+    expect(plain(parse_instruction("print"), Instr::Print), "print", &failures);
+    expect(plain(parse_instruction(" halt"), Instr::Halt), "halt with a leading blank", &failures);
+
+    expect(fails(parse_instruction("pust 1"), VmError::UnknownOp), "an unknown mnemonic", &failures);
+    expect(fails(parse_instruction("PUSH 1"), VmError::UnknownOp), "mnemonics are lower case", &failures);
+    expect(fails(parse_instruction("pushx 1"), VmError::UnknownOp), "a mnemonic with extra letters", &failures);
+    expect(fails(parse_instruction(""), VmError::UnknownOp), "an empty line is not an instruction", &failures);
+    expect(fails(parse_instruction("push"), VmError::MissingOperand), "push needs an operand", &failures);
+    expect(fails(parse_instruction("jump"), VmError::MissingOperand), "jump needs an operand", &failures);
+    expect(fails(parse_instruction("jz"), VmError::MissingOperand), "jz needs an operand", &failures);
+    expect(fails(parse_instruction("push x"), VmError::BadOperand), "the operand must be a number", &failures);
+    expect(fails(parse_instruction("push 1.5"), VmError::BadOperand), "a decimal is not a number", &failures);
+    expect(fails(parse_instruction("jump -1"), VmError::BadOperand), "a jump target cannot be negative", &failures);
+    expect(fails(parse_instruction("jz -1"), VmError::BadOperand), "nor can a jz target", &failures);
+    expect(fails(parse_instruction("push 1 2"), VmError::ExtraOperand), "two operands", &failures);
+    expect(fails(parse_instruction("add 1"), VmError::ExtraOperand), "add takes no operand", &failures);
+    expect(fails(parse_instruction("halt now"), VmError::ExtraOperand), "halt takes no operand", &failures);
+    expect(fails(parse_instruction("bogus 1 2"), VmError::UnknownOp), "an unknown mnemonic wins over operand problems", &failures);
+    expect(fails(parse_instruction("push x y"), VmError::ExtraOperand), "operand count is checked before the operand value", &failures);
+    return failures;
+}

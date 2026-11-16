@@ -1,0 +1,29 @@
+module main;
+
+public Status(Error) main() {
+    i32 total = 0;
+
+    i32 t1 = 3 * 250;
+    if 3 >= 10 {
+        t1 = t1 - t1 / 10;
+    }
+    println("widget: 3 x 250 = {}", t1)?;
+    total += t1;
+
+    i32 t2 = 12 * 15;
+    if 12 >= 10 {
+        t2 = t2 - t2 / 10;
+    }
+    println("bolt: 12 x 15 = {}", t2)?;
+    total += t2;
+
+    i32 t3 = 10 * 80;
+    if 10 >= 10 {
+        t3 = t3 - t3 / 10;
+    }
+    println("gear: 10 x 80 = {}", t3)?;
+    total += t3;
+
+    println("total: {}", total)?;
+    return Status::Ok;
+}

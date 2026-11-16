@@ -1,0 +1,59 @@
+module transfers;
+
+import std::slice;
+import ledger;
+using ledger::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool refused(Status(LedgerError) s, LedgerError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array(Account) accounts = {};
+    defer accounts.deinit();
+    Array(Entry) journal = {};
+    defer journal.deinit();
+    if !open(&accounts, "ann").is_ok() || !open(&accounts, "bob").is_ok() {
+        return 1;
+    }
+    accounts.items()[0].balance = 10000;
+
+    expect(transfer(&accounts, &journal, "ann", "bob", 3000).is_ok(), "transfer 30.00 from ann to bob", &failures);
+    expect(accounts.items()[0].balance == 7000 && accounts.items()[1].balance == 3000, "both balances moved", &failures);
+    expect(journal.len() == 2, "two journal entries", &failures);
+    if journal.len() == 2 {
+        expect(journal.items()[0].account == 0 && journal.items()[0].delta == -3000, "first the debit on ann", &failures);
+        expect(journal.items()[1].account == 1 && journal.items()[1].delta == 3000, "then the credit on bob", &failures);
+        expect(std::slice::eq(journal.items()[0].note, "transfer out") && std::slice::eq(journal.items()[1].note, "transfer in"), "notes are transfer out and transfer in", &failures);
+    }
+
+    expect(transfer(&accounts, &journal, "bob", "ann", 3000).is_ok(), "moving everything back", &failures);
+    expect(accounts.items()[0].balance == 10000 && accounts.items()[1].balance == 0, "balances restored", &failures);
+
+    usize entries = journal.len();
+    expect(refused(transfer(&accounts, &journal, "ann", "bob", 10001), LedgerError::InsufficientFunds), "ann cannot send more than she has", &failures);
+    expect(refused(transfer(&accounts, &journal, "ann", "zed", 100), LedgerError::UnknownAccount), "an unknown target is refused", &failures);
+    expect(accounts.items()[0].balance == 10000, "and ann keeps her money", &failures);
+    expect(refused(transfer(&accounts, &journal, "zed", "ann", 100), LedgerError::UnknownAccount), "an unknown source is refused", &failures);
+    expect(refused(transfer(&accounts, &journal, "ann", "ann", 100), LedgerError::SameAccount), "sending to yourself is refused", &failures);
+    expect(refused(transfer(&accounts, &journal, "ann", "bob", 0), LedgerError::InvalidAmount), "0 is not an amount", &failures);
+    expect(refused(transfer(&accounts, &journal, "ann", "bob", -100), LedgerError::InvalidAmount), "negative amounts are refused", &failures);
+    expect(refused(transfer(&accounts, &journal, "zed", "zed", 100), LedgerError::UnknownAccount), "unknown wins over same account", &failures);
+    expect(refused(transfer(&accounts, &journal, "ann", "ann", 20000), LedgerError::SameAccount), "same account wins over funds", &failures);
+    expect(journal.len() == entries, "no refusal writes to the journal", &failures);
+    expect(accounts.items()[0].balance + accounts.items()[1].balance == 10000, "the money in the bank never changes", &failures);
+    return failures;
+}

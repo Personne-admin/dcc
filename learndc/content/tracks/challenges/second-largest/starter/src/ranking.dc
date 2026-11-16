@@ -1,0 +1,5 @@
+module ranking;
+
+public Optional(i32) second_largest([]const i32 values) {
+    return Optional::None;
+}

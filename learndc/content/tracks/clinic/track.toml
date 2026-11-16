@@ -1,0 +1,15 @@
+schema = 1
+id = "clinic"
+title = "Debugging Clinic"
+summary = "Realistic broken programs: reproduce, narrow down, name the root cause and fix it."
+goal = "Diagnose a failing program methodically: reproduce it, narrow it down, find the root cause and prove the fix."
+exercises = [
+    "short-week",
+    "unmoving-garage",
+    "wrapping-sizes",
+    "leaky-lock",
+    "express-parcels",
+    "shipped-anyway",
+    "stuck-door",
+    "private-price",
+]

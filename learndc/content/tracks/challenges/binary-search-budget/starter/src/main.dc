@@ -1,0 +1,25 @@
+module main;
+
+import counter;
+import search;
+
+Status(Error) probe(i32[1000]* data, i32 key) {
+    counter::reset();
+    Optional(usize) found = search::find_sorted(*data, key);
+    match found {
+        Optional::Some(i) => println("{}: index {}, {} comparisons", key, i, counter::comparisons())?,
+        Optional::None => println("{}: not found, {} comparisons", key, counter::comparisons())?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    i32[1000] data = {};
+    for usize i = 0; i < 1000; i++ {
+        data[i] = (i * 2) as i32;
+    }
+    probe(&data, 998)?;
+    probe(&data, 0)?;
+    probe(&data, 999)?;
+    return Status::Ok;
+}

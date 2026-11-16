@@ -1,0 +1,80 @@
+module lengths;
+
+import lcs;
+using lcs::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool matches(const Array(Edit)* got, []const char kinds, []const usize indexes) {
+    if got.len() != kinds.len || kinds.len != indexes.len {
+        return false;
+    }
+    for usize i in 0..kinds.len {
+        char want = kinds[i];
+        EditKind kind = got.items()[i].kind;
+        bool kind_ok = (want == 'K' && kind == EditKind::Keep) || (want == 'R' && kind == EditKind::Remove) || (want == 'A' && kind == EditKind::Add);
+        if !kind_ok || got.items()[i].index != indexes[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool lcs_is(Result(usize, DiffError) r, usize expected) {
+    match r {
+        Result::Ok(n) => return n == expected,
+        Result::Err(e) => return false,
+    }
+}
+
+bool too_large(Result(usize, DiffError) r) {
+    match r {
+        Result::Ok(n) => return false,
+        Result::Err(e) => return e == DiffError::TooLarge,
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(lcs_is(lcs_length("kitten", "sitting"), 4), "kitten and sitting share 4 letters in order (chars)", &failures);
+    expect(lcs_is(lcs_length("abcbdab", "bdcaba"), 4), "the classic example", &failures);
+    expect(lcs_is(lcs_length("abc", "abc"), 3), "identical texts", &failures);
+    expect(lcs_is(lcs_length("abc", "xyz"), 0), "nothing in common", &failures);
+    expect(lcs_is(lcs_length("", "abc"), 0), "an empty first sequence", &failures);
+    expect(lcs_is(lcs_length("abc", ""), 0), "an empty second sequence", &failures);
+    expect(lcs_is(lcs_length("", ""), 0), "both empty", &failures);
+    expect(lcs_is(lcs_length("aab", "ab"), 2), "repeated elements are not matched twice", &failures);
+    expect(lcs_is(lcs_length("ab", "ba"), 1), "order matters", &failures);
+
+    []const i32 numbers_a = { 3, 1, 4, 1, 5, 9, 2, 6 };
+    []const i32 numbers_b = { 1, 4, 5, 9, 6, 7 };
+    expect(lcs_is(lcs_length(numbers_a, numbers_b), 5), "the same function on i32", &failures);
+    []const u32 ids_a = { 7, 7, 8 };
+    []const u32 ids_b = { 8, 7 };
+    expect(lcs_is(lcs_length(ids_a, ids_b), 1), "and on u32", &failures);
+    []const f64 floats_a = { 1.5, 2.5, 3.5 };
+    []const f64 floats_b = { 2.5, 3.5, 1.5 };
+    expect(lcs_is(lcs_length(floats_a, floats_b), 2), "and on f64", &failures);
+
+    u8[999] zeros_a = {};
+    u8[999] zeros_b = {};
+    expect(lcs_is(lcs_length(zeros_a, zeros_b), 999), "999 by 999 elements: exactly one million cells fit", &failures);
+    u8[1000] more = {};
+    expect(too_large(lcs_length(zeros_a, more)), "999 by 1000 needs 1,000,000 + 1,000 cells: too large", &failures);
+    u8[1000] more_b = {};
+    expect(too_large(lcs_length(more, more_b)), "1000 by 1000 is too large", &failures);
+    u8[3] few = {};
+    u8[333332] many = {};
+    expect(too_large(lcs_length(few, many)), "the product of the sizes matters, not each size", &failures);
+    u8[1] one = {};
+    u8[499999] half = {};
+    expect(lcs_is(lcs_length(one, half), 1), "2 by 500000 cells just fits", &failures);
+    return failures;
+}

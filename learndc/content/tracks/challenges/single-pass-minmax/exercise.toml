@@ -1,0 +1,56 @@
+schema = 1
+id = "challenges/single-pass-minmax"
+revision = 1
+title = "Optimize: one pass for minimum and maximum"
+summary = "Find the smallest and largest value of a slice while reading every element only once."
+kind = "challenge"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = [
+    "loops",
+    "structs",
+    "complexity",
+    "measuring",
+]
+tags = [
+    "optimization",
+    "loops",
+    "slices",
+    "intermediate",
+]
+objectives = [
+    "Combine two passes into one",
+    "Count reads through an instrumented accessor",
+]
+entry_file = "src/main.dc"
+product = "single_pass_minmax"
+prerequisites = ["collections/arrays-and-slices"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The program output is unchanged"
+expect_stdout = """
+min 2, max 9
+reads: 5
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The output must match exactly."
+
+[[checks]]
+kind = "harness"
+name = "The harness passes"
+harness = "checks/stats_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Read the FAIL lines of the harness output."

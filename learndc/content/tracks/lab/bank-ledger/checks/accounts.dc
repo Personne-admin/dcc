@@ -1,0 +1,44 @@
+module accounts;
+
+import std::slice;
+import ledger;
+using ledger::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool refused(Status(LedgerError) s, LedgerError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array(Account) accounts = {};
+    defer accounts.deinit();
+
+    expect(find(&accounts, "ann").is_none(), "nothing is found in an empty bank", &failures);
+    expect(open(&accounts, "ann").is_ok(), "opening ann works", &failures);
+    expect(open(&accounts, "bob").is_ok(), "opening bob works", &failures);
+    expect(accounts.len() == 2, "two accounts exist", &failures);
+    expect(accounts.items()[0].balance == 0, "a new account holds nothing", &failures);
+    expect(std::slice::eq(accounts.items()[1].name, "bob"), "accounts are kept in opening order", &failures);
+    expect(refused(open(&accounts, "ann"), LedgerError::DuplicateAccount), "opening ann twice is refused", &failures);
+    expect(accounts.len() == 2, "a refused open adds nothing", &failures);
+    expect(find(&accounts, "bob").is_some() && find(&accounts, "bob").unwrap_some() == 1, "bob is at index 1", &failures);
+    expect(find(&accounts, "an").is_none(), "a prefix is not a match", &failures);
+    expect(find(&accounts, "ANN").is_none(), "names are case sensitive", &failures);
+    expect(balance_of(&accounts, "ann").is_some() && balance_of(&accounts, "ann").unwrap_some() == 0, "balance_of ann is Some(0)", &failures);
+    accounts.items()[1].balance = 4250;
+    expect(balance_of(&accounts, "bob").is_some() && balance_of(&accounts, "bob").unwrap_some() == 4250, "balance_of reads the stored balance", &failures);
+    expect(balance_of(&accounts, "zed").is_none(), "balance_of an unknown account is None", &failures);
+    return failures;
+}

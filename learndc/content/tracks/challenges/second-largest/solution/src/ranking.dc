@@ -1,0 +1,25 @@
+module ranking;
+
+public Optional(i32) second_largest([]const i32 values) {
+    if values.len < 2 {
+        return Optional::None;
+    }
+    i32 first = values[0];
+    bool have_second = false;
+    i32 second = 0;
+    for usize i = 1; i < values.len; i++ {
+        i32 v = values[i];
+        if v > first {
+            second = first;
+            have_second = true;
+            first = v;
+        } else if v < first && (!have_second || v > second) {
+            second = v;
+            have_second = true;
+        }
+    }
+    if !have_second {
+        return Optional::None;
+    }
+    return Optional::Some(second);
+}

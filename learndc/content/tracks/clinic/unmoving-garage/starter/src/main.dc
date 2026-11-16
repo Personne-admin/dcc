@@ -1,0 +1,36 @@
+module main;
+
+struct Garage {
+    i32 free;
+    i32 parked;
+}
+
+void enter(Garage g) {
+    if g.free > 0 {
+        g.free -= 1;
+        g.parked += 1;
+    }
+}
+
+void leave(Garage* g) {
+    if g.parked > 0 {
+        g.free += 1;
+        g.parked -= 1;
+    }
+}
+
+Status(Error) board(Garage g) {
+    println("parked {}, free {}", g.parked, g.free)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Garage g = Garage { free = 2, parked = 0 };
+    enter(g);
+    enter(g);
+    enter(g);
+    board(g)?;
+    leave(&g);
+    board(g)?;
+    return Status::Ok;
+}

@@ -1,0 +1,20 @@
+module main;
+
+import brackets;
+
+Status(Error) check([]const char text) {
+    if brackets::is_balanced(text) {
+        println("{} balanced", text)?;
+    } else {
+        println("{} not balanced", text)?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    check("{[()]}")?;
+    check("(]")?;
+    check("a(b)c[d]")?;
+    check("((")?;
+    return Status::Ok;
+}

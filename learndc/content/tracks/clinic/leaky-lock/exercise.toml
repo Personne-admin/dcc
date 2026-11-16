@@ -1,0 +1,195 @@
+schema = 1
+id = "clinic/leaky-lock"
+revision = 1
+title = "The lock nobody released"
+summary = "A job runner leaves locks held when a job is refused; the `?` after the check returns before the release."
+kind = "fix-behavior"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = [
+    "defer",
+    "early return",
+    "Status",
+    "cleanup",
+]
+tags = [
+    "clinic",
+    "errors",
+    "defer",
+    "cleanup",
+]
+objectives = [
+    "Follow every exit of a function, including the one hidden in `?`",
+    "Replace a manual release with a defer",
+    "Prove the fix with the expected output",
+]
+entry_file = "src/main.dc"
+product = "leaky_lock"
+prerequisites = ["memory/cleanup-every-exit"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[stages]]
+id = "locate"
+title = "Locate the cause"
+summary = "Reproduce the symptom, narrow it down and name the faulty line before you change anything."
+hints = [
+    "The counter is off by two and two jobs fail. Is that a coincidence? Count the leaked locks per job outcome.",
+    "List every way out of `run_job`: each `return`, and each `?`. Which of them happen after `take_lock()` but before `release_lock()`?",
+]
+questions = ["find-the-exit"]
+
+[[stages]]
+id = "fix"
+title = "Fix and prove it"
+summary = "Make the program print the expected output."
+hints = [
+    "Cleanup that must run on every exit belongs in a `defer` placed right after the acquisition.",
+    "Put `defer release_lock();` under `take_lock();` and remove the old call at the end.",
+    "The deferred statement has no `?` and the old `release_lock();` line must go, or the lock would be released twice.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the expected output"
+stage = "fix"
+expect_stdout = """
+job 1: ok
+job 2: failed
+job 3: failed
+job 4: ok
+work done: 65
+locks held: 0
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "No lock may be held at the end, even after the two refused jobs."
+
+[[questions]]
+id = "find-the-exit"
+type = "bug"
+prompt = "Two locks are never released. Which line leaves `run_job` without reaching `release_lock()`?"
+code = """
+module main;
+
+enum JobError { EmptyName, TooBig }
+
+i32 locks_held = 0;
+i32 done = 0;
+
+void take_lock() {
+    locks_held += 1;
+}
+
+void release_lock() {
+    locks_held -= 1;
+}
+
+Status(JobError) check(i32 size, []const char name) {
+    if name.len == 0 {
+        return JobError::EmptyName;
+    }
+    if size > 100 {
+        return JobError::TooBig;
+    }
+    return Status::Ok;
+}
+
+Status(JobError) run_job([]const char name, i32 size) {
+    take_lock();
+    check(size, name)?;
+    done += size;
+    release_lock();
+    return Status::Ok;
+}
+
+Status(Error) report(i32 number, Status(JobError) result) {
+    if result.is_ok() {
+        println("job {}: ok", number)?;
+    } else {
+        println("job {}: failed", number)?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    report(1, run_job("backup", 40))?;
+    report(2, run_job("", 10))?;
+    report(3, run_job("archive", 500))?;
+    report(4, run_job("index", 25))?;
+    println("work done: {}", done)?;
+    println("locks held: {}", locks_held)?;
+    return Status::Ok;
+}
+"""
+lines = [28]
+fixed = """
+module main;
+
+enum JobError { EmptyName, TooBig }
+
+i32 locks_held = 0;
+i32 done = 0;
+
+void take_lock() {
+    locks_held += 1;
+}
+
+void release_lock() {
+    locks_held -= 1;
+}
+
+Status(JobError) check(i32 size, []const char name) {
+    if name.len == 0 {
+        return JobError::EmptyName;
+    }
+    if size > 100 {
+        return JobError::TooBig;
+    }
+    return Status::Ok;
+}
+
+Status(JobError) run_job([]const char name, i32 size) {
+    take_lock();
+    defer release_lock();
+    check(size, name)?;
+    done += size;
+    return Status::Ok;
+}
+
+Status(Error) report(i32 number, Status(JobError) result) {
+    if result.is_ok() {
+        println("job {}: ok", number)?;
+    } else {
+        println("job {}: failed", number)?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    report(1, run_job("backup", 40))?;
+    report(2, run_job("", 10))?;
+    report(3, run_job("archive", 500))?;
+    report(4, run_job("index", 25))?;
+    println("work done: {}", done)?;
+    println("locks held: {}", locks_held)?;
+    return Status::Ok;
+}
+"""
+expect = """
+job 1: ok
+job 2: failed
+job 3: failed
+job 4: ok
+work done: 65
+locks held: 0
+"""
+explanation = "`check(size, name)?;` returns from `run_job` with the error when the check fails, and the `release_lock()` further down is skipped. A `?` is an early `return` that is easy to overlook. The two failed jobs (the empty name and the oversized job) are exactly the two leaked locks. The fix is `defer release_lock();` right after `take_lock();`, so every exit releases it."

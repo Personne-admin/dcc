@@ -1,0 +1,9 @@
+module collatz;
+
+public u64 steps(u64 n) {
+    return 0;
+}
+
+public u64 peak(u64 n) {
+    return 0;
+}

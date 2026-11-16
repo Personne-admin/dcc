@@ -1,0 +1,97 @@
+module syntax;
+
+import calc;
+using calc::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+usize position_of(CalcError e) {
+    match e {
+        CalcError::Alloc(a) => return 1000000,
+        CalcError::InvalidCharacter(p) => return p,
+        CalcError::UnexpectedToken(p) => return p,
+        CalcError::UnexpectedEnd(p) => return p,
+        CalcError::DivideByZero(p) => return p,
+        CalcError::Overflow(p) => return p,
+    }
+}
+
+bool gives([]const char text, i64 expected) {
+    match evaluate(text) {
+        Result::Ok(v) => {
+            if v != expected {
+                println("      {} gave {}, expected {}", text, v, expected);
+            }
+            return v == expected;
+        },
+        Result::Err(e) => {
+            println("      {} failed at {}", text, position_of(e));
+            return false;
+        },
+    }
+}
+
+bool fails([]const char text, CalcError kind, usize position) {
+    match evaluate(text) {
+        Result::Ok(v) => {
+            println("      [{}] gave {}, expected an error at {}", text, v, position);
+            return false;
+        },
+        Result::Err(e) => {
+            bool right = e == kind && position_of(e) == position;
+            if !right {
+                println("      [{}] failed with another error or position: {}", text, position_of(e));
+            }
+            return right;
+        },
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    CalcError token = CalcError::UnexpectedToken(0);
+    CalcError end = CalcError::UnexpectedEnd(0);
+    CalcError bad = CalcError::InvalidCharacter(0);
+
+    expect(fails("", end, 0), "an empty text ends too early at 0", &failures);
+    expect(fails("   ", end, 3), "blanks only: the end position is the text length", &failures);
+    expect(fails("2 +", end, 3), "an operator without a right operand", &failures);
+    expect(fails("2 + ", end, 4), "the end position counts trailing blanks", &failures);
+    expect(fails("-", end, 1), "a lone minus", &failures);
+    expect(fails("(1", end, 2), "a missing closing parenthesis", &failures);
+    expect(fails("((1 + 2)", end, 8), "a missing one in a nested group", &failures);
+    expect(fails("(", end, 1), "a lone opening parenthesis", &failures);
+
+    expect(fails("* 3", token, 0), "an operator cannot start an expression", &failures);
+    expect(fails("2 3", token, 2), "two numbers in a row", &failures);
+    expect(fails("2 * * 3", token, 4), "two operators in a row", &failures);
+    expect(fails("(1 + )", token, 5), "an operator before a closing parenthesis", &failures);
+    expect(fails("()", token, 1), "an empty group", &failures);
+    expect(fails(")", token, 0), "a closing parenthesis alone", &failures);
+    expect(fails("1 )", token, 2), "an extra closing parenthesis", &failures);
+    expect(fails("(1 2)", token, 3), "a number inside a group where an operator should be", &failures);
+    expect(fails("2 (3)", token, 2), "no implicit multiplication", &failures);
+    expect(fails("(1) (2)", token, 4), "two groups in a row", &failures);
+    expect(fails("1 + * 2", token, 4), "binary operator after binary operator", &failures);
+    expect(fails("4 / % 2", token, 4), "/ followed by %", &failures);
+
+    expect(fails("4 $ 4", bad, 2), "an unknown character", &failures);
+    expect(fails("abc", bad, 0), "letters", &failures);
+    expect(fails("1.5", bad, 1), "a decimal point", &failures);
+    expect(fails("1 + $", bad, 4), "an invalid character is found before the missing operand", &failures);
+    expect(fails("(1 + 2", end, 6), "control: this one is only unexpected end", &failures);
+    expect(fails("(1 + 2 #", bad, 7), "but a bad character comes first in the same text", &failures);
+    expect(fails("1 + + 2 $", bad, 8), "lexical errors beat syntax errors, wherever the syntax error is", &failures);
+    expect(fails("1/0 +", end, 5), "syntax errors beat evaluation errors", &failures);
+    expect(fails("(1/0) + (2 3)", token, 11), "even when the evaluation error comes first in the text", &failures);
+    expect(fails("99999999999999999999 + $", CalcError::Overflow(0), 0), "a too large literal is a lexical error too: the first one in the text wins", &failures);
+    expect(fails("$ 99999999999999999999", bad, 0), "and the other way round", &failures);
+    return failures;
+}

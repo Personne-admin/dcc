@@ -1,0 +1,31 @@
+module main;
+
+enum OrderError { NoItems, NoAddress }
+
+struct Order {
+    i32 items;
+    bool has_address;
+}
+
+Status(OrderError) validate(Order order) {
+    if order.items == 0 {
+        return OrderError::NoItems;
+    }
+    if !order.has_address {
+        return OrderError::NoAddress;
+    }
+    return Status::Ok;
+}
+
+Status(Error) ship(i32 number, Order order) {
+    validate(order);
+    println("order {} shipped", number)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    ship(1, Order { items = 2, has_address = true })?;
+    ship(2, Order { items = 0, has_address = true })?;
+    ship(3, Order { items = 1, has_address = false })?;
+    return Status::Ok;
+}

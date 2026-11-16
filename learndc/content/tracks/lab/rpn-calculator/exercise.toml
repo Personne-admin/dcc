@@ -1,0 +1,170 @@
+schema = 1
+id = "lab/rpn-calculator"
+revision = 1
+title = "RPN Calculator"
+summary = "Evaluate postfix expressions such as 5 1 2 + 4 * + 3 - with a hand-written tokenizer, a number parser and a stack, and report every kind of malformed input."
+kind = "challenge"
+difficulty = "intermediate"
+estimated_minutes = 70
+concepts = ["Array", "stack", "tokenizing", "Result", "custom errors", "text parsing", "defer"]
+tags = ["project", "parsing", "errors", "memory"]
+objectives = [
+    "Cut text into tokens and parse integers by hand, character by character",
+    "Use an owning Array(i64) as a stack and pop operands in the right order",
+    "Return a typed error for every malformed expression and leave the stack unchanged when an operation fails",
+    "Own temporary arrays inside a function with defer and return only the answer",
+]
+entry_file = "src/main.dc"
+product = "rpn_calculator"
+prerequisites = ["memory/boss-inventory-keeper"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[stages]]
+id = "postfix"
+title = "Think in postfix"
+summary = "Evaluate postfix expressions by hand before you write the evaluator."
+questions = ["infix-of", "postfix-result"]
+hints = ["Keep a stack on paper: a number goes on top, an operator takes the top two values, applies itself and puts the result back."]
+
+[[stages]]
+id = "numbers"
+title = "Parse a number"
+summary = "parse_number turns a token such as -17 into Some(-17) and anything else into None."
+hints = [
+    "A number is an optional leading minus followed by one or more digits and nothing else. A lone minus is the subtraction operator, not a number.",
+    "Remember start = 1 when the first character is '-', refuse tokens with no digits or more than 18, and build the value with value = value * 10 + digit where digit is token[i] as i64 - '0' as i64. Negate at the end.",
+]
+
+[[stages]]
+id = "tokens"
+title = "Cut text into tokens"
+summary = "tokenize pushes one slice per blank-separated token onto the array."
+hints = [
+    "It is the word-splitting loop you know: remember whether you are inside a token and where it started, and close the token when a blank or the end of the text arrives.",
+    "Run i up to and including text.len and treat i == text.len as a blank, then out.push(text[start..i])? when a token ends. The function appends to the array and never clears it.",
+]
+
+[[stages]]
+id = "apply"
+title = "Apply an operator"
+summary = "apply takes the top two values off the stack, applies + - * / or %, pushes the result and refuses without changing the stack when it cannot."
+hints = [
+    "Order matters: for 7 3 - the top of the stack is 3 and below it is 7, so the result is 7 - 3. Check the token is an operator first, then the stack depth, then division by zero.",
+    "Read b = the last item and a = the one below it with stack.items()[stack.len() - 1], decide the result with if/else on the token, and only then stack.pop(); stack.pop(); stack.push(result)?;.",
+]
+
+[[stages]]
+id = "evaluate"
+title = "Evaluate an expression"
+summary = "evaluate tokenizes the text, pushes numbers, applies operators and checks that exactly one value is left."
+hints = [
+    "evaluate owns its temporary arrays: create the token array and the stack and put defer ...deinit() right after each.",
+    "For every token, parse_number: Some pushes the value, None means the token must be an operator, so apply(&stack, token)?. Afterwards an empty token list is EmptyExpression and a stack that does not hold exactly one value is LeftOverValues.",
+]
+
+[[stages]]
+id = "desk"
+title = "The calculator desk"
+summary = "main evaluates every expression, prints each answer or its refusal and counts both."
+hints = [
+    "Loop over expressions and match on evaluate(text). Count with two usize counters.",
+    "On Ok print text = value. On Err match on the CalcError: one arm per variant, each printing [text]: followed by its message. Print the counts last.",
+]
+
+[[stages]]
+id = "words"
+title = "Bonus: stack words"
+summary = "apply also understands dup, neg and swap."
+optional = true
+hints = [
+    "These words work on the top of the stack and need 1, 1 and 2 values respectively. Check the depth and return StackUnderflow like the operators do.",
+    "dup pushes a copy of the last item, neg replaces the last item by its negative and swap exchanges the last two. Handle the words before the operator check so they are not BadToken.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "parse_number reads integers"
+stage = "numbers"
+harness = "checks/numbers.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "tokenize splits on blanks"
+stage = "tokens"
+harness = "checks/tokens.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "apply uses the top two values"
+stage = "apply"
+harness = "checks/applying.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "evaluate runs whole expressions"
+stage = "evaluate"
+harness = "checks/evaluating.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "The calculator desk"
+stage = "desk"
+expect_stdout = """
+3 4 + = 7
+5 1 2 + 4 * + 3 - = 14
+100 7 / = 14
+-7 2 / = -3
+-7 3 % = -1
+[10 0 /]: divide by zero
+[1 +]: stack underflow
+[2 x *]: unknown token
+[1 2]: more than one value left
+[]: empty expression
+42 = 42
+10 4 3 - 2 * - = 8
+7 evaluated, 5 failed
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Twelve lines of results and refusals, then the counts. The messages are listed in the README."
+
+[[checks]]
+kind = "harness"
+name = "dup, neg and swap"
+stage = "words"
+harness = "checks/words.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[questions]]
+id = "infix-of"
+type = "choice"
+prompt = "Which ordinary (infix) expression does the postfix expression `2 3 4 * +` compute?"
+choices = ["(2 + 3) * 4", "2 + 3 * 4", "2 * 3 + 4", "2 * (3 + 4)"]
+answer = 2
+why = ["That would be written 2 3 + 4 *: the addition would come first.", "", "That would be written 2 3 * 4 +.", "That would be written 2 3 4 + *."]
+explanation = "The * finds 3 and 4 on top of the stack and replaces them by 12, then + finds 2 and 12. Postfix needs no parentheses and no precedence rules: the order of the tokens is the order of the work."
+
+[[questions]]
+id = "postfix-result"
+type = "short"
+prompt = "What is left on the stack after `10 4 3 - 2 * -`? Answer with the number."
+accept = ["8"]
+explanation = "4 3 - leaves 1, then 1 2 * leaves 2, and 10 2 - leaves 8. The operand below the top is the left side of the operator, so `a b -` means a - b."

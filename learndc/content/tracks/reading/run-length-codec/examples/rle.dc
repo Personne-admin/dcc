@@ -1,0 +1,48 @@
+module main;
+
+struct Run {
+    char symbol;
+    u32 length;
+}
+
+Status(Error) encode([]const char text, Array(Run)* runs) {
+    usize i = 0;
+    while i < text.len {
+        char symbol = text[i];
+        u32 length = 0;
+        while i < text.len && text[i] == symbol {
+            length += 1;
+            i += 1;
+        }
+        runs.push(Run { symbol = symbol, length = length })?;
+    }
+    return Status::Ok;
+}
+
+Status(Error) show(Array(Run)* runs) {
+    for run in runs.items() {
+        print("{}{}", run.length, run.symbol)?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+Status(Error) decode(Array(Run)* runs) {
+    for run in runs.items() {
+        for u32 n in 0..run.length {
+            print("{}", run.symbol)?;
+        }
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Array(Run) runs = {};
+    defer runs.deinit();
+    encode("aaabccddddd", &runs)?;
+    println("{} runs", runs.len())?;
+    show(&runs)?;
+    decode(&runs)?;
+    return Status::Ok;
+}

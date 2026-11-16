@@ -1,0 +1,12 @@
+module search;
+
+import counter;
+
+public Optional(usize) find_sorted([]const i32 values, i32 key) {
+    for usize i = 0; i < values.len; i++ {
+        if counter::compare(values[i], key) == 0 {
+            return Optional::Some(i);
+        }
+    }
+    return Optional::None;
+}

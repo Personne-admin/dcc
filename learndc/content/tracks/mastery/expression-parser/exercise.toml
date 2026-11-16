@@ -1,0 +1,83 @@
+schema = 1
+id = "mastery/expression-parser"
+revision = 1
+title = "Expression Parser"
+summary = "Evaluate infix integer expressions with precedence, parentheses and unary minus, and report lexical, syntax and arithmetic errors with exact positions."
+kind = "challenge"
+difficulty = "advanced"
+estimated_minutes = 120
+concepts = ["recursive descent", "tagged enums", "Result", "custom errors", "checked arithmetic", "Array", "modules"]
+tags = ["mastery", "parsing", "errors", "memory"]
+objectives = [
+    "Turn a grammar into one function per rule and let precedence come from the call structure",
+    "Report three classes of error in a fixed order with the position of the offending character",
+    "Detect integer overflow before it happens, because DC arithmetic wraps silently",
+    "Own and release every temporary array on every exit path",
+]
+entry_file = "src/main.dc"
+product = "expression_parser"
+prerequisites = ["generics/boss-generic-toolkit"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "Valid expressions: values, precedence, associativity"
+harness = "checks/values.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "The failing lines name the expression, what it gave and what was expected."
+
+[[checks]]
+kind = "harness"
+name = "Lexical and syntax errors with positions"
+harness = "checks/syntax.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Reread the order of the error classes in the README: lexical first (in text order), then syntax, then evaluation."
+
+[[checks]]
+kind = "harness"
+name = "Division by zero, overflow and evaluation order"
+harness = "checks/arithmetic.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Check every operation before you perform it. The position is the operator (or the minus sign, or the first digit of a literal)."
+
+[[checks]]
+kind = "harness"
+name = "Long, deep and repeated inputs"
+harness = "checks/stress.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "A thousand-term sum, 200 nested groups, 501 unary minus signs and 2000 repeated evaluations must all work."
+
+[[checks]]
+kind = "run"
+name = "The calculator report"
+expect_stdout = """
+[1 + 2 * 3] = 7
+[(1 + 2) * 3] = 9
+[-(4 - 10) % 4] = 2
+[2 * (3 + 4) * 5] = 70
+[100 / 7 / 2] = 7
+[7 - 3 - 2] = 2
+[2--3] = 5
+[2 +] error: unexpected end at 3
+[(1 + )] error: unexpected token at 5
+[4 $ 4] error: invalid character at 2
+[8 / (4 - 4)] error: division by zero at 2
+[9223372036854775807 + 1] error: overflow at 20
+[] error: unexpected end at 0
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Print [text] = value, or [text] error: message at position, with the messages from the README."

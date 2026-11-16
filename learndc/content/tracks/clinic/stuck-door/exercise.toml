@@ -1,0 +1,178 @@
+schema = 1
+id = "clinic/stuck-door"
+revision = 1
+title = "The door that locks while open"
+summary = "A small door state machine accepts a lock event in the wrong state; find the faulty transition from a trace."
+kind = "fix-behavior"
+difficulty = "advanced"
+estimated_minutes = 25
+concepts = [
+    "state machine",
+    "enum",
+    "match",
+    "tracing",
+]
+tags = [
+    "clinic",
+    "state-machine",
+    "match",
+    "tracing",
+]
+objectives = [
+    "Trace a state machine by hand against its event script",
+    "Locate one wrong transition among nine",
+    "Prove the fix with the expected output",
+]
+entry_file = "src/main.dc"
+product = "stuck_door"
+prerequisites = ["data/tagged-enums"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[stages]]
+id = "locate"
+title = "Locate the cause"
+summary = "Reproduce the symptom, narrow it down and name the faulty line before you change anything."
+hints = [
+    "Write the expected state next to each event, then run the program and mark the first line where they differ. Everything before that line is fine.",
+    "The first wrong line belongs to one pair of (state before, event). Find that pair in `next` and read only its arm.",
+]
+questions = ["find-the-transition"]
+
+[[stages]]
+id = "fix"
+title = "Fix and prove it"
+summary = "Make the program print the expected output."
+hints = [
+    "Only one transition is wrong: compare the arms of the Open block with the rule in the case report.",
+    "The `Open` block must not react to `Event::Lock`; it falls through to `_ => State::Open`.",
+    "Delete the line `Event::Lock => State::Locked,` inside the `State::Open` arm. Leave the one in the `State::Closed` arm.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the expected output"
+stage = "fix"
+expect_stdout = """
+open
+open
+closed
+locked
+locked
+closed
+open
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Locking an open door must leave it open; the whole script must match the expected states."
+
+[[questions]]
+id = "find-the-transition"
+type = "bug"
+prompt = "Trace the script by hand: after `pull` the door is open and the `lock` event arrives. Which line wrongly moves it to Locked?"
+code = """
+module main;
+
+enum State { Closed, Open, Locked }
+enum Event { Push, Pull, Lock, Unlock }
+
+State next(State state, Event event) {
+    return match state {
+        State::Closed => match event {
+            Event::Pull => State::Open,
+            Event::Lock => State::Locked,
+            _ => State::Closed,
+        },
+        State::Open => match event {
+            Event::Push => State::Closed,
+            Event::Lock => State::Locked,
+            _ => State::Open,
+        },
+        State::Locked => match event {
+            Event::Unlock => State::Closed,
+            _ => State::Locked,
+        },
+    };
+}
+
+Status(Error) show(State state) {
+    match state {
+        State::Closed => println("closed")?,
+        State::Open => println("open")?,
+        State::Locked => println("locked")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    State s = State::Closed;
+    []const Event script = { Event::Pull, Event::Lock, Event::Push, Event::Lock, Event::Pull, Event::Unlock, Event::Pull };
+    for e in script {
+        s = next(s, e);
+        show(s)?;
+    }
+    return Status::Ok;
+}
+"""
+lines = [15]
+fixed = """
+module main;
+
+enum State { Closed, Open, Locked }
+enum Event { Push, Pull, Lock, Unlock }
+
+State next(State state, Event event) {
+    return match state {
+        State::Closed => match event {
+            Event::Pull => State::Open,
+            Event::Lock => State::Locked,
+            _ => State::Closed,
+        },
+        State::Open => match event {
+            Event::Push => State::Closed,
+            _ => State::Open,
+        },
+        State::Locked => match event {
+            Event::Unlock => State::Closed,
+            _ => State::Locked,
+        },
+    };
+}
+
+Status(Error) show(State state) {
+    match state {
+        State::Closed => println("closed")?,
+        State::Open => println("open")?,
+        State::Locked => println("locked")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    State s = State::Closed;
+    []const Event script = { Event::Pull, Event::Lock, Event::Push, Event::Lock, Event::Pull, Event::Unlock, Event::Pull };
+    for e in script {
+        s = next(s, e);
+        show(s)?;
+    }
+    return Status::Ok;
+}
+"""
+expect = """
+open
+open
+closed
+locked
+locked
+closed
+open
+"""
+explanation = "A state machine is a table of (state, event) pairs. The pair (Open, Lock) must stay Open, but the arm in the Open block says `Event::Lock => State::Locked`. The same text in the Closed block is correct, which makes copy and paste the likely origin. Fix it by deleting the arm so the `_ => State::Open` arm keeps the door open."

@@ -1,0 +1,56 @@
+module tokens;
+
+import std::slice;
+import rpn;
+using rpn::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool refused(Status(CalcError) s, CalcError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+bool tokens_are(Array([]const char)* out, []const []const char expected) {
+    if out.len() != expected.len {
+        return false;
+    }
+    for usize i in 0..expected.len {
+        if !std::slice::eq(out.items()[i], expected[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Array([]const char) out = {};
+    defer out.deinit();
+
+    expect(tokenize(&out, "").is_ok() && out.len() == 0, "an empty text has no tokens", &failures);
+    expect(tokenize(&out, "   ").is_ok() && out.len() == 0, "blanks alone have no tokens", &failures);
+    out.clear();
+    expect(tokenize(&out, "3 4 +").is_ok() && tokens_are(&out, { "3", "4", "+" }), "three tokens", &failures);
+    out.clear();
+    expect(tokenize(&out, "  12   -5  * ").is_ok() && tokens_are(&out, { "12", "-5", "*" }), "extra blanks do not matter", &failures);
+    out.clear();
+    expect(tokenize(&out, "dup").is_ok() && tokens_are(&out, { "dup" }), "one word", &failures);
+    out.clear();
+    expect(tokenize(&out, "a bc def").is_ok() && tokens_are(&out, { "a", "bc", "def" }), "words of different lengths", &failures);
+    expect(out.len() == 3 && out.items()[2].len == 3, "the last token ends with the text", &failures);
+    out.clear();
+    []const char text = "x yy";
+    expect(tokenize(&out, text).is_ok() && out.len() == 2, "tokens come from the text", &failures);
+    expect(tokenize(&out, "1 2").is_ok() && out.len() == 4, "tokenize appends to what is already there", &failures);
+    return failures;
+}

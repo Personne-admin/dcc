@@ -1,0 +1,25 @@
+module main;
+
+enum Zone { Local, National, Overseas, Express }
+
+i32 fee(Zone zone, i32 kilos) {
+    return match zone {
+        Zone::National => 8 + 2 * kilos,
+        Zone::Overseas => 20 + 5 * kilos,
+        Zone::Local => 4 + kilos,
+        Zone::Express => 15 + 3 * kilos,
+    };
+}
+
+Status(Error) quote([]const char label, Zone zone, i32 kilos) {
+    println("{}: {} for {} kg", label, fee(zone, kilos), kilos)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    quote("same town", Zone::Local, 3)?;
+    quote("next county", Zone::National, 3)?;
+    quote("abroad", Zone::Overseas, 3)?;
+    quote("next day", Zone::Express, 3)?;
+    return Status::Ok;
+}

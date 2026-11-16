@@ -1,0 +1,75 @@
+module stepping;
+
+import life;
+using life::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool same([]const bool a, []const bool b) {
+    for usize i in 0..CELLS {
+        if a[i] != b[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    bool[CELLS] block = {};
+    block[2 * WIDTH + 2] = true;
+    block[2 * WIDTH + 3] = true;
+    block[3 * WIDTH + 2] = true;
+    block[3 * WIDTH + 3] = true;
+    bool[CELLS] next = {};
+    step(block, next);
+    expect(same(block, next), "a block is a still life", &failures);
+
+    bool[CELLS] blinker = {};
+    blinker[3 * WIDTH + 2] = true;
+    blinker[3 * WIDTH + 3] = true;
+    blinker[3 * WIDTH + 4] = true;
+    bool[CELLS] turned = {};
+    step(blinker, turned);
+    expect(turned[2 * WIDTH + 3] && turned[3 * WIDTH + 3] && turned[4 * WIDTH + 3], "a horizontal blinker turns vertical", &failures);
+    expect(population(turned) == 3, "and still has three cells", &failures);
+    expect(population(blinker) == 3 && blinker[3 * WIDTH + 2], "the current generation is not modified", &failures);
+    bool[CELLS] back = {};
+    step(turned, back);
+    expect(same(blinker, back), "two steps bring the blinker back", &failures);
+
+    bool[CELLS] lonely = {};
+    lonely[10] = true;
+    step(lonely, next);
+    expect(population(next) == 0, "a lonely cell dies", &failures);
+
+    bool[CELLS] glider = {};
+    glider[1] = true;
+    glider[WIDTH + 2] = true;
+    glider[2 * WIDTH] = true;
+    glider[2 * WIDTH + 1] = true;
+    glider[2 * WIDTH + 2] = true;
+    bool[CELLS] other = {};
+    for usize n in 0..2 {
+        step(glider, other);
+        step(other, glider);
+    }
+    expect(glider[WIDTH + 2] && glider[2 * WIDTH + 3] && glider[3 * WIDTH + 1] && glider[3 * WIDTH + 2] && glider[3 * WIDTH + 3], "a glider moved one cell down and right after four steps", &failures);
+    expect(population(glider) == 5, "and kept five cells", &failures);
+
+    bool[CELLS] edge = {};
+    edge[WIDTH - 1] = true;
+    edge[2 * WIDTH - 1] = true;
+    edge[3 * WIDTH - 1] = true;
+    step(edge, next);
+    expect(population(next) == 2 && next[WIDTH - 1 + 0] == false, "a blinker on the right edge loses its far side: the world has no wrap-around", &failures);
+    return failures;
+}

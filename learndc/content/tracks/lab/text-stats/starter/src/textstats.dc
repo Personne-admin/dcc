@@ -1,0 +1,27 @@
+module textstats;
+
+public bool is_letter(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+public char lower(char c) {
+    if c >= 'A' && c <= 'Z' {
+        return (c as u32 + 32) as char;
+    }
+    return c;
+}
+
+public usize count_words([]const char text) {
+    return 0;
+}
+
+public []const char longest_word([]const char text) {
+    return text[0..0];
+}
+
+public void count_letters([]const char text, []u32 counts) {
+}
+
+public char most_common([]const u32 counts) {
+    return '-';
+}

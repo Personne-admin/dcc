@@ -1,0 +1,176 @@
+module bignum;
+
+public const u32 BASE = 1000000000;
+
+public enum BigError {
+    @implicit_construction Alloc(AllocError),
+    Underflow,
+    DivideByZero,
+}
+
+void trim(Array(u32)* n) {
+    while n.len() > 1 && n.items()[n.len() - 1] == 0 {
+        n.pop();
+    }
+}
+
+public Status(AllocError) set_u64(Array(u32)* n, u64 value) {
+    n.clear();
+    u64 rest = value;
+    n.push((rest % BASE as u64) as u32)?;
+    rest = rest / BASE as u64;
+    while rest > 0 {
+        n.push((rest % BASE as u64) as u32)?;
+        rest = rest / BASE as u64;
+    }
+    return Status::Ok;
+}
+
+public Status(AllocError) to_text(const Array(u32)* n, Array(char)* out) {
+    out.clear();
+    usize top = n.len() - 1;
+    u32 lead = n.items()[top];
+    Array(char) digits = {};
+    defer digits.deinit();
+    if lead == 0 {
+        out.push('0')?;
+    }
+    while lead > 0 {
+        digits.push(('0' as u32 + lead % 10) as char)?;
+        lead = lead / 10;
+    }
+    for usize k in 0..digits.len() {
+        out.push(digits.items()[digits.len() - 1 - k])?;
+    }
+    for usize k in 0..top {
+        u32 limb = n.items()[top - 1 - k];
+        u32 scale = BASE / 10;
+        while scale > 0 {
+            out.push(('0' as u32 + limb / scale % 10) as char)?;
+            scale = scale / 10;
+        }
+    }
+    return Status::Ok;
+}
+
+public i32 compare(const Array(u32)* a, const Array(u32)* b) {
+    if a.len() != b.len() {
+        return if a.len() < b.len() { -1 } else { 1 };
+    }
+    usize i = a.len();
+    while i > 0 {
+        i -= 1;
+        if a.items()[i] != b.items()[i] {
+            return if a.items()[i] < b.items()[i] { -1 } else { 1 };
+        }
+    }
+    return 0;
+}
+
+public Status(AllocError) add(Array(u32)* a, const Array(u32)* b) {
+    usize count = if a.len() > b.len() { a.len() } else { b.len() };
+    u32 carry = 0;
+    usize i = 0;
+    while i < count {
+        u64 sum = carry as u64;
+        if i < a.len() {
+            sum += a.items()[i] as u64;
+        }
+        if i < b.len() {
+            sum += b.items()[i] as u64;
+        }
+        carry = (sum / BASE as u64) as u32;
+        u32 limb = (sum % BASE as u64) as u32;
+        if i < a.len() {
+            a.items()[i] = limb;
+        } else {
+            a.push(limb)?;
+        }
+        i += 1;
+    }
+    if carry > 0 {
+        a.push(carry)?;
+    }
+    return Status::Ok;
+}
+
+public Status(AllocError) mul_small(Array(u32)* a, u32 m) {
+    if m == 0 {
+        a.clear();
+        a.push(0)?;
+        return Status::Ok;
+    }
+    u64 carry = 0;
+    for usize i in 0..a.len() {
+        u64 product = a.items()[i] as u64 * m as u64 + carry;
+        a.items()[i] = (product % BASE as u64) as u32;
+        carry = product / BASE as u64;
+    }
+    while carry > 0 {
+        a.push((carry % BASE as u64) as u32)?;
+        carry = carry / BASE as u64;
+    }
+    return Status::Ok;
+}
+
+public Status(AllocError) mul(const Array(u32)* a, const Array(u32)* b, Array(u32)* out) {
+    out.clear();
+    for usize k in 0..a.len() + b.len() {
+        out.push(0)?;
+    }
+    for usize i in 0..a.len() {
+        u64 carry = 0;
+        for usize j in 0..b.len() {
+            u64 cell = out.items()[i + j] as u64 + a.items()[i] as u64 * b.items()[j] as u64 + carry;
+            out.items()[i + j] = (cell % BASE as u64) as u32;
+            carry = cell / BASE as u64;
+        }
+        usize at = i + b.len();
+        while carry > 0 {
+            u64 cell = out.items()[at] as u64 + carry;
+            out.items()[at] = (cell % BASE as u64) as u32;
+            carry = cell / BASE as u64;
+            at += 1;
+        }
+    }
+    trim(out);
+    return Status::Ok;
+}
+
+public Status(BigError) sub(Array(u32)* a, const Array(u32)* b) {
+    if compare(a, b) < 0 {
+        return BigError::Underflow;
+    }
+    i64 borrow = 0;
+    for usize i in 0..a.len() {
+        i64 diff = a.items()[i] as i64 - borrow;
+        if i < b.len() {
+            diff -= b.items()[i] as i64;
+        }
+        if diff < 0 {
+            diff += BASE as i64;
+            borrow = 1;
+        } else {
+            borrow = 0;
+        }
+        a.items()[i] = diff as u32;
+    }
+    trim(a);
+    return Status::Ok;
+}
+
+public Result(u32, BigError) divmod_small(Array(u32)* a, u32 d) {
+    if d == 0 {
+        return Result::Err(BigError::DivideByZero);
+    }
+    u64 rest = 0;
+    usize i = a.len();
+    while i > 0 {
+        i -= 1;
+        u64 current = rest * BASE as u64 + a.items()[i] as u64;
+        a.items()[i] = (current / d as u64) as u32;
+        rest = current % d as u64;
+    }
+    trim(a);
+    return Result::Ok(rest as u32);
+}

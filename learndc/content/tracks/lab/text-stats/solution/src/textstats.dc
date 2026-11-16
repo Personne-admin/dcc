@@ -1,0 +1,69 @@
+module textstats;
+
+public bool is_letter(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+public char lower(char c) {
+    if c >= 'A' && c <= 'Z' {
+        return (c as u32 + 32) as char;
+    }
+    return c;
+}
+
+public usize count_words([]const char text) {
+    usize words = 0;
+    bool inside = false;
+    for c in text {
+        if is_letter(c) {
+            if !inside {
+                words += 1;
+            }
+            inside = true;
+        } else {
+            inside = false;
+        }
+    }
+    return words;
+}
+
+public []const char longest_word([]const char text) {
+    []const char best = text[0..0];
+    usize start = 0;
+    bool inside = false;
+    for usize i = 0; i <= text.len; i++ {
+        bool letter = i < text.len && is_letter(text[i]);
+        if letter && !inside {
+            start = i;
+            inside = true;
+        } else if !letter && inside {
+            inside = false;
+            if i - start > best.len {
+                best = text[start..i];
+            }
+        }
+    }
+    return best;
+}
+
+public void count_letters([]const char text, []u32 counts) {
+    for c in text {
+        if is_letter(c) {
+            counts[(lower(c) as u32 - 97) as usize] += 1;
+        }
+    }
+}
+
+
+public char most_common([]const u32 counts) {
+    usize best = 0;
+    for usize i = 1; i < counts.len; i++ {
+        if counts[i] > counts[best] {
+            best = i;
+        }
+    }
+    if counts[best] == 0 {
+        return '-';
+    }
+    return (best as u32 + 97) as char;
+}

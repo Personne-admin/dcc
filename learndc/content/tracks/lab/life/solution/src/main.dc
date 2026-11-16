@@ -1,0 +1,21 @@
+module main;
+
+import life;
+using life::*;
+
+public Status(Error) main() {
+    bool[CELLS] a = {};
+    bool[CELLS] b = {};
+    a[1] = true;
+    a[8 + 2] = true;
+    a[16] = true;
+    a[17] = true;
+    a[18] = true;
+    for usize generation in 0..=4 {
+        println("generation {}, population {}", generation, population(a))?;
+        render(a)?;
+        step(a, b);
+        a = b;
+    }
+    return Status::Ok;
+}

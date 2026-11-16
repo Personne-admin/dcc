@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "hoist_the_average",
+    version = "0.1.0",
+    products = {
+        { name = "hoist_the_average", entry = "src/main.dc" },
+    },
+}

@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "stuck_door",
+    version = "0.1.0",
+    products = {
+        { name = "stuck_door", entry = "src/main.dc" },
+    },
+}

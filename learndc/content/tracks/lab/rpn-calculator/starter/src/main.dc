@@ -1,0 +1,26 @@
+module main;
+
+import rpn;
+using rpn::*;
+
+public Status(Error) main() {
+    []const []const char expressions = {
+        "3 4 +",
+        "5 1 2 + 4 * + 3 -",
+        "100 7 /",
+        "-7 2 /",
+        "-7 3 %",
+        "10 0 /",
+        "1 +",
+        "2 x *",
+        "1 2",
+        "",
+        "42",
+        "10 4 3 - 2 * -",
+    };
+    usize good = 0;
+    usize bad = 0;
+
+    println("{} evaluated, {} failed", good, bad)?;
+    return Status::Ok;
+}

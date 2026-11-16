@@ -1,0 +1,12 @@
+module main;
+
+import textstats;
+using textstats::*;
+
+public Status(Error) main() {
+    []const char text = "The quick brown fox jumps over the lazy dog. The dog sleeps; the fox runs on.";
+    u32[26] counts = {};
+
+    println("characters: {}", text.len)?;
+    return Status::Ok;
+}

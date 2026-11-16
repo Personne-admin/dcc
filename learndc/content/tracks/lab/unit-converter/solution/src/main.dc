@@ -1,0 +1,41 @@
+module main;
+
+import units;
+using units::*;
+
+struct Request {
+    f64 value;
+    []const char from;
+    []const char to;
+}
+
+public Status(Error) main() {
+    []const Request requests = {
+        { 12.5, "km", "mi" },
+        { 100.0, "C", "F" },
+        { 3.0, "lb", "kg" },
+        { 72.0, "in", "ft" },
+        { 5.0, "kg", "m" },
+        { 1.0, "furlong", "m" },
+        { 0.0, "K", "C" },
+    };
+    usize done = 0;
+    usize failed = 0;
+    for request in requests {
+        match convert(request.value, request.from, request.to) {
+            Result::Ok(result) => {
+                println("{:.2} {} = {:.2} {}", request.value, request.from, result, request.to)?;
+                done += 1;
+            },
+            Result::Err(e) => {
+                print_error(request.value, request.from, request.to, e)?;
+                failed += 1;
+            },
+        }
+    }
+    println("{} converted, {} refused", done, failed)?;
+
+    []const f64 steps = { 0.0, 10.0, 37.0, 100.0 };
+    print_table("C", "F", steps)?;
+    return Status::Ok;
+}

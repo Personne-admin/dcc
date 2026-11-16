@@ -1,0 +1,36 @@
+module maze;
+
+public enum MazeError {
+    @implicit_construction Alloc(AllocError),
+    NoStart,
+    NoExit,
+    NoPath,
+}
+
+public Optional(usize) locate([]const []const char rows, char target) {
+    return Optional::None;
+}
+
+public Status(AllocError) open_neighbours([]const []const char rows, usize cell, Array(usize)* out) {
+    return Status::Ok;
+}
+
+public Status(AllocError) distances([]const []const char rows, usize start, Array(i32)* dist) {
+    return Status::Ok;
+}
+
+public Result(i32, MazeError) shortest([]const []const char rows) {
+    return Result::Err(MazeError::NoStart);
+}
+
+public Status(MazeError) find_path([]const []const char rows, Array(usize)* path) {
+    return MazeError::NoStart;
+}
+
+public Status(Error) draw([]const []const char rows, const Array(usize)* path) {
+    return Status::Ok;
+}
+
+public usize farthest([]const []const char rows) {
+    return 0;
+}

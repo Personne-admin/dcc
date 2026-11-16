@@ -1,0 +1,52 @@
+module ledger;
+
+import std::slice;
+import money;
+
+public struct Account {
+    []const char name;
+    i64 balance;
+}
+
+public struct Entry {
+    usize account;
+    i64 delta;
+    []const char note;
+}
+
+public enum LedgerError {
+    @implicit_construction Alloc(AllocError),
+    UnknownAccount,
+    DuplicateAccount,
+    InvalidAmount,
+    InsufficientFunds,
+    SameAccount,
+}
+
+public Optional(usize) find(const Array(Account)* accounts, []const char name) {
+    return Optional::None;
+}
+
+public Status(LedgerError) open(Array(Account)* accounts, []const char name) {
+    return Status::Ok;
+}
+
+public Optional(i64) balance_of(const Array(Account)* accounts, []const char name) {
+    return Optional::None;
+}
+
+public Status(LedgerError) deposit(Array(Account)* accounts, Array(Entry)* journal, []const char name, i64 amount) {
+    return Status::Ok;
+}
+
+public Status(LedgerError) withdraw(Array(Account)* accounts, Array(Entry)* journal, []const char name, i64 amount) {
+    return Status::Ok;
+}
+
+public Status(LedgerError) transfer(Array(Account)* accounts, Array(Entry)* journal, []const char from, []const char to, i64 amount) {
+    return Status::Ok;
+}
+
+public Status(Error) statement(const Array(Account)* accounts, const Array(Entry)* journal, []const char name) {
+    return Status::Ok;
+}

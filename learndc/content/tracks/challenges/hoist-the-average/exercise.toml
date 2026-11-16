@@ -1,0 +1,55 @@
+schema = 1
+id = "challenges/hoist-the-average"
+revision = 1
+title = "Optimize: do not recompute inside the loop"
+summary = "A function recomputes the average for every element; compute it once and cut the number of reads from n squared to 2n."
+kind = "challenge"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = [
+    "loop invariant",
+    "complexity",
+    "measuring",
+]
+tags = [
+    "optimization",
+    "loops",
+    "complexity",
+    "intermediate",
+]
+objectives = [
+    "Recognise a computation that does not depend on the loop variable",
+    "Move it out of the loop and prove the saving by counting reads",
+]
+entry_file = "src/main.dc"
+product = "hoist_the_average"
+prerequisites = ["loops/loops-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The program output is unchanged"
+expect_stdout = """
+above average: 2
+reads: 10
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The output must match exactly."
+
+[[checks]]
+kind = "harness"
+name = "The harness passes"
+harness = "checks/above_checks.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Read the FAIL lines of the harness output."

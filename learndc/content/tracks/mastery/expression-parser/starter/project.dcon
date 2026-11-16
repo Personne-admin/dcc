@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "expression_parser",
+    version = "0.1.0",
+    products = {
+        { name = "expression_parser", entry = "src/main.dc" },
+    },
+}

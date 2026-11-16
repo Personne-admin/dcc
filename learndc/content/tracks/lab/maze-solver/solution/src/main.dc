@@ -1,0 +1,55 @@
+module main;
+
+import maze;
+using maze::*;
+
+Status(Error) explore(usize number, []const []const char rows) {
+    Array(usize) path = {};
+    defer path.deinit();
+    match find_path(rows, &path) {
+        Status::Ok => {
+            println("maze {}: {} steps", number, path.len() - 1)?;
+            draw(rows, &path)?;
+        },
+        Status::Err(e) => match e {
+            MazeError::Alloc(a) => println("maze {}: out of memory", number)?,
+            MazeError::NoStart => println("maze {}: no start", number)?,
+            MazeError::NoExit => println("maze {}: no exit", number)?,
+            MazeError::NoPath => println("maze {}: no path", number)?,
+        },
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const []const char castle = {
+        "#########",
+        "#S..#...#",
+        "#.#.#.#.#",
+        "#.#...#E#",
+        "#.#####.#",
+        "#.......#",
+        "#########",
+    };
+    []const []const char walled = {
+        "#######",
+        "#S..#E#",
+        "#...#.#",
+        "#######",
+    };
+    []const []const char cave = {
+        "#####",
+        "#S..#",
+        "#####",
+    };
+    []const []const char ruin = {
+        "#####",
+        "#..E#",
+        "#####",
+    };
+    explore(1, castle)?;
+    explore(2, walled)?;
+    explore(3, cave)?;
+    explore(4, ruin)?;
+    return Status::Ok;
+}

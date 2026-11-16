@@ -1,0 +1,97 @@
+module routes;
+
+import maze;
+using maze::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool is_err(Result(i32, MazeError) r, MazeError expected) {
+    match r {
+        Result::Ok(v) => return false,
+        Result::Err(e) => return e == expected,
+    }
+}
+
+bool steps_are(Result(i32, MazeError) r, i32 expected) {
+    match r {
+        Result::Ok(v) => return v == expected,
+        Result::Err(e) => return false,
+    }
+}
+
+bool refused(Status(MazeError) s, MazeError expected) {
+    match s {
+        Status::Ok => return false,
+        Status::Err(e) => return e == expected,
+    }
+}
+
+bool sequence(const Array(usize)* got, []const usize expected) {
+    if got.len() != expected.len {
+        return false;
+    }
+    for usize i in 0..expected.len {
+        if got.items()[i] != expected[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    []const []const char castle = {
+        "#########",
+        "#S..#...#",
+        "#.#.#.#.#",
+        "#.#...#E#",
+        "#.#####.#",
+        "#.......#",
+        "#########",
+    };
+    expect(steps_are(shortest(castle), 12), "the castle takes 12 steps", &failures);
+    []const []const char next_to = { "SE" };
+    expect(steps_are(shortest(next_to), 1), "neighbours are 1 step apart", &failures);
+    []const []const char straight = { "S...E" };
+    expect(steps_are(shortest(straight), 4), "a corridor of 4 steps", &failures);
+    []const []const char detour = {
+        "S.#E",
+        "#.#.",
+        "#...",
+    };
+    expect(steps_are(shortest(detour), 7), "a detour around a wall", &failures);
+    []const []const char walled = {
+        "#######",
+        "#S..#E#",
+        "#...#.#",
+        "#######",
+    };
+    expect(is_err(shortest(walled), MazeError::NoPath), "a wall between S and E: NoPath", &failures);
+    []const []const char cave = {
+        "#####",
+        "#S..#",
+        "#####",
+    };
+    expect(is_err(shortest(cave), MazeError::NoExit), "no E: NoExit", &failures);
+    []const []const char ruin = {
+        "#####",
+        "#..E#",
+        "#####",
+    };
+    expect(is_err(shortest(ruin), MazeError::NoStart), "no S: NoStart", &failures);
+    []const []const char blank = {
+        "...",
+        "...",
+    };
+    expect(is_err(shortest(blank), MazeError::NoStart), "neither: NoStart is reported first", &failures);
+    []const []const char none = {};
+    expect(is_err(shortest(none), MazeError::NoStart), "no rows at all: NoStart", &failures);
+    return failures;
+}

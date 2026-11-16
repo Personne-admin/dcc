@@ -1,0 +1,30 @@
+module invoice_checks;
+
+import invoice;
+using invoice::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(line_total(Line { name = "a", qty = 0, unit = 99 }) == 0, "quantity 0 costs nothing", &failures);
+    expect(line_total(Line { name = "a", qty = 9, unit = 100 }) == 900, "9 pieces: no discount", &failures);
+    expect(line_total(Line { name = "a", qty = 10, unit = 100 }) == 900, "10 pieces: 10 percent off", &failures);
+    expect(line_total(Line { name = "a", qty = 12, unit = 15 }) == 162, "the discount uses integer division", &failures);
+    Line[4] lines = {
+        Line { name = "a", qty = 1, unit = 5 },
+        Line { name = "b", qty = 20, unit = 50 },
+        Line { name = "c", qty = 2, unit = 7 },
+        Line { name = "d", qty = 10, unit = 1 },
+    };
+    expect(invoice_total(lines) == 5 + 900 + 14 + 9, "the total adds the discounted lines", &failures);
+    expect(invoice_total(lines[0..0]) == 0, "an empty invoice is 0", &failures);
+    return failures;
+}

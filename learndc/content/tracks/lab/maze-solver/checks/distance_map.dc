@@ -1,0 +1,84 @@
+module distance_map;
+
+import maze;
+using maze::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool is_err(Result(i32, MazeError) r, MazeError expected) {
+    match r {
+        Result::Ok(v) => return false,
+        Result::Err(e) => return e == expected,
+    }
+}
+
+bool sequence(const Array(usize)* got, []const usize expected) {
+    if got.len() != expected.len {
+        return false;
+    }
+    for usize i in 0..expected.len {
+        if got.items()[i] != expected[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    []const []const char rows = {
+        "S.#",
+        "..#",
+        "#.E",
+    };
+    Array(i32) dist = {};
+    defer dist.deinit();
+    expect(distances(rows, 0, &dist).is_ok(), "distances succeeds", &failures);
+    expect(dist.len() == 9, "one entry per cell", &failures);
+    if dist.len() == 9 {
+        []const i32 expected = { 0, 1, -1, 1, 2, -1, -1, 3, 4 };
+        bool all = true;
+        for usize i in 0..9 {
+            if dist.items()[i] != expected[i] {
+                all = false;
+                println("      cell {}: got {}, expected {}", i, dist.items()[i], expected[i]);
+            }
+        }
+        expect(all, "steps from the start: 0 at S, -1 for walls", &failures);
+    }
+
+    []const []const char island = {
+        "S.#..",
+        "..#..",
+        "..#.E",
+    };
+    expect(distances(island, 0, &dist).is_ok() && dist.len() == 15, "the array is reset for a new maze", &failures);
+    if dist.len() == 15 {
+        expect(dist.items()[1] == 1 && dist.items()[10] == 2, "near cells", &failures);
+        expect(dist.items()[3] == -1 && dist.items()[14] == -1, "cells behind a wall stay -1", &failures);
+    }
+
+    distances(rows, 8, &dist).unwrap();
+    expect(dist.len() == 9 && dist.items()[8] == 0 && dist.items()[0] == 4, "any cell can be the start", &failures);
+
+    []const []const char castle = {
+        "#########",
+        "#S..#...#",
+        "#.#.#.#.#",
+        "#.#...#E#",
+        "#.#####.#",
+        "#.......#",
+        "#########",
+    };
+    distances(castle, 10, &dist).unwrap();
+    expect(dist.len() == 63 && dist.items()[34] == 12, "the castle exit is 12 steps away", &failures);
+    expect(dist.items()[48] == 6 && dist.items()[32] == 6, "and the two routes meet in the middle at 6", &failures);
+    return failures;
+}

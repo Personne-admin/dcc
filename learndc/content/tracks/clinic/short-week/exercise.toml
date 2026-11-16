@@ -1,0 +1,160 @@
+schema = 1
+id = "clinic/short-week"
+revision = 1
+title = "The Sunday that never wins"
+summary = "A weekly report never picks the last day as the busiest; find the loop that stops one element early."
+kind = "fix-behavior"
+difficulty = "beginner"
+estimated_minutes = 15
+concepts = [
+    "off-by-one",
+    "loops",
+    "slices",
+    "debugging",
+]
+tags = [
+    "clinic",
+    "loops",
+    "off-by-one",
+]
+objectives = [
+    "Reproduce a wrong result with data that makes the bug visible",
+    "Spot a loop bound that skips the last element",
+    "Prove the fix with the expected output",
+]
+entry_file = "src/main.dc"
+product = "short_week"
+prerequisites = ["collections/arrays-and-slices"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[stages]]
+id = "locate"
+title = "Locate the cause"
+summary = "Reproduce the symptom, narrow it down and name the faulty line before you change anything."
+hints = [
+    "Do not read the code top to bottom yet. Reproduce first: which input makes the answer wrong? Move the biggest sale to day 1 and then to day 7 and see when the report is right.",
+    "The total is right, so the loop in `total` visits every day. `quietest_day` is right for this data. Compare the loops of `busiest_day` and `quietest_day` line by line.",
+]
+questions = ["find-short-loop"]
+
+[[stages]]
+id = "fix"
+title = "Fix and prove it"
+summary = "Make the program print the expected output."
+hints = [
+    "The last valid index of a slice with `len` elements is `len - 1`, and `i < len` stops after visiting it.",
+    "Only the loop condition of `busiest_day` is different from `quietest_day`.",
+    "Change `i < sales.len - 1` to `i < sales.len` in `busiest_day`.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the expected output"
+stage = "fix"
+expect_stdout = """
+total: 1215
+busiest day: 7
+quietest day: 2
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The busiest day must be day 7 and the other two lines must stay unchanged."
+
+[[questions]]
+id = "find-short-loop"
+type = "bug"
+prompt = "The report says day 6 is the busiest, but day 7 sold the most. Which line makes `busiest_day` miss the last day?"
+code = """
+module main;
+
+i32 total([]const i32 sales) {
+    i32 sum = 0;
+    for value in sales {
+        sum += value;
+    }
+    return sum;
+}
+
+usize busiest_day([]const i32 sales) {
+    usize best = 0;
+    for usize i = 1; i < sales.len - 1; i++ {
+        if sales[i] > sales[best] {
+            best = i;
+        }
+    }
+    return best;
+}
+
+usize quietest_day([]const i32 sales) {
+    usize best = 0;
+    for usize i = 1; i < sales.len; i++ {
+        if sales[i] < sales[best] {
+            best = i;
+        }
+    }
+    return best;
+}
+
+public Status(Error) main() {
+    i32[7] week = { 120, 95, 140, 110, 180, 260, 310 };
+    println("total: {}", total(week))?;
+    println("busiest day: {}", busiest_day(week) + 1)?;
+    println("quietest day: {}", quietest_day(week) + 1)?;
+    return Status::Ok;
+}
+"""
+lines = [13]
+fixed = """
+module main;
+
+i32 total([]const i32 sales) {
+    i32 sum = 0;
+    for value in sales {
+        sum += value;
+    }
+    return sum;
+}
+
+usize busiest_day([]const i32 sales) {
+    usize best = 0;
+    for usize i = 1; i < sales.len; i++ {
+        if sales[i] > sales[best] {
+            best = i;
+        }
+    }
+    return best;
+}
+
+usize quietest_day([]const i32 sales) {
+    usize best = 0;
+    for usize i = 1; i < sales.len; i++ {
+        if sales[i] < sales[best] {
+            best = i;
+        }
+    }
+    return best;
+}
+
+public Status(Error) main() {
+    i32[7] week = { 120, 95, 140, 110, 180, 260, 310 };
+    println("total: {}", total(week))?;
+    println("busiest day: {}", busiest_day(week) + 1)?;
+    println("quietest day: {}", quietest_day(week) + 1)?;
+    return Status::Ok;
+}
+"""
+expect = """
+total: 1215
+busiest day: 7
+quietest day: 2
+"""
+explanation = "The loop condition `i < sales.len - 1` stops when `i` is the index before the last one, so the last element (index 6) is never compared. `quietest_day` has the same loop with `i < sales.len` and works; comparing two similar functions is a fast way to find the odd one out. An off-by-one error shows up first at the edge of the data, so test with the largest value in the last position."

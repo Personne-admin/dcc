@@ -1,0 +1,15 @@
+schema = 1
+id = "challenges"
+title = "Challenge Board"
+summary = "Sharply specified problems tagged by concept and difficulty: implement, refactor and optimize."
+goal = "Solve self-contained problems on your own, restructure working code safely and prove an improvement by measuring."
+exercises = [
+    "collatz-steps",
+    "balanced-brackets",
+    "second-largest",
+    "refactor-invoice",
+    "refactor-shipping",
+    "binary-search-budget",
+    "single-pass-minmax",
+    "hoist-the-average",
+]

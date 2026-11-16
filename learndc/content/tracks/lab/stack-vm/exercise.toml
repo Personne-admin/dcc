@@ -1,0 +1,234 @@
+schema = 1
+id = "lab/stack-vm"
+revision = 1
+title = "The Stack Machine"
+summary = "Build a tiny computer: an assembler that turns text into instructions, a virtual machine that runs them with a stack, a listing printer and typed errors for every way a program can go wrong."
+kind = "challenge"
+difficulty = "advanced"
+estimated_minutes = 120
+concepts = ["tagged enums", "match", "assembler", "virtual machine", "stack", "Result", "custom errors", "text parsing", "defer"]
+tags = ["boss", "project", "interpreter", "errors", "memory"]
+objectives = [
+    "Model instructions as a tagged enum and write one match that executes every variant",
+    "Parse assembly text into instructions with precise errors and line numbers",
+    "Run programs with a stack, jumps and a step limit that stops endless loops",
+    "Print a listing of a program with a match that covers every instruction",
+]
+entry_file = "src/main.dc"
+product = "stack_vm"
+prerequisites = ["errors/boss-config-parser", "memory/boss-inventory-keeper"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[boss]
+rating = 5
+story = """
+Every computer is a stack of small decisions. You are going to build the
+smallest one that still counts: a machine with thirteen instructions, a
+stack, and an assembler that reads its programs from text. By the end it will
+count down, compute factorials and, if you let it, loop forever until your
+step limit stops it.
+"""
+
+[[stages]]
+id = "by-hand"
+title = "Run it in your head"
+summary = "Execute two small programs on paper before you write the machine."
+questions = ["trace-sub", "stack-over"]
+hints = ["Keep the stack as a row of numbers, the top on the right. Push adds to the right end, binary instructions replace the two rightmost numbers by one."]
+
+[[stages]]
+id = "parse"
+title = "Parse one instruction"
+summary = "parse_instruction turns one line such as push 5 or jz 8 into an Instr, or into a typed error."
+hints = [
+    "Split the line into blank-separated words with the split helper (and give the array a defer). The first word is the mnemonic, the second the operand.",
+    "Check in this order: an unknown mnemonic is UnknownOp; for push, jump and jz the operand count is MissingOperand (none) or ExtraOperand (more than one), then BadOperand if it is not a number; for every other mnemonic any extra word is ExtraOperand. Jump targets must not be negative.",
+]
+
+[[stages]]
+id = "assemble"
+title = "Assemble a program"
+summary = "assemble parses many lines, skips blank lines and ; comments and reports the number of the first bad line."
+hints = [
+    "Walk the lines with an index, trim each one with the helper and skip it when it is empty or starts with ;.",
+    "Push every parsed Instr onto the program array. On the first error store i + 1 through the bad_line pointer and return the error. The line number counts every line of the text, including blank ones.",
+]
+
+[[stages]]
+id = "run"
+title = "Run the machine"
+summary = "run executes a program on a stack: arithmetic, stack words, jumps, print, and the five runtime errors."
+hints = [
+    "The machine state is a stack (an owning Array(i64) with defer), a program counter pc and a step counter. Loop while pc < program.len and decide the next pc inside the match, so that jumps can replace it.",
+    "match program[pc] with one arm per variant. Check the stack depth before you pop and refuse with StackUnderflow. Check steps == max_steps before every instruction (StepLimit) and jump targets against program.len (BadJump). For a binary operation the right operand is the top of the stack. Print appends to out.",
+]
+
+[[stages]]
+id = "listing"
+title = "Print a listing"
+summary = "listing prints every instruction with its address, so that jump targets can be read."
+hints = [
+    "It is one more match over the same thirteen variants. Each arm prints its own line.",
+    "Format: \"{:>3}  push {}\" with the index and the operand; \"{:>3}  add\" for instructions without an operand. Print inside the arms: do not return text from a match.",
+]
+
+[[stages]]
+id = "desk"
+title = "The machine room"
+summary = "execute assembles and runs a named program, printing the listing, its output and any error; main runs five of them."
+hints = [
+    "Print the heading, assemble into an Array(Instr) with defer, and match on the Status: on an error print error: line N: followed by print_error(e) and stop.",
+    "After a successful assembly print the listing and run with a limit of 1000 steps into an Array(i64). Print the output line even when the run fails, then print the runtime error with print_error. Keep the Status in a variable so you can print the output before you look at it.",
+]
+
+[[stages]]
+id = "labels"
+title = "Bonus: labels"
+summary = "assemble_labels accepts label: lines and lets jump and jz name a label instead of a number."
+optional = true
+hints = [
+    "Two passes. The first pass walks the lines and records every label with the number of instructions seen so far; the second pass assembles and resolves names.",
+    "In the second pass skip labels, split the line and when the mnemonic is jump or jz and the operand is not a number, look it up (UnknownLabel if it is missing) and push the Instr with the address. Every other line goes through parse_instruction.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "parse_instruction reads and refuses"
+stage = "parse"
+harness = "checks/parsing.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "assemble skips comments and numbers its errors"
+stage = "assemble"
+harness = "checks/assembling.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "run executes every instruction"
+stage = "run"
+harness = "checks/running.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "listing prints addresses and operands"
+stage = "listing"
+harness = "checks/listing_check.dc"
+expect_stdout = """
+  0  push -3
+  1  dup
+  2  add
+  3  sub
+  4  mul
+  5  div
+  6  over
+  7  swap
+  8  drop
+  9  jz 12
+ 10  jump 0
+ 11  print
+ 12  halt
+--
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The address is right-aligned in 3 columns with {:>3}, then two spaces, then the mnemonic and its operand."
+
+[[checks]]
+kind = "run"
+name = "The machine room"
+stage = "desk"
+expect_stdout = """
+== countdown ==
+  0  push 5
+  1  dup
+  2  print
+  3  push 1
+  4  sub
+  5  dup
+  6  jz 8
+  7  jump 1
+  8  halt
+output: 5 4 3 2 1
+== factorial ==
+  0  push 5
+  1  push 1
+  2  over
+  3  jz 11
+  4  over
+  5  mul
+  6  swap
+  7  push 1
+  8  sub
+  9  swap
+ 10  jump 2
+ 11  print
+ 12  halt
+output: 120
+== spin ==
+  0  push 1
+  1  jump 0
+output:
+error: step limit reached
+== typo ==
+error: line 3: unknown instruction
+== hungry ==
+  0  push 7
+  1  print
+  2  add
+output: 7
+error: stack underflow
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Five programs: countdown and factorial succeed, spin hits the step limit, typo fails at line 3 and hungry underflows after printing 7."
+
+[[checks]]
+kind = "harness"
+name = "assemble_labels resolves names"
+stage = "labels"
+harness = "checks/labels.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[questions]]
+id = "trace-sub"
+type = "short"
+prompt = """
+What does this program print? Answer with the number.
+
+```text
+push 4
+push 3
+sub
+push 2
+mul
+print
+```
+"""
+accept = ["2"]
+explanation = "4 3 sub leaves 1, because the lower value is the left operand: 4 - 3. Then 1 2 mul leaves 2, and print shows it. Had the operands been read in the other order the result would have been 3 - 4 = -1 times 2 = -2."
+
+[[questions]]
+id = "stack-over"
+type = "choice"
+prompt = "After `push 1`, `push 2` and `over`, what is on the stack, from the bottom to the top?"
+choices = ["1 2 1", "1 2 2", "2 1 2", "1 1 2"]
+answer = 1
+why = ["", "That is dup: it copies the top value. over copies the value below it.", "That is not the result of any of these instructions.", "over puts its copy on top, it does not insert it below the others."]
+explanation = "over copies the second value from the top onto the top: the stack was 1 2, so it becomes 1 2 1. It is what the factorial program uses to look at the counter without losing the running product."

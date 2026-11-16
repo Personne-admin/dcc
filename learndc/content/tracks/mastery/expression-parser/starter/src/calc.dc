@@ -1,0 +1,14 @@
+module calc;
+
+public enum CalcError {
+    @implicit_construction Alloc(AllocError),
+    InvalidCharacter(usize),
+    UnexpectedToken(usize),
+    UnexpectedEnd(usize),
+    DivideByZero(usize),
+    Overflow(usize),
+}
+
+public Result(i64, CalcError) evaluate([]const char text) {
+    return Result::Err(CalcError::UnexpectedEnd(0));
+}

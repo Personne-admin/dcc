@@ -1,0 +1,57 @@
+module locating;
+
+import maze;
+using maze::*;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool is_err(Result(i32, MazeError) r, MazeError expected) {
+    match r {
+        Result::Ok(v) => return false,
+        Result::Err(e) => return e == expected,
+    }
+}
+
+bool sequence(const Array(usize)* got, []const usize expected) {
+    if got.len() != expected.len {
+        return false;
+    }
+    for usize i in 0..expected.len {
+        if got.items()[i] != expected[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    []const []const char castle = {
+        "#########",
+        "#S..#...#",
+        "#.#.#.#.#",
+        "#.#...#E#",
+        "#########",
+    };
+    Optional(usize) s = locate(castle, 'S');
+    Optional(usize) e = locate(castle, 'E');
+    expect(s.is_some() && s.unwrap_some() == 10, "S is at row 1, column 1: cell 1 * 9 + 1", &failures);
+    expect(e.is_some() && e.unwrap_some() == 34, "E is at row 3, column 7: cell 3 * 9 + 7", &failures);
+    expect(locate(castle, '?').is_none(), "a character that is not there is None", &failures);
+    Optional(usize) wall = locate(castle, '#');
+    expect(wall.is_some() && wall.unwrap_some() == 0, "the first match in row order wins", &failures);
+    []const []const char tiny = { "SE" };
+    expect(locate(tiny, 'E').is_some() && locate(tiny, 'E').unwrap_some() == 1, "a one row maze", &failures);
+    []const []const char tall = { "S", "E" };
+    expect(locate(tall, 'E').is_some() && locate(tall, 'E').unwrap_some() == 1, "a one column maze", &failures);
+    []const []const char none = {};
+    expect(locate(none, 'S').is_none(), "a maze without rows has no start", &failures);
+    return failures;
+}

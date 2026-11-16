@@ -1,0 +1,6 @@
+schema = 1
+id = "lab"
+title = "Project Lab"
+summary = "Self-contained projects to pick from: small real programs you build stage by stage with only the core curriculum."
+goal = "Build complete small programs from a specification, one tested stage at a time."
+exercises = ["text-stats", "unit-converter", "life", "bank-ledger", "rpn-calculator", "maze-solver", "stack-vm"]

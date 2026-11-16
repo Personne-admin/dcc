@@ -1,0 +1,38 @@
+module main;
+
+import vm;
+using vm::*;
+
+Status(Error) execute([]const char name, []const []const char lines) {
+    println("== {} ==", name)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const []const char countdown = { "push 5", "dup", "print", "push 1", "sub", "dup", "jz 8", "jump 1", "halt" };
+    []const []const char factorial = {
+        "; 5! with a loop",
+        "push 5",
+        "push 1",
+        "over",
+        "jz 11",
+        "over",
+        "mul",
+        "swap",
+        "push 1",
+        "sub",
+        "swap",
+        "jump 2",
+        "print",
+        "halt",
+    };
+    []const []const char spin = { "push 1", "jump 0" };
+    []const []const char typo = { "push 1", "", "pust 2", "add" };
+    []const []const char hungry = { "push 7", "print", "add" };
+    execute("countdown", countdown)?;
+    execute("factorial", factorial)?;
+    execute("spin", spin)?;
+    execute("typo", typo)?;
+    execute("hungry", hungry)?;
+    return Status::Ok;
+}

@@ -1,0 +1,130 @@
+schema = 1
+id = "clinic/wrapping-sizes"
+revision = 1
+title = "Seventy megabytes that became six"
+summary = "A size in kilobytes is wrong only for big files: a cast to a narrow integer type truncates silently."
+kind = "fix-behavior"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = [
+    "casts",
+    "integer ranges",
+    "truncation",
+    "debugging",
+]
+tags = [
+    "clinic",
+    "integers",
+    "casts",
+]
+objectives = [
+    "Explain why a cast with `as` can change a value",
+    "Choose an integer type wide enough for the data",
+    "Prove the fix with the expected output",
+]
+entry_file = "src/main.dc"
+product = "wrapping_sizes"
+prerequisites = ["values/decimals"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+optional = true
+
+[[stages]]
+id = "locate"
+title = "Locate the cause"
+summary = "Reproduce the symptom, narrow it down and name the faulty line before you change anything."
+hints = [
+    "It works for small values and fails for a large one. Which kinds of mistakes depend on the size of the value?",
+    "Compute 73400320 / 1024 by hand and compare it with 6144. Is there a relation between the two numbers and the limit of a 16 bit type (65536)?",
+]
+questions = ["find-the-cast"]
+
+[[stages]]
+id = "fix"
+title = "Fix and prove it"
+summary = "Make the program print the expected output."
+hints = [
+    "`as` converts without checking. A `u16` can only hold 0 to 65535.",
+    "The result must be as wide as the data: kilobytes of a `u32` byte count fit a `u32`. Change the return type and the cast together.",
+    "Declare `u32 to_kb(u32 bytes)` and cast the division with `as u32`. The later `as u32` in `main` is then harmless.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Prints the expected output"
+stage = "fix"
+expect_stdout = """
+3000 bytes = 2 KB
+5242880 bytes = 5120 KB
+73400320 bytes = 71680 KB
+total 76802 KB
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The 70 MB line must show 71680 KB and the total must add up to 76802 KB."
+
+[[questions]]
+id = "find-the-cast"
+type = "bug"
+prompt = "The 3000 and 5242880 byte lines are right and the 73400320 byte line is not. Which line loses information?"
+code = """
+module main;
+
+u16 to_kb(u32 bytes) {
+    return (bytes / 1024) as u16;
+}
+
+Status(Error) line(u32 bytes) {
+    println("{} bytes = {} KB", bytes, to_kb(bytes))?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    u32[3] files = { 3000, 5242880, 73400320 };
+    u32 total = 0;
+    for f in files {
+        line(f)?;
+        total += to_kb(f) as u32;
+    }
+    println("total {} KB", total)?;
+    return Status::Ok;
+}
+"""
+lines = [3, 4]
+fixed = """
+module main;
+
+u32 to_kb(u32 bytes) {
+    return (bytes / 1024) as u32;
+}
+
+Status(Error) line(u32 bytes) {
+    println("{} bytes = {} KB", bytes, to_kb(bytes))?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    u32[3] files = { 3000, 5242880, 73400320 };
+    u32 total = 0;
+    for f in files {
+        line(f)?;
+        total += to_kb(f) as u32;
+    }
+    println("total {} KB", total)?;
+    return Status::Ok;
+}
+"""
+expect = """
+3000 bytes = 2 KB
+5242880 bytes = 5120 KB
+73400320 bytes = 71680 KB
+total 76802 KB
+"""
+explanation = "73400320 / 1024 is 71680, but a `u16` holds at most 65535. `as u16` keeps only the low 16 bits and does not complain: 71680 - 65536 = 6144. The bug appears only for large inputs, which is why small files looked fine. The fix is a wider type (`u32`) for the result of `to_kb`, so no cast is needed in the function anymore."

@@ -1,0 +1,13 @@
+module main;
+
+import probe;
+import stats;
+
+public Status(Error) main() {
+    i32[5] data = { 4, 9, 2, 9, 7 };
+    probe::reset();
+    stats::MinMax result = stats::min_max(data);
+    println("min {}, max {}", result.min, result.max)?;
+    println("reads: {}", probe::reads())?;
+    return Status::Ok;
+}

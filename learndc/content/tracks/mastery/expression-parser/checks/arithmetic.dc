@@ -1,0 +1,95 @@
+module arithmetic;
+
+import calc;
+using calc::*;
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+usize position_of(CalcError e) {
+    match e {
+        CalcError::Alloc(a) => return 1000000,
+        CalcError::InvalidCharacter(p) => return p,
+        CalcError::UnexpectedToken(p) => return p,
+        CalcError::UnexpectedEnd(p) => return p,
+        CalcError::DivideByZero(p) => return p,
+        CalcError::Overflow(p) => return p,
+    }
+}
+
+bool gives([]const char text, i64 expected) {
+    match evaluate(text) {
+        Result::Ok(v) => {
+            if v != expected {
+                println("      {} gave {}, expected {}", text, v, expected);
+            }
+            return v == expected;
+        },
+        Result::Err(e) => {
+            println("      {} failed at {}", text, position_of(e));
+            return false;
+        },
+    }
+}
+
+bool fails([]const char text, CalcError kind, usize position) {
+    match evaluate(text) {
+        Result::Ok(v) => {
+            println("      [{}] gave {}, expected an error at {}", text, v, position);
+            return false;
+        },
+        Result::Err(e) => {
+            bool right = e == kind && position_of(e) == position;
+            if !right {
+                println("      [{}] failed with another error or position: {}", text, position_of(e));
+            }
+            return right;
+        },
+    }
+}
+
+
+public i32 main() {
+    i32 failures = 0;
+    CalcError zero = CalcError::DivideByZero(0);
+    CalcError over = CalcError::Overflow(0);
+
+    expect(fails("1 / 0", zero, 2), "division by zero is reported at the operator", &failures);
+    expect(fails("1 % 0", zero, 2), "so is remainder by zero", &failures);
+    expect(fails("8 / (4 - 4)", zero, 2), "a divisor that evaluates to zero", &failures);
+    expect(fails("0 / 0", zero, 2), "zero divided by zero", &failures);
+    expect(fails("5 + 6 / (3 - 3) * 2", zero, 6), "inside a longer expression", &failures);
+    expect(fails("(1 / 0) + (2 / 0)", zero, 3), "the first failing operation in evaluation order", &failures);
+    expect(fails("0 * 5 / 0", zero, 6), "a zero numerator does not save it", &failures);
+    expect(fails("10 / (5 % 5)", zero, 3), "a remainder that evaluates to zero", &failures);
+
+    expect(fails("9223372036854775807 + 1", over, 20), "addition overflows at the +", &failures);
+    expect(fails("0 - 9223372036854775807 - 2", over, 24), "subtraction below the smallest value", &failures);
+    expect(fails("(0 - 9223372036854775807 - 1) - 1", over, 30), "one below the smallest value", &failures);
+    expect(fails("4611686018427387904 * 2", over, 20), "multiplication overflows at the *", &failures);
+    expect(fails("3037000500 * 3037000500", over, 11), "a product just above the limit", &failures);
+    expect(fails("(0 - 4611686018427387905) * 2", over, 26), "a negative product below the smallest value", &failures);
+    expect(fails("9223372036854775807 * 9223372036854775807", over, 20), "the largest squared", &failures);
+    expect(fails("(0 - 9223372036854775807 - 1) * -1", over, 30), "the smallest value times -1", &failures);
+    expect(fails("-1 * (0 - 9223372036854775807 - 1)", over, 3), "and the other way round", &failures);
+    expect(fails("(0 - 9223372036854775807 - 1) / -1", over, 30), "the smallest value divided by -1", &failures);
+    expect(fails("-(0 - 9223372036854775807 - 1)", over, 0), "negating the smallest value overflows at the minus", &failures);
+    expect(fails("9223372036854775808", over, 0), "a literal above the largest value", &failures);
+    expect(fails("1 + 9223372036854775808", over, 4), "at the position of the literal", &failures);
+    expect(fails("(1 + 2) * 99999999999999999999", over, 10), "a very long literal", &failures);
+
+    expect(fails("(1 / 0) + (9223372036854775807 + 1)", zero, 3), "evaluation order: the left operand first", &failures);
+    expect(fails("(9223372036854775807 + 1) + (1 / 0)", over, 21), "and the other order", &failures);
+    expect(fails("1 / 0 + 9223372036854775807 * 2", zero, 2), "operations run in grammar order, not left to right in the text", &failures);
+    expect(gives("9223372036854775807 + -9223372036854775807", 0), "no false alarm near the limit", &failures);
+    expect(gives("-9223372036854775807 - 1", -9223372036854775807 - 1), "reaching the smallest value is allowed", &failures);
+    expect(gives("3037000499 * 3037000499", 9223372030926249001), "the largest square that fits", &failures);
+    expect(gives("-3037000499 * 3037000499", -9223372030926249001), "and its negative", &failures);
+    expect(gives("4611686018427387903 * 2 + 1", 9223372036854775807), "reaching the largest value from below", &failures);
+    return failures;
+}
