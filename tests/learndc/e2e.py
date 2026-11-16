@@ -650,7 +650,7 @@ def journey_tui(tmp: Path):
         expect(["config", "set", key, value], 0, env=env)
     session = PtyProcess([LEARNDC], env, 100, 30)
     try:
-        check(session.wait_for(lambda t: "Menu" in t and "Chapters" in t), f"home screen renders\n{session.term.text()}")
+        check(session.wait_for(lambda t: "Menu" in t and "Quick actions" in t), f"home screen renders\n{session.term.text()}")
         check(b"\x1b[?1049h" in session.raw, "the alternate screen is entered")
         first = session.term.text().splitlines()
         check(all(len(line) <= 100 for line in first), "no line is wider than the terminal")

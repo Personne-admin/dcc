@@ -8,9 +8,9 @@
 │ 6 ││ Goals                                            ┃│  2 │                                    │
 │ 7 ││ • Make every check pass                          ┃│  3 │ import std::io;                    │
 │ 8 ││ • Read the diagnostics before changing code      ┃│  4 │                                    │
-│   ││                                                  ┃│  5 │ public i32 main()                  │
-│ ? ││ A variable gives a name to a value. Declare it   ┃│  6 │ {                                  │
-│   ││ with its type, then use the name wherever you    ┃│  7 │     i32 price = 40;                │
+│ 9 ││                                                  ┃│  5 │ public i32 main()                  │
+│   ││ A variable gives a name to a value. Declare it   ┃│  6 │ {                                  │
+│ ? ││ with its type, then use the name wherever you    ┃│  7 │     i32 price = 40;                │
 │   ││ need the value.                                  ││  8 │     i32 tax = 2;                   │
 │   ││                                                  ││  9 │     i32 total = price - tax;       │
 │   ││ • Declare price and tax as i32.                  ││ 10 │     io::println("Total: {}", tot…  │

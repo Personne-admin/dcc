@@ -1,4 +1,4 @@
-  1  2  3  4  5  6  7 Settings  8
+  1  2  3  4  5  6  7 Settings  8  9
 ╭──────────────────────────────────────────────────────────╮
 │ › editor.preset                 auto                     ┃
 │   editor.command                (not set)                ┃

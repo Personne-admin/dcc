@@ -7,21 +7,21 @@
 │   5 Bookmarks        ││    1 Fundamentals    ████░░░░░░░░░░░░░░  1 of 4                          │
 │   6 Doctor           ││    2 Types and data  ░░░░░░░░░░░░░░░░░░  0 of 2                          │
 │   7 Settings         ││                                                                          │
-│   8 Review           ││ Achievements                                                             │
-│                      ││   Complete a chapter or defeat a boss to earn the first one.             │
-│   ? Help             ││                                                                          │
+│   8 Review           ││ Awards  1 of 9 earned · 9 opens the gallery                              │
+│   9 Awards           ││   ★ Hello, Academy                                            2026-01-01 │
+│                      ││                                                                          │
+│   ? Help             ││   Next: Chapter Conqueror                                                │
+│                      ││     Complete every required lesson of a chapter.                         │
+│                      ││     █████░░░░░░░░░░░░░░░  1/4                                            │
+│                      ││                                                                          │
+│                      ││ Concepts  from the lessons you finished, not a score                     │
+│                      ││   output                   practiced    1 of 6 lessons done              │
+│                      ││                                                                          │
 │                      ││ Worth another look                                                       │
 │                      ││ › Variables and mutation  last check passed 2 of 3                       │
 │                      ││                                                                          │
 │                      ││ Bookmarks (1)                                                            │
 │                      ││   Grouping data in structs                                               │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
-│                      ││                                                                          │
 │                      ││                                                                          │
 │                      ││                                                                          │
 │                      ││                                                                          │

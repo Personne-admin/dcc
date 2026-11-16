@@ -8,9 +8,9 @@
 │ 6 ││     Put the code in ord…  │                                                                 │
 │ 7 ││     Recall                │ Your prediction:                                                │
 │ 8 ││     Summary               │    a                                                            │
-│   ││                           │    b                                                            │
-│ ? ││                           │                                                                 │
-│   ││                           │    (not typing: Enter to type)                                  │
+│ 9 ││                           │    b                                                            │
+│   ││                           │                                                                 │
+│ ? ││                           │    (not typing: Enter to type)                                  │
 │   ││                           │                                                                 │
 │   ││                           │ ✓ Right                                                         │
 │   ││                           │   In order.                                                     │
@@ -26,5 +26,5 @@
 │   ││                           │                                                                 │
 │   ││                           │                                                                 │
 ╰───╯╰─────────────────────────────────────────────────────────────────────────────────────────────╯
-
+ Award unlocked: Second Chance
  Left Right page  Up Down move  Space toggle  Enter check  n next  ? help  q quit

@@ -1,0 +1,30 @@
+ Learn DC · Awards                                                    1 of 6 completed ██░░░░░░░░░░
+╭─ Menu ───────────────╮╭────────────────────────────────────────────────────────── 1 of 9 earned ─╮
+│   1 Home             ││ Academy milestones  1 of 5                                               │
+│   2 Learn            ││ › ★ Hello, Academy                                            2026-01-01 │
+│   3 Lesson           ││   ○ Chapter Conqueror                                                1/4 │
+│   4 Progress         ││   ○ Foundation Builder                                               1/6 │
+│   5 Bookmarks        ││   ○ Persistent Learner                                                   │
+│   6 Doctor           ││   ○ Self-Reliant                                                    1/10 │
+│   7 Settings         ││                                                                          │
+│   8 Review           ││ Knowledge  0 of 4                                                        │
+│ › 9 Awards           ││   ○ Second Chance                                                        │
+│                      ││   ○ Sharp Mind                                                      0/50 │
+│   ? Help             ││   ○ Long Memory                                                     0/10 │
+│                      ││   ? Hidden award                                                         │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││──────────────────────────────────────────────────────────────────────────│
+│                      ││ ★ Hello, Academy                                                         │
+│                      ││ Complete your first exercise: write code and pass its checks.            │
+│                      ││                                                                          │
+│                      ││ Earned on 2026-01-01                                                     │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+
+ Up Down move  Enter open  Esc back  ? help  q quit

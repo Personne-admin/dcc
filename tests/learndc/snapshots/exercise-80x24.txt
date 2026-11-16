@@ -8,9 +8,9 @@
 │ 6 ││ Goals                                                                   │
 │ 7 ││ • Make every check pass                                                 │
 │ 8 ││ • Read the diagnostics before changing code                             │
-│   ││                                                                         │
-│ ? ││ A variable gives a name to a value. Declare it with its type, then use  │
-│   │╰─────────────────────────────────────────────────────────────────────────╯
+│ 9 ││                                                                         │
+│   ││ A variable gives a name to a value. Declare it with its type, then use  │
+│ ? │╰─────────────────────────────────────────────────────────────────────────╯
 │   │ Files   project.dcon  › src/main.dc
 │   │╭─ Results ───────────────────────────────────────────────────────────────╮
 │   ││ ✗ 2 of 3 checks passed · 0.31s                                          ┃

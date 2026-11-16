@@ -1,4 +1,4 @@
-  1  2  3 Lesson  4  5  6  7  8
+  1  2  3 Lesson  4  5  6  7  8  9
 ╭─ Basics drill ───────────────────── drill · page 3 of 7 ─╮
 │ Pick every right answer · question 2 of 5 · ✓ solved     │
 │                                                          │
@@ -17,4 +17,4 @@
 │                                                          │
 │                                                          │
 ╰──────────────────────────────────────────────────────────╯
- Left Right page  Up Down move  ? help  q quit
+ Award unlocked: Second Chance

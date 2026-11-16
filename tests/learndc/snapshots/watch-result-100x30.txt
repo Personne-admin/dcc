@@ -8,9 +8,9 @@
 │ 6 ││ fix behavior · in progress                       ┃│ › src/main.dc  entry                    │
 │ 7 ││                                                  ┃╰─────────────────────────────────────────╯
 │ 8 ││ Fix the arithmetic so the program prints the     ┃╭─ Preview: src/main.dc ──────────────────╮
-│   ││ right total.                                     ││  1 │ module main;                       ┃
-│ ? ││                                                  ││  2 │                                    ┃
-│   ││ Goals                                            ││  3 │ import std::io;                    ┃
+│ 9 ││ right total.                                     ││  1 │ module main;                       ┃
+│   ││                                                  ││  2 │                                    ┃
+│ ? ││ Goals                                            ││  3 │ import std::io;                    ┃
 │   ││ • Make every check pass                          ││  4 │                                    ┃
 │   ││ • Read the diagnostics before changing code      ││  5 │ public i32 main()                  ┃
 │   ││                                                  ││  6 │ {                                  │

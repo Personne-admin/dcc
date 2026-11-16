@@ -8,9 +8,9 @@
 │   6 Doctor           ││                                                                          │
 │   7 Settings         ││                                                                          │
 │   8 Review           ││                                                                          │
+│   9 Awards           ││                                                                          │
 │                      ││                                                                          │
 │   ? Help             ││                                                                          │
-│                      ││                                                                          │
 │                      ││                                                                          │
 │                      ││                                                                          │
 │                      ││                                                                          │

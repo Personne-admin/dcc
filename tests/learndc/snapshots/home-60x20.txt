@@ -1,20 +1,20 @@
-  1 Home  2  3  4  5  6  7  8
+  1 Home  2  3  4  5  6  7  8  9
 ╭──────────────────────────────────────────────────────────╮
-│ Continue where you left off                              │
-│ › ◐ Variables and mutation     beginner     in progress  │
-│     fundamentals/variables · fix behavior · last check … │
-│                                                          │
-│ Recommended next                                         │
-│   ○ Grouping data in structs   intermediate not started  │
-│     types/structs · complete program · about 20 min      │
-│                                                          │
-│ Chapters                                                 │
-│    1 Fundamentals    █████░░░░░░░░░░░░░░░  1 of 4        │
-│    2 Types and data  ░░░░░░░░░░░░░░░░░░░░  0 of 2        │
+│ Continue learning                                        ┃
+│ › Variables and mutation                                 ┃
+│     Learn DC · Chapter 1: Fundamentals                   ┃
+│     last check 2 of 3 passed                             ┃
+│                                                          ┃
+│ Recommended next                                         ┃
+│   ○ Grouping data in structs   intermediate not started  ┃
+│     types/structs · about 20 min                         ┃
+│     1 lesson worth another look                          │
 │                                                          │
 │ Recent                                                   │
 │   ✓ Your first DC program      beginner     completed    │
 │                                                          │
-│                                                          │
+│ Quick actions                                            │
+│   Browse every lesson  (2)                               │
+│   Review flashcards and missed questions  (8)            │
 ╰──────────────────────────────────────────────────────────╯
- Enter open  Up Down move  n next  2 learn  ? help  q quit
+ Your earlier progress earned 1 award; see them on the Aw…

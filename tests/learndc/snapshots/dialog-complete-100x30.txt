@@ -11,12 +11,12 @@
                    ╭─ Exercise complete ────────────────────────────────────────╮
                    │ Variables and mutation                                     │
                    │ 3 of 3 checks passed, 3 attempts, 1 hint used              │
+                   │ Award unlocked: Persistent Learner                         │
                    │ Next: Making decisions with if                             │
                    │                                                            │
                    │ › Next lesson                                              │
                    │   Stay here                                                │
                    ╰────────────────────────────────────────────────────────────╯
-
 
 
 

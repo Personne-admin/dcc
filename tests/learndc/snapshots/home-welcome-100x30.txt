@@ -1,0 +1,30 @@
+ Learn DC · Home                                                      0 of 6 completed ░░░░░░░░░░░░
+╭─ Menu ───────────────╮╭──────────────────────────────────────────────────────────────────────────╮
+│ › 1 Home             ││ Welcome to the DC Academy                                                ┃
+│   2 Learn            ││ Learn DC one idea at a time: short lessons, real programs you write      ┃
+│   3 Lesson           ││ and run here, Boss Fights that combine what you learned, and projects    ┃
+│   4 Progress         ││ to build on your own.                                                    ┃
+│   5 Bookmarks        ││                                                                          ┃
+│   6 Doctor           ││ Your first lesson                                                        ┃
+│   7 Settings         ││ › ○ Your first DC program                      beginner     not started  ┃
+│   8 Review           ││     fundamentals/hello-world · about 5 min                               ┃
+│   9 Awards           ││                                                                          ┃
+│                      ││ Quick actions                                                            ┃
+│   ? Help             ││   Browse every lesson  (2)                                               ┃
+│                      ││   Review flashcards and missed questions  (8)                            ┃
+│                      ││   See your awards  (9)                                                   ┃
+│                      ││   Settings and appearance  (7)                                           ┃
+│                      ││                                                                          ┃
+│                      ││ Your journey                                                             ┃
+│                      ││ Core   ░░░░░░░░░░░░░░░░░░░░░░░░  0/6                                     ┃
+│                      ││        0 of 2 chapters                                                   ┃
+│                      ││        ○ ○                                                               ┃
+│                      ││ All paths: 0 of 6 lessons                                                ┃
+│                      ││                                                                          ┃
+│                      ││ Achievements                                                             ┃
+│                      ││ No awards yet: they come from finished lessons, bosses and reviews.      ┃
+│                      ││                                                                          ┃
+│                      ││ Next: Hello, Academy                                                     │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+
+ Enter open  Up Down move  n next  2 learn  ? help  q quit

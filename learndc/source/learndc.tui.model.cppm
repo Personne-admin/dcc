@@ -14,6 +14,7 @@ import learndc.watch;
 import learndc.textedit;
 import learndc.highlight;
 import learndc.tui.editing;
+import learndc.awards;
 import learndc.diff;
 import learndc.markdown;
 import learndc.app;
@@ -33,6 +34,7 @@ export namespace learndc::tui::model
         Settings,
         Help,
         Review,
+        Awards,
     };
 
     [[nodiscard]] inline std::string_view to_string(Screen s)
@@ -59,6 +61,8 @@ export namespace learndc::tui::model
                 return "Help";
             case Screen::Review:
                 return "Review";
+            case Screen::Awards:
+                return "Awards";
         }
         return "Home";
     }
@@ -700,10 +704,13 @@ export namespace learndc::tui::model
                               "Tab           move between the cards and the questions to try again",
                               "Up Down       choose a question; Enter opens it"};
                 break;
+            case Screen::Awards:
+                here.lines = {"Up Down       move through the awards", "Enter         open the lesson or path an award belongs to"};
+                break;
         }
         out.push_back(std::move(here));
         out.push_back({"Everywhere",
-                       {"1 .. 8        Home, Learn, Lesson, Progress, Bookmarks, Doctor, Settings, Review", "?             this help",
+                       {"1 .. 9        Home, Learn, Lesson, Progress, Bookmarks, Doctor, Settings, Review, Awards", "?             this help",
                         "Esc           go back or close a dialog", "q             quit (asks first while a check runs)",
                         "Ctrl+C       cancel a running check; with none running, quit"}});
         if (context == Screen::Exercise && !lecture)
@@ -862,6 +869,12 @@ export namespace learndc::tui::model
             if (ctx->catalog.paths().size() > 1)
                 for (auto const& path : ctx->catalog.paths())
                     items.push_back({HomeKind::Path, path.id});
+            for (std::string_view action : {"learn", "review", "lab", "awards", "settings"})
+            {
+                if (action == "lab" && !ctx->catalog.find_track("lab"))
+                    continue;
+                items.push_back({HomeKind::Action, std::string(action)});
+            }
             return items;
         }
 
@@ -878,6 +891,38 @@ export namespace learndc::tui::model
                     jump(Screen::Learn);
                     return;
                 }
+        }
+
+        void home_action(std::string_view id)
+        {
+            if (id == "learn")
+                jump(Screen::Learn);
+            else if (id == "review")
+                open_review();
+            else if (id == "awards")
+                jump(Screen::Awards);
+            else if (id == "settings")
+                jump(Screen::Settings);
+            else if (id == "lab")
+            {
+                auto const* t = ctx->catalog.find_track("lab");
+                if (!t)
+                    return;
+                for (std::size_t i = 0; i < ctx->catalog.paths().size(); ++i)
+                    if (ctx->catalog.paths()[i].id == t->path)
+                    {
+                        filters = Filters{};
+                        filters.path = i;
+                        auto const tracks = learn_tracks();
+                        for (std::size_t k = 0; k < tracks.size(); ++k)
+                            if (tracks[k]->id == "lab")
+                                filters.track = k + 1;
+                        query.clear();
+                        normalize_learn();
+                        jump(Screen::Learn);
+                        return;
+                    }
+            }
         }
 
         void cycle_path(int delta)
@@ -1167,6 +1212,9 @@ export namespace learndc::tui::model
                 case Screen::Review:
                     k = {{"Space", "turn over"}, {"a h g e", "rate"}, {"Tab", "cards or questions"}, {"Enter", "open"}};
                     break;
+                case Screen::Awards:
+                    k = {{"Up Down", "move"}, {"Enter", "open"}, {"Esc", "back"}};
+                    break;
             }
             k.push_back({"?", "help"});
             k.push_back({"q", "quit"});
@@ -1180,6 +1228,7 @@ export namespace learndc::tui::model
             if (!std::holds_alternative<Tick>(event))
                 ++event_seq;
             std::visit([this](auto const& e) { on(e); }, event);
+            announce_awards();
             if (context_signature() != before)
                 std::erase_if(toasts, [this](Toast const& t) { return t.seq != event_seq; });
             return std::move(fx);
@@ -1201,6 +1250,80 @@ export namespace learndc::tui::model
 
         void refresh_appearance() { appearance = appearance_of(ctx->settings, ctx->env); }
 
+        std::vector<awards::Award> award_list;
+        awards::Seen awards_seen;
+        bool awards_loaded = false;
+        std::vector<std::string> fresh_awards;
+        std::size_t awards_sel = 0;
+
+        [[nodiscard]] std::filesystem::path awards_file() const { return ctx->dirs.data_dir / "awards.json"; }
+
+        void refresh_awards()
+        {
+            award_list = awards::evaluate(ctx->catalog, prog);
+            if (!awards_loaded)
+            {
+                awards_seen = awards::load_seen(awards_file());
+                awards_loaded = true;
+                if (!awards_seen.existed)
+                {
+                    int earlier = 0;
+                    for (auto const& a : award_list)
+                        if (a.earned)
+                        {
+                            awards_seen.ids[a.id] = a.earned_at;
+                            ++earlier;
+                        }
+                    awards_seen.existed = true;
+                    (void)awards::save_seen(awards_file(), awards_seen);
+                    if (earlier > 0)
+                        push_toast(std::format("Your earlier progress earned {} award{}; see them on the Awards screen (9)", earlier, earlier == 1 ? "" : "s"));
+                    return;
+                }
+            }
+            auto const fresh = awards::unseen(award_list, awards_seen);
+            if (fresh.empty())
+                return;
+            for (auto const* a : fresh)
+            {
+                awards_seen.ids[a->id] = a->earned_at;
+                fresh_awards.push_back(a->id);
+            }
+            (void)awards::save_seen(awards_file(), awards_seen);
+        }
+
+        [[nodiscard]] awards::Award const* find_award(std::string_view id) const
+        {
+            for (auto const& a : award_list)
+                if (a.id == id)
+                    return &a;
+            return nullptr;
+        }
+
+        void announce_awards()
+        {
+            if (fresh_awards.empty())
+                return;
+            std::vector<std::string> titles;
+            for (auto const& id : fresh_awards)
+                if (auto const* a = find_award(id))
+                    titles.push_back(a->title);
+            fresh_awards.clear();
+            if (titles.empty())
+                return;
+            Dialog* target = dialog.kind == DialogKind::Complete                              ? &dialog
+                             : pending_dialog && pending_dialog->kind == DialogKind::Complete ? &*pending_dialog
+                                                                                              : nullptr;
+            if (target)
+            {
+                auto at = target->body.size() > 1 ? target->body.end() - 1 : target->body.end();
+                for (auto const& t : titles)
+                    at = target->body.insert(at, std::format("Award unlocked: {}", t)) + 1;
+                return;
+            }
+            push_toast(std::format("Award unlocked: {}", text::join(titles, ", ")), false, 6000);
+        }
+
         void refresh_progress()
         {
             auto p = app::load_progress(*ctx);
@@ -1211,6 +1334,7 @@ export namespace learndc::tui::model
             }
             prog = std::move(*p);
             summary = app::summarize(*ctx, prog);
+            refresh_awards();
             review = app::review_list(*ctx, prog);
             normalize_learn();
             if (home_sel > 0)
@@ -1743,7 +1867,7 @@ export namespace learndc::tui::model
                         enter(Screen::Help);
                     return;
                 }
-                if (k.size() == 1 && k[0] >= '1' && k[0] <= '8')
+                if (k.size() == 1 && k[0] >= '1' && k[0] <= '9')
                 {
                     sidebar_jump(k[0] - '0');
                     return;
@@ -1780,6 +1904,9 @@ export namespace learndc::tui::model
                     break;
                 case Screen::Review:
                     review_key(k);
+                    break;
+                case Screen::Awards:
+                    awards_key(k);
                     break;
             }
         }
@@ -1857,6 +1984,9 @@ export namespace learndc::tui::model
                 case 8:
                     open_review();
                     break;
+                case 9:
+                    jump(Screen::Awards);
+                    break;
                 default:
                     break;
             }
@@ -1889,6 +2019,8 @@ export namespace learndc::tui::model
                 auto const& item = items[std::min(home_sel, items.size() - 1)];
                 if (item.kind == HomeKind::Path)
                     open_path(item.id);
+                else if (item.kind == HomeKind::Action)
+                    home_action(item.id);
                 else
                     open_exercise(item.id);
             }
@@ -2013,6 +2145,42 @@ export namespace learndc::tui::model
                 else
                     go_back();
             }
+        }
+
+    public:
+        [[nodiscard]] std::vector<awards::Award const*> visible_awards() const
+        {
+            std::vector<awards::Award const*> out;
+            for (auto cat : {awards::Category::Milestone, awards::Category::Boss, awards::Category::Specialization, awards::Category::Project,
+                             awards::Category::Knowledge})
+                for (auto const& a : award_list)
+                    if (a.category == cat)
+                        out.push_back(&a);
+            return out;
+        }
+
+    private:
+        void awards_key(std::string const& k)
+        {
+            auto const list = visible_awards();
+            if (detail::is_down(k) && !list.empty())
+                awards_sel = std::min(awards_sel + 1, list.size() - 1);
+            else if (detail::is_up(k) && awards_sel > 0)
+                --awards_sel;
+            else if (k == "PageDown" && !list.empty())
+                awards_sel = std::min(awards_sel + 8, list.size() - 1);
+            else if (k == "PageUp")
+                awards_sel = awards_sel > 8 ? awards_sel - 8 : 0;
+            else if (k == "Enter" && !list.empty())
+            {
+                auto const* a = list[std::min(awards_sel, list.size() - 1)];
+                if (!a->lesson.empty() && !(a->hidden && !a->earned))
+                    open_exercise(a->lesson);
+                else if (!a->path.empty())
+                    open_path(a->path);
+            }
+            else if (k == "Esc")
+                go_back();
         }
 
         void progress_key(std::string const& k)

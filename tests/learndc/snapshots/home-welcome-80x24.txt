@@ -1,0 +1,24 @@
+ Learn DC · Home                                  0 of 6 completed ░░░░░░░░░░░░
+╭─ Menu ─────────╮╭────────────────────────────────────────────────────────────╮
+│ › 1 Home       ││ Welcome to the DC Academy                                  ┃
+│   2 Learn      ││ Learn DC one idea at a time: short lessons, real           ┃
+│   3 Lesson     ││ programs you write and run here, Boss Fights that          ┃
+│   4 Progress   ││ combine what you learned, and projects to build on your    ┃
+│   5 Bookmarks  ││ own.                                                       ┃
+│   6 Doctor     ││                                                            ┃
+│   7 Settings   ││ Your first lesson                                          ┃
+│   8 Review     ││ › ○ Your first DC program        beginner     not started  ┃
+│   9 Awards     ││     fundamentals/hello-world · about 5 min                 ┃
+│                ││                                                            ┃
+│   ? Help       ││ Quick actions                                              ┃
+│                ││   Browse every lesson  (2)                                 ┃
+│                ││   Review flashcards and missed questions  (8)              │
+│                ││   See your awards  (9)                                     │
+│                ││   Settings and appearance  (7)                             │
+│                ││                                                            │
+│                ││ Your journey                                               │
+│                ││ Core   ░░░░░░░░░░░░░░░░░░░░░░░░  0/6                       │
+│                ││        0 of 2 chapters                                     │
+╰────────────────╯╰────────────────────────────────────────────────────────────╯
+
+ Enter open  Up Down move  n next  2 learn  ? help  q quit

@@ -19,6 +19,7 @@ import learndc.tui.model;
 import learndc.textedit;
 import learndc.highlight;
 import learndc.tui.editing;
+import learndc.awards;
 
 namespace learndc::tui
 {
@@ -2021,6 +2022,125 @@ namespace learndc::tui
                 draw_line(ui, inner, inner.y + i, lines[to_size(i)]);
         }
 
+        [[nodiscard]] std::string award_glyph(Ui const& ui, awards::Award const& a)
+        {
+            if (!a.earned)
+                return a.hidden ? (ui.ascii ? "[?]" : "?") : (ui.ascii ? "[ ]" : "\xE2\x97\x8B");
+            if (a.category == awards::Category::Boss)
+                return std::string(ui.gl.skull);
+            return ui.ascii ? "[*]" : "\xE2\x98\x85";
+        }
+
+        [[nodiscard]] std::string award_date(std::string_view stamp)
+        {
+            if (stamp.size() >= 10 && stamp[4] == '-')
+                return std::string(stamp.substr(0, 10));
+            return std::string(stamp);
+        }
+
+        void draw_awards(Ui& ui, Rect main)
+        {
+            auto const& m = ui.m;
+            auto const list = m.visible_awards();
+            int earned = 0;
+            for (auto const* a : list)
+                if (a->earned)
+                    ++earned;
+            auto const inner = draw_box(ui, main, "", false, std::format("{} of {} earned", earned, list.size()));
+            if (inner.empty() || list.empty())
+                return;
+            bool const split = inner.w >= 76;
+            int const list_w = split ? inner.w * 11 / 20 : inner.w;
+            int const detail_h = split ? 0 : std::min(7, inner.h / 3);
+            Rect const list_area{inner.x, inner.y, list_w, inner.h - detail_h};
+            std::vector<Line> rows;
+            int focus = 0;
+            std::optional<awards::Category> current;
+            auto const sel = std::min(m.awards_sel, list.size() - 1);
+            for (std::size_t i = 0; i < list.size(); ++i)
+            {
+                auto const* a = list[i];
+                if (current != a->category)
+                {
+                    if (current)
+                        rows.push_back({});
+                    current = a->category;
+                    int have = 0;
+                    int total = 0;
+                    for (auto const* b : list)
+                        if (b->category == a->category)
+                        {
+                            ++total;
+                            if (b->earned)
+                                ++have;
+                        }
+                    Line head;
+                    head.push_back({std::string(awards::category_title(a->category)), plain(Role::Accent, true)});
+                    head.push_back({std::format("  {} of {}", have, total), plain(Role::Muted)});
+                    rows.push_back(std::move(head));
+                }
+                bool const selected = i == sel;
+                if (selected)
+                    focus = to_int(rows.size());
+                Line row;
+                row.push_back({selected ? std::format("{} ", ui.gl.sel) : std::string("  "), plain(Role::Accent, true)});
+                Role const role = a->earned ? (a->category == awards::Category::Boss ? Role::Boss : Role::Ok) : Role::Muted;
+                row.push_back({award_glyph(ui, *a) + " ", plain(role, a->earned)});
+                std::string const title = a->hidden && !a->earned ? std::string("Hidden award") : clean_line(a->title);
+                int const right = a->earned ? 11 : 8;
+                row.push_back({fit(ui, title, std::max(4, list_area.w - right - 6)), plain(a->earned ? Role::Text : Role::Muted, a->earned)});
+                std::string tail = a->earned ? award_date(a->earned_at) : (a->hidden || a->need <= 1 ? std::string() : std::format("{}/{}", a->have, a->need));
+                int const used = line_width(row);
+                if (!tail.empty() && used + width_of(tail) + 2 <= list_area.w)
+                    row.push_back({std::string(static_cast<std::size_t>(list_area.w - used - width_of(tail)), ' ') + tail, plain(Role::Muted)});
+                rows.push_back(std::move(row));
+            }
+            int const start = first_visible(focus, to_int(rows.size()), list_area.h);
+            for (int r = 0; r < list_area.h; ++r)
+            {
+                auto const idx = start + r;
+                if (idx >= to_int(rows.size()))
+                    break;
+                draw_line(ui, list_area, list_area.y + r, rows[to_size(idx)], idx == focus);
+            }
+            auto const* a = list[sel];
+            Rect const detail =
+                split ? Rect{inner.x + list_w + 2, inner.y, inner.w - list_w - 2, inner.h} : Rect{inner.x, inner.bottom() - detail_h, inner.w, detail_h};
+            if (!split)
+                draw_rule(ui, inner, detail.y - 1);
+            std::vector<Line> lines;
+            bool const secret = a->hidden && !a->earned;
+            Line t;
+            t.push_back({award_glyph(ui, *a) + " ", plain(a->earned ? (a->category == awards::Category::Boss ? Role::Boss : Role::Ok) : Role::Muted, true)});
+            t.push_back({secret ? std::string("Hidden award") : clean_line(a->title), plain(Role::Text, true)});
+            lines.push_back(std::move(t));
+            for (auto const& piece :
+                 text::wrap(secret ? "Keep learning: this one reveals itself when you earn it." : clean_line(a->description), to_size(std::max(8, detail.w))))
+                lines.push_back(text_line(piece, plain(Role::Text)));
+            lines.push_back({});
+            if (!a->path.empty())
+                if (auto const* path = m.ctx->catalog.find_path(a->path))
+                    lines.push_back(text_line(std::format("Path: {}", clean_line(path->title)), plain(Role::Muted)));
+            if (a->earned)
+                lines.push_back(text_line(a->earned_at == "earlier" ? std::string("Earned") : std::format("Earned on {}", award_date(a->earned_at)),
+                                          plain(Role::Ok, true)));
+            else if (!secret && a->need > 1)
+            {
+                Line l;
+                l.push_back({"Progress ", plain(Role::Muted)});
+                append(l, bar_spans(ui, std::clamp(detail.w - 18, 6, 20), a->have, a->need));
+                l.push_back({std::format("  {} of {}", a->have, a->need), plain(Role::Muted)});
+                lines.push_back(std::move(l));
+            }
+            else if (!secret)
+                lines.push_back(text_line("Not earned yet", plain(Role::Muted)));
+            if (!a->lesson.empty() && !secret)
+                if (auto const* ex = m.ctx->catalog.find(a->lesson))
+                    lines.push_back(text_line(std::format("Enter opens {}", clean_line(ex->title)), plain(Role::Muted)));
+            for (int r = 0; r < detail.h && r < to_int(lines.size()); ++r)
+                draw_line(ui, detail, detail.y + r, lines[to_size(r)]);
+        }
+
         void draw_editor_screen(Ui& ui, Rect main)
         {
             auto const& m = ui.m;
@@ -2450,137 +2570,345 @@ namespace learndc::tui
             return l;
         }
 
+        [[nodiscard]] std::vector<Line> journey_lines(Ui const& ui, int width)
+        {
+            auto const& m = ui.m;
+            std::vector<Line> out;
+            auto const& s = m.summary;
+            auto const* core = [&]() -> app::PathSummary const* {
+                for (auto const& p : s.paths)
+                    if (p.kind == catalog::PathKind::Core)
+                        return &p;
+                return nullptr;
+            }();
+            int const bar_w = std::clamp(width - 24, 6, 24);
+            if (core)
+            {
+                Line l;
+                l.push_back({"Core   ", plain(Role::Text, true)});
+                append(l, bar_spans(ui, bar_w, core->completed, core->total));
+                l.push_back({std::format("  {}/{}", core->completed, core->total), plain(Role::Muted)});
+                out.push_back(std::move(l));
+                out.push_back(text_line(std::format("       {} of {} chapters", core->chapters_done, core->chapters), plain(Role::Muted)));
+                if (core->bosses_total > 0)
+                {
+                    Line b;
+                    b.push_back({"       ", plain(Role::Text)});
+                    b.push_back({std::format("{} ", ui.gl.skull), plain(Role::Boss, true)});
+                    b.push_back({std::format("{} of {} bosses defeated", core->bosses_defeated, core->bosses_total), plain(Role::Muted)});
+                    out.push_back(std::move(b));
+                }
+                Line map;
+                map.push_back({"       ", plain(Role::Text)});
+                for (auto const& t : s.tracks)
+                {
+                    if (t.path != core->id)
+                        continue;
+                    std::string mark =
+                        t.done ? std::string(ui.gl.done) : (t.completed + t.in_progress > 0 ? std::string(ui.gl.active) : std::string(ui.gl.todo));
+                    Role const role = t.done ? Role::Ok : (t.completed + t.in_progress > 0 ? Role::Warn : Role::Muted);
+                    if (line_width(map) + width_of(mark) + 1 > width)
+                        break;
+                    map.push_back({mark, plain(role, t.done)});
+                    map.push_back({" ", plain(Role::Text)});
+                }
+                out.push_back(std::move(map));
+            }
+            std::string active_path;
+            for (auto const& id : m.prog.recent)
+                if (auto const* ex = m.ctx->catalog.find(id); ex && !m.ctx->catalog.in_core(*ex))
+                {
+                    if (auto const* p = m.ctx->catalog.path_of(*ex))
+                        active_path = p->id;
+                    break;
+                }
+            for (auto const& p : s.paths)
+            {
+                if (p.kind == catalog::PathKind::Core || (p.id != active_path && !(active_path.empty() && p.started)))
+                    continue;
+                Line l;
+                l.push_back({fit(ui, clean_line(p.title), 22), plain(Role::Text, true)});
+                out.push_back(std::move(l));
+                Line b;
+                b.push_back({"       ", plain(Role::Text)});
+                append(b, bar_spans(ui, bar_w, p.completed, p.total));
+                b.push_back({std::format("  {}/{}", p.completed, p.total), plain(Role::Muted)});
+                out.push_back(std::move(b));
+                break;
+            }
+            int total = 0;
+            int done = 0;
+            for (auto const& p : s.paths)
+            {
+                total += p.total;
+                done += p.completed;
+            }
+            out.push_back(text_line(std::format("All paths: {} of {} lessons", done, total), plain(Role::Muted)));
+            return out;
+        }
+
+        [[nodiscard]] std::vector<Line> award_lines(Ui const& ui, int width)
+        {
+            auto const& m = ui.m;
+            std::vector<Line> out;
+            std::vector<awards::Award const*> earned;
+            for (auto const& a : m.award_list)
+                if (a.earned)
+                    earned.push_back(&a);
+            std::ranges::sort(earned, [](auto const* a, auto const* b) { return a->earned_at > b->earned_at; });
+            for (std::size_t i = 0; i < earned.size() && i < 3; ++i)
+            {
+                Line l;
+                l.push_back({award_glyph(ui, *earned[i]) + " ", plain(earned[i]->category == awards::Category::Boss ? Role::Boss : Role::Ok, true)});
+                l.push_back({fit(ui, clean_line(earned[i]->title), std::max(4, width - 14)), plain(Role::Text)});
+                auto const date = award_date(earned[i]->earned_at);
+                if (line_width(l) + width_of(date) + 2 <= width)
+                    l.push_back({std::string(static_cast<std::size_t>(width - line_width(l) - width_of(date)), ' ') + date, plain(Role::Muted)});
+                out.push_back(std::move(l));
+            }
+            if (earned.empty())
+                out.push_back(text_line("No awards yet: they come from finished lessons, bosses and reviews.", plain(Role::Muted)));
+            if (auto const* next = awards::next_milestone(m.award_list))
+            {
+                out.push_back({});
+                Line l;
+                l.push_back({"Next: ", plain(Role::Muted)});
+                l.push_back({fit(ui, clean_line(next->title), std::max(4, width - 8)), plain(Role::Text, true)});
+                out.push_back(std::move(l));
+                for (auto const& piece : text::wrap(clean_line(next->description), to_size(std::max(8, width - 2))))
+                    out.push_back(text_line("  " + piece, plain(Role::Muted)));
+                if (next->need > 1)
+                {
+                    Line b;
+                    b.push_back({"  ", plain(Role::Text)});
+                    append(b, bar_spans(ui, std::clamp(width - 12, 6, 20), next->have, next->need));
+                    b.push_back({std::format("  {}/{}", next->have, next->need), plain(Role::Muted)});
+                    out.push_back(std::move(b));
+                }
+            }
+            return out;
+        }
+
         void draw_home(Ui& ui, Rect main)
         {
             auto const& m = ui.m;
-            auto const inner = draw_box(ui, main, "", false);
+            auto const items = m.home_items();
+            std::size_t const sel = items.empty() ? 0 : std::min(m.home_sel, items.size() - 1);
+            bool const two = main.w >= 96 && main.h >= 18;
+            int const left_w = two ? main.w * 3 / 5 : main.w;
+            Rect const left{main.x, main.y, left_w, main.h};
+            auto const inner = draw_box(ui, left, "", false);
             if (inner.empty())
                 return;
-            auto const items = m.home_items();
             std::vector<Line> lines;
             std::vector<int> item_line(items.size(), -1);
-            std::vector<bool> is_selected(items.size(), false);
-            auto section = [&](model::HomeKind kind, std::string_view title) {
-                bool any = false;
-                for (std::size_t i = 0; i < items.size(); ++i)
-                {
-                    if (items[i].kind != kind)
-                        continue;
-                    if (!any)
-                    {
-                        if (!lines.empty())
-                            lines.push_back({});
-                        lines.push_back(text_line(std::string(title), plain(Role::Accent, true)));
-                        any = true;
-                    }
-                    auto const* ex = m.ctx->catalog.find(items[i].id);
-                    if (!ex)
-                        continue;
-                    bool const selected = i == std::min(m.home_sel, items.size() - 1);
-                    item_line[i] = to_int(lines.size());
-                    is_selected[i] = selected;
-                    Line row;
-                    row.push_back({selected ? std::format("{} ", ui.gl.sel) : std::string("  "), plain(Role::Accent, true)});
-                    append(row, exercise_row(ui, *ex, inner.w - 2, inner.w >= 56));
-                    lines.push_back(std::move(row));
-                    if (kind != model::HomeKind::Recent)
-                    {
-                        std::string detail = std::format("{}{}{}", clean_line(ex->id), ui.sep(), kebab_words(catalog::to_string(ex->kind)));
-                        if (kind == model::HomeKind::Continue)
-                        {
-                            auto it = m.prog.exercises.find(ex->id);
-                            if (it != m.prog.exercises.end() && it->second.attempts > 0)
-                                detail += std::format("{}last check {} of {} passed", ui.sep(), it->second.last_passed, it->second.last_total);
-                        }
-                        else
-                            detail += std::format("{}about {} min", ui.sep(), ex->estimated_minutes);
-                        lines.push_back(text_line("    " + fit(ui, detail, std::max(1, inner.w - 4)), plain(Role::Muted)));
-                    }
-                }
+            auto mark = [&](std::size_t i) {
+                item_line[i] = to_int(lines.size());
+                return i == sel;
             };
-            section(model::HomeKind::Continue, "Continue where you left off");
-            section(model::HomeKind::Next, "Recommended next");
-            if (items.empty())
-            {
-                lines.push_back(text_line("You have not started an exercise yet.", plain(Role::Text)));
-            }
-            if (!lines.empty())
-                lines.push_back({});
-            bool const multi_path = m.summary.paths.size() > 1;
-            auto const core_path = [&]() -> std::string {
-                for (auto const& p : m.summary.paths)
-                    if (p.kind == catalog::PathKind::Core)
-                        return p.id;
-                return {};
-            }();
-            lines.push_back(text_line(multi_path ? "Core curriculum" : "Chapters", plain(Role::Accent, true)));
-            int name_w = 8;
-            for (auto const& t : m.summary.tracks)
-                if (!multi_path || t.path == core_path)
-                    name_w = std::max(name_w, width_of(clean_line(t.title)) + 4);
-            name_w = std::min(name_w, std::max(8, inner.w / 3));
-            bool const roomy = inner.w >= 64;
-            int const bar_w = std::clamp(inner.w - name_w - (roomy ? 36 : 16), 6, 20);
-            for (auto const& t : m.summary.tracks)
-            {
-                if (multi_path && t.path != core_path)
-                    continue;
-                Line l;
-                l.push_back({"  " + pad_right(fit(ui, std::format("{:>2} {}", t.number, clean_line(t.title)), name_w), name_w) + " ", plain(Role::Text, t.done)});
-                append(l, bar_spans(ui, bar_w, t.completed, t.total));
-                l.push_back({std::format("  {} of {}", t.completed, t.total), plain(Role::Muted)});
-                if (roomy)
-                    append(l, boss_marker(ui, m, t));
-                lines.push_back(std::move(l));
-            }
-            section(model::HomeKind::Recent, "Recent");
-            if (multi_path)
-            {
-                lines.push_back({});
-                lines.push_back(text_line("Learning paths", plain(Role::Accent, true)));
-                int path_w = 8;
-                for (auto const& p : m.summary.paths)
-                    path_w = std::max(path_w, width_of(clean_line(p.title)) + 2);
-                path_w = std::min(path_w, std::max(8, inner.w / 3));
-                for (std::size_t i = 0; i < items.size(); ++i)
-                {
-                    if (items[i].kind != model::HomeKind::Path)
-                        continue;
-                    auto const it = std::ranges::find_if(m.summary.paths, [&](auto const& p) { return p.id == items[i].id; });
-                    if (it == m.summary.paths.end())
-                        continue;
-                    bool const selected = i == std::min(m.home_sel, items.size() - 1);
-                    item_line[i] = to_int(lines.size());
-                    is_selected[i] = selected;
-                    Line row;
-                    row.push_back({selected ? std::format("{} ", ui.gl.sel) : std::string("  "), plain(Role::Accent, true)});
-                    row.push_back({pad_right(fit(ui, clean_line(it->title), path_w), path_w) + " ", plain(Role::Text, selected)});
-                    append(row, bar_spans(ui, bar_w, it->completed, it->total));
-                    row.push_back({std::format("  {} of {}", it->completed, it->total), plain(Role::Muted)});
-                    if (roomy)
-                        row.push_back({std::format("{}{} chapter{}", ui.sep(), it->chapters, it->chapters == 1 ? "" : "s"), plain(Role::Muted)});
-                    lines.push_back(std::move(row));
-                    if (selected && !it->summary.empty())
-                        lines.push_back(text_line("    " + fit(ui, clean_line(it->summary), std::max(1, inner.w - 4)), plain(Role::Muted)));
-                }
-            }
-            int focus = 0;
+            auto lead = [&](bool selected) { return Span{selected ? std::format("{} ", ui.gl.sel) : std::string("  "), plain(Role::Accent, true)}; };
+            auto heading = [&](std::string_view t) {
+                if (!lines.empty())
+                    lines.push_back({});
+                lines.push_back(text_line(std::string(t), plain(Role::Accent, true)));
+            };
+            bool const fresh = m.summary.completed == 0 && m.summary.in_progress == 0 && m.prog.active_exercise.empty();
+            int const w = inner.w;
             for (std::size_t i = 0; i < items.size(); ++i)
-                if (is_selected[i] && item_line[i] >= 0)
-                    focus = item_line[i];
-            int const start = first_visible(focus, to_int(lines.size()), inner.h);
-            for (int i = 0; i < inner.h; ++i)
             {
-                auto const idx = start + i;
+                if (items[i].kind != model::HomeKind::Continue)
+                    continue;
+                auto const* ex = m.ctx->catalog.find(items[i].id);
+                if (!ex)
+                    continue;
+                heading("Continue learning");
+                bool const s = mark(i);
+                Line t;
+                t.push_back(lead(s));
+                if (ex->is_boss())
+                    t.push_back({std::format("{} BOSS FIGHT  ", ui.gl.skull), plain(Role::Boss, true)});
+                t.push_back({fit(ui, clean_line(ex->title), std::max(4, w - line_width(t) - 1)), plain(Role::Text, true)});
+                lines.push_back(std::move(t));
+                std::string where;
+                if (auto const* path = m.ctx->catalog.path_of(*ex))
+                    where = clean_line(path->title);
+                if (auto const* track = m.ctx->catalog.find_track(ex->track))
+                    where += std::format("{}Chapter {}: {}", where.empty() ? "" : ui.sep(), track->number, clean_line(track->title));
+                lines.push_back(text_line("    " + fit(ui, where, std::max(1, w - 4)), plain(Role::Muted)));
+                std::string detail;
+                auto it = m.prog.exercises.find(ex->id);
+                if (ex->staged())
+                {
+                    int done = 0;
+                    std::string next_stage;
+                    for (auto const& st : ex->stages)
+                    {
+                        bool achieved = false;
+                        if (it != m.prog.exercises.end())
+                            if (auto sit = it->second.stages.find(st.id); sit != it->second.stages.end())
+                                achieved = sit->second.achieved();
+                        if (achieved)
+                            ++done;
+                        else if (next_stage.empty() && !st.optional)
+                            next_stage = st.title;
+                    }
+                    detail = std::format("{} of {} stages", done, ex->stages.size());
+                    if (!next_stage.empty())
+                        detail += std::format("{}next: {}", ui.sep(), clean_line(next_stage));
+                }
+                else if (it != m.prog.exercises.end() && it->second.attempts > 0)
+                    detail = std::format("last check {} of {} passed", it->second.last_passed, it->second.last_total);
+                else
+                    detail = std::format("about {} min{}{}", ex->estimated_minutes, ui.sep(), kebab_words(catalog::to_string(ex->kind)));
+                if (m.exercise.ex == ex && m.exercise.editor.any_modified())
+                    detail += std::format("{}unsaved edits open", ui.sep());
+                lines.push_back(text_line("    " + fit(ui, detail, std::max(1, w - 4)), plain(Role::Muted)));
+            }
+            if (fresh)
+            {
+                heading("Welcome to the DC Academy");
+                for (auto const& piece :
+                     text::wrap("Learn DC one idea at a time: short lessons, real programs you write and run here, Boss Fights that combine what you learned, "
+                                "and projects to build on your own.",
+                                to_size(std::max(8, w - 2))))
+                    lines.push_back(text_line(piece, plain(Role::Text)));
+            }
+            for (std::size_t i = 0; i < items.size(); ++i)
+            {
+                if (items[i].kind != model::HomeKind::Next)
+                    continue;
+                auto const* ex = m.ctx->catalog.find(items[i].id);
+                if (!ex)
+                    continue;
+                heading(fresh ? "Your first lesson" : "Recommended next");
+                bool const s = mark(i);
+                Line r;
+                r.push_back(lead(s));
+                append(r, exercise_row(ui, *ex, w - 2, w >= 56));
+                lines.push_back(std::move(r));
+                lines.push_back(text_line(std::format("    {}{}about {} min", clean_line(ex->id), ui.sep(), ex->estimated_minutes), plain(Role::Muted)));
+            }
+            {
+                auto const queue = app::review_queue(*m.ctx, m.prog, app::today_day());
+                int unfinished = m.summary.in_progress;
+                std::vector<std::string> notes;
+                if (!queue.due.empty())
+                    notes.push_back(std::format("{} flashcard{} due for review", queue.due.size(), queue.due.size() == 1 ? " is" : "s are"));
+                if (!m.review.empty())
+                    notes.push_back(std::format("{} lesson{} worth another look", m.review.size(), m.review.size() == 1 ? "" : "s"));
+                if (unfinished > 1)
+                    notes.push_back(std::format("{} lessons in progress", unfinished));
+                for (auto const& n : notes)
+                    lines.push_back(text_line("    " + fit(ui, n, std::max(1, w - 4)), plain(Role::Warn)));
+            }
+            bool recent_head = false;
+            for (std::size_t i = 0; i < items.size(); ++i)
+            {
+                if (items[i].kind != model::HomeKind::Recent)
+                    continue;
+                auto const* ex = m.ctx->catalog.find(items[i].id);
+                if (!ex)
+                    continue;
+                if (!recent_head)
+                {
+                    heading("Recent");
+                    recent_head = true;
+                }
+                bool const s = mark(i);
+                Line r;
+                r.push_back(lead(s));
+                append(r, exercise_row(ui, *ex, w - 2, w >= 56));
+                lines.push_back(std::move(r));
+            }
+            bool paths_head = false;
+            int const path_w = [&] {
+                int v = 8;
+                for (auto const& p : m.summary.paths)
+                    v = std::max(v, width_of(clean_line(p.title)) + 2);
+                return std::min(v, std::max(8, w / 2));
+            }();
+            for (std::size_t i = 0; i < items.size(); ++i)
+            {
+                if (items[i].kind != model::HomeKind::Path)
+                    continue;
+                auto const it = std::ranges::find_if(m.summary.paths, [&](auto const& p) { return p.id == items[i].id; });
+                if (it == m.summary.paths.end())
+                    continue;
+                if (!paths_head)
+                {
+                    heading("Learning paths");
+                    paths_head = true;
+                }
+                bool const s = mark(i);
+                Line row;
+                row.push_back(lead(s));
+                row.push_back({pad_right(fit(ui, clean_line(it->title), path_w), path_w) + " ", plain(Role::Text, s)});
+                append(row, bar_spans(ui, std::clamp(w - path_w - 16, 6, 18), it->completed, it->total));
+                row.push_back({std::format("  {}/{}", it->completed, it->total), plain(Role::Muted)});
+                lines.push_back(std::move(row));
+                if (s && !it->summary.empty())
+                    for (auto const& piece : text::wrap(clean_line(it->summary), to_size(std::max(8, w - 6))))
+                        lines.push_back(text_line("    " + piece, plain(Role::Muted)));
+            }
+            bool actions_head = false;
+            for (std::size_t i = 0; i < items.size(); ++i)
+            {
+                if (items[i].kind != model::HomeKind::Action)
+                    continue;
+                if (!actions_head)
+                {
+                    heading("Quick actions");
+                    actions_head = true;
+                }
+                bool const s = mark(i);
+                auto const& id = items[i].id;
+                std::string_view label = id == "learn"    ? "Browse every lesson"
+                                         : id == "review" ? "Review flashcards and missed questions"
+                                         : id == "lab"    ? "Explore the Project Lab"
+                                         : id == "awards" ? "See your awards"
+                                                          : "Settings and appearance";
+                std::string_view key = id == "learn" ? "2" : id == "review" ? "8" : id == "awards" ? "9" : id == "settings" ? "7" : "";
+                Line row;
+                row.push_back(lead(s));
+                row.push_back({std::string(label), plain(Role::Text, s)});
+                if (!key.empty())
+                    row.push_back({std::format("  ({})", key), plain(Role::Muted)});
+                lines.push_back(std::move(row));
+            }
+            if (!two)
+            {
+                heading("Your journey");
+                for (auto& l : journey_lines(ui, w))
+                    lines.push_back(std::move(l));
+                heading("Achievements");
+                for (auto& l : award_lines(ui, w))
+                    lines.push_back(std::move(l));
+            }
+            int focus = items.empty() ? 0 : std::max(0, item_line[sel]);
+            if (focus <= 3)
+                focus = 0;
+            int const start = first_visible(focus, to_int(lines.size()), inner.h);
+            for (int r = 0; r < inner.h; ++r)
+            {
+                auto const idx = start + r;
                 if (idx >= to_int(lines.size()))
                     break;
-                bool selected = false;
-                for (std::size_t k = 0; k < items.size(); ++k)
-                    if (item_line[k] == idx && is_selected[k])
-                        selected = true;
-                draw_line(ui, inner, inner.y + i, lines[to_size(idx)], selected);
+                bool const selected = !items.empty() && idx == item_line[sel];
+                draw_line(ui, inner, inner.y + r, lines[to_size(idx)], selected);
             }
-            draw_scrollbar(ui, main, start, to_int(lines.size()), inner.h);
+            draw_scrollbar(ui, left, start, to_int(lines.size()), inner.h);
+            if (!two)
+                return;
+            Rect const right{main.x + left_w, main.y, main.w - left_w, main.h};
+            auto const journey = journey_lines(ui, right.w - 4);
+            int const journey_h = std::min(right.h / 2, to_int(journey.size()) + 2);
+            auto const ji = draw_box(ui, Rect{right.x, right.y, right.w, journey_h}, "Your journey", false);
+            for (int r = 0; r < ji.h && r < to_int(journey.size()); ++r)
+                draw_line(ui, ji, ji.y + r, journey[to_size(r)]);
+            auto const awards_list = award_lines(ui, right.w - 4);
+            auto const ai = draw_box(ui, Rect{right.x, right.y + journey_h, right.w, right.h - journey_h}, "Achievements", false, "9 all awards");
+            for (int r = 0; r < ai.h && r < to_int(awards_list.size()); ++r)
+                draw_line(ui, ai, ai.y + r, awards_list[to_size(r)]);
         }
 
         void draw_learn(Ui& ui, Rect main)
@@ -2812,20 +3140,53 @@ namespace learndc::tui
             else
                 for (auto const& t : s.tracks)
                     chapter_line(t);
-            auto const earned = app::achievements(*m.ctx, m.prog);
             lines.push_back({});
-            lines.push_back(text_line("Achievements", plain(Role::Accent, true)));
-            if (earned.empty())
-                lines.push_back(text_line("  Complete a chapter or defeat a boss to earn the first one.", plain(Role::Muted)));
-            for (auto const& a : earned)
             {
-                Line l;
-                l.push_back({"  ", plain(Role::Text)});
-                l.push_back({a.boss ? std::format("{} ", ui.gl.skull) : std::format("{} ", ui.gl.done), plain(a.boss ? Role::Boss : Role::Ok, true)});
-                l.push_back({clean_line(a.title), plain(Role::Text)});
-                if (!a.detail.empty())
-                    l.push_back({std::format("  ({})", clean_line(a.detail)), plain(Role::Muted)});
-                lines.push_back(std::move(l));
+                int earned = 0;
+                for (auto const& aw : m.award_list)
+                    if (aw.earned)
+                        ++earned;
+                Line head;
+                head.push_back({"Awards", plain(Role::Accent, true)});
+                head.push_back({std::format("  {} of {} earned{}9 opens the gallery", earned, m.award_list.size(), ui.sep()), plain(Role::Muted)});
+                lines.push_back(std::move(head));
+                for (auto& l : award_lines(ui, inner.w - 2))
+                {
+                    l.insert(l.begin(), Span{"  ", plain(Role::Text)});
+                    lines.push_back(std::move(l));
+                }
+            }
+            {
+                auto const concepts = awards::concepts(m.ctx->catalog, m.prog);
+                lines.push_back({});
+                Line head;
+                head.push_back({"Concepts", plain(Role::Accent, true)});
+                head.push_back({"  from the lessons you finished, not a score", plain(Role::Muted)});
+                lines.push_back(std::move(head));
+                int shown = 0;
+                int untouched = 0;
+                int const concept_w = std::min(28, std::max(12, inner.w / 3));
+                for (auto const& c : concepts)
+                {
+                    if (c.level == awards::Level::Unseen)
+                    {
+                        ++untouched;
+                        continue;
+                    }
+                    if (shown >= 12)
+                        continue;
+                    ++shown;
+                    Role const role = c.level == awards::Level::Demonstrated ? Role::Ok : c.level == awards::Level::Practiced ? Role::Accent : Role::Muted;
+                    Line l;
+                    l.push_back({"  " + pad_right(fit(ui, clean_line(c.name), concept_w), concept_w) + " ", plain(Role::Text)});
+                    l.push_back({pad_right(std::string(awards::to_string(c.level)), 13), plain(role, c.level == awards::Level::Demonstrated)});
+                    l.push_back({std::format("{} of {} lessons done", c.completed, c.lessons), plain(Role::Muted)});
+                    lines.push_back(std::move(l));
+                }
+                if (shown == 0)
+                    lines.push_back(text_line("  Finish a lesson to see the concepts you have practiced.", plain(Role::Muted)));
+                if (untouched > 0)
+                    lines.push_back(text_line(std::format("  {} more concept{} not started yet", untouched, untouched == 1 ? "" : "s"), plain(Role::Muted)));
             }
             lines.push_back({});
             lines.push_back(text_line("Worth another look", plain(Role::Accent, true)));
@@ -3250,11 +3611,10 @@ namespace learndc::tui
         void draw_tab_bar(Ui& ui, Rect row)
         {
             auto const& m = ui.m;
-            static constexpr std::array<std::pair<model::Screen, std::string_view>, 8> tabs = {
-                std::pair{model::Screen::Home, "Home"},           std::pair{model::Screen::Learn, "Learn"},
-                std::pair{model::Screen::Exercise, "Lesson"},     std::pair{model::Screen::Progress, "Progress"},
-                std::pair{model::Screen::Bookmarks, "Bookmarks"}, std::pair{model::Screen::Doctor, "Doctor"},
-                std::pair{model::Screen::Settings, "Settings"},   std::pair{model::Screen::Review, "Review"}};
+            static constexpr std::array<std::pair<model::Screen, std::string_view>, 9> tabs = {
+                std::pair{model::Screen::Home, "Home"},         std::pair{model::Screen::Learn, "Learn"},         std::pair{model::Screen::Exercise, "Lesson"},
+                std::pair{model::Screen::Progress, "Progress"}, std::pair{model::Screen::Bookmarks, "Bookmarks"}, std::pair{model::Screen::Doctor, "Doctor"},
+                std::pair{model::Screen::Settings, "Settings"}, std::pair{model::Screen::Review, "Review"},       std::pair{model::Screen::Awards, "Awards"}};
             auto build = [&](bool full) {
                 Line l;
                 l.push_back({" ", plain(Role::Text)});
@@ -3299,11 +3659,10 @@ namespace learndc::tui
             auto const inner = draw_box(ui, area, narrow ? "" : "Menu", false);
             if (inner.empty())
                 return;
-            static constexpr std::array<std::pair<model::Screen, std::string_view>, 8> entries = {
-                std::pair{model::Screen::Home, "Home"},           std::pair{model::Screen::Learn, "Learn"},
-                std::pair{model::Screen::Exercise, "Lesson"},     std::pair{model::Screen::Progress, "Progress"},
-                std::pair{model::Screen::Bookmarks, "Bookmarks"}, std::pair{model::Screen::Doctor, "Doctor"},
-                std::pair{model::Screen::Settings, "Settings"},   std::pair{model::Screen::Review, "Review"}};
+            static constexpr std::array<std::pair<model::Screen, std::string_view>, 9> entries = {
+                std::pair{model::Screen::Home, "Home"},         std::pair{model::Screen::Learn, "Learn"},         std::pair{model::Screen::Exercise, "Lesson"},
+                std::pair{model::Screen::Progress, "Progress"}, std::pair{model::Screen::Bookmarks, "Bookmarks"}, std::pair{model::Screen::Doctor, "Doctor"},
+                std::pair{model::Screen::Settings, "Settings"}, std::pair{model::Screen::Review, "Review"},       std::pair{model::Screen::Awards, "Awards"}};
             int y = inner.y;
             int n = 0;
             for (auto const& [screen, name] : entries)
@@ -3464,6 +3823,9 @@ namespace learndc::tui
                     break;
                 case model::Screen::Review:
                     draw_review(ui, main);
+                    break;
+                case model::Screen::Awards:
+                    draw_awards(ui, main);
                     break;
                 case model::Screen::Onboarding:
                     break;

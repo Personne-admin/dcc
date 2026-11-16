@@ -8,9 +8,9 @@
 │ 6 ││                                                  ││  2 │                                    ┃
 │ 7 ││ Run the checks when you think you are done.      ││  3 │ import std::io;                    ┃
 │ 8 ││                                                  ││  4 │                                    ┃
-│   ││ Hints                                            ││  5 │ public i32 main()                  ┃
-│ ? ││ Hint 1 of 3                                      ││  6 │ {                                  ┃
-│   ││ Read the failing check: it names the value it    ┃│  7 │     i32 price = 40;                ┃
+│ 9 ││ Hints                                            ││  5 │ public i32 main()                  ┃
+│   ││ Hint 1 of 3                                      ││  6 │ {                                  ┃
+│ ? ││ Read the failing check: it names the value it    ┃│  7 │     i32 price = 40;                ┃
 │   ││ expected.                                        ┃│  8 │     i32 tax = 2;                   ┃
 │   ││ Hint 2 of 3                                      ┃│  9 │     i32 total = price - tax;       ┃
 │   ││ Look at the operator on the line that computes   ┃│ 10 │     io::println("Total: {}", tot…  ┃

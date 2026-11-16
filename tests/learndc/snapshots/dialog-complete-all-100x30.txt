@@ -7,11 +7,11 @@
 
 
 
-
                    ╭─ Exercise complete ────────────────────────────────────────╮
                    │ Variables and mutation                                     │
                    │ 3 of 3 checks passed, 1 attempt, no hints used             │
                    │ Chapter 1 complete: Fundamentals                           │
+                   │ Award unlocked: Foundation Builder                         │
                    │ Every lesson that is open to you is complete               │
                    │                                                            │
                    │ › Review your progress                                     │

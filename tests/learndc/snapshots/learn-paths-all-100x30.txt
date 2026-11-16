@@ -8,9 +8,9 @@
 │   6 Doctor           ││ Chapter 1  Fundamentals  1 of 4 completed                                │
 │   7 Settings         ││   ✓ Your first DC program                      beginner     completed    │
 │   8 Review           ││   ◐ Variables and mutation                     beginner     in progress  │
-│                      ││   ○ Making decisions with if                   beginner     not started  │
-│   ? Help             ││   ○ Repeating work with loops                  intermediate not started  │
-│                      ││                                                                          │
+│   9 Awards           ││   ○ Making decisions with if                   beginner     not started  │
+│                      ││   ○ Repeating work with loops                  intermediate not started  │
+│   ? Help             ││                                                                          │
 │                      ││ Chapter 2  Types and data  0 of 2 completed                              │
 │                      ││   ○ Grouping data in structs                   intermediate not started  │
 │                      ││   ○ Choosing with enums                        advanced     not started  │

@@ -1,30 +1,30 @@
  Learn DC - Home                                                      1 of 6 completed ##----------
 +- Menu ---------------++--------------------------------------------------------------------------+
-| > 1 Home             || Continue where you left off                                              |
-|   2 Learn            || > [~] Variables and mutation                   beginner     in progress  |
-|   3 Lesson           ||     fundamentals/variables - fix behavior - last check 2 of 3 passed     |
-|   4 Progress         ||                                                                          |
-|   5 Bookmarks        || Recommended next                                                         |
-|   6 Doctor           ||   [ ] Grouping data in structs                 intermediate not started  |
-|   7 Settings         ||     types/structs - complete program - about 20 min                      |
-|   8 Review           ||                                                                          |
-|                      || Chapters                                                                 |
-|   ? Help             ||    1 Fundamentals    ####--------------  1 of 4                          |
-|                      ||    2 Types and data  ------------------  0 of 2                          |
-|                      ||                                                                          |
-|                      || Recent                                                                   |
-|                      ||   [x] Your first DC program                    beginner     completed    |
-|                      ||                                                                          |
-|                      ||                                                                          |
-|                      ||                                                                          |
-|                      ||                                                                          |
-|                      ||                                                                          |
-|                      ||                                                                          |
-|                      ||                                                                          |
-|                      ||                                                                          |
-|                      ||                                                                          |
-|                      ||                                                                          |
+| > 1 Home             || Continue learning                                                        #
+|   2 Learn            || > Variables and mutation                                                 #
+|   3 Lesson           ||     Learn DC - Chapter 1: Fundamentals                                   #
+|   4 Progress         ||     last check 2 of 3 passed                                             #
+|   5 Bookmarks        ||                                                                          #
+|   6 Doctor           || Recommended next                                                         #
+|   7 Settings         ||   [ ] Grouping data in structs                 intermediate not started  #
+|   8 Review           ||     types/structs - about 20 min                                         #
+|   9 Awards           ||     1 lesson worth another look                                          #
+|                      ||                                                                          #
+|   ? Help             || Recent                                                                   #
+|                      ||   [x] Your first DC program                    beginner     completed    #
+|                      ||                                                                          #
+|                      || Quick actions                                                            #
+|                      ||   Browse every lesson  (2)                                               #
+|                      ||   Review flashcards and missed questions  (8)                            #
+|                      ||   See your awards  (9)                                                   #
+|                      ||   Settings and appearance  (7)                                           #
+|                      ||                                                                          #
+|                      || Your journey                                                             #
+|                      || Core   ####--------------------  1/6                                     |
+|                      ||        0 of 2 chapters                                                   |
+|                      ||        [~] [ ]                                                           |
+|                      || All paths: 1 of 6 lessons                                                |
 |                      ||                                                                          |
 +----------------------++--------------------------------------------------------------------------+
-
+ Your earlier progress earned 1 award; see them on the Awards screen (9)
  Enter open  Up Down move  n next  2 learn  ? help  q quit

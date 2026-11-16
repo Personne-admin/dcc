@@ -8,9 +8,9 @@
 │ 6 ││ Hints                                                                   │
 │ 7 ││ Hint 1 of 3                                                             │
 │ 8 ││ Read the failing check: it names the value it expected.                 ┃
-│   ││ Hint 2 of 3                                                             ┃
-│ ? ││ Look at the operator on the line that computes total.                   ┃
-│   │╰─────────────────────────────────────────────────────────────────────────╯
+│ 9 ││ Hint 2 of 3                                                             ┃
+│   ││ Look at the operator on the line that computes total.                   ┃
+│ ? │╰─────────────────────────────────────────────────────────────────────────╯
 │   │ Files   project.dcon  › src/main.dc
 │   │╭─ Results ───────────────────────────────────────────────────────────────╮
 │   ││ ✗ 2 of 3 checks passed · 0.31s                                          ┃

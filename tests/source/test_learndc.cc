@@ -16,6 +16,7 @@ import learndc.watch;
 import learndc.editor;
 import learndc.doctor;
 import learndc.requirements;
+import learndc.awards;
 import learndc.textedit;
 import learndc.tui.editing;
 import learndc.app;
@@ -46,6 +47,7 @@ namespace runner = learndc::runner;
 namespace watch = learndc::watch;
 namespace editor = learndc::editor;
 namespace doctor = learndc::doctor;
+namespace awards = learndc::awards;
 
 namespace
 {
@@ -6939,10 +6941,11 @@ TEST_CASE("tui exercise complete opens a modal that stays until dismissed")
     m.handle(tm::CheckDone{pass});
     REQUIRE(m.dialog.kind == tm::DialogKind::Complete);
     CHECK_EQ(m.dialog.title, "Exercise complete");
-    REQUIRE(m.dialog.body.size() == 3u);
+    REQUIRE(m.dialog.body.size() == 4u);
     CHECK_EQ(m.dialog.body[0], "Variables and mutation");
     CHECK_EQ(m.dialog.body[1], "3 of 3 checks passed, 3 attempts, 1 hint used");
-    CHECK_EQ(m.dialog.body[2], "Next: Making decisions with if");
+    CHECK_EQ(m.dialog.body[2], "Award unlocked: Persistent Learner");
+    CHECK_EQ(m.dialog.body[3], "Next: Making decisions with if");
     CHECK_EQ(m.dialog.labels, (std::vector<std::string>{"Next lesson", "Stay here"}));
     CHECK(m.toasts.empty());
     snap(m, "dialog-complete", {{100, 30}, {80, 24}, {60, 20}});
@@ -8445,7 +8448,8 @@ TEST_CASE("tui learn lists chapters bosses lectures and progress shows the journ
     auto const prog = learndc::tui::render_snapshot(m, 100, 30);
     CHECK(prog.find("Journey") != std::string::npos);
     CHECK(prog.find("boss ahead") != std::string::npos);
-    CHECK(prog.find("Achievements") != std::string::npos);
+    CHECK(prog.find("Awards") != std::string::npos);
+    CHECK(prog.find("Concepts") != std::string::npos);
 }
 
 SECTION("learndc.activity");
@@ -9718,4 +9722,133 @@ TEST_CASE("tui snapshots of the embedded editor")
     press(m, "x");
     press(m, "CtrlO");
     snap(m, "editor-open", {{100, 30}});
+}
+
+SECTION("awards and concept mastery");
+
+namespace
+{
+    awards::Award const* award(std::vector<awards::Award> const& all, std::string_view id)
+    {
+        for (auto const& a : all)
+            if (a.id == id)
+                return &a;
+        return nullptr;
+    }
+} // namespace
+
+TEST_CASE("awards come from verified progress, carry the deciding date and are idempotent")
+{
+    auto loaded = catalog::Catalog::load(base_source());
+    REQUIRE(loaded.has_value());
+    auto const& cat = *loaded;
+    progress::Progress p;
+    auto all = awards::evaluate(cat, p);
+    REQUIRE(award(all, "first-program") != nullptr);
+    CHECK(!award(all, "first-program")->earned);
+    CHECK(!award(all, "chapter-conqueror")->earned);
+    CHECK(!award(all, "foundation")->earned);
+    progress::record_check(p, "basics/one", 0, 2, 1, "2026-03-01T10:00:00Z");
+    progress::record_check(p, "basics/one", 1, 2, 1, "2026-03-01T10:05:00Z");
+    progress::record_check(p, "basics/one", 2, 2, 1, "2026-03-01T10:09:00Z");
+    all = awards::evaluate(cat, p);
+    CHECK(award(all, "first-program")->earned);
+    CHECK_EQ(award(all, "first-program")->earned_at, "2026-03-01T10:09:00Z");
+    CHECK(award(all, "persistent")->earned);
+    CHECK(!award(all, "chapter-conqueror")->earned);
+    CHECK_EQ(award(all, "chapter-conqueror")->have, 1);
+    CHECK_EQ(award(all, "chapter-conqueror")->need, 2);
+    progress::record_check(p, "basics/two", 2, 2, 1, "2026-03-02T09:00:00Z");
+    progress::record_check(p, "basics/two", 2, 2, 1, "2026-03-03T09:00:00Z");
+    all = awards::evaluate(cat, p);
+    CHECK(award(all, "chapter-conqueror")->earned);
+    CHECK_EQ(award(all, "chapter-conqueror")->earned_at, "2026-03-02T09:00:00Z");
+    CHECK(!award(all, "foundation")->earned);
+    CHECK_EQ(award(all, "foundation")->have, 2);
+    CHECK_EQ(award(all, "foundation")->need, 3);
+    auto const again = awards::evaluate(cat, p);
+    REQUIRE(again.size() == all.size());
+    for (std::size_t i = 0; i < all.size(); ++i)
+    {
+        CHECK_EQ(again[i].id, all[i].id);
+        CHECK_EQ(again[i].earned, all[i].earned);
+        CHECK_EQ(again[i].earned_at, all[i].earned_at);
+    }
+    auto revised = base_source();
+    edit(revised, one_toml, "revision = 1", "revision = 2");
+    auto bumped = catalog::Catalog::load(revised);
+    REQUIRE(bumped.has_value());
+    auto const after_revision = awards::evaluate(*bumped, p);
+    CHECK(award(after_revision, "first-program")->earned);
+    CHECK(award(after_revision, "chapter-conqueror")->earned);
+}
+
+TEST_CASE("boss awards count verified stages and seen awards are announced once")
+{
+    char const* content = std::getenv("DCC_TEST_LEARNDC_CONTENT");
+    REQUIRE(content != nullptr);
+    auto source = catalog::load_directory(content);
+    REQUIRE(source.has_value());
+    auto loaded = catalog::Catalog::load(*source);
+    REQUIRE(loaded.has_value());
+    auto const& cat = *loaded;
+    auto const* boss = cat.find("memory/boss-inventory-keeper");
+    REQUIRE(boss != nullptr);
+    progress::Progress p;
+    progress::mark_started(p, boss->id, "2026-04-01T08:00:00Z");
+    p.exercises[boss->id].stages[boss->stages[0].id].achieved_at = "2026-04-01T08:10:00Z";
+    auto all = awards::evaluate(cat, p);
+    auto const* a = award(all, "boss-memory-boss-inventory-keeper");
+    REQUIRE(a != nullptr);
+    CHECK(!a->earned);
+    CHECK_EQ(a->have, 1);
+    CHECK(a->need >= 4);
+    CHECK_EQ(a->lesson, boss->id);
+    CHECK(!award(all, "first-boss")->earned);
+    CHECK(award(all, "perfect-victory")->hidden);
+    TempDir t;
+    auto const file = t.path / "awards.json";
+    auto seen = awards::load_seen(file);
+    CHECK(!seen.existed);
+    CHECK(awards::unseen(all, seen).empty());
+    progress::record_check(p, "first-steps/hello-world", 2, 2, 1, "2026-04-02T08:00:00Z");
+    all = awards::evaluate(cat, p);
+    auto fresh = awards::unseen(all, seen);
+    REQUIRE(fresh.size() == 1);
+    CHECK_EQ(fresh[0]->id, "first-program");
+    seen.ids[fresh[0]->id] = fresh[0]->earned_at;
+    REQUIRE(awards::save_seen(file, seen).has_value());
+    auto reloaded = awards::load_seen(file);
+    CHECK(reloaded.existed);
+    CHECK(awards::unseen(all, reloaded).empty());
+    auto const concepts = awards::concepts(cat, p);
+    CHECK(!concepts.empty());
+    CHECK(std::ranges::all_of(concepts, [](auto const& c) { return c.lessons >= 3; }));
+    CHECK(std::ranges::none_of(concepts, [](auto const& c) { return c.level == awards::Level::Demonstrated; }));
+}
+
+TEST_CASE("tui announces a newly earned award once and keeps earlier awards quiet on upgrade")
+{
+    TuiWorld w;
+    {
+        tm::Model m(*w.ctx, {100, 30});
+        CHECK(std::ranges::any_of(m.toasts, [](auto const& t) { return t.text.find("Your earlier progress earned") != std::string::npos; }));
+        CHECK(std::filesystem::exists(w.ctx->dirs.data_dir / "awards.json"));
+        press(m, "9");
+        CHECK(m.screen == tm::Screen::Awards);
+        snap(m, "awards", {{100, 30}, {60, 20}});
+    }
+    {
+        tm::Model m(*w.ctx, {100, 30});
+        CHECK(std::ranges::none_of(m.toasts, [](auto const& t) { return t.text.find("Award unlocked") != std::string::npos; }));
+        snap(m, "home-dashboard", {{120, 34}, {100, 30}, {80, 24}, {60, 20}});
+    }
+}
+
+TEST_CASE("tui home welcomes a first-time learner")
+{
+    TuiWorld w(false);
+    tm::Model m(*w.ctx, {100, 30});
+    REQUIRE(m.screen == tm::Screen::Home);
+    snap(m, "home-welcome", {{100, 30}, {80, 24}});
 }

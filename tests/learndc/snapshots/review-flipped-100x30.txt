@@ -8,9 +8,9 @@
 │   6 Doctor           ││                                            ││                            │
 │   7 Settings         ││                                            ││                            │
 │ › 8 Review           ││                                            ││                            │
-│                      ││   ╭─ BACK ────────────── Basics drill ─╮   ││                            │
-│   ? Help             ││   │                                    │   ││                            │
-│                      ││   │               Front                │   ││                            │
+│   9 Awards           ││   ╭─ BACK ────────────── Basics drill ─╮   ││                            │
+│                      ││   │                                    │   ││                            │
+│   ? Help             ││   │               Front                │   ││                            │
 │                      ││   │      ────────────────────────      │   ││                            │
 │                      ││   │                Back                │   ││                            │
 │                      ││   │                                    │   ││                            │

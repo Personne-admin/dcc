@@ -8,9 +8,9 @@
 │ 6 ││     Put the code in ord…  │    ☐ y                                                          │
 │ 7 ││     Recall                │  › ☑ z                                                          │
 │ 8 ││     Summary               │                                                                 │
-│   ││                           │ ✓ Right                                                         │
-│ ? ││                           │   x and z.                                                      │
-│   ││                           │                                                                 │
+│ 9 ││                           │ ✓ Right                                                         │
+│   ││                           │   x and z.                                                      │
+│ ? ││                           │                                                                 │
 │   ││                           │                                                                 │
 │   ││                           │                                                                 │
 │   ││                           │                                                                 │
@@ -26,5 +26,5 @@
 │   ││                           │                                                                 │
 │   ││                           │                                                                 │
 ╰───╯╰─────────────────────────────────────────────────────────────────────────────────────────────╯
-
+ Award unlocked: Second Chance
  Left Right page  Up Down move  Space toggle  Enter check  n next  ? help  q quit

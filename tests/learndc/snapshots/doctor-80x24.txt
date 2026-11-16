@@ -8,9 +8,9 @@
 │ › 6 Doctor     ││         found next to learndc, version 0.6.0               ┃
 │   7 Settings   ││ [info]  dccd                                               ┃
 │   8 Review     ││         not found (optional)                               ┃
-│                ││ [warn]  editor                                             ┃
-│   ? Help       ││         no editor was found, so learndc shows file paths   ┃
-│                ││         instead                                            ┃
+│   9 Awards     ││ [warn]  editor                                             ┃
+│                ││         no editor was found, so learndc shows file paths   ┃
+│   ? Help       ││         instead                                            ┃
 │                ││         Fix: Install nvim, vim or nano, or set one in      ┃
 │                ││              Settings.                                     ┃
 │                ││ [ok]    terminal                                           ┃

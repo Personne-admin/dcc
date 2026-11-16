@@ -5,20 +5,20 @@
 
 
 
-
-
                    ╭─ Boss defeated ────────────────────────────────────────────╮
                    │   ☠  ☠  ☠  BOSS DEFEATED  ☠  ☠  ☠                          │
                    │                                                            │
                    │ The Keeper                                                 │
                    │ 2 required stages cleared, 2 attempts, bonus 0 of 1        │
+                   │ Award unlocked: Hello, Academy                             │
+                   │ Award unlocked: Boss Slayer                                │
+                   │ Award unlocked: The Keeper Defeated                        │
+                   │ Award unlocked: Master of Bosses                           │
                    │ Next: How things work                                      │
                    │                                                            │
                    │ › Next lesson                                              │
                    │   Stay here                                                │
                    ╰────────────────────────────────────────────────────────────╯
-
-
 
 
 

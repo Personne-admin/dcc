@@ -1,0 +1,34 @@
+ Learn DC · Home                                                                          1 of 6 completed ██░░░░░░░░░░
+╭─ Menu ───────────────╮╭───────────────────────────────────────────────────────╮╭─ Your journey ──────────────────────╮
+│ › 1 Home             ││ Continue learning                                     ││ Core   █░░░░░░░░░░  1/6             │
+│   2 Learn            ││ › Variables and mutation                              ││        0 of 2 chapters              │
+│   3 Lesson           ││     Learn DC · Chapter 1: Fundamentals                ││        ◐ ○                          │
+│   4 Progress         ││     last check 2 of 3 passed                          ││ All paths: 1 of 6 lessons           │
+│   5 Bookmarks        ││                                                       │╰─────────────────────────────────────╯
+│   6 Doctor           ││ Recommended next                                      │╭─ Achievements ─────── 9 all awards ─╮
+│   7 Settings         ││   ○ Grouping data in structs             not started  ││ ★ Hello, Academy         2026-01-01 │
+│   8 Review           ││     types/structs · about 20 min                      ││                                     │
+│   9 Awards           ││     1 lesson worth another look                       ││ Next: Chapter Conqueror             │
+│                      ││                                                       ││   Complete every required lesson of │
+│   ? Help             ││ Recent                                                ││   a chapter.                        │
+│                      ││   ✓ Your first DC program                completed    ││   █████░░░░░░░░░░░░░░░  1/4         │
+│                      ││                                                       ││                                     │
+│                      ││ Quick actions                                         ││                                     │
+│                      ││   Browse every lesson  (2)                            ││                                     │
+│                      ││   Review flashcards and missed questions  (8)         ││                                     │
+│                      ││   See your awards  (9)                                ││                                     │
+│                      ││   Settings and appearance  (7)                        ││                                     │
+│                      ││                                                       ││                                     │
+│                      ││                                                       ││                                     │
+│                      ││                                                       ││                                     │
+│                      ││                                                       ││                                     │
+│                      ││                                                       ││                                     │
+│                      ││                                                       ││                                     │
+│                      ││                                                       ││                                     │
+│                      ││                                                       ││                                     │
+│                      ││                                                       ││                                     │
+│                      ││                                                       ││                                     │
+│                      ││                                                       ││                                     │
+╰──────────────────────╯╰───────────────────────────────────────────────────────╯╰─────────────────────────────────────╯
+
+ Enter open  Up Down move  n next  2 learn  ? help  q quit

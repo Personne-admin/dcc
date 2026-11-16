@@ -8,9 +8,9 @@
 │ 6 ││ boss fight · not started                         ┃│                                         │
 │ 7 ││                                                  ┃│                                         │
 │ 8 ││ Defeat the keeper.                               ┃│                                         │
-│   ││                                                  ┃│                                         │
-│ ? ││ Objectives  0 of 2 required stages passing       ┃│                                         │
-│   ││ › 1. First stage  current objective              ┃│                                         │
+│ 9 ││                                                  ┃│                                         │
+│   ││ Objectives  0 of 2 required stages passing       ┃│                                         │
+│ ? ││ › 1. First stage  current objective              ┃│                                         │
 │   ││      Do the first part.                          ┃│                                         │
 │   ││ ○ 2. Second stage                                ┃│                                         │
 │   ││ ○ 3. Bonus stage (bonus)                         ┃│                                         │
