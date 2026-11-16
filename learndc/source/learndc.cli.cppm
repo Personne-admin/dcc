@@ -656,7 +656,7 @@ export namespace learndc::cli
                 if (ps.bonus_total > 0)
                     counts += std::format(", {} of {} bonus", ps.bonus_completed, ps.bonus_total);
                 if (ps.bosses_total > 0)
-                    counts += std::format(", {} of {} bosses", ps.bosses_defeated, ps.bosses_total);
+                    counts += std::format(", {} of {} boss{}", ps.bosses_defeated, ps.bosses_total, ps.bosses_total == 1 ? "" : "es");
                 std::print(s.out(), "{}  {}  ({} chapter{}; {})\n", pad(ps.id, id_w), paint(s, "1", ps.title), ps.chapters, ps.chapters == 1 ? "" : "s",
                            counts);
                 if (!ps.summary.empty())

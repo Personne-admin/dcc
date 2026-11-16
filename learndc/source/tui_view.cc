@@ -2472,7 +2472,8 @@ namespace learndc::tui
                     head.push_back({" " + clean_line(ps.title), plain(Role::Text, true)});
                     head.push_back({std::format("  {} of {} chapters", ps.chapters_done, ps.chapters), plain(Role::Muted)});
                     if (ps.bosses_total > 0)
-                        head.push_back({std::format("{}{} of {} bosses", ui.sep(), ps.bosses_defeated, ps.bosses_total), plain(Role::Muted)});
+                        head.push_back({std::format("{}{} of {} boss{}", ui.sep(), ps.bosses_defeated, ps.bosses_total, ps.bosses_total == 1 ? "" : "es"),
+                                        plain(Role::Muted)});
                     bool const show = ps.kind == catalog::PathKind::Core || ps.started;
                     if (!show)
                         head.push_back({std::format("{}not started", ui.sep()), plain(Role::Muted)});

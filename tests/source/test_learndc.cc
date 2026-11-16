@@ -9354,6 +9354,7 @@ TEST_CASE("cli lists the core curriculum by default and other paths on request")
     r = f.run({"paths"});
     CHECK_EQ(r.code, 0);
     CHECK(r.out.find("core   Core curriculum  (2 chapters; 0 of 3 lessons)") != std::string::npos);
+    CHECK(r.out.find("bosses") == std::string::npos);
     CHECK(r.out.find("games  Game development  (1 chapter; 0 of 2 lessons)") != std::string::npos);
     CHECK(r.out.find("learndc list --path ID") != std::string::npos);
     r = f.run({"paths", "--json"});
@@ -9423,4 +9424,17 @@ TEST_CASE("a chapter of optional lessons counts them as its lessons")
     auto const r = f.run({"paths"});
     CHECK_EQ(r.code, 0);
     CHECK(r.out.find("games  Game development  (1 chapter; 0 of 2 lessons)") != std::string::npos);
+}
+
+TEST_CASE("cli paths of the shipped content name one boss in the singular")
+{
+    char const* content = std::getenv("DCC_TEST_LEARNDC_CONTENT");
+    REQUIRE(content != nullptr);
+    CliFixture f;
+    f.content = std::filesystem::path(content);
+    auto const r = f.run({"paths"});
+    CHECK_EQ(r.code, 0);
+    CHECK(r.out.find("of 1 boss)") != std::string::npos);
+    CHECK(r.out.find("of 1 bosses") == std::string::npos);
+    CHECK(r.out.find("of 6 bosses") != std::string::npos);
 }
