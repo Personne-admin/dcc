@@ -1,0 +1,34 @@
+ Learn DC · Variables and mutation                                                        1 of 6 completed ██░░░░░░░░░░
+ src/main.dc                                                                                     Variables and mutation
+╭─ Files ────────────╮╭─ src/main.dc ─────────────────────────── Ln 1, Col 12 ─╮╭─ Instructions ───────────────────────╮
+│   project.dcon     ││    1 module main;                                      ││ beginner · 10 min                    ┃
+│ › src/main.dc      ││    2                                                   ││ fix behavior · in progress           ┃
+│                    ││    3 import std::io;                                   ││                                      ┃
+│                    ││    4                                                   ││ Fix the arithmetic so the program    ┃
+│                    ││    5 public i32 main()                                 ││ prints the right total.              ┃
+│                    ││    6 {                                                 ││                                      ┃
+│                    ││    7     i32 price = 40;                               ││ Goals                                ┃
+│                    ││    8     i32 tax = 2;                                  ││ • Make every check pass              ┃
+│                    ││    9     i32 total = price - tax;                      ││ • Read the diagnostics before        ┃
+│                    ││   10     io::println("Total: {}", total);              ││   changing code                      ┃
+│                    ││   11     return 0;                                     ││                                      ┃
+│                    ││   12 }                                                 ││ A variable gives a name to a value.  ┃
+│                    ││    ~                                                   ││ Declare it with its type, then use   ┃
+│                    ││    ~                                                   ││ the name wherever you need the       ┃
+│                    ││    ~                                                   ││ value.                               ┃
+│                    ││    ~                                                   ││                                      ┃
+│                    ││    ~                                                   ││ • Declare price and tax as i32.      ┃
+│                    ││    ~                                                   ││ • Add them together into total.      ┃
+│                    ││    ~                                                   ││                                      ┃
+│                    ││    ~                                                   ││   i32 total = 40 + 2;                ┃
+│                    ││    ~                                                   ││                                      ┃
+│                    ││    ~                                                   ││ Use both values and read the failing ┃
+│                    ││    ~                                                   ││ check carefully.                     ┃
+│                    ││    ~                                                   ││                                      │
+│                    ││    ~                                                   ││ ┌───────┬───────────────┐            │
+│                    ││    ~                                                   ││ │ Name  │ Meaning       │            │
+│                    ││    ~                                                   ││ ├───────┼───────────────┤            │
+│                    ││    ~                                                   ││ │ price │ what it costs │            │
+╰────────────────────╯╰────────────────────────────────────────────────────────╯╰──────────────────────────────────────╯
+
+ Ctrl+S save  F5 check  F8 next error  Ctrl+F find  Ctrl+Z undo  Ctrl+O open file  Ctrl+B panel  Esc leave editor

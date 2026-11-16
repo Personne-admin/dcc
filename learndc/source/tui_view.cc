@@ -16,6 +16,9 @@ import learndc.app;
 import learndc.markdown;
 import learndc.activity;
 import learndc.tui.model;
+import learndc.textedit;
+import learndc.highlight;
+import learndc.tui.editing;
 
 namespace learndc::tui
 {
@@ -43,6 +46,12 @@ namespace learndc::tui
             Inline,
             Watch,
             Boss,
+            SynKeyword,
+            SynType,
+            SynString,
+            SynNumber,
+            SynComment,
+            SynAttr,
         };
 
         struct Style
@@ -1850,12 +1859,329 @@ namespace learndc::tui
             draw_missed(ui, Rect{main.x, main.y + main.h - missed_h, main.w, missed_h}, rs.on_missed);
         }
 
+        [[nodiscard]] Role syntax_role(highlight::Kind k)
+        {
+            switch (k)
+            {
+                case highlight::Kind::Keyword:
+                    return Role::SynKeyword;
+                case highlight::Kind::Type:
+                    return Role::SynType;
+                case highlight::Kind::String:
+                case highlight::Kind::Char:
+                    return Role::SynString;
+                case highlight::Kind::Number:
+                    return Role::SynNumber;
+                case highlight::Kind::Comment:
+                    return Role::SynComment;
+                case highlight::Kind::Attribute:
+                    return Role::SynAttr;
+                case highlight::Kind::Heading:
+                    return Role::Accent;
+                case highlight::Kind::Key:
+                    return Role::Inline;
+                case highlight::Kind::Punct:
+                    return Role::Muted;
+                case highlight::Kind::Plain:
+                    return Role::Text;
+            }
+            return Role::Text;
+        }
+
+        void draw_code_line(Ui& ui, Rect row, editing::OpenFile const& f, std::size_t line_no, std::vector<highlight::Span> const& spans,
+                            std::optional<std::pair<textedit::Pos, textedit::Pos>> const& sel, bool cursor_line, bool show_cursor)
+        {
+            auto const& b = f.buf;
+            auto const& line = b.lines[line_no];
+            std::size_t const tab = static_cast<std::size_t>(std::max(1, b.indent_width));
+            std::size_t col = 0;
+            std::size_t const left = f.view.left;
+            int x = row.x;
+            auto kind_at = [&](std::size_t byte) {
+                for (auto const& sp : spans)
+                    if (byte >= sp.begin && byte < sp.end)
+                        return sp.kind;
+                return highlight::Kind::Plain;
+            };
+            auto selected = [&](std::size_t byte) {
+                if (!sel)
+                    return false;
+                textedit::Pos const p{line_no, byte};
+                return !(p < sel->first) && p < sel->second;
+            };
+            bool cursor_drawn = false;
+            for (std::size_t i = 0; i < line.size() && x < row.right();)
+            {
+                auto const d = text::decode_utf8(line, i);
+                std::string cell(line.substr(i, d.length));
+                std::size_t w = 1;
+                if (cell == "\t")
+                {
+                    w = tab - (col % tab);
+                    cell = std::string(w, ' ');
+                }
+                else
+                {
+                    w = std::max<std::size_t>(1, text::display_width(cell));
+                    if (static_cast<unsigned char>(cell[0]) < 0x20 || cell == "\x7f")
+                        cell = "?";
+                }
+                Style st = plain(syntax_role(kind_at(i)));
+                if (kind_at(i) == highlight::Kind::Comment)
+                    st.italic = true;
+                if (selected(i))
+                    st.inverse = true;
+                bool const at_cursor = show_cursor && cursor_line && b.cursor.col == i;
+                if (at_cursor)
+                {
+                    st.inverse = !st.inverse;
+                    st.bold = true;
+                    cursor_drawn = true;
+                }
+                if (col + w > left)
+                {
+                    if (col < left)
+                    {
+                        std::size_t const visible = col + w - left;
+                        x += ui.g.put(x, row.y, std::string(visible, ' '), st, row);
+                    }
+                    else
+                        x += ui.g.put(x, row.y, cell, st, row);
+                }
+                col += w;
+                i += d.length;
+            }
+            if (show_cursor && cursor_line && !cursor_drawn && b.cursor.col >= line.size() && col >= left && x < row.right())
+                ui.g.put(x, row.y, " ", Style{Role::Text, true, true, false}, row);
+            if (sel && line_no >= sel->first.line && line_no < sel->second.line && x < row.right() && !(cursor_line && b.cursor.col >= line.size()))
+                ui.g.put(x, row.y, " ", Style{Role::Text, false, true, false}, row);
+        }
+
+        void draw_editor_text(Ui& ui, Rect area, editing::OpenFile const& f, int gutter, bool focused)
+        {
+            auto const& b = f.buf;
+            auto const lang = f.language;
+            highlight::State state;
+            std::size_t const top = std::min(f.view.top, b.lines.size() - 1);
+            if (top < 4000)
+                for (std::size_t i = 0; i < top; ++i)
+                    (void)highlight::highlight_line(lang, b.lines[i], state);
+            std::optional<std::pair<textedit::Pos, textedit::Pos>> sel;
+            if (b.has_selection())
+                sel = std::pair{b.selection_start(), b.selection_end()};
+            for (int r = 0; r < area.h; ++r)
+            {
+                std::size_t const line_no = top + static_cast<std::size_t>(r);
+                if (line_no >= b.lines.size())
+                {
+                    ui.g.put(area.x, area.y + r, pad_left("~", gutter - 1), plain(Role::Border), area);
+                    continue;
+                }
+                bool const cursor_line = b.cursor.line == line_no;
+                auto const number = std::to_string(line_no + 1);
+                ui.g.put(area.x, area.y + r, pad_left(number, gutter - 1) + " ", plain(cursor_line ? Role::Accent : Role::Border, cursor_line), area);
+                auto const spans = highlight::highlight_line(lang, b.lines[line_no], state);
+                Rect const row{area.x + gutter, area.y + r, area.w - gutter, 1};
+                draw_code_line(ui, row, f, line_no, spans, sel, cursor_line, focused);
+            }
+        }
+
+        void draw_file_tree(Ui& ui, Rect box)
+        {
+            auto const& es = ui.m.exercise;
+            auto const& ed = es.editor;
+            auto const inner = draw_box(ui, box, "Files", false);
+            if (inner.empty())
+                return;
+            int y = inner.y;
+            for (auto const& rel : es.files)
+            {
+                if (y >= inner.bottom())
+                    break;
+                auto const at = ed.index_of(rel);
+                bool const current = at && *at == ed.current;
+                bool const modified = at && ed.files[*at].buf.modified();
+                Line l;
+                l.push_back({current ? std::format("{} ", ui.gl.sel) : std::string("  "), plain(Role::Accent, true)});
+                l.push_back({fit(ui, clean_line(rel), std::max(1, inner.w - 4)), plain(current ? Role::Accent : (at ? Role::Text : Role::Muted), current)});
+                if (modified)
+                    l.push_back({ui.ascii ? " *" : " \xE2\x97\x8F", plain(Role::Warn, true)});
+                draw_line(ui, inner, y++, l);
+            }
+        }
+
+        void draw_editor_overlay(Ui& ui, Rect area, std::string_view title, std::vector<Line> const& lines)
+        {
+            int const w = std::min(area.w - 4, std::max(36, std::min(72, area.w * 2 / 3)));
+            int const h = std::min(area.h - 2, to_int(lines.size()) + 2);
+            Rect const box{area.x + (area.w - w) / 2, area.y + std::max(0, (area.h - h) / 3), w, h};
+            ui.g.fill(box, plain(Role::Text));
+            auto const inner = draw_box(ui, box, title, true);
+            for (int i = 0; i < inner.h && i < to_int(lines.size()); ++i)
+                draw_line(ui, inner, inner.y + i, lines[to_size(i)]);
+        }
+
+        void draw_editor_screen(Ui& ui, Rect main)
+        {
+            auto const& m = ui.m;
+            auto const& es = m.exercise;
+            auto const& ed = es.editor;
+            auto const* f = ed.open_file();
+            if (!f)
+                return;
+            auto const g = model::editor_geometry(ui.size, ed, f->buf.lines.size());
+            Line tabs;
+            for (std::size_t i = 0; i < ed.files.size(); ++i)
+            {
+                bool const current = i == ed.current;
+                auto const name = clean_line(ed.files[i].rel);
+                std::string label = std::format(" {}{} ", name, ed.files[i].buf.modified() ? (ui.ascii ? " *" : " \xE2\x97\x8F") : "");
+                tabs.push_back({label, current ? Style{Role::Accent, true, true, false} : plain(Role::Muted)});
+                tabs.push_back({" ", plain(Role::Text)});
+            }
+            draw_line(ui, Rect{main.x, main.y, main.w, 1}, main.y, tabs);
+            if (es.ex)
+            {
+                auto const title = fit(ui, clean_line(es.ex->title), std::max(8, main.w / 3));
+                int const tw = width_of(title);
+                if (tw + 2 < main.w - line_width(tabs))
+                    ui.g.put(main.right() - tw - 1, main.y, title, plain(es.ex->is_boss() ? Role::Boss : Role::Muted, es.ex->is_boss()), main);
+            }
+            Rect body{main.x, main.y + 1, main.w, main.h - 1};
+            if (g.tree_w > 0)
+            {
+                draw_file_tree(ui, Rect{body.x, body.y, g.tree_w, body.h});
+                body.x += g.tree_w;
+                body.w -= g.tree_w;
+            }
+            if (g.side_w > 0)
+            {
+                Rect const side{body.right() - g.side_w, body.y, g.side_w, body.h};
+                if (ed.side == editing::SidePanel::Results)
+                    draw_results_box(ui, side, false);
+                else
+                    draw_instructions_box(ui, side, false);
+                body.w -= g.side_w;
+            }
+            if (g.side_h > 0)
+            {
+                Rect const strip{body.x, body.bottom() - g.side_h, body.w, g.side_h};
+                if (ed.side == editing::SidePanel::Results)
+                    draw_results_box(ui, strip, false);
+                else
+                    draw_instructions_box(ui, strip, false);
+                body.h -= g.side_h;
+            }
+            std::string note = std::format("Ln {}, Col {}", f->buf.cursor.line + 1, f->buf.display_col(f->buf.cursor) + 1);
+            std::vector<std::string> extras;
+            if (f->buf.has_selection())
+            {
+                auto const a = f->buf.selection_start();
+                auto const z = f->buf.selection_end();
+                extras.push_back(std::format("{} line{} selected", z.line - a.line + 1, z.line == a.line ? "" : "s"));
+            }
+            extras.push_back(f->buf.eol == textedit::Eol::Crlf ? "CRLF" : "LF");
+            extras.push_back(std::format("{} spaces", f->buf.indent_width));
+            std::string title = clean_line(f->rel);
+            if (f->buf.read_only)
+                title += " (read-only)";
+            else if (f->conflict)
+                title += " (changed on disk)";
+            else if (f->buf.modified())
+                title += ui.ascii ? " *" : " \xE2\x97\x8F";
+            int const note_room = std::min(body.w - width_of(title) - 12, body.w / 2 - 4);
+            for (auto const& x : extras)
+            {
+                auto const next = note + std::string(ui.sep()) + x;
+                if (width_of(next) > note_room)
+                    break;
+                note = next;
+            }
+            auto inner = draw_box(ui, body, title, true, note);
+            if (inner.empty())
+                return;
+            if (ed.find.active)
+            {
+                Line l;
+                l.push_back({"Find ", plain(Role::Accent, true)});
+                l.push_back({clean_line(ed.find.query), plain(Role::Text, true)});
+                l.push_back({"_", plain(Role::Accent, true)});
+                l.push_back({std::format("  {}{}", ed.find.status, ed.find.match_case ? "  match case" : ""), plain(Role::Muted)});
+                draw_line(ui, inner, inner.bottom() - 1, l);
+                inner.h -= 1;
+            }
+            draw_editor_text(ui, inner, *f, g.gutter, !ed.picker.active && !ed.help);
+            if (ed.picker.active)
+            {
+                std::vector<Line> lines;
+                Line q;
+                q.push_back({"Open ", plain(Role::Accent, true)});
+                q.push_back({clean_line(ed.picker.filter) + "_", plain(Role::Text, true)});
+                lines.push_back(std::move(q));
+                std::size_t n = 0;
+                for (auto const& rel : es.files)
+                {
+                    if (!ed.picker.filter.empty() && text::lower(rel).find(text::lower(ed.picker.filter)) == std::string::npos)
+                        continue;
+                    bool const chosen = n == ed.picker.sel;
+                    Line l;
+                    l.push_back({chosen ? std::format("{} ", ui.gl.sel) : std::string("  "), plain(Role::Accent, true)});
+                    l.push_back({clean_line(rel), plain(chosen ? Role::Accent : Role::Text, chosen)});
+                    lines.push_back(std::move(l));
+                    ++n;
+                }
+                if (n == 0)
+                    lines.push_back(text_line("  no file matches", plain(Role::Muted)));
+                draw_editor_overlay(ui, main, "Open a workspace file", lines);
+            }
+            if (ed.help)
+            {
+                static constexpr std::array<std::pair<std::string_view, std::string_view>, 20> keys = {{
+                    {"Ctrl+S", "save this file"},
+                    {"Alt+S", "save every file"},
+                    {"F5 or Ctrl+T", "save all and run the checks"},
+                    {"F6", "save all and run your program"},
+                    {"F8 or Ctrl+E", "go to the next compiler message (Shift+F8 back)"},
+                    {"Ctrl+B", "side panel: task, results, hidden"},
+                    {"Ctrl+O or Ctrl+P", "open another workspace file"},
+                    {"Ctrl+W", "close this file"},
+                    {"Ctrl+F", "find (Enter next, Up previous, Alt+C case)"},
+                    {"Ctrl+G or F3", "find the next match"},
+                    {"Ctrl+Z / Ctrl+Y", "undo / redo"},
+                    {"Ctrl+C / Ctrl+X / Ctrl+V", "copy / cut / paste"},
+                    {"Ctrl+A", "select everything"},
+                    {"Shift+arrows", "select (where the terminal sends them)"},
+                    {"Ctrl+Left / Ctrl+Right", "move by word"},
+                    {"Tab / Shift+Tab", "indent / unindent"},
+                    {"Ctrl+K / Ctrl+D", "delete / duplicate the line"},
+                    {"Home / End", "line start (twice: column 1) / line end"},
+                    {"PageUp / PageDown", "scroll a page"},
+                    {"Esc", "leave the editor (edits stay open, unsaved)"},
+                }};
+                std::vector<Line> lines;
+                for (auto const& [k, what] : keys)
+                {
+                    Line l;
+                    l.push_back({pad_right(std::string(k), 26), plain(Role::Key, true)});
+                    l.push_back({std::string(what), plain(Role::Text)});
+                    lines.push_back(std::move(l));
+                }
+                lines.push_back(text_line("Any key closes this list.", plain(Role::Muted)));
+                draw_editor_overlay(ui, main, "Editor keys", lines);
+            }
+        }
+
         void draw_exercise(Ui& ui, Rect main)
         {
             auto const& m = ui.m;
             auto const& es = m.exercise;
             if (!es.ex)
                 return;
+            if (m.editor_active())
+            {
+                draw_editor_screen(ui, main);
+                return;
+            }
             if (es.ex->is_lecture())
             {
                 draw_lecture(ui, main);
@@ -2775,7 +3101,7 @@ namespace learndc::tui
                 return;
             int const w = std::min(area.w - 2, 62);
             std::vector<Line> lines;
-            bool const listed = d.kind == model::DialogKind::Choice || d.kind == model::DialogKind::Complete;
+            bool const listed = d.kind == model::DialogKind::Choice || d.kind == model::DialogKind::Complete || d.kind == model::DialogKind::Editor;
             if (d.boss)
             {
                 if (ui.ascii)
@@ -3103,7 +3429,7 @@ namespace learndc::tui
             else
                 draw_header(ui, Rect{0, 0, total_w, 1});
             Rect main{side_w, body.y, total_w - side_w, body.h};
-            if (solution)
+            if (solution || m.editor_active())
                 main = body;
             else if (side_w > 0)
                 draw_sidebar(ui, Rect{0, body.y, side_w, body.h}, narrow_side);
@@ -3174,6 +3500,18 @@ namespace learndc::tui
                             return C::RGB(251, 146, 60);
                         case Role::Boss:
                             return C::RGB(239, 68, 68);
+                        case Role::SynKeyword:
+                            return C::RGB(196, 148, 255);
+                        case Role::SynType:
+                            return C::RGB(125, 211, 252);
+                        case Role::SynString:
+                            return C::RGB(163, 230, 140);
+                        case Role::SynNumber:
+                            return C::RGB(253, 186, 116);
+                        case Role::SynComment:
+                            return C::RGB(120, 135, 155);
+                        case Role::SynAttr:
+                            return C::RGB(250, 204, 21);
                         case Role::Accent:
                         case Role::Focus:
                         case Role::Key:
@@ -3204,6 +3542,18 @@ namespace learndc::tui
                             return C::RGB(194, 65, 12);
                         case Role::Boss:
                             return C::RGB(185, 28, 28);
+                        case Role::SynKeyword:
+                            return C::RGB(124, 58, 237);
+                        case Role::SynType:
+                            return C::RGB(3, 105, 161);
+                        case Role::SynString:
+                            return C::RGB(21, 128, 61);
+                        case Role::SynNumber:
+                            return C::RGB(180, 83, 9);
+                        case Role::SynComment:
+                            return C::RGB(100, 110, 125);
+                        case Role::SynAttr:
+                            return C::RGB(146, 84, 0);
                         case Role::Accent:
                         case Role::Focus:
                         case Role::Key:
@@ -3234,6 +3584,18 @@ namespace learndc::tui
                             return C::RGB(255, 165, 0);
                         case Role::Boss:
                             return C::RGB(255, 80, 80);
+                        case Role::SynKeyword:
+                            return C::RGB(255, 140, 255);
+                        case Role::SynType:
+                            return C::RGB(0, 255, 255);
+                        case Role::SynString:
+                            return C::RGB(0, 255, 0);
+                        case Role::SynNumber:
+                            return C::RGB(255, 200, 0);
+                        case Role::SynAttr:
+                            return C::RGB(255, 255, 0);
+                        case Role::SynComment:
+                            return std::nullopt;
                         case Role::Accent:
                         case Role::Focus:
                         case Role::Key:
@@ -3266,8 +3628,10 @@ namespace learndc::tui
             bool bold = s.bold || theme == ThemeId::HighContrast || s.role == Role::Boss;
             if (bold)
                 e = ftxui::bold(e);
-            if (s.role == Role::Muted && theme == ThemeId::NoColor)
+            if ((s.role == Role::Muted || s.role == Role::SynComment) && theme == ThemeId::NoColor)
                 e = ftxui::dim(e);
+            if (s.role == Role::SynKeyword && theme == ThemeId::NoColor)
+                e = ftxui::bold(e);
             if (s.italic)
                 e = ftxui::italic(e);
             if (s.role == Role::Inline && (theme == ThemeId::NoColor || theme == ThemeId::HighContrast))

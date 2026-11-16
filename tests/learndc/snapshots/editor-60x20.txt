@@ -1,0 +1,20 @@
+  1  2  3 Lesson  4  5  6  7  8
+ src/main.dc                           Variables and mutat…
+╭─ src/main.dc ───────────────────────────── Ln 1, Col 12 ─╮
+│    1 module main;                                        │
+│    2                                                     │
+│    3 import std::io;                                     │
+│    4                                                     │
+│    5 public i32 main()                                   │
+│    6 {                                                   │
+│    7     i32 price = 40;                                 │
+│    8     i32 tax = 2;                                    │
+│    9     i32 total = price - tax;                        │
+╰──────────────────────────────────────────────────────────╯
+╭─ Instructions ───────────────────────────────────────────╮
+│ Variables and mutation                                   ┃
+│ beginner · 10 min                                        │
+│ fix behavior · in progress                               │
+│                                                          │
+╰──────────────────────────────────────────────────────────╯
+ Ctrl+S save  F5 check  F8 next error  Esc leave editor

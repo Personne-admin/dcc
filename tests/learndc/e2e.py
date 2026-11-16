@@ -694,6 +694,68 @@ def journey_tui(tmp: Path):
         session.close()
 
 
+def journey_tui_editor(tmp: Path):
+    print("journey: embedded editor in a pty")
+    home = tmp / "tui editor home"
+    env = dict(ENV)
+    env.update({"LEARNDC_HOME": str(home), "TERM": "xterm-256color", "LANG": "C.UTF-8"})
+    for key, value in [("onboarding.done", "true"), ("ui.open_continue", "false")]:
+        expect(["config", "set", key, value], 0, env=env)
+    session = PtyProcess([LEARNDC], env, 120, 34)
+    workspace = home / "workspaces" / "fundamentals" / "hello-world" / "src" / "main.dc"
+    try:
+        check(session.wait_for(lambda t: "Menu" in t and "Your first DC program" in t), f"home renders\n{session.term.text()}")
+        check(b"\x1b[?2004h" in session.raw, "bracketed paste is enabled")
+        session.send("2")
+        check(session.wait_for(lambda t: "Your first DC program" in t), f"learn lists the exercise\n{session.term.text()}")
+        session.send("\r")
+        check(session.wait_for(lambda t: "Enter start" in t), f"exercise offers to start\n{session.term.text()}")
+        session.send("\r")
+        check(session.wait_for(lambda t: "src/main.dc" in t and "Preview" in t), f"starting previews the files\n{session.term.text()}")
+        original = workspace.read_bytes()
+        session.send("\r")
+        check(session.wait_for(lambda t: "Ln 1, Col 1" in t and "Ctrl+S save" in t), f"Enter opens the embedded editor\n{session.term.text()}")
+        session.send("\x1b[1;5F")
+        session.send("\r// typed in a real terminal")
+        check(session.wait_for(lambda t: "typed in a real terminal" in t), f"typed text appears in the editor\n{session.term.text()}")
+        check(workspace.read_bytes() == original, "typing alone does not write the file")
+        session.send("\x13")
+        check(session.wait_for(lambda t: "Saved src/main.dc" in t), f"Ctrl+S saves\n{session.term.text()}")
+        saved = workspace.read_text()
+        check(saved.rstrip("\n").endswith("// typed in a real terminal"), f"the saved file ends with the typed line\n{saved}")
+        check(not list((home / "workspaces").rglob("*.tmp")), "no temporary file is left behind after an atomic save")
+        session.send("\x1b[200~\n// pasted {\n    kept as is\n// }\x1b[201~")
+        session.send("\x13")
+        deadline = time.time() + 20
+        while time.time() < deadline and "kept as is" not in workspace.read_text():
+            session.pump(0.1)
+        pasted = workspace.read_text()
+        check("// pasted {\n    kept as is\n// }" in pasted, f"a bracketed paste is inserted verbatim without auto-indent\n{pasted}")
+        session.send("\x1b[15~")
+        check(session.wait_for(lambda t: re.search(r"\d+ of \d+ checks? passed", t) is not None, timeout=180), f"F5 runs the checks and shows the results beside the editor\n{session.term.text()}")
+        check("Ln " in session.term.text(), "the editor stays open while the results show")
+        session.send("\x1b[19~")
+        check(session.wait_for(lambda t: "Ln 9, Col" in t), f"F8 jumps to the compiler diagnostic in the pasted line\n{session.term.text()}")
+        session.send("x")
+        check(session.wait_for(lambda t: "\u25cf" in t or "modified" in t), f"an unsaved change is marked\n{session.term.text()}")
+        session.send("\x1b")
+        check(session.wait_for(lambda t: "Ctrl+S save" not in t and "Enter edit here" in t), f"Esc leaves the editor and keeps the edit\n{session.term.text()}")
+        session.send("q")
+        check(session.wait_for(lambda t: "Unsaved changes" in t and "Discard the changes" in t), f"quitting with unsaved changes asks first\n{session.term.text()}")
+        session.send("\x1b[B")
+        session.send("\r")
+        rc, _after = session.finish()
+        check(rc == 0, f"discarding and quitting exits with 0, got {rc}")
+        check(workspace.read_text() == pasted, "a discarded edit is not written")
+        drafts = list((home / "workspaces").rglob("*.draft"))
+        check(not drafts, f"no crash-recovery draft remains after discarding: {drafts}")
+    finally:
+        if session.proc.poll() is None:
+            session.proc.kill()
+            session.proc.wait()
+        session.close()
+
+
 def journey_validate():
     print("journey: dev validate")
     rc, out, err = expect(["dev", "validate", "--backend", "dpm", "--id", "fundamentals/hello-world"], 0)
@@ -853,6 +915,7 @@ def main():
         journey_watch()
         journey_terminate(tmp)
         journey_tui(tmp)
+        journey_tui_editor(tmp)
         journey_embedded()
         journey_academy(tmp, real_content)
     finally:

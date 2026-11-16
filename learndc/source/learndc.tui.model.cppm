@@ -11,6 +11,9 @@ import learndc.runner;
 import learndc.doctor;
 import learndc.editor;
 import learndc.watch;
+import learndc.textedit;
+import learndc.highlight;
+import learndc.tui.editing;
 import learndc.diff;
 import learndc.markdown;
 import learndc.app;
@@ -251,7 +254,12 @@ export namespace learndc::tui::model
         Tick(std::int64_t now, std::string wall = {}) : now_ms(now), clock(std::move(wall)) {}
     };
 
-    using Event = std::variant<Key, Resize, CheckStage, CheckDone, EditorDone, ProgramDone, DoctorDone, FilesChanged, Tick>;
+    struct Paste
+    {
+        std::string text;
+    };
+
+    using Event = std::variant<Key, Resize, CheckStage, CheckDone, EditorDone, ProgramDone, DoctorDone, FilesChanged, Tick, Paste>;
 
     struct LaunchEditor
     {
@@ -318,6 +326,7 @@ export namespace learndc::tui::model
         Reset,
         Choice,
         Complete,
+        Editor,
     };
 
     struct Dialog
@@ -472,7 +481,36 @@ export namespace learndc::tui::model
         std::vector<LectureSection> sections;
         std::optional<std::size_t> activity;
         ResultView result_view = ResultView::Diff;
+        editing::EditorState editor;
+        std::size_t diagnostic_sel = 0;
     };
+
+    struct EditorGeometry
+    {
+        int tree_w = 0;
+        int side_w = 0;
+        int side_h = 0;
+        int text_h = 0;
+        int text_w = 0;
+        int gutter = 0;
+    };
+
+    [[nodiscard]] inline EditorGeometry editor_geometry(Size size, editing::EditorState const& ed, std::size_t lines)
+    {
+        EditorGeometry g;
+        int const footer = layout_for(size) == LayoutMode::Compact ? 1 : 2;
+        int const body_h = std::max(3, size.height - 1 - footer);
+        bool const wide = size.width >= 110;
+        bool const side = ed.side != editing::SidePanel::Hidden;
+        g.tree_w = wide ? 22 : 0;
+        g.side_w = wide && side ? std::clamp(size.width / 3, 30, 46) : 0;
+        g.side_h = !wide && side ? std::clamp(body_h / 3, 6, 12) : 0;
+        int const digits = std::max(3, static_cast<int>(std::to_string(std::max<std::size_t>(lines, 1)).size()));
+        g.gutter = digits + 2;
+        g.text_h = std::max(1, body_h - 2 - 1 - (ed.find.active ? 1 : 0) - g.side_h);
+        g.text_w = std::max(8, size.width - g.tree_w - g.side_w - 2 - g.gutter);
+        return g;
+    }
 
     enum class HomeKind
     {
@@ -480,6 +518,7 @@ export namespace learndc::tui::model
         Next,
         Recent,
         Path,
+        Action,
     };
 
     struct HomeItem
@@ -566,7 +605,9 @@ export namespace learndc::tui::model
         [[nodiscard]] inline std::vector<std::string> int_choices(std::string_view key, int current)
         {
             std::vector<int> values;
-            if (key == "checks.timeout_seconds")
+            if (key == "editor.indent_width")
+                values = {2, 3, 4, 8};
+            else if (key == "checks.timeout_seconds")
                 values = {5, 10, 20, 30, 60, 120, 300, 600};
             else if (key == "checks.build_timeout_seconds")
                 values = {30, 60, 120, 300, 600};
@@ -619,7 +660,8 @@ export namespace learndc::tui::model
                 }
                 here.lines = {"Tab           move between instructions, files and results",
                               "Up Down       scroll, or choose a file when the files pane is focused",
-                              "e / Enter     start the exercise, then edit the chosen file in your editor",
+                              "Enter         start the exercise, then edit the chosen file right here (F1 in the editor lists its keys)",
+                              "e             edit the chosen file in your own editor instead",
                               "o             open the workspace folder (graphical editors)",
                               "c             run the checks",
                               "x             cancel the running check",
@@ -1060,6 +1102,19 @@ export namespace learndc::tui::model
             }
             if (screen == Screen::Learn && searching)
                 return {{"type", "to search"}, {"Enter", "keep"}, {"Esc", "clear"}};
+            if (editor_active())
+            {
+                auto const& ed = exercise.editor;
+                if (ed.picker.active)
+                    return {{"type", "to filter"}, {"Up Down", "choose"}, {"Enter", "open"}, {"Esc", "cancel"}};
+                if (ed.find.active)
+                    return {{"type", "to find"}, {"Enter", "next"}, {"Up", "previous"}, {"Alt+C", "match case"}, {"Esc", "close"}};
+                return {{"Ctrl+S", "save"},     {"F5", check_running() ? "checking" : "check"},
+                        {"F8", "next error"},   {"Ctrl+F", "find"},
+                        {"Ctrl+Z", "undo"},     {"Ctrl+O", "open file"},
+                        {"Ctrl+B", "panel"},    {"F1", "keys"},
+                        {"Esc", "leave editor"}};
+            }
             switch (screen)
             {
                 case Screen::Onboarding:
@@ -1086,8 +1141,10 @@ export namespace learndc::tui::model
                         k = {{"Enter", "start"}, {"h", "hint"}, {"s", "solution"}, {"Tab", "pane"}};
                     else
                     {
-                        k = {{"e", "edit"}, check_running() ? KeyHint{"x", "cancel"} : KeyHint{"c", "check"}, {"r", "run"}, {"h", "hint"}, {"s", "solution"},
-                             {"w", "watch"}, {"Tab", "pane"}};
+                        k = {{"Enter", "edit here"}, check_running() ? KeyHint{"x", "cancel"} : KeyHint{"c", "check"},
+                             {"r", "run"},           {"h", "hint"},
+                             {"s", "solution"},      {"e", "own editor"},
+                             {"w", "watch"},         {"Tab", "pane"}};
                         if (exercise.ex && !exercise.ex->questions.empty())
                             k.insert(k.begin() + 2, {"a", "answer"});
                     }
@@ -1180,6 +1237,11 @@ export namespace learndc::tui::model
             if (exercise.ex && exercise.ex->id != ex->id && check_running())
             {
                 push_toast("A check is still running", true);
+                return;
+            }
+            if (exercise.ex && exercise.ex->id != ex->id && exercise.editor.any_modified())
+            {
+                guard_unsaved(std::format("open:{}", ex->id));
                 return;
             }
             if (!exercise.ex || exercise.ex->id != ex->id)
@@ -1426,6 +1488,7 @@ export namespace learndc::tui::model
                 else
                     break;
             }
+            editor_housekeeping();
         }
 
         void on(DoctorDone const& d)
@@ -1601,11 +1664,49 @@ export namespace learndc::tui::model
             fx.push_back(StartCheck{es.ex->id, es.ws->root});
         }
 
+        void on(Paste const& paste)
+        {
+            if (dialog.open())
+                return;
+            if (editor_active())
+            {
+                editing::paste_text(exercise.editor, text::normalize_newlines(paste.text));
+                return;
+            }
+            auto const first_line = paste.text.substr(0, paste.text.find_first_of("\r\n"));
+            for (auto const& piece : std::views::split(std::string_view(first_line), '\t'))
+                for (std::size_t i = 0; i < std::string_view(piece.begin(), piece.end()).size();)
+                {
+                    std::string_view rest(piece.begin(), piece.end());
+                    auto const d = text::decode_utf8(rest, i);
+                    on(Key{std::string(rest.substr(i, d.length))});
+                    i += d.length;
+                }
+        }
+
+    public:
+        [[nodiscard]] bool editor_active() const
+        {
+            return screen == Screen::Exercise && exercise.ex && !exercise.ex->is_lecture() && exercise.editor.active && exercise.ws && !exercise.solution &&
+                   !exercise.activity;
+        }
+
+    private:
         void on(Key const& key)
         {
             auto const& k = key.name;
+            if (!dialog.open() && editor_active())
+            {
+                editor_key(k);
+                return;
+            }
             if (k == "CtrlC")
             {
+                if (exercise.editor.any_modified() && !check_running())
+                {
+                    guard_unsaved("quit");
+                    return;
+                }
                 ctrl_c();
                 return;
             }
@@ -1701,6 +1802,11 @@ export namespace learndc::tui::model
 
         void request_quit()
         {
+            if (exercise.editor.any_modified() && !quit_requested)
+            {
+                guard_unsaved("quit");
+                return;
+            }
             if (check_running())
             {
                 dialog = Dialog{};
@@ -2208,6 +2314,21 @@ export namespace learndc::tui::model
                     else if (detail::printable_key(k) && dialog.input.size() < 8)
                         dialog.input += k;
                     break;
+                case DialogKind::Editor:
+                    if (k == "Esc")
+                        close_dialog();
+                    else if (detail::is_down(k) || k == "Tab")
+                        dialog.selected = std::min(dialog.selected + 1, dialog.values.size() - 1);
+                    else if (detail::is_up(k) || k == "ShiftTab")
+                        dialog.selected = dialog.selected > 0 ? dialog.selected - 1 : 0;
+                    else if (k == "Enter")
+                    {
+                        auto const choice = dialog.values[dialog.selected];
+                        auto const target = dialog.target;
+                        close_dialog();
+                        editor_dialog_choice(target, choice);
+                    }
+                    break;
                 case DialogKind::None:
                     break;
             }
@@ -2309,6 +2430,385 @@ export namespace learndc::tui::model
                 push_toast(std::format("Note: finish {} first for the best order", text::join(started->missing_prerequisites, ", ")));
             if (!started->platform_supported)
                 push_toast("Note: this exercise is not validated on this platform");
+        }
+
+        void guard_unsaved(std::string target)
+        {
+            auto const names = exercise.editor.modified_names();
+            dialog = Dialog{};
+            dialog.kind = DialogKind::Editor;
+            dialog.title = "Unsaved changes";
+            dialog.body = {std::format("Unsaved changes in {}.", text::join(names, ", "))};
+            dialog.labels = {"Save all and continue", "Discard the changes and continue", "Go back to editing"};
+            dialog.values = {"save", "discard", "cancel"};
+            dialog.target = std::move(target);
+        }
+
+        void continue_after_editor(std::string const& target)
+        {
+            if (target == "quit")
+            {
+                quit_requested = true;
+                request_quit();
+                return;
+            }
+            if (target.starts_with("open:"))
+            {
+                open_exercise(target.substr(5));
+                return;
+            }
+            if (target.starts_with("close:"))
+            {
+                auto& ed = exercise.editor;
+                if (auto at = ed.index_of(target.substr(6)); at && exercise.ws)
+                    editing::close_file(ed, *exercise.ws, *at);
+            }
+        }
+
+        void editor_dialog_choice(std::string const& target, std::string const& choice)
+        {
+            auto& es = exercise;
+            auto& ed = es.editor;
+            if (choice == "cancel" || !es.ws)
+            {
+                if (es.ws && !ed.files.empty())
+                    ed.active = true;
+                return;
+            }
+            if (target.starts_with("conflict:"))
+            {
+                auto const at = ed.index_of(target.substr(9));
+                if (!at)
+                    return;
+                if (choice == "overwrite")
+                    report_save(editing::save(ed, *es.ws, *at, true));
+                else if (choice == "reload")
+                {
+                    if (editing::reload(ed, *es.ws, *at))
+                        push_toast(std::format("Reloaded {} from disk", ed.files[*at].rel));
+                }
+                ed.active = true;
+                return;
+            }
+            if (target.starts_with("draft:"))
+            {
+                auto const at = ed.index_of(target.substr(6));
+                if (!at)
+                    return;
+                if (choice == "restore")
+                {
+                    if (editing::restore_draft(*es.ws, ed.files[*at]))
+                        push_toast("Restored your unsaved changes; save them with Ctrl+S");
+                }
+                else
+                    editing::remove_draft(*es.ws, ed.files[*at].rel);
+                ed.active = true;
+                return;
+            }
+            if (choice == "save")
+            {
+                auto r = editing::save_all(ed, *es.ws);
+                if (!r.problems.empty())
+                {
+                    push_toast(r.problems.front().message, true);
+                    ed.active = true;
+                    return;
+                }
+            }
+            else if (choice == "discard")
+            {
+                for (auto& f : ed.files)
+                    editing::remove_draft(*es.ws, f.rel);
+                if (target.starts_with("close:"))
+                {
+                    continue_after_editor(target);
+                    return;
+                }
+                ed.files.clear();
+                ed.active = false;
+            }
+            continue_after_editor(target);
+        }
+
+        void report_save(editing::SaveResult const& r)
+        {
+            auto& es = exercise;
+            switch (r.status)
+            {
+                case editing::SaveStatus::Saved:
+                    push_toast(r.message);
+                    refresh_after_save();
+                    break;
+                case editing::SaveStatus::Unchanged:
+                    push_toast("No changes to save");
+                    break;
+                case editing::SaveStatus::Conflict: {
+                    auto const* f = es.editor.open_file();
+                    dialog = Dialog{};
+                    dialog.kind = DialogKind::Editor;
+                    dialog.title = "The file changed on disk";
+                    dialog.body = {r.message + ".", "Another program (or your other editor) saved it while you were editing here."};
+                    dialog.labels = {"Keep my version and overwrite the file", "Load the version on disk (my edits are lost)", "Cancel"};
+                    dialog.values = {"overwrite", "reload", "cancel"};
+                    dialog.target = std::format("conflict:{}", f ? f->rel : std::string());
+                    break;
+                }
+                case editing::SaveStatus::ReadOnly:
+                case editing::SaveStatus::Failed:
+                    push_toast(r.message, true);
+                    break;
+            }
+        }
+
+        void refresh_after_save()
+        {
+            auto& es = exercise;
+            es.fingerprint = es.ws ? runner::workspace_fingerprint(es.ws->root) : std::string();
+            mark_stale_if_changed();
+            if (es.ws)
+            {
+                auto const now = workspace::files(*es.ws);
+                if (now != es.files)
+                {
+                    auto const keep = selected_file();
+                    es.files = now;
+                    for (std::size_t i = 0; i < es.files.size(); ++i)
+                        if (es.files[i] == keep)
+                            es.file_sel = i;
+                }
+            }
+        }
+
+        bool editor_save_all_quietly()
+        {
+            auto& es = exercise;
+            if (!es.ws)
+                return false;
+            auto r = editing::save_all(es.editor, *es.ws);
+            if (!r.problems.empty())
+            {
+                auto const& first = r.problems.front();
+                if (first.status == editing::SaveStatus::Conflict)
+                {
+                    if (auto at = es.editor.index_of(first.message.substr(0, first.message.find(' '))))
+                        es.editor.current = *at;
+                    report_save(first);
+                }
+                else
+                    push_toast(first.message, true);
+                return false;
+            }
+            if (r.saved > 0)
+                refresh_after_save();
+            return true;
+        }
+
+        void open_in_editor(std::string const& rel, std::size_t line = 0, std::size_t col = 0)
+        {
+            auto& es = exercise;
+            if (!es.ws || rel.empty())
+                return;
+            auto& ed = es.editor;
+            ed.indent_width = ctx->settings.editor_indent_width > 0 ? ctx->settings.editor_indent_width : 4;
+            bool const was_open = ed.index_of(rel).has_value();
+            auto opened = editing::open(ed, *es.ws, rel);
+            if (!opened)
+            {
+                push_toast(text::sanitize(opened.error()), true);
+                return;
+            }
+            ed.active = true;
+            es.pane = Pane::Files;
+            for (std::size_t i = 0; i < es.files.size(); ++i)
+                if (es.files[i] == rel)
+                    es.file_sel = i;
+            auto& f = ed.files[*opened];
+            if (line > 0)
+                f.buf.goto_line(line, col > 0 ? col : 1);
+            auto const g = editor_geometry(size, ed, f.buf.lines.size());
+            ed.page_height = g.text_h;
+            ed.text_width = g.text_w;
+            f.buf.ensure_visible(f.view, g.text_h, g.text_w);
+            if (!was_open && !f.read_only_reason.empty())
+                push_toast(std::format("{} opens read-only: {}", rel, f.read_only_reason));
+            if (!was_open && editing::draft_differs(*es.ws, f))
+            {
+                dialog = Dialog{};
+                dialog.kind = DialogKind::Editor;
+                dialog.title = "Recover unsaved changes?";
+                dialog.body = {std::format("learndc kept a copy of unsaved edits to {} from an earlier session.", rel)};
+                dialog.labels = {"Restore the unsaved edits", "Keep the file as it is on disk"};
+                dialog.values = {"restore", "discard"};
+                dialog.target = std::format("draft:{}", rel);
+            }
+        }
+
+        [[nodiscard]] std::vector<runner::Location> report_locations() const
+        {
+            std::vector<runner::Location> out;
+            auto const& es = exercise;
+            if (!es.report)
+                return out;
+            for (auto const& r : es.report->results)
+                for (auto const& loc : r.locations)
+                {
+                    if (loc.line <= 0)
+                        continue;
+                    auto l = loc;
+                    if (es.ws)
+                    {
+                        auto const root = platform::path_to_utf8(es.ws->root);
+                        if (l.file.starts_with(root))
+                        {
+                            l.file = l.file.substr(root.size());
+                            while (!l.file.empty() && (l.file.front() == '/' || l.file.front() == '\\'))
+                                l.file.erase(0, 1);
+                        }
+                    }
+                    if (std::ranges::none_of(out, [&](runner::Location const& o) { return o.file == l.file && o.line == l.line && o.column == l.column; }))
+                        out.push_back(std::move(l));
+                }
+            return out;
+        }
+
+        bool jump_to_diagnostic(int delta)
+        {
+            auto& es = exercise;
+            auto const locs = report_locations();
+            if (locs.empty())
+            {
+                push_toast(es.report ? "No compiler diagnostics in the last check" : "Run the checks first (F5)");
+                return false;
+            }
+            if (delta == 0)
+                es.diagnostic_sel = 0;
+            else
+                es.diagnostic_sel = (es.diagnostic_sel + locs.size() + (delta > 0 ? 1 : locs.size() - 1)) % locs.size();
+            auto const& loc = locs[std::min(es.diagnostic_sel, locs.size() - 1)];
+            if (std::ranges::find(es.files, loc.file) == es.files.end())
+            {
+                push_toast(std::format("{}:{}: {}", text::sanitize(loc.file), loc.line, text::sanitize(loc.message)));
+                return false;
+            }
+            open_in_editor(loc.file, static_cast<std::size_t>(loc.line), static_cast<std::size_t>(std::max(loc.column, 1)));
+            push_toast(std::format("{} {} of {}: {}", loc.severity.empty() ? "diagnostic" : loc.severity, std::min(es.diagnostic_sel, locs.size() - 1) + 1,
+                                   locs.size(), text::sanitize(loc.message)));
+            return true;
+        }
+
+        void editor_key(std::string const& k)
+        {
+            auto& es = exercise;
+            auto& ed = es.editor;
+            if (auto const* f = ed.open_file())
+            {
+                auto const g = editor_geometry(size, ed, f->buf.lines.size());
+                ed.page_height = g.text_h;
+                ed.text_width = g.text_w;
+            }
+            if (ed.help)
+            {
+                ed.help = false;
+                return;
+            }
+            if (ed.picker.active)
+            {
+                std::string chosen;
+                (void)editing::picker_key(ed, es.files, k, chosen);
+                if (!chosen.empty())
+                    open_in_editor(chosen);
+                return;
+            }
+            if (ed.find.active && k != "CtrlS" && k != "F5")
+            {
+                (void)editing::find_key(ed, k);
+                return;
+            }
+            switch (editing::handle_key(ed, k))
+            {
+                case editing::Action::Save:
+                    report_save(editing::save(ed, *es.ws, ed.current));
+                    break;
+                case editing::Action::SaveAll: {
+                    auto const count = ed.modified_names().size();
+                    if (editor_save_all_quietly())
+                        push_toast(count == 0 ? "No changes to save" : std::format("Saved {} file{}", count, count == 1 ? "" : "s"));
+                    break;
+                }
+                case editing::Action::RunChecks:
+                    if (check_running())
+                        push_toast("A check is already running");
+                    else if (editor_save_all_quietly())
+                    {
+                        if (ed.side == editing::SidePanel::Task)
+                            ed.side = editing::SidePanel::Results;
+                        es.watch_triggered = false;
+                        begin_check();
+                    }
+                    break;
+                case editing::Action::RunProgram:
+                    if (check_running())
+                        push_toast("Wait for the check to finish first", true);
+                    else if (editor_save_all_quietly())
+                        fx.push_back(RunProgram{es.ex->id, es.ws->root});
+                    break;
+                case editing::Action::Leave:
+                    ed.active = false;
+                    if (ed.any_modified())
+                        push_toast("Your edits are kept here, unsaved; Enter returns to the editor");
+                    break;
+                case editing::Action::NextDiagnostic:
+                    jump_to_diagnostic(es.report && report_locations().size() > 0 && ed.open_file() ? 1 : 0);
+                    break;
+                case editing::Action::PrevDiagnostic:
+                    jump_to_diagnostic(-1);
+                    break;
+                case editing::Action::ToggleSide:
+                    ed.side = ed.side == editing::SidePanel::Task      ? editing::SidePanel::Results
+                              : ed.side == editing::SidePanel::Results ? editing::SidePanel::Hidden
+                                                                       : editing::SidePanel::Task;
+                    break;
+                case editing::Action::Picker:
+                    ed.picker = editing::Picker{};
+                    ed.picker.active = true;
+                    break;
+                case editing::Action::Close:
+                    if (auto const* f = ed.open_file())
+                    {
+                        if (f->buf.modified())
+                        {
+                            guard_unsaved(std::format("close:{}", f->rel));
+                            dialog.body = {std::format("{} has unsaved changes.", f->rel)};
+                            dialog.labels = {"Save and close", "Close without saving", "Go back to editing"};
+                        }
+                        else
+                            editing::close_file(ed, *es.ws, ed.current);
+                    }
+                    break;
+                case editing::Action::Help:
+                    ed.help = true;
+                    break;
+                case editing::Action::Handled:
+                case editing::Action::None:
+                    break;
+            }
+        }
+
+        void editor_housekeeping()
+        {
+            auto& es = exercise;
+            auto& ed = es.editor;
+            if (!es.ws || ed.files.empty())
+                return;
+            if (now_ms - ed.last_draft_ms < 2000)
+                return;
+            ed.last_draft_ms = now_ms;
+            auto const sync = editing::sync_with_disk(ed, *es.ws);
+            for (auto const& rel : sync.conflicts)
+                push_toast(std::format("{} changed on disk while you were editing it; saving will ask what to keep", rel), true);
+            for (auto const& rel : sync.removed)
+                push_toast(std::format("{} was deleted on disk; saving recreates it", rel), true);
+            (void)editing::write_drafts(ed, *es.ws);
         }
 
         void edit_file(bool folder)
@@ -2785,8 +3285,13 @@ export namespace learndc::tui::model
             {
                 if (!es.ws)
                     start_workspace();
-                else if (es.pane == Pane::Files)
-                    edit_file(false);
+                else if (es.pane == Pane::Results)
+                {
+                    if (!jump_to_diagnostic(0))
+                        open_in_editor(selected_file().empty() ? es.ex->entry_file : selected_file());
+                }
+                else
+                    open_in_editor(selected_file().empty() ? es.ex->entry_file : selected_file());
                 return;
             }
             if (k == "e")

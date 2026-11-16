@@ -5,20 +5,20 @@
 │ › 3 Lesson     ││                 results                                    ┃
 │   4 Progress   ││   Up Down       scroll, or choose a file when the files    ┃
 │   5 Bookmarks  ││                 pane is focused                            ┃
-│   6 Doctor     ││   e / Enter     start the exercise, then edit the chosen   ┃
-│   7 Settings   ││                 file in your editor                        │
-│   8 Review     ││   o             open the workspace folder (graphical       │
+│   6 Doctor     ││   Enter         start the exercise, then edit the chosen   ┃
+│   7 Settings   ││                 file right here (F1 in the editor lists    │
+│   8 Review     ││                 its keys)                                  │
+│                ││   e             edit the chosen file in your own editor    │
+│   ? Help       ││                 instead                                    │
+│                ││   o             open the workspace folder (graphical       │
 │                ││                 editors)                                   │
-│   ? Help       ││   c             run the checks                             │
+│                ││   c             run the checks                             │
 │                ││   x             cancel the running check                   │
 │                ││   r             build and run your program                 │
 │                ││   w             watch: run the checks whenever a file      │
 │                ││                 changes                                    │
 │                ││   h             reveal the next hint (in a multi-stage     │
 │                ││                 lesson: for the current stage first)       │
-│                ││   s             show the reference solution (asks first)   │
-│                ││   l             show or hide the raw compiler and program  │
-│                ││                 output, and the full output diff           │
 ╰────────────────╯╰────────────────────────────────────────────────────────────╯
 
  Up Down scroll  Esc back

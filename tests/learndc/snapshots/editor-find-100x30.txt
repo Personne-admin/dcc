@@ -1,0 +1,30 @@
+ Learn DC · Variables and mutation                                    1 of 6 completed ██░░░░░░░░░░
+ src/main.dc                                                                 Variables and mutation
+╭─ src/main.dc ─────────────────────────────────── Ln 9, Col 14 · 1 line selected · LF · 4 spaces ─╮
+│    1 module main;                                                                                │
+│    2                                                                                             │
+│    3 import std::io;                                                                             │
+│    4                                                                                             │
+│    5 public i32 main()                                                                           │
+│    6 {                                                                                           │
+│    7     i32 price = 40;                                                                         │
+│    8     i32 tax = 2;                                                                            │
+│    9     i32 total = price - tax;                                                                │
+│   10     io::println("Total: {}", total);                                                        │
+│   11     return 0;                                                                               │
+│   12 }                                                                                           │
+│    ~                                                                                             │
+│    ~                                                                                             │
+│ Find total_  3 matches                                                                           │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Instructions ───────────────────────────────────────────────────────────────────────────────────╮
+│ beginner · 10 min                                                                                ┃
+│ fix behavior · in progress                                                                       │
+│                                                                                                  │
+│ Fix the arithmetic so the program prints the right total.                                        │
+│                                                                                                  │
+│ Goals                                                                                            │
+│ • Make every check pass                                                                          │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ type to find  Enter next  Up previous  Alt+C match case  Esc close

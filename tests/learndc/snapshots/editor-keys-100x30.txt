@@ -1,0 +1,30 @@
+ Learn DC · Variables and mutation                                    1 of 6 completed ██░░░░░░░░░░
+ src/main.dc                                                                 Variables and mutation
+╭─ src/main.dc ──╭─ Editor keys ──────────────────────────────────────────────────╮ LF · 4 spaces ─╮
+│    1 module mai│ Ctrl+S                    save this file                       │                │
+│    2           │ Alt+S                     save every file                      │                │
+│    3 import std│ F5 or Ctrl+T              save all and run the checks          │                │
+│    4           │ F6                        save all and run your program        │                │
+│    5 public i32│ F8 or Ctrl+E              go to the next compiler message (Shi │                │
+│    6 {         │ Ctrl+B                    side panel: task, results, hidden    │                │
+│    7     i32 pr│ Ctrl+O or Ctrl+P          open another workspace file          │                │
+│    8     i32 ta│ Ctrl+W                    close this file                      │                │
+│    9     i32 to│ Ctrl+F                    find (Enter next, Up previous, Alt+C │                │
+│   10     io::pr│ Ctrl+G or F3              find the next match                  │                │
+│   11     return│ Ctrl+Z / Ctrl+Y           undo / redo                          │                │
+│   12 }         │ Ctrl+C / Ctrl+X / Ctrl+V  copy / cut / paste                   │                │
+│    ~           │ Ctrl+A                    select everything                    │                │
+│    ~           │ Shift+arrows              select (where the terminal sends the │                │
+│    ~           │ Ctrl+Left / Ctrl+Right    move by word                         │                │
+╰────────────────│ Tab / Shift+Tab           indent / unindent                    │────────────────╯
+╭─ Instructions ─│ Ctrl+K / Ctrl+D           delete / duplicate the line          │────────────────╮
+│ beginner · 10 m│ Home / End                line start (twice: column 1) / line  │                ┃
+│ fix behavior · │ PageUp / PageDown         scroll a page                        │                │
+│                │ Esc                       leave the editor (edits stay open, u │                │
+│ Fix the arithme│ Any key closes this list.                                      │                │
+│                ╰────────────────────────────────────────────────────────────────╯                │
+│ Goals                                                                                            │
+│ • Make every check pass                                                                          │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ Ctrl+S save  F5 check  F8 next error  Ctrl+F find  Ctrl+Z undo  Esc leave editor

@@ -1,0 +1,30 @@
+ Learn DC · Variables and mutation                                    1 of 6 completed ██░░░░░░░░░░
+ src/main.dc                                                                 Variables and mutation
+╭─ src/main.dc ─────────────────────────────────── Ln 9, Col 14 · 1 line selected · LF · 4 spaces ─╮
+│    1 module main;                                                                                │
+│    2                                                                                             │
+│    3 import std::io;                                                                             │
+│    4                                                                                             │
+│    5 public i32 main()                                                                           │
+│    6 {         ╭─ Open a workspace file ────────────────────────────────────────╮                │
+│    7     i32 pr│ Open _                                                         │                │
+│    8     i32 ta│ › project.dcon                                                 │                │
+│    9     i32 to│   src/main.dc                                                  │                │
+│   10     io::pr╰────────────────────────────────────────────────────────────────╯                │
+│   11     return 0;                                                                               │
+│   12 }                                                                                           │
+│    ~                                                                                             │
+│    ~                                                                                             │
+│    ~                                                                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Instructions ───────────────────────────────────────────────────────────────────────────────────╮
+│ beginner · 10 min                                                                                ┃
+│ fix behavior · in progress                                                                       │
+│                                                                                                  │
+│ Fix the arithmetic so the program prints the right total.                                        │
+│                                                                                                  │
+│ Goals                                                                                            │
+│ • Make every check pass                                                                          │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ type to filter  Up Down choose  Enter open  Esc cancel

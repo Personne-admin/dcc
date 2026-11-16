@@ -4,6 +4,7 @@
 │   editor.command                (not set)                ┃
 │   editor.kind                   auto                     ┃
 │   editor.wait                   false                    ┃
+│   editor.indent_width           4                        ┃
 │   tools.dcc                     (search automatically)   ┃
 │   tools.dpm                     (search automatically)   ┃
 │   ui.theme                      dark                     ┃
@@ -11,8 +12,7 @@
 │   ui.reduced_motion             false                    ┃
 │   ui.open_continue              false                    ┃
 │   checks.timeout_seconds        10                       ┃
-│   checks.build_timeout_seconds  120                      ┃
-│   checks.max_output_kib         256                      ┃
+│   checks.build_timeout_seconds  120                      │
 │──────────────────────────────────────────────────────────│
 │ editor to open files with                                │
 │                                                          │

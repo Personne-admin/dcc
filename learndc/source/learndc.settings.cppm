@@ -32,6 +32,7 @@ export namespace learndc::settings
         std::vector<std::string> editor_command;
         std::string editor_kind = "auto";
         bool editor_wait = false;
+        int editor_indent_width = 4;
         std::string tools_dcc;
         std::string tools_dpm;
         std::string ui_theme = "dark";
@@ -60,6 +61,7 @@ export namespace learndc::settings
             {"editor.command", ValueKind::StringList, "command used when editor.preset is custom (placeholders {file} {line} {column} {workspace})", {}, 0, 0},
             {"editor.kind", ValueKind::Choice, "whether the editor takes over the terminal", {"auto", "terminal", "gui"}, 0, 0},
             {"editor.wait", ValueKind::Bool, "wait for a graphical editor to close", {}, 0, 0},
+            {"editor.indent_width", ValueKind::Int, "spaces per indentation level in the built-in editor", {}, 1, 8},
             {"tools.dcc", ValueKind::String, "path or name of the dcc compiler (empty: search)", {}, 0, 0},
             {"tools.dpm", ValueKind::String, "path or name of the dpm package manager (empty: search)", {}, 0, 0},
             {"ui.theme", ValueKind::Choice, "color theme", {"dark", "light", "high-contrast", "no-color"}, 0, 0},
@@ -238,7 +240,9 @@ export namespace learndc::settings
                     auto n = validate_int(info, parsed);
                     if (!n)
                         return std::unexpected(n.error());
-                    if (key == "checks.timeout_seconds")
+                    if (key == "editor.indent_width")
+                        s.editor_indent_width = *n;
+                    else if (key == "checks.timeout_seconds")
                         s.checks_timeout_seconds = *n;
                     else if (key == "checks.build_timeout_seconds")
                         s.checks_build_timeout_seconds = *n;
@@ -341,6 +345,8 @@ export namespace learndc::settings
             return json::Json(s.ui_reduced_motion);
         if (key == "ui.open_continue")
             return json::Json(s.ui_open_continue);
+        if (key == "editor.indent_width")
+            return json::Json(s.editor_indent_width);
         if (key == "checks.timeout_seconds")
             return json::Json(s.checks_timeout_seconds);
         if (key == "checks.build_timeout_seconds")

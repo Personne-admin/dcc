@@ -4,19 +4,19 @@
 │   2 Learn            ││   editor.command                (not set)                                │
 │   3 Lesson           ││   editor.kind                   auto                                     │
 │   4 Progress         ││   editor.wait                   false                                    │
-│   5 Bookmarks        ││   tools.dcc                     (search automatically)                   │
-│   6 Doctor           ││   tools.dpm                     (search automatically)                   │
-│ › 7 Settings         ││   ui.theme                      dark                                     │
-│   8 Review           ││   ui.ascii                      off                                      │
-│                      ││   ui.reduced_motion             false                                    │
-│   ? Help             ││   ui.open_continue              false                                    │
+│   5 Bookmarks        ││   editor.indent_width           4                                        │
+│   6 Doctor           ││   tools.dcc                     (search automatically)                   │
+│ › 7 Settings         ││   tools.dpm                     (search automatically)                   │
+│   8 Review           ││   ui.theme                      dark                                     │
+│                      ││   ui.ascii                      off                                      │
+│   ? Help             ││   ui.reduced_motion             false                                    │
+│                      ││   ui.open_continue              false                                    │
 │                      ││   checks.timeout_seconds        10                                       │
 │                      ││   checks.build_timeout_seconds  120                                      │
 │                      ││   checks.max_output_kib         256                                      │
 │                      ││   checks.watch_debounce_ms      400                                      │
 │                      ││   learner.level                 new                                      │
 │                      ││   onboarding.done               true                                     │
-│                      ││                                                                          │
 │                      ││                                                                          │
 │                      ││                                                                          │
 │                      ││                                                                          │

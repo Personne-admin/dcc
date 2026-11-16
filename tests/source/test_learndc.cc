@@ -16,6 +16,8 @@ import learndc.watch;
 import learndc.editor;
 import learndc.doctor;
 import learndc.requirements;
+import learndc.textedit;
+import learndc.tui.editing;
 import learndc.app;
 import learndc.activity;
 import learndc.cli;
@@ -2173,7 +2175,8 @@ TEST_CASE("settings defaults list and get")
     CHECK_EQ(settings::get(s, "onboarding.done").value(), "false");
     CHECK_EQ(settings::get(s, "editor.command").value(), "");
     CHECK_EQ(settings::list(s).size(), settings::keys().size());
-    CHECK_EQ(settings::list(s).size(), 16u);
+    CHECK_EQ(settings::list(s).size(), 17u);
+    CHECK_EQ(settings::get(s, "editor.indent_width").value(), "4");
     CHECK(settings::find_key("tools.dcc") != nullptr);
     CHECK(settings::find_key("tools.nope") == nullptr);
 }
@@ -7150,7 +7153,7 @@ TEST_CASE("tui key recap keeps help, pane switching and quit at compact widths")
     press(m, "3");
     auto const bar = text::split_lines(learndc::tui::render_snapshot(m, 60, 20)).back();
     CHECK(bar.find("Tab pane") != std::string::npos);
-    CHECK(bar.find("e edit") != std::string::npos);
+    CHECK(bar.find("Enter edit here") != std::string::npos);
     for (int i = 0; i < 3; ++i)
     {
         press(m, "Tab");
@@ -9509,4 +9512,210 @@ TEST_CASE("boss fight stage questions are shown and answered through the cli and
     r = f.run({"answer", "first-steps/hello-world"});
     CHECK_EQ(r.code, 5);
     CHECK(r.err.find("has no questions; its stages are checked with: learndc check first-steps/hello-world") != std::string::npos);
+}
+
+SECTION("embedded editor");
+
+namespace
+{
+    tm::Model& open_editor(tm::Model& m)
+    {
+        press(m, "3");
+        press(m, "Enter");
+        return m;
+    }
+
+    std::filesystem::path workspace_file(TuiWorld const& w, std::string_view id, std::string_view rel)
+    {
+        auto const* ex = w.ctx->catalog.find(id);
+        return learndc::workspace::default_root(w.ctx->dirs, *ex) / platform::path_from_utf8(std::string(rel));
+    }
+} // namespace
+
+TEST_CASE("the embedded editor opens the entry file, edits it and saves it to the workspace")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    open_editor(m);
+    REQUIRE(m.editor_active());
+    auto const* f = m.exercise.editor.open_file();
+    REQUIRE(f != nullptr);
+    CHECK_EQ(f->rel, "src/main.dc");
+    auto const before = w.exercise_file("fundamentals/variables", "src/main.dc");
+    press(m, "CtrlHome");
+    type_text(m, "// x");
+    CHECK(m.exercise.editor.open_file()->buf.modified());
+    CHECK_EQ(w.exercise_file("fundamentals/variables", "src/main.dc"), before);
+    press(m, "CtrlZ");
+    press(m, "CtrlZ");
+    CHECK(!m.exercise.editor.open_file()->buf.modified());
+    press(m, "CtrlY");
+    CHECK(m.exercise.editor.open_file()->buf.modified());
+    press(m, "Enter");
+    press(m, "CtrlS");
+    auto const after = w.exercise_file("fundamentals/variables", "src/main.dc");
+    CHECK(after.starts_with("// x\n"));
+    CHECK(after.substr(after.find('\n') + 1) == before);
+    CHECK(!m.exercise.editor.open_file()->buf.modified());
+    CHECK(std::ranges::any_of(m.toasts, [](auto const& t) { return t.text == "Saved src/main.dc"; }));
+    press(m, "Esc");
+    CHECK(!m.editor_active());
+    CHECK(m.screen == tm::Screen::Exercise);
+    press(m, "Enter");
+    CHECK(m.editor_active());
+}
+
+TEST_CASE("the embedded editor runs checks after saving and jumps to compiler diagnostics")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {100, 30});
+    open_editor(m);
+    type_text(m, " ");
+    auto fx = press(m, "F5");
+    CHECK(has_effect<tm::StartCheck>(fx));
+    CHECK(!m.exercise.editor.open_file()->buf.modified());
+    CHECK(m.check_running());
+    CHECK(m.exercise.editor.side == learndc::tui::editing::SidePanel::Results);
+    auto root = platform::path_to_utf8(workspace_file(w, "fundamentals/variables", ""));
+    runner::CheckReport report;
+    report.exercise = "fundamentals/variables";
+    report.workspace = root;
+    report.outcome = runner::Outcome::Failed;
+    runner::CheckResult build;
+    build.name = "Compiles";
+    build.kind = catalog::CheckKind::Build;
+    build.verdict = runner::Verdict::Fail;
+    build.stage = runner::Stage::Build;
+    runner::Location loc;
+    loc.file = "src/main.dc";
+    loc.line = 3;
+    loc.column = 5;
+    loc.severity = "error";
+    loc.message = "unknown name `totl`";
+    build.locations.push_back(loc);
+    report.results = {build};
+    m.handle(tm::CheckDone{report});
+    press(m, "F8");
+    auto const* f = m.exercise.editor.open_file();
+    REQUIRE(f != nullptr);
+    CHECK_EQ(f->buf.cursor.line, 2u);
+    CHECK_EQ(f->buf.cursor.col, 4u);
+    CHECK(std::ranges::any_of(m.toasts, [](auto const& t) { return t.text.find("unknown name `totl`") != std::string::npos; }));
+    press(m, "Esc");
+    CHECK(m.exercise.pane == tm::Pane::Files);
+    press(m, "Tab");
+    REQUIRE(m.exercise.pane == tm::Pane::Results);
+    press(m, "Enter");
+    CHECK(m.editor_active());
+    CHECK_EQ(m.exercise.editor.open_file()->buf.cursor.line, 2u);
+}
+
+TEST_CASE("the embedded editor protects unsaved work on quit, lesson switches, conflicts and crashes")
+{
+    TuiWorld w;
+    {
+        tm::Model m(*w.ctx, {100, 30});
+        open_editor(m);
+        press(m, "CtrlEnd");
+        type_text(m, "x");
+        press(m, "Esc");
+        auto fx = press(m, "q");
+        CHECK(!has_effect<tm::Quit>(fx));
+        REQUIRE(m.dialog.kind == tm::DialogKind::Editor);
+        CHECK(m.dialog.body.front().find("src/main.dc") != std::string::npos);
+        auto const shown = learndc::tui::render_snapshot(m, 100, 30);
+        CHECK(shown.find("Save all and continue") != std::string::npos);
+        CHECK(shown.find("Discard the changes and continue") != std::string::npos);
+        CHECK(shown.find("Go back to editing") != std::string::npos);
+        CHECK(shown.find("[y] Yes") == std::string::npos);
+        press(m, "Down");
+        press(m, "Down");
+        press(m, "Enter");
+        CHECK(!m.dialog.open());
+        CHECK(m.editor_active());
+        press(m, "Esc");
+        m.open_exercise("types/structs");
+        REQUIRE(m.dialog.kind == tm::DialogKind::Editor);
+        press(m, "Esc");
+        CHECK_EQ(m.exercise.ex->id, "fundamentals/variables");
+        auto const path = workspace_file(w, "fundamentals/variables", "src/main.dc");
+        auto disk = platform::read_file(path).value();
+        write_file(path, "module main;\n");
+        m.handle(tm::Tick{m.now_ms + 5000, ""});
+        press(m, "Enter");
+        press(m, "CtrlS");
+        REQUIRE(m.dialog.kind == tm::DialogKind::Editor);
+        CHECK_EQ(m.dialog.title, "The file changed on disk");
+        CHECK_EQ(platform::read_file(path).value(), "module main;\n");
+        press(m, "Enter");
+        CHECK(platform::read_file(path).value().ends_with("x\n"));
+        CHECK(!m.exercise.editor.open_file()->buf.modified());
+        type_text(m, "y");
+        m.handle(tm::Tick{m.now_ms + 10000, ""});
+        type_text(m, "z");
+        auto const draft = learndc::tui::editing::read_draft(*m.exercise.ws, "src/main.dc");
+        REQUIRE(draft.has_value());
+        CHECK(draft->find("y") != std::string::npos);
+    }
+    {
+        tm::Model m(*w.ctx, {100, 30});
+        open_editor(m);
+        REQUIRE(m.dialog.kind == tm::DialogKind::Editor);
+        CHECK_EQ(m.dialog.title, "Recover unsaved changes?");
+        press(m, "Enter");
+        CHECK(m.exercise.editor.open_file()->buf.modified());
+        CHECK(m.exercise.editor.open_file()->buf.text().find("y") != std::string::npos);
+        press(m, "CtrlS");
+        CHECK(!learndc::tui::editing::read_draft(*m.exercise.ws, "src/main.dc").has_value());
+    }
+}
+
+TEST_CASE("the embedded editor pastes text verbatim, keeps CRLF files and refuses unsafe paths")
+{
+    TuiWorld w;
+    auto const path = workspace_file(w, "fundamentals/variables", "src/main.dc");
+    write_file(path, "module main;\r\n\r\npublic i32 main() {\r\n    return 0;\r\n}\r\n");
+    tm::Model m(*w.ctx, {100, 30});
+    open_editor(m);
+    REQUIRE(m.editor_active());
+    CHECK(m.exercise.editor.open_file()->buf.eol == learndc::textedit::Eol::Crlf);
+    press(m, "Down");
+    m.handle(tm::Paste{"i32 helper() {\n    return 1;\n}\n"});
+    press(m, "CtrlS");
+    auto const saved = platform::read_file(path).value();
+    CHECK(saved.find("i32 helper() {\r\n    return 1;\r\n}\r\n") != std::string::npos);
+    CHECK(saved.find("\n\n") == std::string::npos);
+    auto const& ws = *m.exercise.ws;
+    CHECK(!learndc::workspace::read_learner_file(ws, "../outside.dc").has_value());
+    CHECK(!learndc::workspace::write_learner_file(ws, ".learndc/workspace.json", "x").has_value());
+#if !defined(_WIN32)
+    auto const outside = w.temp.path / "outside.dc";
+    write_file(outside, "secret\n");
+    std::filesystem::create_symlink(outside, path.parent_path() / "link.dc");
+    CHECK(!learndc::workspace::read_learner_file(ws, "src/link.dc").has_value());
+    CHECK(!learndc::workspace::write_learner_file(ws, "src/link.dc", "x").has_value());
+    CHECK_EQ(platform::read_file(outside).value(), "secret\n");
+#endif
+}
+
+TEST_CASE("tui snapshots of the embedded editor")
+{
+    TuiWorld w;
+    tm::Model m(*w.ctx, {120, 34});
+    open_editor(m);
+    press(m, "Down");
+    press(m, "End");
+    press(m, "ShiftLeft");
+    press(m, "ShiftLeft");
+    snap(m, "editor", {{120, 34}, {100, 30}, {80, 24}, {60, 20}});
+    m.handle(tm::Resize{100, 30});
+    press(m, "CtrlF");
+    type_text(m, "total");
+    snap(m, "editor-find", {{100, 30}});
+    press(m, "Esc");
+    press(m, "F1");
+    snap(m, "editor-keys", {{100, 30}});
+    press(m, "x");
+    press(m, "CtrlO");
+    snap(m, "editor-open", {{100, 30}});
 }

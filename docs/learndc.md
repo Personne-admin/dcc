@@ -130,8 +130,8 @@ Each screen follows two rules. The bottom bar is a short recap of the keys that 
 | `0` | Learn | clear every filter and show the core curriculum |
 | `b` | Learn, Bookmarks, Exercise | bookmark or remove the bookmark |
 | `Tab` | Exercise | move between Instructions, Files and Results |
-| `Enter` | Exercise | create the files (first time) or edit the chosen file |
-| `e` `o` | Exercise | edit the chosen file; open the workspace folder |
+| `Enter` | Exercise | create the files (first time), then open the chosen file in the built-in editor; on Results, open the first compiler message |
+| `e` `o` | Exercise | edit the chosen file in your own editor; open the workspace folder |
 | `c` `x` | Exercise | run the checks; cancel a running check |
 | `r` | Exercise | build and run your program |
 | `w` | Exercise | turn watch on or off |
@@ -171,6 +171,30 @@ Layout follows the terminal size: wide (at least 100x30), normal (at least 80x24
 Themes (`ui.theme`): `dark` (default), `light`, `high-contrast` and `no-color`. ASCII mode (`ui.ascii`: `auto`, `on`, `off`) replaces box drawing and symbols with plain ASCII; `auto` turns it on when the locale is not UTF-8. `--ascii` forces it for one run. Colors are off when stdout is not a terminal, when `NO_COLOR` is set, with `--no-color`, or with the `no-color` theme. Reduced motion (`ui.reduced_motion`) disables the spinner shown while a check runs.
 
 Accessibility: nothing depends on color alone (every result carries a word such as pass or FAIL), the ASCII and no-color modes need no special fonts, and there is no required animation. If a full-screen interface does not suit your screen reader, use the command line: every command prints linear, plain text, `--ascii --no-color` removes decoration, and `--json` gives structured data. The command line is a complete way to use learndc. Where the command line prints Markdown (`show`, `hint`, `solution --show`) it renders it as plain text: headings are plain lines without `#` marks, the exercise title is printed once, inline code keeps its backticks (inside table cells only when it has leading or trailing spaces), bold and italic markers are removed, code blocks are indented, and tables are aligned columns without box drawing (or `Header: value` lines when they are wider than 80 columns). Both the command line and the interface leave out the README's "Acceptance criteria" section, because the checks are listed anyway, and the solution views leave out explanation code blocks that repeat the solution files already shown.
+
+### The built-in editor
+
+`Enter` on a lesson opens its entry file (or the file chosen under Files) in an editor inside learndc, so a lesson can be read, edited, checked and fixed without leaving the terminal. It edits only the files of the lesson's workspace: paths outside it, symbolic links, learndc's own `.learndc` folder and dpm's lock file are refused or shown read-only, as are binary, non-UTF-8 and very large files. Files keep their line endings (LF or CRLF) and their byte order mark.
+
+| Key | Action |
+| --- | --- |
+| `Ctrl+S` / `Alt+S` | save this file / save every open file |
+| `F5` or `Ctrl+T` | save everything and run the checks; the side panel switches to the results |
+| `F6` | save everything and run your program |
+| `F8` or `Ctrl+E` / `Shift+F8` | go to the next / previous compiler message of the last check |
+| `Ctrl+B` | side panel: the task, the results, or hidden (below the editor on narrow terminals) |
+| `Ctrl+O` or `Ctrl+P`, `Ctrl+W` | open another workspace file (type to filter); close this file |
+| `Ctrl+F`, `Ctrl+G` or `F3`, `Shift+F3` | find (`Enter` next, `Up` previous, `Alt+C` match case); next match; previous match |
+| `Ctrl+Z` / `Ctrl+Y` | undo / redo |
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | copy / cut / paste (learndc's own clipboard; your terminal's paste also works and is inserted as typed) |
+| `Ctrl+A`, `Shift` + arrows | select everything; select (where the terminal sends shifted arrows) |
+| `Ctrl+Left` / `Ctrl+Right` | move by word |
+| `Tab` / `Shift+Tab` | indent / unindent (also every selected line); `editor.indent_width` sets the width |
+| `Ctrl+K` / `Ctrl+D` | delete / duplicate the line |
+| `F1` | list these keys |
+| `Esc` | leave the editor; unsaved edits stay open and `Enter` returns to them |
+
+`Enter` keeps the indentation and indents after `{`; typing `}` on an empty line outdents it. Unsaved changes are never dropped silently: quitting, switching lessons or closing a file asks first, a file changed by another program is reloaded if you have not edited it and otherwise asks before saving, and a copy of unsaved edits is kept in the workspace's `.learndc/drafts` folder so they can be restored after a crash. Saving writes a temporary file and renames it over the original. Your own editor (`e`) and watch mode keep working alongside.
 
 ## Command reference
 
@@ -489,6 +513,8 @@ Exercise content cannot name a program to run: check kinds are a fixed set inter
 | settings | `$XDG_CONFIG_HOME/learndc/config.json` (default `~/.config/learndc`) | `%APPDATA%\learndc\config.json` |
 | progress, workspaces, backups | `$XDG_DATA_HOME/learndc/` (default `~/.local/share/learndc`): `progress.json`, `workspaces/`, `backups/` | `%LOCALAPPDATA%\learndc\` |
 | staging copies, logs | `$XDG_CACHE_HOME/learndc/` (default `~/.cache/learndc`): `staging/`, `logs/` | `%LOCALAPPDATA%\learndc\cache` |
+
+Unsaved edits in the built-in editor are kept as drafts under the workspace's `.learndc/drafts/` until they are saved or discarded.
 
 `LEARNDC_HOME=DIR` or `--home DIR` puts everything under one directory: `DIR/config.json`, `DIR/progress.json`, `DIR/workspaces`, `DIR/backups`, `DIR/cache`. Use it for a second profile, a USB stick, a classroom machine or tests. The path may contain spaces and non-ASCII characters.
 

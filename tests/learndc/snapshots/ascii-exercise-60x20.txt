@@ -17,4 +17,4 @@
 | type, then use the name wherever you need the value.     |
 |                                                          |
 +----------------------------------------------------------+
- e edit  c check  r run  h hint  Tab pane  ? help  q quit
+ Enter edit here  c check  r run  Tab pane  ? help  q quit

@@ -3,16 +3,17 @@
 │   1 Home             ││ Keys on the Lesson screen                                                ┃
 │   2 Learn            ││   Tab           move between instructions, files and results             ┃
 │ › 3 Lesson           ││   Up Down       scroll, or choose a file when the files pane is focused  ┃
-│   4 Progress         ││   e / Enter     start the exercise, then edit the chosen file in your    ┃
-│   5 Bookmarks        ││                 editor                                                   ┃
-│   6 Doctor           ││   o             open the workspace folder (graphical editors)            ┃
-│   7 Settings         ││   c             run the checks                                           ┃
-│   8 Review           ││   x             cancel the running check                                 ┃
-│                      ││   r             build and run your program                               ┃
-│   ? Help             ││   w             watch: run the checks whenever a file changes            ┃
+│   4 Progress         ││   Enter         start the exercise, then edit the chosen file right here ┃
+│   5 Bookmarks        ││                 (F1 in the editor lists its keys)                        ┃
+│   6 Doctor           ││   e             edit the chosen file in your own editor instead          ┃
+│   7 Settings         ││   o             open the workspace folder (graphical editors)            ┃
+│   8 Review           ││   c             run the checks                                           ┃
+│                      ││   x             cancel the running check                                 ┃
+│   ? Help             ││   r             build and run your program                               ┃
+│                      ││   w             watch: run the checks whenever a file changes            ┃
 │                      ││   h             reveal the next hint (in a multi-stage lesson: for the   ┃
 │                      ││                 current stage first)                                     ┃
-│                      ││   s             show the reference solution (asks first)                 ┃
+│                      ││   s             show the reference solution (asks first)                 │
 │                      ││   l             show or hide the raw compiler and program output, and    │
 │                      ││                 the full output diff                                     │
 │                      ││   v             switch a failed output comparison between diff, expected │
@@ -24,7 +25,6 @@
 │                      ││                 with questions)                                          │
 │                      ││                                                                          │
 │                      ││ Everywhere                                                               │
-│                      ││   1 .. 8        Home, Learn, Lesson, Progress, Bookmarks, Doctor,        │
 ╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
 
  Up Down scroll  Esc back

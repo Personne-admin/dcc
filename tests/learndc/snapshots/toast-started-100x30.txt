@@ -27,4 +27,4 @@
 │   ││   ○ Prints the total                                                                        │
 ╰───╯╰─────────────────────────────────────────────────────────────────────────────────────────────╯
  Created your files
- e edit  c check  r run  h hint  s solution  w watch  Tab pane  ? help  q quit
+ Enter edit here  c check  r run  h hint  s solution  e own editor  Tab pane  ? help  q quit

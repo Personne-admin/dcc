@@ -36,6 +36,50 @@ namespace learndc::tui
             for (auto const& n : table)
                 if (e == *n.event)
                     return std::string(n.name);
+            static Named const editing[] = {
+                {&ftxui::Event::Delete, "Delete"},
+                {&ftxui::Event::ArrowLeftCtrl, "CtrlLeft"},
+                {&ftxui::Event::ArrowRightCtrl, "CtrlRight"},
+                {&ftxui::Event::ArrowUpCtrl, "CtrlUp"},
+                {&ftxui::Event::ArrowDownCtrl, "CtrlDown"},
+                {&ftxui::Event::F1, "F1"},
+                {&ftxui::Event::F2, "F2"},
+                {&ftxui::Event::F3, "F3"},
+                {&ftxui::Event::F5, "F5"},
+                {&ftxui::Event::F6, "F6"},
+                {&ftxui::Event::F8, "F8"},
+                {&ftxui::Event::CtrlA, "CtrlA"},
+                {&ftxui::Event::CtrlB, "CtrlB"},
+                {&ftxui::Event::CtrlD, "CtrlD"},
+                {&ftxui::Event::CtrlE, "CtrlE"},
+                {&ftxui::Event::CtrlF, "CtrlF"},
+                {&ftxui::Event::CtrlG, "CtrlG"},
+                {&ftxui::Event::CtrlK, "CtrlK"},
+                {&ftxui::Event::CtrlO, "CtrlO"},
+                {&ftxui::Event::CtrlP, "CtrlP"},
+                {&ftxui::Event::CtrlS, "CtrlS"},
+                {&ftxui::Event::CtrlT, "CtrlT"},
+                {&ftxui::Event::CtrlV, "CtrlV"},
+                {&ftxui::Event::CtrlW, "CtrlW"},
+                {&ftxui::Event::CtrlX, "CtrlX"},
+                {&ftxui::Event::CtrlY, "CtrlY"},
+                {&ftxui::Event::CtrlZ, "CtrlZ"},
+                {&ftxui::Event::AltS, "AltS"},
+                {&ftxui::Event::AltC, "AltC"},
+            };
+            for (auto const& n : editing)
+                if (e == *n.event)
+                    return std::string(n.name);
+            static std::pair<std::string_view, char const*> const sequences[] = {
+                {"\x1b[1;2D", "ShiftLeft"},   {"\x1b[1;2C", "ShiftRight"},    {"\x1b[1;2A", "ShiftUp"},       {"\x1b[1;2B", "ShiftDown"},
+                {"\x1b[1;2H", "ShiftHome"},   {"\x1b[1;2F", "ShiftEnd"},      {"\x1b[1;6D", "CtrlShiftLeft"}, {"\x1b[1;6C", "CtrlShiftRight"},
+                {"\x1b[1;5H", "CtrlHome"},    {"\x1b[1;5F", "CtrlEnd"},       {"\x1b[1;6H", "CtrlShiftHome"}, {"\x1b[1;6F", "CtrlShiftEnd"},
+                {"\x1b[5;2~", "ShiftPageUp"}, {"\x1b[6;2~", "ShiftPageDown"}, {"\x1b[1;2R", "ShiftF3"},       {"\x1b[13;2~", "ShiftF3"},
+                {"\x1b[19;2~", "ShiftF8"},    {"\x1b[1;2P", "ShiftF1"},
+            };
+            for (auto const& [seq, name] : sequences)
+                if (e.input() == seq)
+                    return std::string(name);
             if (e.is_character())
             {
                 auto c = e.character();
@@ -44,6 +88,22 @@ namespace learndc::tui
             }
             return std::nullopt;
         }
+
+        struct PasteModeOff
+        {
+            PasteModeOff()
+            {
+                std::fputs("\x1b[?2004l", stdout);
+                std::fflush(stdout);
+            }
+            ~PasteModeOff()
+            {
+                std::fputs("\x1b[?2004h", stdout);
+                std::fflush(stdout);
+            }
+            PasteModeOff(PasteModeOff const&) = delete;
+            PasteModeOff& operator=(PasteModeOff const&) = delete;
+        };
 
         [[nodiscard]] std::string wall_clock()
         {
@@ -77,10 +137,14 @@ namespace learndc::tui
                 m_screen = &screen;
                 screen.TrackMouse(false);
                 screen.ForceHandleCtrlC(false);
+                std::fputs("\x1b[?2004h", stdout);
+                std::fflush(stdout);
                 auto root = ftxui::CatchEvent(ftxui::Renderer([this] { return view(); }), [this](ftxui::Event e) { return on_event(e); });
                 m_ticker_stop.store(false);
                 m_ticker = std::thread([this] { tick_loop(); });
                 screen.Loop(root);
+                std::fputs("\x1b[?2004l", stdout);
+                std::fflush(stdout);
                 shutdown();
                 m_screen = nullptr;
                 return app::exit_ok;
@@ -93,6 +157,8 @@ namespace learndc::tui
             ftxui::App* m_screen = nullptr;
             std::mutex m_mutex;
             std::deque<model::Event> m_inbox;
+            bool m_pasting = false;
+            std::string m_paste;
             std::atomic<bool> m_need_tick{false};
             std::atomic<bool> m_check_cancel{false};
             std::atomic<bool> m_shutdown{false};
@@ -159,6 +225,29 @@ namespace learndc::tui
                     update_tick();
                     return true;
                 }
+                if (e.input() == "\x1b[200~")
+                {
+                    m_pasting = true;
+                    m_paste.clear();
+                    return true;
+                }
+                if (m_pasting)
+                {
+                    if (e.input() == "\x1b[201~")
+                    {
+                        m_pasting = false;
+                        dispatch(model::Paste{std::exchange(m_paste, {})});
+                    }
+                    else if (e == ftxui::Event::Return)
+                        m_paste += '\n';
+                    else if (e == ftxui::Event::Tab)
+                        m_paste += '\t';
+                    else if (e.is_character())
+                        m_paste += e.character();
+                    else if (m_paste.size() < (8u << 20))
+                        m_paste += e.input();
+                    return true;
+                }
                 if (auto name = key_name(e))
                 {
                     dispatch(model::Key{*name});
@@ -208,6 +297,7 @@ namespace learndc::tui
                     return;
                 auto options = app::runner_options(m_ctx, runner::Backend::Dpm, nullptr);
                 m_screen->Post(m_screen->WithRestoredIO([this, ex, root = e.root, options = std::move(options)] {
+                    PasteModeOff paste_off;
                     std::cout << "\x1b[2J\x1b[3J\x1b[H--- Running " << text::sanitize(ex->title) << " ---\n" << std::flush;
                     auto outcome = runner::build_and_run_interactive(*ex, root, options);
                     if (!outcome.ok && !outcome.diagnostics.empty())
@@ -251,7 +341,10 @@ namespace learndc::tui
                 };
                 if (mode == editor::Mode::Terminal && m_screen)
                 {
-                    m_screen->Post(m_screen->WithRestoredIO([finish, choice, ph, lo] { finish(editor::launch(choice, ph, lo)); }));
+                    m_screen->Post(m_screen->WithRestoredIO([finish, choice, ph, lo] {
+                        PasteModeOff paste_off;
+                        finish(editor::launch(choice, ph, lo));
+                    }));
                     return;
                 }
                 if (mode == editor::Mode::GuiWait)
