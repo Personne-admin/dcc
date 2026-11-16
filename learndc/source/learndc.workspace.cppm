@@ -288,6 +288,80 @@ export namespace learndc::workspace
         }
     } // namespace detail
 
+    struct FileStamp
+    {
+        bool exists = false;
+        std::uintmax_t size = 0;
+        std::uint64_t hash = 0;
+
+        friend bool operator==(FileStamp const&, FileStamp const&) = default;
+    };
+
+    [[nodiscard]] inline std::optional<WorkspaceError> learner_path_problem(Workspace const& ws, std::string_view rel)
+    {
+        if (auto problem = detail::check_relative(rel))
+            return problem;
+        auto const first = rel.substr(0, rel.find('/'));
+        if (first == meta_dir || first == ".dpm")
+            return WorkspaceError{ErrorKind::Refused, std::format("'{}' belongs to learndc or dpm and is not edited here", text::sanitize(rel))};
+        return detail::check_chain(ws.root, rel);
+    }
+
+    [[nodiscard]] inline FileStamp stamp_of_bytes(std::optional<std::string> const& bytes)
+    {
+        FileStamp s;
+        if (!bytes)
+            return s;
+        s.exists = true;
+        s.size = bytes->size();
+        s.hash = fnv1a64(*bytes);
+        return s;
+    }
+
+    [[nodiscard]] inline std::expected<std::string, WorkspaceError> read_learner_file(Workspace const& ws, std::string_view rel)
+    {
+        if (auto problem = learner_path_problem(ws, rel))
+            return std::unexpected(*problem);
+        auto const path = detail::join(ws.root, rel);
+        std::error_code ec;
+        if (!std::filesystem::is_regular_file(std::filesystem::symlink_status(path, ec)))
+            return detail::fail(ErrorKind::NotFound, std::format("'{}' is not a regular file in the workspace", text::sanitize(rel)));
+        auto data = platform::read_file(path);
+        if (!data)
+            return detail::fail(ErrorKind::Io, std::format("cannot read '{}'", text::sanitize(rel)));
+        return std::move(*data);
+    }
+
+    [[nodiscard]] inline FileStamp stamp(Workspace const& ws, std::string_view rel)
+    {
+        if (learner_path_problem(ws, rel))
+            return {};
+        auto const path = detail::join(ws.root, rel);
+        std::error_code ec;
+        if (!std::filesystem::is_regular_file(std::filesystem::symlink_status(path, ec)))
+            return {};
+        return stamp_of_bytes(platform::read_file(path));
+    }
+
+    [[nodiscard]] inline std::expected<FileStamp, WorkspaceError> write_learner_file(Workspace const& ws, std::string_view rel, std::string_view bytes)
+    {
+        if (auto problem = learner_path_problem(ws, rel))
+            return std::unexpected(*problem);
+        if (auto r = detail::ensure_parent(ws.root, std::string(rel)); !r)
+            return std::unexpected(r.error());
+        auto const path = detail::join(ws.root, rel);
+        std::error_code ec;
+        auto const status = std::filesystem::symlink_status(path, ec);
+        if (std::filesystem::exists(status) && status.type() != std::filesystem::file_type::regular)
+            return detail::fail(ErrorKind::Refused, std::format("'{}' is not a regular file; it was not overwritten", text::sanitize(rel)));
+        if (auto w = platform::atomic_write(path, bytes); !w)
+            return detail::fail(ErrorKind::Io, w.error().message);
+        auto written = platform::read_file(path);
+        if (!written || *written != bytes)
+            return detail::fail(ErrorKind::Io, std::format("'{}' could not be verified after saving", text::sanitize(rel)));
+        return stamp_of_bytes(written);
+    }
+
     [[nodiscard]] inline std::filesystem::path default_root(platform::Dirs const& dirs, catalog::Exercise const& ex)
     {
         return dirs.workspaces_dir / platform::path_from_utf8(ex.track) / platform::path_from_utf8(ex.name);
