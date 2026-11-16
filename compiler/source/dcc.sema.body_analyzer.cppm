@@ -6852,6 +6852,7 @@ export namespace dcc::sema
                     {
                         if (implicit_enum_var)
                         {
+                            remember_inner_construction(arg_exprs[func_arg_start + i]);
                             arg_exprs[func_arg_start + i]->sema.construction_kind = ConstructionKind::Enum;
                             arg_exprs[func_arg_start + i]->sema.constructed_variant = implicit_enum_var;
                             set_resolved_type(arg_exprs[func_arg_start + i]->sema, subbed_param);
@@ -8956,6 +8957,7 @@ export namespace dcc::sema
                             }
                             else
                             {
+                                remember_inner_construction(fn.body->tail);
                                 fn.body->tail->sema.construction_kind = ast::ExprSema::ConstructionKind::Enum;
                                 fn.body->tail->sema.constructed_variant = implicit_enum_var;
                                 set_resolved_type(fn.body->tail->sema, ret_ty);
@@ -9384,8 +9386,8 @@ export namespace dcc::sema
                             continue;
                         if (analyzed.type != expected)
                         {
-                            error(f.default_value->range, "default value for field `{}` type mismatch: expected `{}`, got `{}`", f.name, format_type_str(expected),
-                                  format_type_str(analyzed.type));
+                            error(f.default_value->range, "default value for field `{}` type mismatch: expected `{}`, got `{}`", f.name,
+                                  format_type_str(expected), format_type_str(analyzed.type));
                             continue;
                         }
                         std::unordered_set<ast::VarDecl const*> visiting;
@@ -12663,6 +12665,7 @@ export namespace dcc::sema
                     }
                     if (implicit_enum_var)
                     {
+                        remember_inner_construction(b.rhs);
                         b.rhs->sema.construction_kind = ConstructionKind::Enum;
                         b.rhs->sema.constructed_variant = implicit_enum_var;
                         set_resolved_type(b.rhs->sema, lhs_type);
@@ -16261,6 +16264,7 @@ export namespace dcc::sema
                     auto* conv = try_implicit_enum_conversion(param_ty, r.type, mod, scope, &implicit_enum_var);
                     if (conv && !has_error(conv) && implicit_enum_var)
                     {
+                        remember_inner_construction(arg_exprs[func_arg_start + i]);
                         arg_exprs[func_arg_start + i]->sema.construction_kind = ConstructionKind::Enum;
                         arg_exprs[func_arg_start + i]->sema.constructed_variant = implicit_enum_var;
                         set_resolved_type(arg_exprs[func_arg_start + i]->sema, param_ty);
@@ -16670,6 +16674,7 @@ export namespace dcc::sema
                     auto* conv = try_implicit_enum_conversion(fp->params[i], r.type, mod, scope, &implicit_enum_var);
                     if (conv && !has_error(conv) && implicit_enum_var)
                     {
+                        remember_inner_construction(effective_args[i]);
                         effective_args[i]->sema.construction_kind = ConstructionKind::Enum;
                         effective_args[i]->sema.constructed_variant = implicit_enum_var;
                         set_resolved_type(effective_args[i]->sema, fp->params[i]);
@@ -17082,6 +17087,7 @@ export namespace dcc::sema
                                     }
                                     if (implicit_enum_var && r.value)
                                     {
+                                        remember_inner_construction(r.value);
                                         r.value->sema.construction_kind = ConstructionKind::Enum;
                                         r.value->sema.constructed_variant = implicit_enum_var;
                                         set_resolved_type(r.value->sema, expected);
@@ -18249,6 +18255,7 @@ export namespace dcc::sema
                         }
                         if (implicit_enum_var && v->init)
                         {
+                            remember_inner_construction(v->init);
                             v->init->sema.construction_kind = ConstructionKind::Enum;
                             v->init->sema.constructed_variant = implicit_enum_var;
                             set_resolved_type(v->init->sema, expected);
@@ -18594,6 +18601,15 @@ export namespace dcc::sema
             return nullptr;
         }
 
+        static void remember_inner_construction(ast::Expr* node) noexcept
+        {
+            if (!node || node->kind != ast::ExprKind::Call || node->sema.construction_kind != ConstructionKind::Enum || !node->sema.constructed_variant ||
+                node->sema.implicit_inner_variant || !node->sema.resolved_type)
+                return;
+            node->sema.implicit_inner_variant = node->sema.constructed_variant;
+            node->sema.implicit_inner_type = node->sema.resolved_type;
+        }
+
         [[nodiscard]] bool apply_implicit_enum_conversion(ModuleInfo& mod, Scope& scope, sm::SourceRange range, ast::Expr* expr_node, detail::ExprResult& r,
                                                           types::TypePtr expected_type)
         {
@@ -18615,6 +18631,7 @@ export namespace dcc::sema
             }
             if (implicit_enum_var && expr_node)
             {
+                remember_inner_construction(expr_node);
                 expr_node->sema.construction_kind = ConstructionKind::Enum;
                 expr_node->sema.constructed_variant = implicit_enum_var;
                 set_resolved_type(expr_node->sema, expected_type);

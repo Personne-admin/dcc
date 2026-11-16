@@ -1,0 +1,86 @@
+=== FILE: test.dc ===
+module test;
+
+public enum Status(E) {
+    Ok,
+    @implicit_construction Err(E),
+}
+
+struct Limits {
+    u32 low;
+    u32 high;
+}
+
+enum Kind {
+    Small,
+    Large,
+}
+
+enum Problem {
+    Missing,
+    TooBig(u32),
+    OutOfRange(Limits),
+    Wrong(Kind),
+}
+
+Status(Problem) check(u32 n) {
+    if n == 0 {
+        return Problem::Missing;
+    }
+    if n > 1000 {
+        return Problem::OutOfRange(Limits { low = 1, high = n });
+    }
+    if n > 100 {
+        return Problem::TooBig(n);
+    }
+    if n == 7 {
+        return Problem::Wrong(Kind::Large);
+    }
+    return Status::Ok;
+}
+
+i32 code(Status(Problem) s) {
+    return match s {
+        Status::Ok => 1,
+        Status::Err(p) => match p {
+            Problem::Missing => 2,
+            Problem::TooBig(v) => if v == 150 { 3 } else { 90 },
+            Problem::OutOfRange(l) => if l.low == 1 && l.high == 5000 { 4 } else { 91 },
+            Problem::Wrong(k) => match k {
+                Kind::Small => 92,
+                Kind::Large => 5,
+            },
+        },
+    };
+}
+
+i32 take(Status(Problem) s) {
+    return code(s);
+}
+
+i32 checks() {
+    if code(check(10)) != 1 { return 10; }
+    if code(check(0)) != 2 { return 11; }
+    if code(check(150)) != 3 { return 12; }
+    if code(check(5000)) != 4 { return 13; }
+    if code(check(7)) != 5 { return 14; }
+    Status(Problem) init = Problem::TooBig(150);
+    if code(init) != 3 { return 15; }
+    if take(Problem::OutOfRange(Limits { low = 1, high = 5000 })) != 4 { return 16; }
+    Status(Problem) assigned = Status::Ok;
+    assigned = Problem::Wrong(Kind::Large);
+    if code(assigned) != 5 { return 17; }
+    assigned = Problem::Missing;
+    if code(assigned) != 2 { return 18; }
+    return 0;
+}
+
+@nomangle
+public i32 dcc_main() {
+    return checks();
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0

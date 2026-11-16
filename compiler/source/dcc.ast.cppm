@@ -248,6 +248,8 @@ export namespace dcc::ast
         ConstructionKind construction_kind{ConstructionKind::None};
 
         EnumVariant const* constructed_variant{};
+        EnumVariant const* implicit_inner_variant{};
+        types::Type const* implicit_inner_type{};
 
         dcc::comptime::Value const* const_value{};
 

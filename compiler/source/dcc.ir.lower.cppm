@@ -3217,6 +3217,18 @@ export namespace dcc::ir::lower
                 }
             }
 
+            if (call->sema.construction_kind == ast::ExprSema::ConstructionKind::Enum && call->sema.constructed_variant && call->sema.implicit_inner_variant)
+            {
+                auto inner_call = *call;
+                inner_call.sema.constructed_variant = call->sema.implicit_inner_variant;
+                inner_call.sema.resolved_type = call->sema.implicit_inner_type;
+                inner_call.sema.implicit_inner_variant = nullptr;
+                inner_call.sema.implicit_inner_type = nullptr;
+                inner_call.sema.const_value = nullptr;
+                std::array<IrValue*, 1> payload{lower_call_expr(&inner_call)};
+                return lower_tagged_enum_construction(call->sema.constructed_variant, get_sema_resolved_type(call), payload);
+            }
+
             if (call->sema.construction_kind == ast::ExprSema::ConstructionKind::Enum && call->sema.constructed_variant)
             {
                 auto* callee_type = types::type_cast<types::FuncPtrType>(get_sema_resolved_type(call->callee));

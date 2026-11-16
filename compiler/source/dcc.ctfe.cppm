@@ -1944,8 +1944,9 @@ export namespace dcc::ctfe
         {
             if (call.sema.construction_kind == ast::ExprSema::ConstructionKind::Enum)
             {
+                bool const wraps_inner = call.sema.implicit_inner_variant != nullptr;
                 auto* callee_type = call.callee ? type_of(*call.callee) : nullptr;
-                if (callee_type && callee_type->kind == types::TypeKind::Enum)
+                if (!wraps_inner && callee_type && callee_type->kind == types::TypeKind::Enum)
                     return enum_construction(call);
                 if (specializing())
                     return abandoned(AbandonReason::UnsupportedEffect);
@@ -1961,10 +1962,20 @@ export namespace dcc::ctfe
                 if (!payload_type)
                     return failure("implicit enum call payload has not been resolved");
                 auto payload_call = call;
-                payload_call.sema.construction_kind = ast::ExprSema::ConstructionKind::None;
-                payload_call.sema.constructed_variant = nullptr;
+                if (wraps_inner)
+                {
+                    payload_call.sema.constructed_variant = call.sema.implicit_inner_variant;
+                    payload_call.sema.resolved_type = call.sema.implicit_inner_type;
+                    payload_call.sema.implicit_inner_variant = nullptr;
+                    payload_call.sema.implicit_inner_type = nullptr;
+                }
+                else
+                {
+                    payload_call.sema.construction_kind = ast::ExprSema::ConstructionKind::None;
+                    payload_call.sema.constructed_variant = nullptr;
+                    payload_call.sema.resolved_type = reinterpret_cast<decltype(payload_call.sema.resolved_type)>(payload_type);
+                }
                 payload_call.sema.const_value = nullptr;
-                payload_call.sema.resolved_type = reinterpret_cast<decltype(payload_call.sema.resolved_type)>(payload_type);
                 auto result = this->call(payload_call);
                 if (result.flow != Flow::Normal || !result.value)
                     return result;
