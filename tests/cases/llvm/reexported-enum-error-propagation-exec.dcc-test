@@ -1,0 +1,105 @@
+=== TARGET: x86_64-elf ===
+=== FILE: ioerr.dc ===
+module ioerr;
+
+public enum Error {
+    NotFound,
+    Denied,
+}
+
+=== FILE: top.dc ===
+module top;
+
+public import ioerr;
+
+public enum Status(E) {
+    Ok,
+    @implicit_construction Err(E),
+}
+
+public enum Error {
+    @implicit_construction Io(ioerr::Error),
+    Other,
+}
+
+public bool is_ok(E)(const Status(E)* self) {
+    return match *self {
+        Status::Ok => true,
+        _ => false,
+    };
+}
+
+public void unwrap(E)(const Status(E)* self) {
+}
+
+public E unwrap_err(E)(const Status(E)* self) {
+    return match *self {
+        Status::Err(e) => e,
+        _ => self.unwrap_err(),
+    };
+}
+
+=== FILE: main.dc ===
+module main;
+
+import top;
+import ioerr;
+
+using Error = top::Error;
+using Status = top::Status;
+
+Status(ioerr::Error) open_file(bool ok) {
+    if ok {
+        return Status::Ok;
+    }
+    return Status::Err(ioerr::Error::NotFound);
+}
+
+Status(Error) load(bool ok) {
+    open_file(ok)?;
+    return Status::Ok;
+}
+
+Status(Error) explicit_io() {
+    return Status::Err(Error::Io(ioerr::Error::Denied));
+}
+
+Status(Error) other() {
+    return Status::Err(Error::Other);
+}
+
+i32 kind(Status(Error) s) {
+    return match s {
+        Status::Ok => 1,
+        Status::Err(e) => match e {
+            Error::Io(io) => match io {
+                ioerr::Error::NotFound => 2,
+                ioerr::Error::Denied => 3,
+            },
+            Error::Other => 4,
+        },
+    };
+}
+
+i32 checks() {
+    if kind(load(true)) != 1 { return 1; }
+    if kind(load(false)) != 2 { return 2; }
+    if kind(explicit_io()) != 3 { return 3; }
+    if kind(other()) != 4 { return 4; }
+    return 0;
+}
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+@nomangle
+public i32 dcc_main() {
+    return checks();
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-EXECUTABLE ===
+RUN-EXIT: 0
+=== EXPECT-EXECUTABLE FLAGS: -O2 ===
+RUN-EXIT: 0

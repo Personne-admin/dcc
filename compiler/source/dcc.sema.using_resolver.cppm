@@ -290,6 +290,7 @@ export namespace dcc::sema
         {
             bool added = false;
             auto* existing = dst.find_binding_local(target_name);
+            bool const type_shadowed = src.has_type && existing && existing->has_type && existing->type_sym.decl != src.type_sym.decl;
 
             if (src.has_type)
             {
@@ -348,7 +349,7 @@ export namespace dcc::sema
                 }
             }
 
-            if (src.has_namespace)
+            if (src.has_namespace && !type_shadowed)
             {
                 Symbol s = src.namespace_sym;
                 s.name = target_name;

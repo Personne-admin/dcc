@@ -6011,7 +6011,7 @@ export namespace dcc::sema
                             !types::type_cast<types::TemplateParamType>(subbed_param))
                         {
                             *rejection_reason = std::format("cannot convert argument {}: expected `{}`, found `{}`", func_arg_start + i + 1,
-                                                            format_type_str(subbed_param), format_type_str(actuals[i]));
+                                                            distinct_type_str(subbed_param, actuals[i]), distinct_type_str(actuals[i], subbed_param));
 
                             record_rejection(rejection_info, CallRejectionKind::ArgTypeMismatch, func_arg_start + i);
 
@@ -6256,8 +6256,8 @@ export namespace dcc::sema
                     *had_non_constraint_failure = true;
 
                 if (rejection_reason)
-                    *rejection_reason =
-                        std::format("receiver type mismatch: expected `{}`, found `{}`", format_type_str(param0), format_type_str(receiver.type));
+                    *rejection_reason = std::format("receiver type mismatch: expected `{}`, found `{}`", distinct_type_str(param0, receiver.type),
+                                                    distinct_type_str(receiver.type, param0));
 
                 record_rejection(rejection_info, CallRejectionKind::ReceiverMismatch);
 
@@ -6457,14 +6457,14 @@ export namespace dcc::sema
                         {
                             if (i == 0)
                             {
-                                *rejection_reason = std::format("receiver type mismatch: expected `{}`, found `{}`", format_type_str(subbed_param),
-                                                                format_type_str(actuals[i]));
+                                *rejection_reason = std::format("receiver type mismatch: expected `{}`, found `{}`",
+                                                                distinct_type_str(subbed_param, actuals[i]), distinct_type_str(actuals[i], subbed_param));
                                 record_rejection(rejection_info, CallRejectionKind::ReceiverMismatch);
                             }
                             else
                             {
-                                *rejection_reason = std::format("cannot convert argument {}: expected `{}`, found `{}`", i, format_type_str(subbed_param),
-                                                                format_type_str(actuals[i]));
+                                *rejection_reason = std::format("cannot convert argument {}: expected `{}`, found `{}`", i,
+                                                                distinct_type_str(subbed_param, actuals[i]), distinct_type_str(actuals[i], subbed_param));
                                 record_rejection(rejection_info, CallRejectionKind::ArgTypeMismatch, i - 1);
                             }
                             arg_mismatch_found = true;
@@ -6899,10 +6899,11 @@ export namespace dcc::sema
                             std::size_t arg_idx = func_arg_start + i - 1;
                             auto arg_range =
                                 (arg_idx < arg_exprs.size() && arg_exprs[arg_idx] && arg_exprs[arg_idx]->range.valid()) ? arg_exprs[arg_idx]->range : range;
-                            auto diag_obj = diag::Diagnostic{diag::Severity::Error,
-                                                             std::format("argument {} of UFCS call to `{}` has wrong type: expected `{}`, found `{}`", i,
-                                                                         f.name, format_type_str(param_ty), format_type_str(actuals[i]))}
-                                                .primary(arg_range);
+                            auto diag_obj =
+                                diag::Diagnostic{diag::Severity::Error,
+                                                 std::format("argument {} of UFCS call to `{}` has wrong type: expected `{}`, found `{}`", i, f.name,
+                                                             distinct_type_str(param_ty, actuals[i]), distinct_type_str(actuals[i], param_ty))}
+                                    .primary(arg_range);
                             std::move(diag_obj).secondary(func_decl_range(f), "declared here");
                             m_diag.emit(std::move(diag_obj));
                         }
@@ -8946,8 +8947,8 @@ export namespace dcc::sema
                             auto* conv = try_implicit_enum_conversion(ret_ty, tail_type, mod, *root, &implicit_enum_var);
                             if (!conv)
                             {
-                                error(fn.body->tail->range, "return type mismatch: expected `{}`, got `{}`", format_type_str(ret_ty),
-                                      format_type_str(tail_type));
+                                error(fn.body->tail->range, "return type mismatch: expected `{}`, got `{}`", distinct_type_str(ret_ty, tail_type),
+                                      distinct_type_str(tail_type, ret_ty));
                                 tail_reported = true;
                             }
                             else if (has_error(conv))
@@ -9387,7 +9388,7 @@ export namespace dcc::sema
                         if (analyzed.type != expected)
                         {
                             error(f.default_value->range, "default value for field `{}` type mismatch: expected `{}`, got `{}`", f.name,
-                                  format_type_str(expected), format_type_str(analyzed.type));
+                                  distinct_type_str(expected, analyzed.type), distinct_type_str(analyzed.type, expected));
                             continue;
                         }
                         std::unordered_set<ast::VarDecl const*> visiting;
@@ -11849,6 +11850,7 @@ export namespace dcc::sema
             {
                 out.type = m_types.m_errort();
                 error(p.range, "unknown path `{}`", path_str(p.path));
+                note_variant_of_implicit_payload(mod, scope, p);
                 return out;
             }
             auto const* sym = &syms.front();
@@ -12660,7 +12662,8 @@ export namespace dcc::sema
                     if (!ok)
                     {
                         out.type = m_types.m_errort();
-                        error(b.range, "assignment type mismatch: cannot assign `{}` to `{}`", format_type_str(rhs.type), format_type_str(lhs_type));
+                        error(b.range, "assignment type mismatch: cannot assign `{}` to `{}`", distinct_type_str(rhs.type, lhs_type),
+                              distinct_type_str(lhs_type, rhs.type));
                         return out;
                     }
                     if (implicit_enum_var)
@@ -14040,8 +14043,8 @@ export namespace dcc::sema
                     else if (!result_discarded && !r.is_diverging && r.type && r.type != unified_type && r.type->kind != types::TypeKind::Error &&
                              r.type != m_types.m_voidt() && unified_type != m_types.m_voidt())
                     {
-                        error(arm.body->range, "match arm result type mismatch: expected `{}`, got `{}`", format_type_str(unified_type),
-                              format_type_str(r.type));
+                        error(arm.body->range, "match arm result type mismatch: expected `{}`, got `{}`", distinct_type_str(unified_type, r.type),
+                              distinct_type_str(r.type, unified_type));
                     }
 
                     if (!result_discarded && !r.is_diverging && r.type && r.type != m_types.m_voidt())
@@ -14228,7 +14231,7 @@ export namespace dcc::sema
                                     if (expected_field && val.type && val.type != expected_field && val.type->kind != types::TypeKind::Error)
                                     {
                                         error(f.range, "field `{}` type mismatch: expected `{}`, got `{}`", fields[elem_index].name,
-                                              format_type_str(expected_field), format_type_str(val.type));
+                                              distinct_type_str(expected_field, val.type), distinct_type_str(val.type, expected_field));
                                         return std::nullopt;
                                     }
                                 }
@@ -14258,7 +14261,7 @@ export namespace dcc::sema
                                         if (expected_field && val.type && val.type != expected_field && val.type->kind != types::TypeKind::Error)
                                         {
                                             error(nf.range, "field `{}` type mismatch: expected `{}`, got `{}`", fields[elem_index].name,
-                                                  format_type_str(expected_field), format_type_str(val.type));
+                                                  distinct_type_str(expected_field, val.type), distinct_type_str(val.type, expected_field));
                                             return std::nullopt;
                                         }
                                     }
@@ -14345,8 +14348,8 @@ export namespace dcc::sema
                             bool const array_to_slice = es && ga && es->element == ga->element;
                             if (!array_to_slice)
                             {
-                                error(f.range, "field `{}` type mismatch: expected `{}`, got `{}`", fields[field_index].name, format_type_str(expected_field),
-                                      format_type_str(val.type));
+                                error(f.range, "field `{}` type mismatch: expected `{}`, got `{}`", fields[field_index].name,
+                                      distinct_type_str(expected_field, val.type), distinct_type_str(val.type, expected_field));
                                 return std::nullopt;
                             }
                             warn_implicit_array_copy(f.value, val.type, expected_field);
@@ -14518,7 +14521,8 @@ export namespace dcc::sema
                     {
                         if (!try_implicit_enum_element(*f.value, arr->element))
                         {
-                            error(f.range, "array element type mismatch: expected `{}`, got `{}`", format_type_str(arr->element), format_type_str(val.type));
+                            error(f.range, "array element type mismatch: expected `{}`, got `{}`", distinct_type_str(arr->element, val.type),
+                                  distinct_type_str(val.type, arr->element));
                             return std::nullopt;
                         }
                     }
@@ -14556,7 +14560,8 @@ export namespace dcc::sema
                     {
                         if (!try_implicit_enum_element(*f.value, slice->element))
                         {
-                            error(f.range, "slice element type mismatch: expected `{}`, got `{}`", format_type_str(slice->element), format_type_str(val.type));
+                            error(f.range, "slice element type mismatch: expected `{}`, got `{}`", distinct_type_str(slice->element, val.type),
+                                  distinct_type_str(val.type, slice->element));
                             return std::nullopt;
                         }
                     }
@@ -15794,7 +15799,8 @@ export namespace dcc::sema
                                         if (final_payload && arg.type && final_payload != arg.type && !contains_template_param(final_payload))
                                         {
                                             error(c.args[i]->range, "enum variant `{}` payload type mismatch: expected `{}`, got `{}`", variant_name,
-                                                  format_type_str(final_payload), format_type_str(arg.type));
+                                                  distinct_type_str(final_payload, arg.type), distinct_type_str(arg.type, final_payload));
+                                            note_implicit_construction_not_applied(mod, scope, c.args[i]->range, final_payload, arg.type);
                                             any_arg_error = true;
                                         }
                                     }
@@ -15802,7 +15808,8 @@ export namespace dcc::sema
                                 else if (payload_ty != arg.type)
                                 {
                                     error(c.args[i]->range, "enum variant `{}` payload type mismatch: expected `{}`, got `{}`", variant_name,
-                                          format_type_str(payload_ty), format_type_str(arg.type));
+                                          distinct_type_str(payload_ty, arg.type), distinct_type_str(arg.type, payload_ty));
+                                    note_implicit_construction_not_applied(mod, scope, c.args[i]->range, payload_ty, arg.type);
                                     any_arg_error = true;
                                 }
                             }
@@ -16352,10 +16359,10 @@ export namespace dcc::sema
                             auto arg_idx = func_arg_start + i;
                             auto arg_range =
                                 (arg_idx < arg_exprs.size() && arg_exprs[arg_idx] && arg_exprs[arg_idx]->range.valid()) ? arg_exprs[arg_idx]->range : range;
-                            auto diag_obj =
-                                diag::Diagnostic{diag::Severity::Error, std::format("argument {} of call to `{}` has wrong type: expected `{}`, found `{}`",
-                                                                                    i + 1, f.name, format_type_str(param_ty), format_type_str(actuals[i]))}
-                                    .primary(arg_range);
+                            auto diag_obj = diag::Diagnostic{diag::Severity::Error,
+                                                             std::format("argument {} of call to `{}` has wrong type: expected `{}`, found `{}`", i + 1, f.name,
+                                                                         distinct_type_str(param_ty, actuals[i]), distinct_type_str(actuals[i], param_ty))}
+                                                .primary(arg_range);
                             std::move(diag_obj).secondary(func_decl_range(f), "declared here");
                             m_diag.emit(std::move(diag_obj));
 
@@ -16703,7 +16710,7 @@ export namespace dcc::sema
                         if (actuals[i] != fp->params[i] && !has_error(actuals[i]) && !has_error(fp->params[i]))
                         {
                             error(range, "argument {} of function pointer call has wrong type: expected `{}`, found `{}`", i + 1,
-                                  format_type_str(fp->params[i]), format_type_str(actuals[i]));
+                                  distinct_type_str(fp->params[i], actuals[i]), distinct_type_str(actuals[i], fp->params[i]));
 
                             reported = true;
                             break;
@@ -17080,8 +17087,8 @@ export namespace dcc::sema
                                     {
                                         auto* conv = try_implicit_enum_conversion(expected, got.type, mod, scope, &implicit_enum_var);
                                         if (!conv)
-                                            error(s.range, "return type mismatch: expected `{}`, got `{}`", format_type_str(expected),
-                                                  format_type_str(got.type));
+                                            error(s.range, "return type mismatch: expected `{}`, got `{}`", distinct_type_str(expected, got.type),
+                                                  distinct_type_str(got.type, expected));
                                         else if (has_error(conv))
                                             error(s.range, "ambiguous implicit enum construction");
                                     }
@@ -18248,8 +18255,8 @@ export namespace dcc::sema
                         {
                             auto* conv = try_implicit_enum_conversion(expected, init.type, mod, scope, &implicit_enum_var);
                             if (!conv)
-                                error(v->range, "initializer type mismatch: declared `{}`, initializer `{}`", format_type_str(expected),
-                                      format_type_str(init.type));
+                                error(v->range, "initializer type mismatch: declared `{}`, initializer `{}`", distinct_type_str(expected, init.type),
+                                      distinct_type_str(init.type, expected));
                             else if (has_error(conv))
                                 error(v->range, "ambiguous implicit enum construction");
                         }
@@ -18671,6 +18678,91 @@ export namespace dcc::sema
                 return substitute_in_nominal_context(ty, context_enum_type);
 
             return ty;
+        }
+
+        [[nodiscard]] std::string qualified_type_str(types::TypePtr ty) const
+        {
+            if (!ty)
+                return format_type_str(ty);
+            if (auto const* p = types::type_cast<types::PointerType>(ty); p && p->flavor == types::PointerFlavor::Near)
+                return std::format("{}{}*", types::has_qual(p->pointee_quals, types::Qual::Const) ? "const " : "", qualified_type_str(p->pointee));
+            if (auto const* sl = types::type_cast<types::SliceType>(ty); sl && sl->flavor == types::PointerFlavor::Near)
+                return std::format("[]{}{}", types::has_qual(sl->element_quals, types::Qual::Const) ? "const " : "", qualified_type_str(sl->element));
+            if (ty->kind != types::TypeKind::Struct && ty->kind != types::TypeKind::Union && ty->kind != types::TypeKind::Enum)
+                return format_type_str(ty);
+            auto const* ut = static_cast<types::UserType const*>(ty);
+            auto const* decl = reinterpret_cast<ast::Decl const*>(ut->decl);
+            std::string prefix;
+            for (auto const& m : m_modules)
+                if (m->tu && std::ranges::find(m->tu->decls, decl) != m->tu->decls.end())
+                {
+                    for (auto seg : m->canonical_path.segments())
+                        prefix += std::format("{}::", seg);
+                    break;
+                }
+            auto plain = format_type_str(ty);
+            auto const open = plain.find('(');
+            auto name = open == std::string::npos ? plain : plain.substr(0, open);
+            if (ut->template_args.empty())
+                return prefix + name;
+            std::string args;
+            for (std::size_t i = 0; i < ut->template_args.size(); ++i)
+                args += std::format("{}{}", i ? ", " : "", qualified_type_str(ut->template_args[i]));
+            return std::format("{}{}({})", prefix, name, args);
+        }
+
+        void note_variant_of_implicit_payload(ModuleInfo& mod, Scope& scope, ast::PathExpr const& p)
+        {
+            if (m_suppress_errors || p.path.segments.size() < 2 || !mod.own_scope)
+                return;
+            auto prefix = p.path;
+            prefix.segments.pop_back();
+            auto const* enum_sym = resolve_type_path_with_fallback(*mod.own_scope, prefix);
+            if (!enum_sym || !enum_sym->decl || enum_sym->decl->kind != ast::DeclKind::Enum)
+                return;
+            auto const* enum_decl = static_cast<ast::EnumDecl const*>(enum_sym->decl);
+            auto const name = p.path.segments.back().name;
+            auto const enum_type = decl_type(*enum_decl);
+            for (auto const& variant : enum_decl->variants)
+            {
+                if (!variant_has_attr(variant, "implicit_construction") || variant.payload.size() != 1)
+                    continue;
+                auto payload_ty = resolve_payload_type(*enum_decl, variant.payload[0], enum_type, mod, scope);
+                auto const* payload_enum = payload_ty ? types::type_cast<types::EnumType>(payload_ty) : nullptr;
+                auto const* payload_decl = payload_enum ? reinterpret_cast<ast::EnumDecl const*>(payload_enum->decl) : nullptr;
+                if (!payload_decl || !find_enum_variant(*payload_decl, name))
+                    continue;
+                auto const outer = path_str(prefix);
+                auto const inner = qualified_type_str(payload_ty);
+                auto const qualified = qualified_type_str(enum_type);
+                auto const shown = qualified == outer ? std::format("`{}`", outer) : std::format("`{}` (`{}`)", outer, qualified);
+                m_diag.note(p.range, "{} has no variant `{}`; `{}::{}` belongs to `{}`, which `{}` wraps as `{}::{}({}::{})`", shown, name, inner, name, inner,
+                            outer, outer, variant.name, inner, name);
+                return;
+            }
+        }
+
+        void note_implicit_construction_not_applied(ModuleInfo& mod, Scope& scope, sm::SourceRange range, types::TypePtr expected, types::TypePtr got)
+        {
+            if (m_suppress_errors || !expected || !got || has_error(expected) || has_error(got))
+                return;
+            ast::EnumVariant const* variant = nullptr;
+            auto const* conv = try_implicit_enum_conversion(expected, got, mod, scope, &variant);
+            if (!conv || has_error(conv) || !variant)
+                return;
+            auto const target = distinct_type_str(expected, got);
+            m_diag.note(range,
+                        "`{}` has the @implicit_construction variant `{}` that accepts `{}`, but implicit construction is not applied to enum "
+                        "variant payloads; construct it explicitly as `{}::{}(...)`",
+                        target, variant->name, distinct_type_str(got, expected), target, variant->name);
+        }
+
+        [[nodiscard]] std::string distinct_type_str(types::TypePtr ty, types::TypePtr other) const
+        {
+            auto plain = format_type_str(ty);
+            if (ty && other && ty != other && plain == format_type_str(other))
+                return qualified_type_str(ty);
+            return plain;
         }
 
         [[nodiscard]] static ast::EnumVariant const* find_enum_variant(ast::EnumDecl const& decl, std::string_view name) noexcept

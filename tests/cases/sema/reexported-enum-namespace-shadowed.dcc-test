@@ -1,0 +1,53 @@
+=== FILE: ioerr.dc ===
+module ioerr;
+
+public enum Error {
+    NotFound,
+    Denied,
+}
+
+=== FILE: top.dc ===
+module top;
+
+public import ioerr;
+
+public enum Status(E) {
+    Ok,
+    @implicit_construction Err(E),
+}
+
+public enum Error {
+    @implicit_construction Io(ioerr::Error),
+    Other,
+}
+
+=== FILE: main.dc ===
+module main;
+
+import top;
+import ioerr;
+
+using Error = top::Error;
+using Status = top::Status;
+
+Status(Error) shorthand() {
+    return Status::Err(Error::NotFound);
+}
+
+Status(Error) reexported() {
+    return Status::Err(top::Error::Denied);
+}
+
+Status(Error) direct(ioerr::Error e) {
+    return Status::Err(e);
+}
+
+Status(Error) qualified() {
+    return Status::Err(Error::Io(ioerr::Error::NotFound));
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-ERRORS ===
+main.dc:10: unknown path `Error::NotFound`
+main.dc:14: unknown path `top::Error::Denied`
+main.dc:18: enum variant `Err` payload type mismatch: expected `top::Error`, got `ioerr::Error`
