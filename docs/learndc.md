@@ -243,6 +243,8 @@ Commands that take an optional `id` use the exercise of the current directory's 
 
 An invalid value is rejected with the allowed values (exit 2). Unknown keys are rejected.
 
+Answers may start with a hyphen (`learndc answer ID --question q -4`, `... -rpath`). After `--` every word belongs to the answer, even one that looks like an option (`learndc answer ID --question q -- --json`); an unknown `--option` is reported with this hint.
+
 ## Exit codes
 
 | Code | Meaning |

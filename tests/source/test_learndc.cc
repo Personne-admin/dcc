@@ -9439,6 +9439,31 @@ TEST_CASE("cli paths of the shipped content name one boss in the singular")
     CHECK(r.out.find("of 6 bosses") != std::string::npos);
 }
 
+TEST_CASE("answer takes answers that start with a hyphen and the end of options separator")
+{
+    auto p = parse_args({"answer", "game-motion/motion-drills", "--question", "trace-bounce", "-4"});
+    REQUIRE(p.has_value());
+    CHECK((p->positionals == std::vector<std::string>{"game-motion/motion-drills", "-4"}));
+    CHECK_EQ(p->value("question").value_or(""), "trace-bounce");
+    p = parse_args({"answer", "x", "--question", "q", "-rpath", "--json"});
+    REQUIRE(p.has_value());
+    CHECK((p->positionals == std::vector<std::string>{"x", "-rpath"}));
+    CHECK(p->flag("json"));
+    p = parse_args({"answer", "x", "--question", "q", "--", "--json", "-h", ""});
+    REQUIRE(p.has_value());
+    CHECK((p->positionals == std::vector<std::string>{"x", "--json", "-h", ""}));
+    CHECK(!p->flag("json"));
+    CHECK(!p->help);
+    p = parse_args({"answer", "x", "caf\xC3\xA9 au lait", "-1"});
+    REQUIRE(p.has_value());
+    CHECK((p->positionals == std::vector<std::string>{"x", "caf\xC3\xA9 au lait", "-1"}));
+    auto bad = parse_args({"answer", "x", "--questoin", "q"});
+    REQUIRE(!bad.has_value());
+    CHECK(bad.error().find("unknown option '--questoin' for 'answer'; to give an answer that starts with '-', put it after '--'") != std::string::npos);
+    CHECK(!parse_args({"list", "-1"}).has_value());
+    CHECK(!parse_args({"list", "--"}).has_value());
+}
+
 TEST_CASE("boss fight stage questions are shown and answered through the cli and persist")
 {
     char const* content = std::getenv("DCC_TEST_LEARNDC_CONTENT");

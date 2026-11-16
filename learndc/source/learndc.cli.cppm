@@ -71,6 +71,7 @@ export namespace learndc::cli
         std::size_t max_positionals = 0;
         bool allows_rest = false;
         std::string details;
+        bool dash_answers = false;
     };
 
     struct Parsed
@@ -148,9 +149,13 @@ export namespace learndc::cli
                 {flag_option("show", "print the solution files"), flag_option("diff", "diff your files against the solution")}, 0, 1);
             add("reset", "reset <id> [--yes] [--no-backup]", "Restore the starter files of an exercise",
                 {flag_option("yes", "do not ask for confirmation"), flag_option("no-backup", "skip the backup of your files")}, 1, 1);
-            add("answer", "answer <id> [CHOICE...] | answer <id> --question Q ANSWER... [--json]",
+            add("answer", "answer <id> [CHOICE...] | answer <id> [--question Q] [--] ANSWER... [--json]",
                 "Answer lesson questions: one choice per question, or one question of any kind with --question",
-                {flag_option("json", "print JSON"), value_option("question", "Q", "the id of the question to answer")}, 1, unlimited);
+                {flag_option("json", "print JSON"), value_option("question", "Q", "the id of the question to answer")}, 1, unlimited, false,
+                "Lectures and drills take one choice number per question, or one question at a time with --question. Multi-stage exercises and "
+                "Boss Fights take their stage questions the same way; without --question the next unanswered question in stage order is answered. "
+                "Answers may start with '-' (for example -1 or -rpath); after '--' every word is part of the answer, even one that looks like an option.");
+            v.back().dash_answers = true;
             add("cards", "cards [--json]", "List the flashcards due for review and the questions you missed", {flag_option("json", "print JSON")}, 0, 0);
             add("card", "card <lesson>#<card> [again|hard|good|easy]", "Show a flashcard, or rate how well you remembered it", {}, 1, 2);
             add("progress", "progress [--json]", "Show your progress", {flag_option("json", "print JSON")}, 0, 0);
@@ -207,6 +212,7 @@ export namespace learndc::cli
         Parsed out;
         CommandSpec const* spec = nullptr;
         bool in_rest = false;
+        bool options_ended = false;
         for (std::size_t i = 0; i < args.size(); ++i)
         {
             std::string const& a = args[i];
@@ -215,11 +221,21 @@ export namespace learndc::cli
                 out.rest.push_back(a);
                 continue;
             }
+            if (options_ended)
+            {
+                out.positionals.push_back(a);
+                continue;
+            }
             if (a == "--")
             {
                 if (spec && spec->allows_rest)
                 {
                     in_rest = true;
+                    continue;
+                }
+                if (spec && spec->dash_answers)
+                {
+                    options_ended = true;
                     continue;
                 }
                 return std::unexpected(std::string("unexpected '--'"));
@@ -257,8 +273,14 @@ export namespace learndc::cli
                             global = true;
                         }
                 if (!opt)
+                {
+                    if (spec && spec->dash_answers)
+                        return std::unexpected(std::format("unknown option '--{}' for '{}'; to give an answer that starts with '-', put it after '--' "
+                                                           "(learndc answer ID --question Q -- --{})",
+                                                           text::sanitize(name), spec->name, text::sanitize(name)));
                     return std::unexpected(spec ? std::format("unknown option '--{}' for '{}'", text::sanitize(name), spec->name)
                                                 : std::format("unknown option '--{}'", text::sanitize(name)));
+                }
                 (void)global;
                 if (opt->takes_value)
                 {
@@ -284,7 +306,14 @@ export namespace learndc::cli
                 continue;
             }
             if (a.size() > 1 && a[0] == '-')
+            {
+                if (spec && spec->dash_answers)
+                {
+                    out.positionals.push_back(a);
+                    continue;
+                }
                 return std::unexpected(std::format("unknown option '{}'", text::sanitize(a)));
+            }
             if (!spec)
             {
                 spec = find_command(a);
