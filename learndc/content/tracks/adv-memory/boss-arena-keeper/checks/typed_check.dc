@@ -1,0 +1,62 @@
+module typed_check;
+
+import arena;
+
+using arena::{ Arena, ArenaError, new_arena, alloc_bytes, alloc_one, alloc_many };
+
+struct Pair {
+    u8 tag;
+    u64 big;
+}
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    u8[512] storage = {};
+    usize address = &storage[0] as usize;
+    usize skip = ((address + 63) / 64) * 64 - address;
+    Arena a = new_arena(storage[skip..skip + 256]);
+
+    Result(u8*, ArenaError) tag = alloc_one!u8(&a);
+    expect(tag.is_ok(), "alloc_one of a u8", &failures);
+    Result(Pair*, ArenaError) pair = alloc_one!Pair(&a);
+    expect(pair.is_ok(), "alloc_one of a struct", &failures);
+    if pair.is_ok() {
+        Pair* p = pair.unwrap();
+        p.tag = 7;
+        p.big = 123456789;
+        expect(p as usize % alignof(Pair) == 0, "the struct is aligned for its widest field", &failures);
+        expect(p.tag == 7 && p.big == 123456789, "the struct can be written and read", &failures);
+    }
+    expect(a.used == 8 + sizeof(Pair), "u8 (1 byte), padding to 8, then the 16-byte struct", &failures);
+
+    Result([]u32, ArenaError) words = alloc_many!u32(&a, 5);
+    expect(words.is_ok(), "alloc_many of five u32", &failures);
+    if words.is_ok() {
+        []u32 w = words.unwrap();
+        expect(w.len == 5, "the slice has five elements", &failures);
+        expect(w.ptr as usize % 4 == 0, "the elements are aligned", &failures);
+        for usize i = 0; i < w.len; i++ { w[i] = (i * 10) as u32; }
+        expect(w[4] == 40 && w[0] == 0, "the elements can be written and read", &failures);
+    }
+    expect(a.used == 24 + 20, "five u32 follow without padding", &failures);
+
+    usize before = a.used;
+    Result([]u64, ArenaError) overflow = alloc_many!u64(&a, (~(0 as usize)) / 2 + 1);
+    expect(overflow.is_err() && overflow.unwrap_err() == ArenaError::OutOfSpace, "count times size overflow is refused", &failures);
+    Result([]u64, ArenaError) big = alloc_many!u64(&a, 1000);
+    expect(big.is_err() && big.unwrap_err() == ArenaError::OutOfSpace, "too many elements do not fit", &failures);
+    expect(a.used == before, "failures do not use space", &failures);
+
+    Result([]u16, ArenaError) none = alloc_many!u16(&a, 0);
+    expect(none.is_ok() && none.unwrap().len == 0, "zero elements is an empty slice", &failures);
+    return failures;
+}

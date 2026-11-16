@@ -1,0 +1,34 @@
+module main;
+
+import std::alloc::fixed;
+import std::array;
+
+using std::alloc::fixed::{ FixedBuffer, FixedHandle, new_fixed_buffer, borrow };
+
+public Status(Error) main() {
+    u8[512] storage = {};
+    FixedBuffer buffer = new_fixed_buffer(storage[0..512]);
+    FixedHandle alloc = borrow(&buffer);
+
+    Array(i32, FixedHandle) numbers = std::array::new_array(alloc);
+    defer numbers.deinit();
+    for i32 n in 1..=5 {
+        numbers.push(n * n)?;
+    }
+    i32 total = 0;
+    for n in numbers.items() {
+        total += n;
+    }
+    println("{} numbers, total {}", numbers.len(), total)?;
+
+    bool failed = false;
+    for i32 n in 0..1000 {
+        if !numbers.push(n).is_ok() {
+            failed = true;
+            break;
+        }
+    }
+    println("a thousand more do not fit: {}", failed)?;
+    println("the first five are still there: {}", numbers.items()[4])?;
+    return Status::Ok;
+}

@@ -1,0 +1,76 @@
+module main;
+
+enum ParseError {
+    Empty,
+    BadNumber,
+}
+
+struct LineProblem {
+    u32 line;
+    ParseError cause;
+}
+
+enum ImportError {
+    @implicit_construction Memory(AllocError),
+    Bad(LineProblem),
+}
+
+Status(ParseError) check([]const char text) {
+    if text.len == 0 {
+        return ParseError::Empty;
+    }
+    for char c in text {
+        if c < '0' || c > '9' {
+            return ParseError::BadNumber;
+        }
+    }
+    return Status::Ok;
+}
+
+Status(ImportError) check_lines([]const []const char lines) {
+    u32 number = 1;
+    for []const char text in lines {
+        Status(ParseError) checked = check(text);
+        if !checked.is_ok() {
+            LineProblem problem = { line = number, cause = checked.unwrap_err() };
+            ImportError failure = ImportError::Bad(problem);
+            return failure;
+        }
+        number += 1;
+    }
+    return Status::Ok;
+}
+
+Status(Error) report(Status(ImportError) outcome) {
+    if outcome.is_ok() {
+        println("all lines fine")?;
+        return Status::Ok;
+    }
+    ImportError failure = outcome.unwrap_err();
+    match failure {
+        ImportError::Memory(why) => println("out of memory")?,
+        ImportError::Bad(problem) => match problem.cause {
+            ParseError::Empty => println("line {}: empty", problem.line)?,
+            ParseError::BadNumber => println("line {}: not a number", problem.line)?,
+        },
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("context")?;
+    Array([]const char) good = {};
+    defer good.deinit();
+    good.push("10")?;
+    good.push("20")?;
+    report(check_lines(good.items()))?;
+
+    Array([]const char) bad = {};
+    defer bad.deinit();
+    bad.push("10")?;
+    bad.push("20")?;
+    bad.push("3o")?;
+    bad.push("")?;
+    report(check_lines(bad.items()))?;
+    return Status::Ok;
+}

@@ -1,0 +1,50 @@
+module parse_check;
+
+import native;
+
+using native::{ ParseError, parse_int };
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool is_error(Result(i64, ParseError) r, ParseError wanted) {
+    return r.is_err() && r.unwrap_err() == wanted;
+}
+
+bool is_value(Result(i64, ParseError) r, i64 wanted) {
+    return r.is_ok() && r.unwrap() == wanted;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(is_value(parse_int("42"), 42), "42", &failures);
+    expect(is_value(parse_int("0"), 0), "0", &failures);
+    expect(is_value(parse_int("-17"), -17), "a negative number", &failures);
+    expect(is_value(parse_int("+8"), 8), "a plus sign", &failures);
+    expect(is_value(parse_int("  5"), 5), "leading spaces are skipped by strtol", &failures);
+    expect(is_value(parse_int("9223372036854775807"), 9223372036854775807), "the largest i64", &failures);
+    expect(is_value(parse_int("-9223372036854775807"), -9223372036854775807), "a very negative i64", &failures);
+
+    expect(is_error(parse_int(""), ParseError::Empty), "empty text", &failures);
+    expect(is_error(parse_int("abc"), ParseError::NotANumber), "letters are not a number", &failures);
+    expect(is_error(parse_int("-"), ParseError::NotANumber), "a lone sign is not a number", &failures);
+    expect(is_error(parse_int("   "), ParseError::NotANumber), "only spaces are not a number", &failures);
+    expect(is_error(parse_int("12 apples"), ParseError::TrailingText), "text after the digits", &failures);
+    expect(is_error(parse_int("7 "), ParseError::TrailingText), "a trailing space counts as trailing text", &failures);
+    expect(is_error(parse_int("3.5"), ParseError::TrailingText), "a decimal point is trailing text", &failures);
+    expect(is_error(parse_int("99999999999999999999"), ParseError::OutOfRange), "too large for i64", &failures);
+    expect(is_error(parse_int("-99999999999999999999"), ParseError::OutOfRange), "too small for i64", &failures);
+    expect(is_error(parse_int("1\0" "2"), ParseError::NotANumber), "an embedded zero byte", &failures);
+
+    []const char longer = "00000000000000000000000000000000000000000000000000000000000000001";
+    expect(is_error(parse_int(longer), ParseError::NotANumber), "text longer than the buffer is refused", &failures);
+
+    expect(is_value(parse_int("12"), 12), "a failed parse does not poison the next one", &failures);
+    return failures;
+}

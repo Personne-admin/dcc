@@ -1,0 +1,40 @@
+module main;
+
+import wire;
+using wire::Frame;
+
+Status(Error) dump(const Frame* frame) {
+    print("frame:")?;
+    for usize i in 0..frame.len {
+        print(" {:02x}", frame.bytes[i])?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("wire frames")?;
+    Frame frame = {};
+    u8 id = 7;
+    i16 temperature = -12;
+    i32 delta = 100000;
+    u16 ticks = 513;
+
+    println("size: {} bytes, capacity {}", wire::wire_size(id, temperature, delta, ticks), wire::CAPACITY)?;
+    wire::put_all(&frame, id, temperature, delta, ticks);
+    wire::seal(&frame);
+    dump(&frame)?;
+    println("verify: {}", wire::verify(&frame))?;
+
+    println("decoded: id {} temp {} delta {} ticks {}", wire::get!u8(&frame, 0).unwrap_some(), wire::get!i16(&frame, 1).unwrap_some(), wire::get!i32(&frame, 3).unwrap_some(), wire::get!u16(&frame, 7).unwrap_some())?;
+
+    frame.bytes[4] = 0;
+    println("tampered: {}", wire::verify(&frame))?;
+
+    Frame full = {};
+    bool two = wire::put_all(&full, 1 as i64, 2 as i64);
+    println("two i64: {}, len {}", two, full.len)?;
+    bool third = wire::put_all(&full, 3 as i64);
+    println("third i64: {}, len {}", third, full.len)?;
+    return Status::Ok;
+}

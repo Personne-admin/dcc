@@ -1,0 +1,157 @@
+schema = 1
+id = "adv-interop/callbacks-and-structs"
+revision = 1
+title = "Callbacks and structs"
+summary = "Function pointers as C callbacks with a void* context, and faithful DC copies of C structs checked with sizeof and offsetof."
+difficulty = "advanced"
+estimated_minutes = 15
+concepts = ["function pointer", "callback", "void*", "context", "qsort", "struct layout", "out parameter"]
+tags = ["lecture", "interop", "callbacks"]
+objectives = [
+    "Declare a function pointer type and pass a function or a lambda as a callback",
+    "Explain why a callback needs a void* context and what a comparator must return",
+    "Check a DC copy of a C struct with sizeof and offsetof",
+]
+prerequisites = ["adv-interop/cstring-bridge"]
+
+[[examples]]
+name = "callback_sort"
+expect_stdout = """
+10 20 30 40 50 
+the callback ran 7 times
+50 40 30 20 10 
+"""
+
+[[examples]]
+name = "c_struct"
+expect_stdout = """
+struct tm: 56 bytes, align 8
+year at 20, isdst at 32
+gmtoff at 40, zone at 48
+div_t: 8 bytes
+"""
+
+[[questions]]
+id = "why-context"
+type = "choice"
+prompt = "Why do C APIs such as qsort_r take an extra `void*` argument that is passed back to the callback?"
+choices = [
+    "Because callbacks are not allowed to read their arguments",
+    "Because a function pointer cannot capture variables, so state has to travel separately",
+    "Because void* is faster than a typed pointer",
+    "Because the callback must always return that pointer",
+]
+answer = 2
+why = [
+    "A callback reads its arguments; they are what C passes in.",
+    "",
+    "Speed is not the reason; the type is erased so any state fits.",
+    "The callback returns an int sign, not the context.",
+]
+explanation = "A C function pointer is just an address, with no environment. To give a callback access to a counter, a table or a configuration, the library carries one opaque pointer of your choice and hands it back on every call."
+
+[[questions]]
+id = "comparator-sign"
+type = "predict"
+prompt = "What does this program print? The comparator is called by the sorter from the example."
+code = """
+module main;
+
+struct Pair {
+    i32 key;
+    i32 value;
+}
+
+i32 by_key(const void* a, const void* b) {
+    const Pair* x = a as const Pair*;
+    const Pair* y = b as const Pair*;
+    if x.key < y.key {
+        return -1;
+    }
+    if x.key > y.key {
+        return 1;
+    }
+    return 0;
+}
+
+public Status(Error) main() {
+    Pair left = Pair { key = 3, value = 100 };
+    Pair right = Pair { key = 8, value = 5 };
+    println("{} {} {}", by_key(&left as const void*, &right as const void*), by_key(&right as const void*, &left as const void*), by_key(&left as const void*, &left as const void*))?;
+    return Status::Ok;
+}
+"""
+expect = """
+-1 1 0
+"""
+explanation = "The comparator answers only with the sign of the order: left sorts before right (-1), right after left (1) and an element equals itself (0). It looks at the key, not the value."
+
+[[questions]]
+id = "bug-subtract"
+type = "bug"
+prompt = "This comparator is used to sort values that can be as large as the i32 range. Which line makes it unreliable?"
+code = """
+module main;
+
+i32 ascending(const void* a, const void* b) {
+    i32 x = *(a as const i32*);
+    i32 y = *(b as const i32*);
+    return x - y;
+}
+
+public Status(Error) main() {
+    i32 big = 2000000000;
+    i32 small = -2000000000;
+    println("{}", ascending(&big as const void*, &small as const void*) > 0)?;
+    return Status::Ok;
+}
+"""
+lines = [6]
+fixed = """
+module main;
+
+i32 ascending(const void* a, const void* b) {
+    i32 x = *(a as const i32*);
+    i32 y = *(b as const i32*);
+    if x < y {
+        return -1;
+    }
+    if x > y {
+        return 1;
+    }
+    return 0;
+}
+
+public Status(Error) main() {
+    i32 big = 2000000000;
+    i32 small = -2000000000;
+    println("{}", ascending(&big as const void*, &small as const void*) > 0)?;
+    return Status::Ok;
+}
+"""
+expect = """
+true
+"""
+explanation = "2000000000 - (-2000000000) is 4000000000, which does not fit in an i32 and wraps to a negative number, so the order is reported backwards. Compare with < and > and return -1, 0 or 1."
+
+[[questions]]
+id = "struct-size"
+type = "short"
+prompt = "A C struct holds `int a; int b;` (8 bytes). The DC copy is `struct Pair { i32 a; i32 b; i32 c; }` because someone added a field for convenience. What does sizeof(Pair) print? Answer with a number."
+accept = ["12"]
+explanation = "Three i32 fields are 12 bytes. C writes only 8 bytes into the struct, but a DC array of Pair would use a stride of 12 where C's stride is 8. Copy the C layout exactly; keep extra data elsewhere."
+
+[[cards]]
+id = "fn-pointer"
+front = "What does a C function pointer carry?"
+back = "Only an address: no captured variables. State travels through a void* context argument that the library hands back to the callback."
+
+[[cards]]
+id = "comparator-return"
+front = "What must a qsort-style comparator return, and what must it avoid?"
+back = "A negative, zero or positive int for less, equal and greater. Avoid returning a - b: the subtraction can overflow."
+
+[[cards]]
+id = "struct-check"
+front = "How do you check that a DC struct matches a C struct?"
+back = "Print sizeof and offsetof of the DC fields and compare with the C layout. A different size or offset means a wrong type or a missing field."

@@ -1,0 +1,87 @@
+module main;
+
+import native;
+import text;
+
+using native::{ ParseError, FileError, parse_int, read_file, sort_values, checked_sqrt, checked_log, distance };
+
+Status(Error) report_parse_error(usize line, ParseError error) {
+    match error {
+        ParseError::Empty => println("line {}: empty", line)?,
+        ParseError::NotANumber => println("line {}: not a number", line)?,
+        ParseError::TrailingText => println("line {}: trailing text", line)?,
+        ParseError::OutOfRange => println("line {}: out of range", line)?,
+    }
+    return Status::Ok;
+}
+
+Status(Error) report_file_error([]const char path, FileError error) {
+    match error {
+        FileError::NotFound => println("{}: not found", path)?,
+        FileError::PermissionDenied => println("{}: permission denied", path)?,
+        FileError::IsDirectory => println("{}: is a directory", path)?,
+        FileError::TooBig => println("{}: too big", path)?,
+        FileError::BadPath => println("{}: bad path", path)?,
+        FileError::Other => println("{}: other error", path)?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    u8[1024] buffer = {};
+    Result(usize, FileError) loaded = read_file("data/readings.txt", buffer[0..1024]);
+    if loaded.is_err() {
+        report_file_error("data/readings.txt", loaded.unwrap_err())?;
+        return Status::Ok;
+    }
+    []const char data = buffer[0..loaded.unwrap()] as []const char;
+
+    i32[16] values = {};
+    usize count = 0;
+    usize line = 0;
+    usize position = 0;
+    Optional([]const char) next = text::next_line(data, &position);
+    while next.is_some() {
+        line += 1;
+        Result(i64, ParseError) parsed = parse_int(next.unwrap_some());
+        if parsed.is_ok() {
+            values[count] = parsed.unwrap() as i32;
+            count += 1;
+        } else {
+            report_parse_error(line, parsed.unwrap_err())?;
+        }
+        next = text::next_line(data, &position);
+    }
+    println("read {} lines", line)?;
+    if line != 9 {
+        return Status::Ok;
+    }
+
+    sort_values(values[0..count], true);
+    print("sorted:")?;
+    for n in values[0..count] {
+        print(" {}", n)?;
+    }
+    println("")?;
+
+    print("roots:")?;
+    for n in values[0..count] {
+        Result(f64, native::MathError) root = checked_sqrt(n as f64);
+        if root.is_ok() {
+            print(" {:.1}", root.unwrap())?;
+        } else {
+            print(" domain")?;
+        }
+    }
+    println("")?;
+
+    Result(usize, FileError) missing = read_file("data/missing.txt", buffer[0..1024]);
+    if missing.is_err() {
+        report_file_error("data/missing.txt", missing.unwrap_err())?;
+    }
+    println("distance (0,0)-(3,4): {:.1}", distance(0.0, 0.0, 3.0, 4.0))?;
+    Result(f64, native::MathError) one = checked_log(1.0);
+    Result(f64, native::MathError) zero = checked_log(0.0);
+    println("ln(1) = {:.1}, ln(0) is an error: {}", one.unwrap(), zero.is_err())?;
+    return Status::Ok;
+}

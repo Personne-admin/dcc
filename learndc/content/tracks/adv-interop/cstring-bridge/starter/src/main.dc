@@ -1,0 +1,37 @@
+module main;
+
+import cbridge;
+
+@nomangle extern i64 strtol(const char* s, char** end, i32 base);
+@nomangle extern const char* getenv(const char* name);
+@nomangle extern const char* strerror(i32 code);
+
+public Status(Error) main() {
+    char[64] buffer = {};
+
+    Result(const char*, cbridge::CTextError) number = cbridge::to_c("  42 apples", buffer[0..64]);
+    if number.is_ok() {
+        char* rest = null;
+        i64 value = strtol(number.unwrap(), &rest, 10);
+        println("parsed {}, rest \"{}\"", value, cbridge::from_c(rest))?;
+    }
+
+    Result(const char*, cbridge::CTextError) tiny = cbridge::to_c("far too long", buffer[0..8]);
+    if tiny.is_err() && tiny.unwrap_err() == cbridge::CTextError::TooLong {
+        println("too long: refused")?;
+    }
+    Result(const char*, cbridge::CTextError) nul = cbridge::to_c("a\0b", buffer[0..64]);
+    if nul.is_err() && nul.unwrap_err() == cbridge::CTextError::ContainsNul {
+        println("embedded NUL: refused")?;
+    }
+
+    Result(const char*, cbridge::CTextError) name = cbridge::to_c("DC_LESSON_SURELY_UNSET", buffer[0..64]);
+    if name.is_ok() {
+        const char* value = getenv(name.unwrap());
+        if value == null {
+            println("unset variable: none")?;
+        }
+    }
+    println("strerror(2): {}", cbridge::from_c(strerror(2)))?;
+    return Status::Ok;
+}

@@ -1,0 +1,56 @@
+module window_check;
+
+import events;
+import sched;
+using events::Event;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+usize slow(const []const Event log, u32 from, u32 to) {
+    usize n = 0;
+    for Event e in log {
+        if e.time >= from && e.time <= to {
+            n += 1;
+        }
+    }
+    return n;
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    Event[12] data = {};
+    u32[12] times = { 3, 5, 5, 5, 9, 12, 12, 20, 21, 21, 40, 41 };
+    for usize i in 0..12 {
+        data[i] = { time = times[i], seq = i as u32, kind = 1, period = 0 };
+    }
+
+    bool all_ok = true;
+    for u32 from in 0..45 {
+        for u32 to in 0..45 {
+            if sched::count_between(data[0..12], from, to) != slow(data[0..12], from, to) {
+                all_ok = false;
+            }
+        }
+    }
+    expect(all_ok, "count_between agrees with a slow scan for every window", &failures);
+    expect(sched::count_between(data[0..12], 5, 5) == 3, "both ends are inclusive", &failures);
+    expect(sched::count_between(data[0..12], 21, 12) == 0, "a window that ends before it starts is empty", &failures);
+    expect(sched::count_between(data[0..0], 0, 100) == 0, "an empty log has no events", &failures);
+    expect(sched::count_between(data[0..12], 0, 1000) == 12, "a window around everything counts everything", &failures);
+    expect(sched::count_between(data[0..12], 42, 100) == 0, "a window after the last event is empty", &failures);
+
+    Event[2000] big = {};
+    for usize i in 0..2000 {
+        big[i] = { time = (i / 2) as u32, seq = i as u32, kind = 1, period = 0 };
+    }
+    expect(sched::count_between(big[0..2000], 100, 199) == 200, "it works on a long log", &failures);
+    return failures;
+}

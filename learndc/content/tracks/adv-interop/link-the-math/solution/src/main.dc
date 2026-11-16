@@ -1,0 +1,14 @@
+module main;
+
+@nomangle extern f64 sqrt(f64 x);
+@nomangle extern f64 pow(f64 base, f64 exponent);
+@nomangle extern f64 floor(f64 x);
+@nomangle extern f64 hypot(f64 x, f64 y);
+
+public Status(Error) main() {
+    println("sqrt(2) = {:.4}", sqrt(2.0))?;
+    println("2^10 = {:.1}", pow(2.0, 10.0))?;
+    println("floor(-2.5) = {:.1}", floor(-2.5))?;
+    println("hypot(3, 4) = {:.1}", hypot(3.0, 4.0))?;
+    return Status::Ok;
+}

@@ -1,0 +1,26 @@
+module main;
+
+import std::alloc;
+import std::alloc::fixed;
+
+using std::alloc::{ AllocError, allocate_slice };
+using std::alloc::fixed::{ FixedBuffer, FixedHandle, new_fixed_buffer, borrow };
+
+public Status(Error) main() {
+    u8[64] storage = {};
+    FixedBuffer buffer = new_fixed_buffer(storage[0..64]);
+    FixedHandle alloc = borrow(&buffer);
+
+    Result([]u8, AllocError) first = alloc.allocate(10, 1);
+    println("first ok: {}, used {}", first.is_ok(), buffer.offset)?;
+
+    Result([]u32, AllocError) words = alloc.allocate_slice(4);
+    println("words ok: {}, aligned: {}", words.is_ok(), words.unwrap().ptr as usize % 4 == 0)?;
+
+    Result([]u8, AllocError) big = alloc.allocate(100, 1);
+    println("100 bytes refused: {}", big.is_err())?;
+
+    buffer.reset();
+    println("after reset used {}", buffer.offset)?;
+    return Status::Ok;
+}

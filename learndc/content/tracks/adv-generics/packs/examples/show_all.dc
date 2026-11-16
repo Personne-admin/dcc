@@ -1,0 +1,27 @@
+module main;
+
+Status(Error) show_one(T)(T item) {
+    println("  item: {}", item)?;
+    return Status::Ok;
+}
+
+Status(Error) show_all(T...)(T args) {
+    println("{} items", sizeof...(T))?;
+    static for item in args {
+        show_one(item)?;
+    }
+    return Status::Ok;
+}
+
+Status(Error) report(T...)(T args) {
+    println("report")?;
+    show_all(args...)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("start")?;
+    show_all(1, "two", 3.5)?;
+    report('x', 42 as u8)?;
+    return Status::Ok;
+}

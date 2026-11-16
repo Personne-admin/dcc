@@ -1,0 +1,60 @@
+module main;
+
+using Compare = i32(*)(const void*, const void*, void*);
+
+void swap_blocks(u8* a, u8* b, usize size) {
+    for usize i = 0; i < size; i++ {
+        u8 t = a[i];
+        a[i] = b[i];
+        b[i] = t;
+    }
+}
+
+void sort_blocks(void* base, usize count, usize size, Compare compare, void* context) {
+    u8* bytes = base as u8*;
+    for usize i = 1; i < count; i++ {
+        usize j = i;
+        while j > 0
+              && compare((bytes + (j - 1) * size) as const void*, (bytes + j * size) as const void*, context) > 0 {
+            swap_blocks(bytes + (j - 1) * size, bytes + j * size, size);
+            j--;
+        }
+    }
+}
+
+struct Counter {
+    u32 calls;
+}
+
+i32 ascending(const void* a, const void* b, void* context) {
+    Counter* counter = context as Counter*;
+    counter.calls += 1;
+    i32 x = *(a as const i32*);
+    i32 y = *(b as const i32*);
+    if x < y {
+        return -1;
+    }
+    if x > y {
+        return 1;
+    }
+    return 0;
+}
+
+public Status(Error) main() {
+    i32[5] numbers = {30, 10, 50, 20, 40};
+    Counter counter = Counter { calls = 0 };
+    sort_blocks(&numbers[0] as void*, 5, sizeof(i32), ascending, &counter as void*);
+    for n in numbers[0..5] {
+        print("{} ", n)?;
+    }
+    println("")?;
+    println("the callback ran {} times", counter.calls)?;
+
+    Compare descending = |a, b, context -> ascending(b, a, context);
+    sort_blocks(&numbers[0] as void*, 5, sizeof(i32), descending, &counter as void*);
+    for n in numbers[0..5] {
+        print("{} ", n)?;
+    }
+    println("")?;
+    return Status::Ok;
+}

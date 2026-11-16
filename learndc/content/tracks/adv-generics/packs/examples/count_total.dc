@@ -1,0 +1,19 @@
+module main;
+
+usize count(T...)(T args) {
+    return sizeof...(T);
+}
+
+f64 total(T...)(T args) {
+    f64 sum = 0.0;
+    static for item in args {
+        sum += item as f64;
+    }
+    return sum;
+}
+
+public Status(Error) main() {
+    println("{} {} {}", count(), count(7), count(1, 2.5, 'c'))?;
+    println("{:.1}", total(1, 2.5, 3 as u8))?;
+    return Status::Ok;
+}

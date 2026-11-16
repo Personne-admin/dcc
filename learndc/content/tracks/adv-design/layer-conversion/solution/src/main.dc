@@ -1,0 +1,50 @@
+module main;
+
+import app;
+import parse;
+using parse::Ticket;
+
+Status(Error) scenario([]const char name, []const []const char lines) {
+    Array(Ticket) tickets = {};
+    defer tickets.deinit();
+    Status(app::AppError) outcome = app::run(&tickets, lines);
+    if outcome.is_ok() {
+        println("{}: loaded {} tickets, code 0", name, tickets.len())?;
+        return Status::Ok;
+    }
+    app::AppError failure = outcome.unwrap_err();
+    print("{}: ", name)?;
+    app::explain(failure)?;
+    println("  code {}", app::exit_code(failure))?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("tickets")?;
+
+    Array([]const char) good = {};
+    defer good.deinit();
+    good.push("1:3:fix login")?;
+    good.push("2:1:write docs")?;
+    good.push("3:5:rotate keys")?;
+    scenario("good", good.items())?;
+
+    Array([]const char) twice = {};
+    defer twice.deinit();
+    twice.push("1:3:fix login")?;
+    twice.push("2:1:write docs")?;
+    twice.push("2:4:write more docs")?;
+    scenario("duplicate", twice.items())?;
+
+    Array([]const char) bad = {};
+    defer bad.deinit();
+    bad.push("1:3:fix login")?;
+    bad.push("2:1:write docs")?;
+    bad.push("3:9:rotate keys")?;
+    scenario("bad line", bad.items())?;
+
+    Array([]const char) none = {};
+    defer none.deinit();
+    scenario("empty", none.items())?;
+    return Status::Ok;
+}

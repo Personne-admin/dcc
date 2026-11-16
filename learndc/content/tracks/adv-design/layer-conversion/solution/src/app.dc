@@ -1,0 +1,47 @@
+module app;
+
+public import store;
+public import parse;
+using store::{ StoreError, LineProblem };
+using parse::{ ParseError, Ticket };
+
+public enum AppError {
+    @implicit_construction Store(StoreError),
+    NothingToLoad,
+}
+
+public Status(AppError) run(Array(Ticket)* tickets, []const []const char lines) {
+    if lines.len == 0 {
+        return AppError::NothingToLoad;
+    }
+    store::load(tickets, lines)?;
+    return Status::Ok;
+}
+
+public i32 exit_code(AppError failure) {
+    return match failure {
+        AppError::Store(inner) => match inner {
+            StoreError::Memory(why) => 70,
+            StoreError::Duplicate(id) => 3,
+            StoreError::Bad(problem) => 2,
+        },
+        AppError::NothingToLoad => 4,
+    };
+}
+
+public Status(Error) explain(AppError failure) {
+    match failure {
+        AppError::Store(inner) => match inner {
+            StoreError::Memory(why) => println("out of memory")?,
+            StoreError::Duplicate(id) => println("ticket {} appears twice", id)?,
+            StoreError::Bad(problem) => match problem.cause {
+                ParseError::MissingField => println("line {}: a field is missing", problem.line)?,
+                ParseError::BadId => println("line {}: the id is not a number", problem.line)?,
+                ParseError::BadPriority => println("line {}: priority must be 1 to 5", problem.line)?,
+                ParseError::EmptyTitle => println("line {}: the title is empty", problem.line)?,
+            },
+        },
+        AppError::NothingToLoad => println("nothing to load")?,
+    }
+    return Status::Ok;
+}

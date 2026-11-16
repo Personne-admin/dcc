@@ -1,0 +1,20 @@
+module heap;
+
+public import std::alloc;
+using std::alloc::AllocError;
+
+public Status(AllocError) heap_push(T)(Array(T)* heap, T value, i32(*)(const T*, const T*) compare) {
+    return heap.push(value);
+}
+
+public Optional(T) heap_peek(T)(const Array(T)* heap) {
+    return Optional::None;
+}
+
+public Optional(T) heap_pop(T)(Array(T)* heap, i32(*)(const T*, const T*) compare) {
+    return Optional::None;
+}
+
+public bool is_heap(T)(const Array(T)* heap, i32(*)(const T*, const T*) compare) {
+    return true;
+}

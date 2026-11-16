@@ -1,0 +1,37 @@
+module main;
+
+import std::sort;
+import std::mem;
+
+struct Entry {
+    []const char name;
+    i32 score;
+}
+
+i32 by_score_then_name(const Entry* a, const Entry* b) {
+    if a.score > b.score {
+        return -1;
+    }
+    if a.score < b.score {
+        return 1;
+    }
+    return std::mem::compare(a.name, b.name);
+}
+
+public Status(Error) main() {
+    Entry[6] board = {
+        { name = "mira", score = 80 },
+        { name = "otto", score = 95 },
+        { name = "ada", score = 80 },
+        { name = "zed", score = 60 },
+        { name = "kim", score = 95 },
+        { name = "bo", score = 80 },
+    };
+    []Entry view = board;
+    std::sort::sort_by(view, by_score_then_name);
+    for Entry e in view {
+        println("{} {}", e.score, e.name)?;
+    }
+    println("sorted: {}", std::sort::is_sorted_by(view, by_score_then_name))?;
+    return Status::Ok;
+}

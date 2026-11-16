@@ -1,0 +1,24 @@
+module main;
+
+import std::alloc;
+import std::alloc::arena;
+import std::os::heap;
+
+using std::os::heap::Heap;
+using std::alloc::arena::{ Arena, ArenaHandle, new_arena };
+
+public Status(Error) main() {
+    Heap heap = {};
+    Arena(Heap) arena = new_arena(&heap);
+    defer arena.deinit();
+    ArenaHandle(Heap) handle = std::alloc::arena::borrow(&arena);
+
+    for i32 round in 1..=3 {
+        Result([]i64, AllocError) got = handle.allocate_slice(100);
+        []i64 values = got.unwrap();
+        values[99] = round as i64 * 1000;
+        println("round {}: {} values, last {}", round, values.len, values[99])?;
+    }
+    println("chunks released at deinit")?;
+    return Status::Ok;
+}

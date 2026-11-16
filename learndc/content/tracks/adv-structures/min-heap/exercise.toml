@@ -1,0 +1,55 @@
+schema = 1
+id = "adv-structures/min-heap"
+revision = 1
+title = "A generic min-heap"
+summary = "Write heap_push, heap_pop, heap_peek and is_heap over an Array and a comparator, and keep every operation within log n comparisons."
+kind = "implement-function"
+difficulty = "advanced"
+estimated_minutes = 40
+concepts = ["binary heap", "priority queue", "sift up", "sift down", "comparator", "generic function"]
+tags = ["data structures", "priority queue"]
+objectives = [
+    "Maintain the heap property with sift up after a push and sift down after a pop",
+    "Write the heap generically over any item type and comparator",
+    "Verify the invariant and the cost of each operation",
+]
+entry_file = "src/main.dc"
+product = "deadlines"
+prerequisites = ["adv-structures/binary-heap"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The deadline queue"
+expect_stdout = """
+deadline queue
+waiting: 7, heap valid: true
+next: deploy (due 5)
+  5 deploy
+ 10 email
+ 10 standup
+ 20 report
+ 20 review
+ 25 lunch
+ 30 backup
+empty pop is none: true
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Tasks with the same deadline come out in the order of their `order` field: the comparator in main.dc already breaks that tie."
+
+[[checks]]
+kind = "harness"
+name = "Heap property, ascending pops and logarithmic cost"
+harness = "checks/heap_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "After a push, sift up from the last index. After a pop, move the last item to the root and sift down, choosing the smaller child each time. The checks also count comparisons: do not scan the whole array."

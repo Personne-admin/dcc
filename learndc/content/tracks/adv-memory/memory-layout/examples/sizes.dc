@@ -1,0 +1,11 @@
+module main;
+
+public Status(Error) main() {
+    println("u8:  size {} align {}", sizeof(u8), alignof(u8))?;
+    println("i32: size {} align {}", sizeof(i32), alignof(i32))?;
+    println("i64: size {} align {}", sizeof(i64), alignof(i64))?;
+    println("f64: size {} align {}", sizeof(f64), alignof(f64))?;
+    println("i32[5]: size {}", sizeof(i32[5]))?;
+    println("pointer: size {}", sizeof(i32*))?;
+    return Status::Ok;
+}

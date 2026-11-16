@@ -1,0 +1,41 @@
+module store;
+
+public import parse;
+using parse::{ ParseError, Ticket };
+
+public struct LineProblem {
+    u32 line;
+    ParseError cause;
+}
+
+public enum StoreError {
+    @implicit_construction Memory(AllocError),
+    Duplicate(u32),
+    Bad(LineProblem),
+}
+
+public Status(StoreError) add(Array(Ticket)* tickets, Ticket ticket) {
+    for Ticket existing in tickets.items() {
+        if existing.id == ticket.id {
+            StoreError failure = StoreError::Duplicate(ticket.id);
+            return failure;
+        }
+    }
+    tickets.push(ticket)?;
+    return Status::Ok;
+}
+
+public Status(StoreError) load(Array(Ticket)* tickets, []const []const char lines) {
+    u32 number = 1;
+    for []const char line in lines {
+        Result(Ticket, ParseError) parsed = parse::parse_ticket(line);
+        if parsed.is_err() {
+            LineProblem problem = { line = number, cause = parsed.unwrap_err() };
+            StoreError failure = StoreError::Bad(problem);
+            return failure;
+        }
+        add(tickets, parsed.unwrap())?;
+        number += 1;
+    }
+    return Status::Ok;
+}

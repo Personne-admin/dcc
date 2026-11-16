@@ -1,0 +1,45 @@
+module tools;
+
+public f64 sum_all(T...)(T args) {
+    f64 total = 0.0;
+    static for item in args {
+        total += item as f64;
+    }
+    return total;
+}
+
+public f64 largest_of(F, T...)(F first, T rest) {
+    f64 best = first as f64;
+    static for item in rest {
+        f64 value = item as f64;
+        if value > best {
+            best = value;
+        }
+    }
+    return best;
+}
+
+public usize count_negative(T...)(T args) {
+    usize count = 0;
+    static for item in args {
+        if (item as f64) < 0.0 {
+            count += 1;
+        }
+    }
+    return count;
+}
+
+public Status(Error) log_line(T...)(const []const char tag, T args) {
+    print("[{}]", tag)?;
+    bool first = true;
+    static for item in args {
+        if first {
+            print(" {}", item)?;
+            first = false;
+        } else {
+            print(", {}", item)?;
+        }
+    }
+    println("")?;
+    return Status::Ok;
+}

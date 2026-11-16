@@ -1,0 +1,73 @@
+module file_check;
+
+import std::os::error;
+import std::os::file;
+import native;
+
+using native::{ FileError, read_file };
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool is_error(Result(usize, FileError) r, FileError wanted) {
+    return r.is_err() && r.unwrap_err() == wanted;
+}
+
+bool write_sample() {
+    Result(std::os::file::File, std::os::error::Error) created = std::os::file::create("native_bridge_check.tmp");
+    if created.is_err() {
+        return false;
+    }
+    std::os::file::File file = created.unwrap();
+    bool ok = file.write_all("twelve bytes" as []const u8).is_ok();
+    file.close();
+    return ok;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    u8[64] buffer = {};
+
+    expect(write_sample(), "the check could create its sample file", &failures);
+    Result(usize, FileError) all = read_file("native_bridge_check.tmp", buffer[0..64]);
+    expect(all.is_ok() && all.unwrap() == 12, "a 12-byte file is read completely", &failures);
+    expect(buffer[0] == 't' as u8 && buffer[11] == 's' as u8, "the bytes are in the buffer", &failures);
+
+    Result(usize, FileError) exact = read_file("native_bridge_check.tmp", buffer[0..12]);
+    expect(exact.is_ok() && exact.unwrap() == 12, "a buffer of exactly the file size is enough", &failures);
+    Result(usize, FileError) small = read_file("native_bridge_check.tmp", buffer[0..5]);
+    expect(is_error(small, FileError::TooBig), "a buffer that is too small reports TooBig", &failures);
+    Result(usize, FileError) none = read_file("native_bridge_check.tmp", buffer[0..0]);
+    expect(is_error(none, FileError::TooBig), "an empty buffer cannot hold a non-empty file", &failures);
+
+    expect(is_error(read_file("native_bridge_surely_missing.tmp", buffer[0..64]), FileError::NotFound), "a missing file is NotFound", &failures);
+    expect(is_error(read_file("/surely/missing/directory/file", buffer[0..64]), FileError::NotFound), "a missing directory is NotFound", &failures);
+    expect(is_error(read_file("/", buffer[0..64]), FileError::IsDirectory), "a directory is IsDirectory", &failures);
+    expect(is_error(read_file("a\0b", buffer[0..64]), FileError::BadPath), "a path with a zero byte is BadPath", &failures);
+    Result(usize, FileError) empty = read_file("/dev/null", buffer[0..64]);
+    expect(empty.is_ok() && empty.unwrap() == 0, "an empty file reads zero bytes", &failures);
+
+    bool leaked = false;
+    for i32 round = 0; round < 1500; round++ {
+        Result(usize, FileError) r = read_file("/dev/null", buffer[0..64]);
+        if r.is_err() {
+            leaked = true;
+            break;
+        }
+        Result(usize, FileError) e = read_file("/", buffer[0..64]);
+        if e.is_ok() {
+            leaked = true;
+            break;
+        }
+    }
+    expect(!leaked, "1500 reads, successful and failing, do not leak file handles", &failures);
+
+    std::os::file::delete_file("native_bridge_check.tmp");
+    return failures;
+}

@@ -1,0 +1,219 @@
+schema = 1
+id = "adv-design/error-layers"
+revision = 1
+title = "Layered errors"
+summary = "Give each layer its own error enum, convert between layers with implicit construction or by hand, carry context in the payload and translate at the edge."
+difficulty = "advanced"
+estimated_minutes = 22
+concepts = ["error design", "layered errors", "@implicit_construction", "error conversion", "error context", "exit codes"]
+tags = ["lecture", "errors", "design"]
+objectives = [
+    "Define one error enum per layer and convert between layers with ? and @implicit_construction",
+    "Explain why a conversion happens one step at a time and write the explicit wrapper when needed",
+    "Carry context in an error payload and translate errors to exit codes only at the edge of the program",
+]
+prerequisites = ["errors/boss-config-parser", "memory/boss-inventory-keeper"]
+
+[[examples]]
+name = "layers"
+expect_stdout = """
+layers
+ok
+duplicate
+not a number
+empty field
+too large
+"""
+
+[[examples]]
+name = "explicit"
+expect_stdout = """
+explicit conversion
+  42: accepted
+    : exit code 2
+  4x: exit code 3
+   7: exit code 4
+"""
+
+[[examples]]
+name = "context"
+expect_stdout = """
+context
+all lines fine
+line 3: not a number
+"""
+
+[[questions]]
+id = "two-steps"
+type = "error"
+prompt = "Why does this program not compile?"
+code = """
+module main;
+
+enum ParseError {
+    Empty,
+}
+
+enum ImportError {
+    @implicit_construction Parse(ParseError),
+    Duplicate,
+}
+
+enum AppError {
+    @implicit_construction Import(ImportError),
+    NothingToDo,
+}
+
+Status(ParseError) parse([]const char text) {
+    if text.len == 0 {
+        return ParseError::Empty;
+    }
+    return Status::Ok;
+}
+
+Status(AppError) run([]const char text) {
+    parse(text)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    return Status::Ok;
+}
+"""
+diagnostic = "cannot be propagated into return type"
+choices = [
+    "`?` converts one step: ParseError can become ImportError, but not AppError directly",
+    "`@implicit_construction` can only be used on the last enum of a program",
+    "`parse` must return `Result(i32, ParseError)` to be used with `?`",
+    "An enum variant cannot wrap another enum",
+]
+answer = 1
+why = [
+    "",
+    "Any enum may have an implicit variant; the limit is one conversion per `?`.",
+    "`?` works on `Status` as well as on `Result`.",
+    "Wrapping an enum is what the variants do; it compiles for one step.",
+]
+explanation = "ParseError is wrapped by ImportError, which is wrapped by AppError. A single `?` performs one wrapping step. Put the intermediate layer in the call chain (a function returning `Status(ImportError)`) or build the wrapper by hand."
+
+[[questions]]
+id = "which-text"
+type = "predict"
+prompt = "What does this program print? Each layer converts one step, and the caller matches from the outside in."
+code = """
+module main;
+
+enum LowError {
+    Short,
+    Long,
+}
+
+enum HighError {
+    @implicit_construction Low(LowError),
+    Busy,
+}
+
+Status(LowError) measure(i32 length) {
+    if length < 3 {
+        return LowError::Short;
+    }
+    if length > 8 {
+        return LowError::Long;
+    }
+    return Status::Ok;
+}
+
+Status(HighError) work(i32 length, bool busy) {
+    if busy {
+        return HighError::Busy;
+    }
+    measure(length)?;
+    return Status::Ok;
+}
+
+Status(Error) show(Status(HighError) outcome) {
+    if outcome.is_ok() {
+        println("fine")?;
+        return Status::Ok;
+    }
+    HighError failure = outcome.unwrap_err();
+    match failure {
+        HighError::Low(why) => match why {
+            LowError::Short => println("too short")?,
+            LowError::Long => println("too long")?,
+        },
+        HighError::Busy => println("busy")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("start")?;
+    show(work(5, false))?;
+    show(work(1, false))?;
+    show(work(9, false))?;
+    show(work(5, true))?;
+    return Status::Ok;
+}
+"""
+expect = """
+start
+fine
+too short
+too long
+busy
+"""
+explanation = "`work` returns `Busy` before measuring when `busy` is true. Otherwise `measure(length)?` converts a `LowError` into `HighError::Low` and returns it. The caller matches the outer variant first and the inner error second."
+
+[[questions]]
+id = "where-translate"
+type = "choice"
+prompt = "Where should a program translate its error enums into process exit codes?"
+choices = [
+    "In one function at the edge of the program, such as main, so inner layers never mention exit codes",
+    "In every layer, next to the place where the error is created",
+    "Inside the parser, since it knows best what went wrong",
+    "Nowhere: the exit code is always 1",
+]
+answer = 1
+why = [
+    "",
+    "Each layer would then know about the outside world, and changing a code means touching all of them.",
+    "The parser would need to know the application's conventions, which makes it unusable elsewhere.",
+    "A hosted `main` that returns `i32` can choose any code from 0 to 255.",
+]
+explanation = "Layers describe failures in their own terms. The edge decides what the outside world sees. When the vocabulary changes (exit codes, a log format, a status page) only that function changes."
+
+[[questions]]
+id = "design-rules"
+type = "multi"
+prompt = "Which are good rules for designing layered error types?"
+choices = [
+    "Add context that only the current layer knows, such as the line number, to the error payload",
+    "Use the standard `Error` for every layer so that nothing needs converting",
+    "Add a variant when callers can react to it differently from the others",
+    "Pass lower-level errors through a layer unchanged so that no information is lost",
+    "Name variants after what the layer's operation means, not how it is implemented",
+]
+answers = [1, 3, 5]
+why = [
+    "",
+    "A layer with its own vocabulary deserves its own enum; `Error` fits glue code that only propagates.",
+    "",
+    "A layer that passes errors through unchanged exposes its implementation. Convert at each boundary.",
+    "",
+]
+explanation = "Good error types are small, closed and expressed in the layer's terms. Context is added where it is known, conversions happen at the boundaries and the final translation happens at the edge."
+
+[[cards]]
+id = "implicit"
+front = "What does @implicit_construction on an enum variant allow?"
+back = "`?` on a `Status(Inner)` or `Result(T, Inner)` builds the wrapper variant automatically. At most one variant per payload type; only one wrapping step per `?`."
+[[cards]]
+id = "explicit-wrap"
+front = "How do you convert an error when `?` cannot, or when the conversion needs a decision?"
+back = "Inspect the inner status, build the wrapper yourself (`AppError wrapped = AppError::BadInput(inner); return wrapped;`) and return it."
+[[cards]]
+id = "edge"
+front = "Where do error enums become exit codes or messages for users?"
+back = "In one function at the edge of the program. Inner layers only know their own error type."

@@ -1,0 +1,59 @@
+schema = 1
+id = "adv-interop/sort-with-qsort"
+revision = 1
+title = "Sort and search with libc"
+summary = "Write comparator callbacks and hand them to qsort, bsearch and qsort_r to rank and look up players."
+kind = "implement-function"
+difficulty = "advanced"
+estimated_minutes = 25
+concepts = ["callback", "qsort", "bsearch", "qsort_r", "void*", "context", "comparator"]
+tags = ["interop", "callbacks", "libc"]
+objectives = [
+    "Write comparators over const void* that return a sign without overflowing",
+    "Call qsort and bsearch with the element size and a function pointer",
+    "Pass state to a callback through the void* context of qsort_r",
+]
+entry_file = "src/main.dc"
+product = "leaderboard"
+prerequisites = ["adv-interop/callbacks-and-structs"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The leaderboard report"
+expect_stdout = """
+by score:
+  3 90
+  5 90
+  1 65
+  7 40
+  9 10
+by id:
+  1 65
+  3 90
+  5 90
+  7 40
+  9 10
+found 5: score 90
+4 not found
+counted comparisons: true
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Players with equal scores keep the smaller id first; the search needs the array sorted by id."
+
+[[checks]]
+kind = "harness"
+name = "Comparators and wrappers handle the edge cases"
+harness = "checks/board_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Compare with < and >, not by subtracting: scores and ids can be near the limits of i32. An empty array has no match."

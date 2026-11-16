@@ -1,0 +1,28 @@
+module main;
+
+import core;
+
+void require_number(T)(T value) {
+    static if compiles(T a, T b) { a + b; a < b; } {
+    } else {
+        core::compile_error("only numbers can be averaged");
+    }
+}
+
+f64 average(T...)(T args) {
+    static if sizeof...(T) == 0 {
+        core::compile_error("average needs at least one argument");
+    }
+    f64 sum = 0.0;
+    static for item in args {
+        require_number(item);
+        sum += item as f64;
+    }
+    return sum / (sizeof...(T) as f64);
+}
+
+public Status(Error) main() {
+    println("{:.2}", average(1, 2, 4.5))?;
+    println("{:.2}", average(10 as u8))?;
+    return Status::Ok;
+}

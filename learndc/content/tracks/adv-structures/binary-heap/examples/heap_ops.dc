@@ -1,0 +1,79 @@
+module main;
+
+void swap_items(Array(i32)* heap, usize a, usize b) {
+    []i32 items = heap.items();
+    i32 held = items[a];
+    items[a] = items[b];
+    items[b] = held;
+}
+
+Status(Error) heap_push(Array(i32)* heap, i32 value) {
+    heap.push(value)?;
+    usize i = heap.len() - 1;
+    while i > 0 {
+        usize parent = (i - 1) / 2;
+        []i32 items = heap.items();
+        if items[parent] <= items[i] {
+            break;
+        }
+        swap_items(heap, parent, i);
+        i = parent;
+    }
+    return Status::Ok;
+}
+
+Optional(i32) heap_pop(Array(i32)* heap) {
+    usize count = heap.len();
+    if count == 0 {
+        return Optional::None;
+    }
+    i32 smallest = heap.items()[0];
+    swap_items(heap, 0, count - 1);
+    heap.pop();
+    count -= 1;
+
+    usize i = 0;
+    while true {
+        usize left = 2 * i + 1;
+        usize right = left + 1;
+        usize best = i;
+        []i32 items = heap.items();
+        if left < count && items[left] < items[best] {
+            best = left;
+        }
+        if right < count && items[right] < items[best] {
+            best = right;
+        }
+        if best == i {
+            break;
+        }
+        swap_items(heap, i, best);
+        i = best;
+    }
+    return Optional::Some(smallest);
+}
+
+Status(Error) show(Array(i32)* heap) {
+    for i32 item in heap.items() {
+        print(" {}", item)?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Array(i32) heap = {};
+    defer heap.deinit();
+    i32[7] input = { 9, 4, 7, 1, 8, 2, 6 };
+    for i32 value in input {
+        heap_push(&heap, value)?;
+        print("after {}:", value)?;
+        show(&heap)?;
+    }
+    print("popped:")?;
+    while heap.len() > 0 {
+        print(" {}", heap_pop(&heap).unwrap_some())?;
+    }
+    println("")?;
+    return Status::Ok;
+}

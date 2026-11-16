@@ -1,0 +1,31 @@
+module main;
+
+bool balanced([]const char text) {
+    Array(char) open = {};
+    defer open.deinit();
+    for char c in text {
+        if c == '(' || c == '[' {
+            if !open.push(c).is_ok() {
+                return false;
+            }
+        } else if c == ')' || c == ']' {
+            Optional(char) top = open.pop();
+            if top.is_none() {
+                return false;
+            }
+            char want = if c == ')' { '(' } else { '[' };
+            if top.unwrap_some() != want {
+                return false;
+            }
+        }
+    }
+    return open.len() == 0;
+}
+
+public Status(Error) main() {
+    println("{}", balanced("([]())"))?;
+    println("{}", balanced("([)]"))?;
+    println("{}", balanced("(()"))?;
+    println("{}", balanced("x)"))?;
+    return Status::Ok;
+}

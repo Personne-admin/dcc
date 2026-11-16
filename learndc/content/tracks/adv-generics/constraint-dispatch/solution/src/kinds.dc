@@ -1,0 +1,26 @@
+module kinds;
+
+public using Addable(T) = compiles(T a, T b) { a + b; };
+public using Orderable(T) = compiles(T a, T b) { a < b; };
+public using Numeric(T) = Addable(T) && Orderable(T);
+public using Shiftable(T) = compiles(T a) { a << 1; };
+public using Integer(T) = Numeric(T) && Shiftable(T);
+public using Float(T) = Numeric(T) && !Shiftable(T);
+public using Sequence(T) = compiles(T v) { v.len; v[0]; };
+public using Other(T) = !Numeric(T) && !Sequence(T);
+
+public []const char kind(T)(T value) if Integer(T) {
+    return "integer";
+}
+
+public []const char kind(T)(T value) if Float(T) {
+    return "float";
+}
+
+public []const char kind(T)(T value) if Sequence(T) {
+    return "sequence";
+}
+
+public []const char kind(T)(T value) if Other(T) {
+    return "other";
+}

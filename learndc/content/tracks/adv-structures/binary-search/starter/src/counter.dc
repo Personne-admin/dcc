@@ -1,0 +1,10 @@
+module counter;
+
+public struct Counter {
+    usize comparisons;
+}
+
+public bool less(Counter* counter, i32 a, i32 b) {
+    counter.comparisons += 1;
+    return a < b;
+}

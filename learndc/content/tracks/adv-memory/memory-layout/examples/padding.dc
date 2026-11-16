@@ -1,0 +1,31 @@
+module main;
+
+struct Loose {
+    u8 tag;
+    i64 id;
+    u8 flag;
+}
+
+struct Tight {
+    i64 id;
+    u8 tag;
+    u8 flag;
+}
+
+Status(Error) report_loose() {
+    println("Loose: size {} align {}", sizeof(Loose), alignof(Loose))?;
+    println("  tag at {}, id at {}, flag at {}", offsetof(Loose, tag), offsetof(Loose, id), offsetof(Loose, flag))?;
+    return Status::Ok;
+}
+
+Status(Error) report_tight() {
+    println("Tight: size {} align {}", sizeof(Tight), alignof(Tight))?;
+    println("  id at {}, tag at {}, flag at {}", offsetof(Tight, id), offsetof(Tight, tag), offsetof(Tight, flag))?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    report_loose()?;
+    report_tight()?;
+    return Status::Ok;
+}

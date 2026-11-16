@@ -1,0 +1,36 @@
+module align_check;
+
+import arena;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(!arena::is_power_of_two(0), "0 is not a power of two", &failures);
+    expect(arena::is_power_of_two(1), "1 is a power of two", &failures);
+    expect(arena::is_power_of_two(2), "2 is a power of two", &failures);
+    expect(!arena::is_power_of_two(3), "3 is not a power of two", &failures);
+    expect(!arena::is_power_of_two(6), "6 is not a power of two", &failures);
+    expect(arena::is_power_of_two(64), "64 is a power of two", &failures);
+    expect(!arena::is_power_of_two(96), "96 is not a power of two", &failures);
+    expect(arena::is_power_of_two(1 << 20), "2 to the 20 is a power of two", &failures);
+
+    expect(arena::align_up(0, 8) == 0, "align_up(0, 8) is 0", &failures);
+    expect(arena::align_up(1, 8) == 8, "align_up(1, 8) is 8", &failures);
+    expect(arena::align_up(7, 8) == 8, "align_up(7, 8) is 8", &failures);
+    expect(arena::align_up(8, 8) == 8, "an aligned value stays where it is", &failures);
+    expect(arena::align_up(9, 8) == 16, "align_up(9, 8) is 16", &failures);
+    expect(arena::align_up(13, 4) == 16, "align_up(13, 4) is 16", &failures);
+    expect(arena::align_up(13, 1) == 13, "alignment 1 changes nothing", &failures);
+    expect(arena::align_up(33, 32) == 64, "align_up(33, 32) is 64", &failures);
+    usize big = 4096 * 1000 + 1;
+    expect(arena::align_up(big, 4096) == 4096 * 1001, "large values round up too", &failures);
+    return failures;
+}

@@ -1,0 +1,6 @@
+schema = 1
+id = "adv-interop"
+title = "C Interop and Native Linking"
+summary = "Call C libraries from DC, move text, callbacks and errors across the boundary, and understand static, dynamic and shared linking."
+goal = "Wrap native C libraries in safe DC modules, and build and link programs against them on purpose."
+exercises = ["calling-c", "link-the-math", "c-strings", "cstring-bridge", "callbacks-and-structs", "sort-with-qsort", "linking-modes", "interop-drills", "boss-native-bridge"]

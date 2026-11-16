@@ -1,0 +1,100 @@
+module wire;
+
+public using usize CAPACITY = 16;
+
+public struct Frame {
+    u8[CAPACITY] bytes;
+    usize len;
+}
+
+public using Integer(T) = compiles(T a) { a << 1; a % 3; a & a; };
+
+public bool put(T)(Frame* frame, T value) if Integer(T) {
+    if frame.len + sizeof(T) > CAPACITY {
+        return false;
+    }
+    u64 wide = value as u64;
+    for usize i = 0; i < sizeof(T); i++ {
+        frame.bytes[frame.len + i] = ((wide >> ((8 * i) as u64)) & 0xFF) as u8;
+    }
+    frame.len += sizeof(T);
+    return true;
+}
+
+public Optional(T) get(T)(const Frame* frame, usize at) if Integer(T) {
+    if at + sizeof(T) > frame.len {
+        return Optional::None;
+    }
+    u64 wide = 0;
+    for usize i = 0; i < sizeof(T); i++ {
+        wide |= (frame.bytes[at + i] as u64) << ((8 * i) as u64);
+    }
+    return Optional::Some(wide as T);
+}
+
+usize size_of_value(T)(T value) {
+    return sizeof(T);
+}
+
+public usize wire_size(T...)(T args) {
+    usize total = 0;
+    static for item in args {
+        total += size_of_value(item);
+    }
+    return total;
+}
+
+public bool put_all(T...)(Frame* frame, T args) {
+    if wire_size(args...) > CAPACITY - frame.len {
+        return false;
+    }
+    static for item in args {
+        put(frame, item);
+    }
+    return true;
+}
+
+u8[256] build_crc_table() {
+    u8[256] table = {};
+    for usize i = 0; i < 256; i++ {
+        u8 crc = i as u8;
+        for u32 bit = 0; bit < 8; bit++ {
+            if (crc & 0x80) != 0 {
+                crc = (crc << 1) ^ 0x07;
+            } else {
+                crc = crc << 1;
+            }
+        }
+        table[i] = crc;
+    }
+    return table;
+}
+
+using u8[256] CRC_TABLE = build_crc_table();
+
+public u8 crc8(const Frame* frame, usize count) {
+    u8 crc = 0;
+    for usize i = 0; i < count; i++ {
+        crc = CRC_TABLE[(crc ^ frame.bytes[i]) as usize];
+    }
+    return crc;
+}
+
+public bool seal(Frame* frame) {
+    return put(frame, crc8(frame, frame.len));
+}
+
+public bool verify(const Frame* frame) {
+    if frame.len == 0 {
+        return false;
+    }
+    return crc8(frame, frame.len - 1) == frame.bytes[frame.len - 1];
+}
+
+public bool unseal(Frame* frame) {
+    if !verify(frame) {
+        return false;
+    }
+    frame.len -= 1;
+    return true;
+}

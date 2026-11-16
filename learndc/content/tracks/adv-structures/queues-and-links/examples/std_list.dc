@@ -1,0 +1,33 @@
+module main;
+
+import std::list;
+import std::os::heap;
+
+public Status(Error) main() {
+    println("std::list")?;
+    std::os::heap::Heap heap = {};
+    std::list::List(i32) list = std::list::new_list();
+    defer list.deinit(&heap);
+
+    for i32 n in 1..=4 {
+        list.push_back_alloc(&heap, n * 10)?;
+    }
+    list.push_front_alloc(&heap, 0)?;
+
+    std::list::Iterator(i32) it = list.iterate();
+    print("forward:")?;
+    while true {
+        Optional(std::list::Node(i32)*) step = it.next();
+        if step.is_none() {
+            break;
+        }
+        print(" {}", step.unwrap_some().value)?;
+    }
+    println("")?;
+
+    Optional(std::list::Node(i32)*) first = list.pop_front();
+    println("popped {}", first.unwrap_some().value)?;
+    heap.destroy_item(first.unwrap_some());
+    println("len {}", list.len())?;
+    return Status::Ok;
+}

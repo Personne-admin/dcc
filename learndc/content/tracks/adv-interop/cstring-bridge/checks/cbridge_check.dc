@@ -1,0 +1,57 @@
+module cbridge_check;
+
+import std::slice;
+import cbridge;
+
+using cbridge::{ CTextError, to_c, from_c };
+
+@nomangle extern usize strnlen(const char* s, usize limit);
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    char[16] buffer = {};
+    for usize i = 0; i < 16; i++ {
+        buffer[i] = 'x';
+    }
+
+    Result(const char*, CTextError) hello = to_c("hello", buffer[0..16]);
+    expect(hello.is_ok(), "a short text is accepted", &failures);
+    if hello.is_ok() {
+        expect(strnlen(hello.unwrap(), 64) == 5, "C sees exactly five characters", &failures);
+        expect(hello.unwrap() == &buffer[0] as const char*, "the pointer is the start of the buffer", &failures);
+    }
+
+    Result(const char*, CTextError) empty = to_c("", buffer[0..16]);
+    expect(empty.is_ok() && strnlen(empty.unwrap(), 64) == 0, "an empty text becomes an empty C string", &failures);
+
+    Result(const char*, CTextError) fits = to_c("0123456789abcde", buffer[0..16]);
+    expect(fits.is_ok() && strnlen(fits.unwrap(), 64) == 15, "15 characters plus the terminator fit in 16 bytes", &failures);
+    Result(const char*, CTextError) exact = to_c("0123456789abcdef", buffer[0..16]);
+    expect(exact.is_err() && exact.unwrap_err() == CTextError::TooLong, "16 characters leave no room for the terminator", &failures);
+    Result(const char*, CTextError) none = to_c("a", buffer[0..0]);
+    expect(none.is_err() && none.unwrap_err() == CTextError::TooLong, "an empty buffer holds nothing", &failures);
+
+    Result(const char*, CTextError) nul = to_c("ab\0cd", buffer[0..16]);
+    expect(nul.is_err() && nul.unwrap_err() == CTextError::ContainsNul, "an embedded zero byte is refused", &failures);
+
+    to_c("tail", buffer[0..16]);
+    expect(buffer[4] == '\0', "the terminator is written after the text", &failures);
+
+    []const char literal = "from C\0";
+    []const char view = from_c(literal.ptr);
+    expect(view.len == 6, "from_c finds the length", &failures);
+    expect(std::slice::eq(view, "from C"), "from_c returns the characters without the terminator", &failures);
+    expect(view.ptr == literal.ptr, "from_c is a view of the same bytes", &failures);
+    expect(from_c(null).len == 0, "from_c of null is an empty slice", &failures);
+    expect(from_c("\0".ptr).len == 0, "from_c of an empty C string is empty", &failures);
+    return failures;
+}

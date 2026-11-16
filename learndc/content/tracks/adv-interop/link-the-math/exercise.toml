@@ -1,0 +1,41 @@
+schema = 1
+id = "adv-interop/link-the-math"
+revision = 1
+title = "Link the math library"
+summary = "Declare three libm functions and add the library to project.dcon, reading the compiler and then the linker error on the way."
+kind = "repair-compilation"
+difficulty = "advanced"
+estimated_minutes = 15
+concepts = ["extern", "nomangle", "link", "libm", "undefined symbol"]
+tags = ["interop", "linking", "dpm"]
+objectives = [
+    "Write @nomangle extern declarations from C prototypes",
+    "Add a native library to a DPM project with link",
+    "Tell a compile error from a link error",
+]
+entry_file = "src/main.dc"
+product = "math_bridge"
+prerequisites = ["adv-interop/calling-c"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles and links"
+hint = "The first error is a compile error for a missing declaration. Once all three functions are declared, a link error about an undefined symbol points at project.dcon."
+
+[[checks]]
+kind = "run"
+name = "Prints the four results"
+expect_stdout = """
+sqrt(2) = 1.4142
+2^10 = 1024.0
+floor(-2.5) = -3.0
+hypot(3, 4) = 5.0
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "All four functions take and return f64 (C double)."

@@ -1,0 +1,63 @@
+module integers_check;
+
+import wire;
+using wire::Frame;
+
+struct Pair {
+    i32 a;
+    i32 b;
+}
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool accepts(T)(T value) {
+    static if compiles(Frame probe) { wire::put(&probe, value); } {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Pair pair = { a = 1, b = 2 };
+
+    expect(accepts(1 as u8) && accepts(2 as i16) && accepts(3 as u32) && accepts(4 as i64), "every integer type is accepted", &failures);
+    expect(!accepts(2.5), "f64 is rejected", &failures);
+    expect(!accepts(1.5 as f32), "f32 is rejected", &failures);
+    expect(!accepts(true), "bool is rejected", &failures);
+    expect(!accepts('c'), "char is rejected", &failures);
+    expect(!accepts(pair), "a struct is rejected", &failures);
+
+    Frame frame = {};
+    expect(wire::put(&frame, 7 as u8), "put a u8", &failures);
+    expect(wire::put(&frame, -2 as i16), "put an i16", &failures);
+    expect(wire::put(&frame, 0x01020304 as u32), "put a u32", &failures);
+    expect(frame.len == 7, "the length is the sum of the sizes", &failures);
+    expect(frame.bytes[0] == 7, "u8 is stored as is", &failures);
+    expect(frame.bytes[1] == 0xFE && frame.bytes[2] == 0xFF, "i16 is little endian two's complement", &failures);
+    expect(frame.bytes[3] == 4 && frame.bytes[4] == 3 && frame.bytes[5] == 2 && frame.bytes[6] == 1, "u32 is little endian", &failures);
+
+    expect(wire::get!u8(&frame, 0).unwrap_some() == 7, "get a u8", &failures);
+    expect(wire::get!i16(&frame, 1).unwrap_some() == -2, "get an i16 with its sign", &failures);
+    expect(wire::get!u32(&frame, 3).unwrap_some() == 0x01020304, "get a u32", &failures);
+    expect(wire::get!u16(&frame, 3).unwrap_some() == 0x0304, "get reads the requested width", &failures);
+    expect(wire::get!u32(&frame, 4).is_none(), "get past the end is none", &failures);
+    expect(wire::get!u8(&frame, 7).is_none(), "get at the length is none", &failures);
+
+    Frame full = {};
+    expect(wire::put(&full, 1 as i64) && wire::put(&full, 2 as i64), "two i64 fill the frame", &failures);
+    expect(!wire::put(&full, 3 as u8), "a put that does not fit is refused", &failures);
+    expect(full.len == 16, "a refused put changes nothing", &failures);
+    Frame wide = {};
+    wire::put(&wide, -1 as i64);
+    expect(wire::get!i64(&wide, 0).unwrap_some() == -1, "i64 round trip keeps all 64 bits", &failures);
+    return failures;
+}

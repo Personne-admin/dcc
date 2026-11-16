@@ -1,0 +1,16 @@
+module main;
+
+struct Pair {
+    i32 first;
+    i64 second;
+}
+
+public Status(Error) main() {
+    println("C int       = i32, {} bytes", sizeof(i32))?;
+    println("C long      = i64 on Linux x86-64, {} bytes", sizeof(i64))?;
+    println("C size_t    = usize, {} bytes", sizeof(usize))?;
+    println("C double    = f64, {} bytes", sizeof(f64))?;
+    println("C char*     = const char*, {} bytes", sizeof(const char*))?;
+    println("struct {{ int; long; }} = Pair, {} bytes, second at {}", sizeof(Pair), offsetof(Pair, second))?;
+    return Status::Ok;
+}

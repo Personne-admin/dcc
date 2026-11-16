@@ -1,0 +1,53 @@
+schema = 1
+id = "adv-structures/binary-search"
+revision = 1
+title = "Binary search with duplicates"
+summary = "Write lower_bound and upper_bound on a sorted slice with an invariant, derive count_of and find_first from them, and keep the comparison count logarithmic."
+kind = "implement-function"
+difficulty = "advanced"
+estimated_minutes = 35
+concepts = ["binary search", "loop invariant", "lower bound", "upper bound", "duplicates", "operation counting"]
+tags = ["algorithms", "searching"]
+objectives = [
+    "State and maintain the invariant of a half-open search range",
+    "Write lower_bound and upper_bound by changing only the comparison",
+    "Use the two bounds to count and to find the first of equal items, within log2(n) comparisons",
+]
+entry_file = "src/main.dc"
+product = "bounds"
+prerequisites = ["adv-structures/counting-cost"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The version table"
+expect_stdout = """
+sorted versions
+lower_bound(3) = 1
+upper_bound(3) = 4
+count of 3: 3
+count of 8: 2
+count of 4: 0
+insert 4 at 4
+find 13 at 7
+find 6: none
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "lower_bound(3) is the index of the first 3; upper_bound(3) is the index after the last 3. The difference is how many there are."
+
+[[checks]]
+kind = "harness"
+name = "Both bounds are right for every size and key, within log2(n) comparisons"
+harness = "checks/bounds_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Keep the range low..high half open. If the middle item is below the key, low = mid + 1, otherwise high = mid. For upper_bound the test is `key < items[mid]` instead."

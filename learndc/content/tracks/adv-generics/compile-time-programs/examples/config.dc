@@ -1,0 +1,42 @@
+module main;
+
+using bool TRACE = false;
+using usize SLOTS = 6;
+using ([]const char)[3] NAMES = { "red", "green", "blue" };
+
+struct Level {
+    u8 limit;
+    u8 weight;
+}
+
+Level[4] build_levels() {
+    Level[4] levels = {};
+    for usize i = 0; i < 4; i++ {
+        levels[i] = { limit = (i * 10) as u8, weight = (1 << i) as u8 };
+    }
+    return levels;
+}
+
+using Level[4] LEVELS = build_levels();
+
+usize clamp_slots(usize wanted) {
+    return if wanted > SLOTS { SLOTS } else { wanted };
+}
+
+using usize USED = clamp_slots(10);
+
+Status(Error) trace(T)(T value) {
+    static if TRACE {
+        println("trace: {}", value)?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    usize pick = 2;
+    println("{} weight {}", NAMES[pick], LEVELS[pick].weight)?;
+    println("slots in use: {}", USED)?;
+    trace(5)?;
+    println("done")?;
+    return Status::Ok;
+}

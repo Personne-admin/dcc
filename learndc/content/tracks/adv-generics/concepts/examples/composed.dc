@@ -1,0 +1,28 @@
+module main;
+
+using Addable(T) = compiles(T a, T b) { a + b; };
+using Orderable(T) = compiles(T a, T b) { a < b; };
+using Numeric(T) = Addable(T) && Orderable(T);
+using NotNumeric(T) = !Numeric(T);
+
+[]const char describe(T)(T value) if Numeric(T) {
+    return "a number";
+}
+
+[]const char describe(T)(T value) if NotNumeric(T) {
+    return "something else";
+}
+
+struct Point {
+    i32 x;
+    i32 y;
+}
+
+public Status(Error) main() {
+    Point p = { x = 1, y = 2 };
+    println("{}", describe(42))?;
+    println("{}", describe(2.5))?;
+    println("{}", describe(p))?;
+    println("{}", describe(true))?;
+    return Status::Ok;
+}

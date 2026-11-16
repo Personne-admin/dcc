@@ -1,0 +1,115 @@
+schema = 1
+id = "adv-interop/calling-c"
+revision = 1
+title = "Calling C from DC"
+summary = "Declare C functions with @nomangle extern, match C types exactly, link libc and libm, and read the two common linker errors."
+difficulty = "advanced"
+estimated_minutes = 15
+concepts = ["extern", "nomangle", "C types", "link", "libc", "libm", "undefined symbol"]
+tags = ["lecture", "interop", "linking"]
+objectives = [
+    "Write @nomangle extern declarations whose types match a C prototype",
+    "Link libc and libm from a DPM project or from dcc",
+    "Tell an undefined symbol from a missing library in a linker message",
+]
+prerequisites = ["adv-memory/boss-arena-keeper"]
+
+[[examples]]
+name = "symbol_names"
+expect_stdout = """
+helper is emitted as a mangled symbol: true
+the C name is exactly: shim_add
+"""
+
+[[examples]]
+name = "c_types"
+expect_stdout = """
+C int       = i32, 4 bytes
+C long      = i64 on Linux x86-64, 8 bytes
+C size_t    = usize, 8 bytes
+C double    = f64, 8 bytes
+C char*     = const char*, 8 bytes
+struct { int; long; } = Pair, 16 bytes, second at 8
+"""
+
+[[questions]]
+id = "which-library"
+type = "choice"
+prompt = "A program declares `@nomangle extern f64 sqrt(f64 x);` and `@nomangle extern usize strlen(const char* s);`. The project links only `:libm.so.6`. What happens?"
+choices = [
+    "It builds and runs: sqrt and strlen are both found",
+    "The link fails with an undefined symbol for strlen",
+    "The link fails with an undefined symbol for sqrt",
+    "It builds, but strlen returns 0",
+]
+answer = 2
+why = [
+    "libm defines the math functions; strlen is in libc.",
+    "",
+    "sqrt is in libm, which is linked.",
+    "A missing symbol is a link error, not a wrong result.",
+]
+explanation = "The linker resolves each declaration against the libraries it was given. sqrt lives in libm and is found; strlen lives in libc, which was not linked, so the link stops with `undefined symbol: strlen`."
+
+[[questions]]
+id = "undefined-sqrt"
+type = "choice"
+prompt = "A program declares `@nomangle extern f64 sqrt(f64 x);` correctly, calls it, and is built without linking any library. At which point does the build stop?"
+choices = [
+    "In the compiler: it does not know what sqrt is",
+    "In the linker, with `undefined symbol: sqrt`",
+    "At run time, when the call is reached",
+    "It does not stop: the standard library of DC contains sqrt",
+]
+answer = 2
+why = [
+    "The declaration told the compiler everything it needs: name, parameters and result.",
+    "",
+    "A missing symbol is found while linking; the program is never produced.",
+    "libdcext has no C math functions; sqrt comes from libm.",
+]
+explanation = "Compiling needs only the declaration. The linker then looks for the symbol sqrt in the libraries it was given, finds none and reports `undefined symbol: sqrt`. The fix is a link entry such as :libm.so.6."
+
+[[questions]]
+id = "predict-pair"
+type = "predict"
+prompt = "A C struct has an `int` followed by a `long`. What does the matching DC struct print?"
+code = """
+module main;
+
+struct Pair {
+    i32 first;
+    i64 second;
+}
+
+public Status(Error) main() {
+    println("{} {}", sizeof(Pair), offsetof(Pair, second))?;
+    return Status::Ok;
+}
+"""
+expect = """
+16 8
+"""
+explanation = "The same layout rules as in the memory lessons apply: the i64 needs a multiple of 8, so four bytes of padding follow `first`. A C compiler on 64-bit Linux lays out the struct identically, which is why a DC struct can stand in for it."
+
+[[questions]]
+id = "exact-names"
+type = "short"
+prompt = "In `link = { \":libm.so.6\" }`, which single character at the start of the name asks for an exact file name instead of lib<name>.so?"
+accept = [":", "colon", "a colon"]
+explanation = "A leading colon passes -l:libm.so.6 to the linker: that exact file. Without it the linker looks for libm.so, a development file that may not be installed."
+
+[[cards]]
+id = "extern-decl"
+front = "What does `@nomangle extern i32 abs(i32 x);` tell the compiler?"
+back = "The body is elsewhere (extern), the symbol is named exactly abs (nomangle), and calls use the C calling convention. The linker must find abs in a linked library."
+
+[[cards]]
+id = "libc-libm"
+front = "Which library defines strlen and which defines sqrt?"
+back = "strlen is in libc (:libc.so.6); sqrt is in libm (:libm.so.6). They are linked separately."
+
+[[cards]]
+id = "you-are-the-header"
+front = "Who checks that an extern declaration matches the C prototype?"
+back = "Nobody. A wrong type still links and misbehaves at run time, so match every parameter and result type exactly."

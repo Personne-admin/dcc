@@ -1,0 +1,20 @@
+module search;
+
+public import counter;
+using counter::Counter;
+
+public usize lower_bound([]const i32 items, i32 key, Counter* counter) {
+    return 0;
+}
+
+public usize upper_bound([]const i32 items, i32 key, Counter* counter) {
+    return 0;
+}
+
+public usize count_of([]const i32 items, i32 key, Counter* counter) {
+    return 0;
+}
+
+public Optional(usize) find_first([]const i32 items, i32 key, Counter* counter) {
+    return Optional::None;
+}

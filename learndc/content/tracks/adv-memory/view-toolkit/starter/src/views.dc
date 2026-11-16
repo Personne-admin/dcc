@@ -1,0 +1,18 @@
+module views;
+
+import core::slice;
+
+public i32 sum(const i32* p, usize n) {
+    return 0;
+}
+
+public const i32* find_last(const i32* p, usize n, i32 target) {
+    return null;
+}
+
+public []i32 window(i32* base, usize start, usize len) {
+    return core::slice::from_raw(base, 0);
+}
+
+public void reverse(i32* p, usize n) {
+}

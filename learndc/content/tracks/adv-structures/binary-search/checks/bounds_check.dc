@@ -1,0 +1,108 @@
+module bounds_check;
+
+import counter;
+import search;
+using counter::Counter;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+usize slow_lower(const []const i32 items, i32 key) {
+    usize at = 0;
+    while at < items.len && items[at] < key {
+        at += 1;
+    }
+    return at;
+}
+
+usize slow_upper(const []const i32 items, i32 key) {
+    usize at = 0;
+    while at < items.len && items[at] <= key {
+        at += 1;
+    }
+    return at;
+}
+
+usize log_bound(usize n) {
+    usize bits = 0;
+    usize rest = n;
+    while rest > 0 {
+        bits += 1;
+        rest /= 2;
+    }
+    return bits;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    i32[24] data = { -5, -5, -2, 0, 0, 0, 1, 4, 4, 7, 7, 7, 7, 9, 12, 12, 15, 20, 20, 21, 30, 30, 30, 31 };
+
+    bool lower_ok = true;
+    bool upper_ok = true;
+    bool count_ok = true;
+    bool find_ok = true;
+    bool cost_ok = true;
+
+    for usize n in 0..25 {
+        []const i32 items = data[0..n];
+        for i32 key in -7..34 {
+            Counter low_counter = {};
+            usize low = search::lower_bound(items, key, &low_counter);
+            if low != slow_lower(items, key) {
+                lower_ok = false;
+            }
+            if low_counter.comparisons > log_bound(n) {
+                cost_ok = false;
+            }
+
+            Counter up_counter = {};
+            usize up = search::upper_bound(items, key, &up_counter);
+            if up != slow_upper(items, key) {
+                upper_ok = false;
+            }
+            if up_counter.comparisons > log_bound(n) {
+                cost_ok = false;
+            }
+
+            Counter count_counter = {};
+            if search::count_of(items, key, &count_counter) != slow_upper(items, key) - slow_lower(items, key) {
+                count_ok = false;
+            }
+
+            Counter find_counter = {};
+            Optional(usize) first = search::find_first(items, key, &find_counter);
+            usize expected = slow_lower(items, key);
+            bool present = expected < items.len && items[expected] == key;
+            if present != first.is_some() {
+                find_ok = false;
+            } else if present && first.unwrap_some() != expected {
+                find_ok = false;
+            }
+            if find_counter.comparisons > log_bound(n) + 1 {
+                cost_ok = false;
+            }
+        }
+    }
+
+    expect(lower_ok, "lower_bound is the first index not below the key, for every size and key", &failures);
+    expect(upper_ok, "upper_bound is the first index above the key, for every size and key", &failures);
+    expect(count_ok, "count_of counts the duplicates", &failures);
+    expect(find_ok, "find_first returns the lowest matching index or none", &failures);
+    expect(cost_ok, "every call stays within about log2(n) comparisons", &failures);
+
+    Counter empty_counter = {};
+    []const i32 nothing = data[0..0];
+    expect(search::lower_bound(nothing, 5, &empty_counter) == 0 && empty_counter.comparisons == 0, "an empty slice needs no comparison", &failures);
+
+    Counter big_counter = {};
+    []const i32 all = data[0..24];
+    search::lower_bound(all, 21, &big_counter);
+    expect(big_counter.comparisons <= 5, "24 items need at most 5 comparisons", &failures);
+    return failures;
+}

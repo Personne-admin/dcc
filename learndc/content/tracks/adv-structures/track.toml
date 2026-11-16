@@ -1,0 +1,6 @@
+schema = 1
+id = "adv-structures"
+title = "Data Structures and Algorithms"
+summary = "Count the cost of algorithms, search and sort, build queues and linked structures with explicit ownership, and combine them in a scheduler."
+goal = "Choose, implement and verify the right data structure for a problem by counting the work it does."
+exercises = ["counting-cost", "binary-search", "sorting", "leaderboard", "queues-and-links", "linked-queue", "binary-heap", "min-heap", "structures-drill", "boss-event-scheduler"]

@@ -1,0 +1,24 @@
+module main;
+
+const i32* find(const i32* p, usize n, i32 target) {
+    const i32* end = p + n;
+    while p != end {
+        if *p == target {
+            return p;
+        }
+        p++;
+    }
+    return null;
+}
+
+public Status(Error) main() {
+    i32[4] ids = {7, 11, 13, 17};
+    const i32* start = &ids[0];
+    const i32* hit = find(start, 4, 13);
+    if hit != null {
+        println("found {} at index {}", *hit, hit - start)?;
+    }
+    const i32* miss = find(start, 4, 99);
+    println("99 found: {}", miss != null)?;
+    return Status::Ok;
+}

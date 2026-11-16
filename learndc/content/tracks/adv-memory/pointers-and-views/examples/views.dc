@@ -1,0 +1,16 @@
+module main;
+
+import core::slice;
+
+public Status(Error) main() {
+    i32[6] data = {1, 2, 3, 4, 5, 6};
+    i32* base = &data[0];
+    []i32 middle = core::slice::from_raw(base + 2, 3);
+    println("len {}: {} {} {}", middle.len, middle[0], middle[1], middle[2])?;
+    middle[0] = 30;
+    println("data[2] is now {}", data[2])?;
+    const i32* ro = &data[4];
+    []const i32 tail = core::slice::from_raw_const(ro, 2);
+    println("tail: {} {}", tail[0], tail[1])?;
+    return Status::Ok;
+}

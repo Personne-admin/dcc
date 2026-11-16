@@ -1,0 +1,19 @@
+module main;
+
+usize length_of(T)(T value) {
+    static if compiles(T v) { v.len; } {
+        return value.len;
+    } else {
+        return sizeof(T);
+    }
+}
+
+public Status(Error) main() {
+    []const char text = "hello";
+    i32[3] numbers = { 1, 2, 3 };
+    println("{}", length_of(text))?;
+    []const i32 view = numbers[0..3];
+    println("{}", length_of(view))?;
+    println("{}", length_of(7 as u16))?;
+    return Status::Ok;
+}

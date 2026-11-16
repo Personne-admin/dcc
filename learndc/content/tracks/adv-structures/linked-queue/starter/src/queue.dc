@@ -1,0 +1,34 @@
+module queue;
+
+public import std::alloc;
+using std::alloc::{ AllocatorPolicy, AllocError };
+
+public struct Node(T) {
+    T value;
+    Node(T)* next;
+}
+
+public struct Queue(T) {
+    Node(T)* head;
+    Node(T)* tail;
+    usize len;
+}
+
+public usize size(T)(const Queue(T)* queue) {
+    return queue.len;
+}
+
+public Status(AllocError) push(T, A)(Queue(T)* queue, A* alloc, T value) if AllocatorPolicy(A) {
+    return Status::Ok;
+}
+
+public Optional(T) peek(T)(const Queue(T)* queue) {
+    return Optional::None;
+}
+
+public Optional(T) pop(T, A)(Queue(T)* queue, A* alloc) if AllocatorPolicy(A) {
+    return Optional::None;
+}
+
+public void clear(T, A)(Queue(T)* queue, A* alloc) if AllocatorPolicy(A) {
+}

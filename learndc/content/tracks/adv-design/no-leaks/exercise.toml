@@ -1,0 +1,47 @@
+schema = 1
+id = "adv-design/no-leaks"
+revision = 1
+title = "Fix the leaking path"
+summary = "unique_lengths works but leaks on every allocation failure; restructure its cleanup so that an allocation-failure sweep finds nothing."
+kind = "fix-behavior"
+difficulty = "advanced"
+estimated_minutes = 30
+concepts = ["defer", "error paths", "ownership hand-over", "failure injection", "allocator policy"]
+tags = ["errors", "memory", "testing"]
+objectives = [
+    "Replace end-of-function cleanup with defer right after each acquisition",
+    "Hand a result to the caller on success and release it on failure with a flag",
+    "Read the harness's sweep and understand which failure points it covers",
+]
+entry_file = "src/main.dc"
+product = "wordlengths"
+prerequisites = ["adv-design/cleanup-on-failure"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The report"
+expect_stdout = """
+word lengths
+distinct lengths: 1 3 4 5
+words: 10, distinct lengths: 4
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The starter already prints this. Do not change what unique_lengths returns while fixing its cleanup."
+
+[[checks]]
+kind = "harness"
+name = "Every allocation failure returns an error and frees every block"
+harness = "checks/sweep_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Both arrays need a deferred cleanup. The result array is freed on failure only; after the last push, set the hand-over flag."

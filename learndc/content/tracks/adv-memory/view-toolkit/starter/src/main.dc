@@ -1,0 +1,41 @@
+module main;
+
+import views;
+
+Status(Error) show([]const char label, []const i32 values) {
+    print("{}:", label)?;
+    for v in values {
+        print(" {}", v)?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    i32[6] data = {5, 3, 9, 3, 7, 1};
+    i32* base = &data[0];
+
+    println("sum: {}", views::sum(base, 6))?;
+
+    const i32* last = views::find_last(base, 6, 3);
+    if last != null {
+        const i32* start = base;
+        println("last 3 at index {}", last - start)?;
+    } else {
+        println("3 not found")?;
+    }
+    if views::find_last(base, 6, 4) == null {
+        println("4 not found")?;
+    }
+
+    []i32 middle = views::window(base, 2, 3);
+    show("window", middle)?;
+    if middle.len > 0 {
+        middle[0] = 0;
+    }
+    show("after write", data[0..6])?;
+
+    views::reverse(base, 6);
+    show("reversed", data[0..6])?;
+    return Status::Ok;
+}

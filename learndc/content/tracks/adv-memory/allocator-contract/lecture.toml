@@ -1,0 +1,188 @@
+schema = 1
+id = "adv-memory/allocator-contract"
+revision = 1
+title = "The allocator contract"
+summary = "The three-method allocator contract, the Heap, typed helpers, fixed buffers, containers over any allocator and arenas."
+difficulty = "advanced"
+estimated_minutes = 20
+concepts = ["allocator", "Heap", "AllocError", "create_item", "allocate_slice", "FixedBuffer", "Arena", "ownership"]
+tags = ["lecture", "memory", "allocators"]
+objectives = [
+    "Name the three methods of the allocator contract and what each promises",
+    "Allocate, use and free a block and typed values with the Heap",
+    "Use a FixedBuffer and an Arena, and explain what free means for each",
+    "Say who owns a block and which allocator must free it",
+]
+prerequisites = ["adv-memory/view-toolkit"]
+
+[[examples]]
+name = "heap_blocks"
+expect_stdout = """
+got 100 bytes, aligned to 16: true
+last byte: 99
+alignment 3 refused: true
+"""
+
+[[examples]]
+name = "typed_helpers"
+expect_stdout = """
+point 1.5 2.5
+6 squares, last 25
+"""
+
+[[examples]]
+name = "fixed_buffer"
+expect_stdout = """
+first ok: true, used 10
+words ok: true, aligned: true
+100 bytes refused: true
+after reset used 0
+"""
+
+[[examples]]
+name = "array_in_fixed"
+expect_stdout = """
+5 numbers, total 55
+a thousand more do not fit: true
+the first five are still there: 25
+"""
+
+[[examples]]
+name = "std_arena"
+expect_stdout = """
+round 1: 100 values, last 1000
+round 2: 100 values, last 2000
+round 3: 100 values, last 3000
+chunks released at deinit
+"""
+
+[[questions]]
+id = "what-to-free"
+type = "choice"
+prompt = "You got `[]u8 block` from `heap.allocate(100, 16)`. Which call returns it correctly?"
+choices = [
+    "heap.free(block, 1)",
+    "heap.free(block, 16)",
+    "free(block.ptr)",
+    "heap.free(100)",
+]
+answer = 2
+why = [
+    "The alignment must be the one you allocated with.",
+    "",
+    "There is no such function; the allocator needs the block with its length.",
+    "free takes the block and the alignment, not just a number.",
+]
+explanation = "free receives the block (pointer and length) and the alignment used for the allocation. Giving back a different alignment, or the block to a different allocator, breaks the contract."
+
+[[questions]]
+id = "fixed-free"
+type = "predict"
+prompt = "What does this program print? Remember what a FixedBuffer can take back."
+code = """
+module main;
+
+import std::alloc;
+import std::alloc::fixed;
+
+using std::alloc::fixed::{ FixedBuffer, FixedHandle, new_fixed_buffer, borrow };
+
+public Status(Error) main() {
+    u8[32] storage = {};
+    FixedBuffer b = new_fixed_buffer(storage[0..32]);
+    FixedHandle h = borrow(&b);
+    []u8 first = h.allocate(3, 1).unwrap();
+    []u8 second = h.allocate(5, 1).unwrap();
+    println("{}", b.offset)?;
+    h.free(first, 1);
+    println("{}", b.offset)?;
+    h.free(second, 1);
+    println("{}", b.offset)?;
+    return Status::Ok;
+}
+"""
+expect = """
+8
+8
+3
+"""
+explanation = "The buffer bumps its offset by 3, then by 5: 8. Freeing `first` is ignored because it is not the most recent block. Freeing `second` moves the offset back to where that block started, 3. The three bytes of `first` stay used until reset."
+
+[[questions]]
+id = "no-type"
+type = "error"
+prompt = "Why does this program not compile?"
+code = """
+module main;
+
+import std::os::heap;
+import std::alloc;
+
+using std::os::heap::Heap;
+
+struct Point {
+    f64 x;
+    f64 y;
+}
+
+public Status(Error) main() {
+    Heap heap = {};
+    Point* p = heap.create_item().unwrap();
+    p.x = 1.0;
+    return Status::Ok;
+}
+"""
+diagnostic = "cannot deduce template argument `T`"
+choices = [
+    "create_item is private",
+    "The element type is inferred from where the result is stored, and an unwrap chain gives the compiler nothing to infer from",
+    "Heap has to be created with new",
+    "Point must be public",
+]
+answer = 2
+why = [
+    "create_item is public in std::alloc; the problem is the missing type.",
+    "",
+    "Heap is an empty struct; `Heap heap = {};` is complete.",
+    "Visibility of Point is not involved.",
+]
+explanation = "Declare the result first: Result(Point*, AllocError) made = heap.create_item(); and unwrap it afterwards, or write Point* p = heap.create_item()?; inside a function that can pass the error on. The declared type tells the compiler which T to use."
+
+[[questions]]
+id = "arena-free"
+type = "multi"
+prompt = "Which statements about an `Arena(P)` are true?"
+choices = [
+    "It takes large chunks from another allocator and hands out pieces of them",
+    "Calling free on one piece returns that piece to the parent right away",
+    "reset or deinit releases every chunk at once",
+    "A piece may still be used after reset, as long as nobody else allocates",
+]
+answers = [1, 3]
+why = [
+    "",
+    "free on an arena piece does nothing; memory is returned only in bulk.",
+    "",
+    "reset returns the chunks to the parent; every piece is invalid afterwards.",
+]
+explanation = "An arena trades individual release for speed and simplicity: allocation is a bump, and the lifetime of every piece ends together with the arena or its reset."
+
+[[cards]]
+id = "contract"
+front = "What are the three methods of the allocator contract?"
+back = "allocate(len, align) returning Result([]u8, AllocError), resize_in_place(block, len, align) returning bool, and free(block, align)."
+
+[[cards]]
+id = "typed-helpers"
+front = "How do create_item and allocate_slice know the element type?"
+back = "From the type the result is stored in: a declared Result(T*, AllocError) or Result([]T, AllocError), or a typed variable filled through ?. A bare chain such as create_item().unwrap() gives nothing to infer from."
+
+[[cards]]
+id = "fixed-free-rule"
+front = "What can a FixedBuffer take back with free?"
+back = "Only the most recent allocation. Anything else stays used until reset empties the whole buffer."
+
+[[cards]]
+id = "free-same-allocator"
+front = "Which allocator and alignment do you pass when you free a block?"
+back = "The allocator that produced it, and the alignment you requested, exactly once."

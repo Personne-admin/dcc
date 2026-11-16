@@ -1,0 +1,8 @@
+dpm::v1::Project {
+    name = "cstring_bridge",
+    version = "0.1.0",
+    link = { ":libc.so.6" },
+    products = {
+        { name = "cstring_bridge", entry = "src/main.dc" },
+    },
+}

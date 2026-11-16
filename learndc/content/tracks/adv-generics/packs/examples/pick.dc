@@ -1,0 +1,11 @@
+module main;
+
+f64 product_of_first_two(T...)(T args) {
+    return (args.0 as f64) * (args.1 as f64);
+}
+
+public Status(Error) main() {
+    println("{:.1}", product_of_first_two(3, 4))?;
+    println("{:.1}", product_of_first_two(2, 4.5, 'x', true))?;
+    return Status::Ok;
+}

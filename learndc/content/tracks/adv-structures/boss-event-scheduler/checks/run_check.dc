@@ -1,0 +1,70 @@
+module run_check;
+
+import events;
+import heap;
+import sched;
+using events::Event;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    Array(Event) queue = {};
+    defer queue.deinit();
+    Array(Event) log = {};
+    defer log.deinit();
+    u32 seq = 0;
+
+    expect(sched::schedule(&queue, &seq, 50, 7, 0).is_ok(), "schedule accepts an event", &failures);
+    expect(seq == 1 && queue.len() == 1, "schedule uses and advances the sequence number", &failures);
+    sched::schedule(&queue, &seq, 20, 8, 0);
+    sched::schedule(&queue, &seq, 20, 9, 0);
+    sched::schedule(&queue, &seq, 70, 7, 0);
+    expect(seq == 4 && queue.len() == 4, "four events are waiting", &failures);
+    expect(heap::heap_peek(&queue).unwrap_some().time == 20 && heap::heap_peek(&queue).unwrap_some().kind == 8, "the earliest event, first scheduled, is at the front", &failures);
+
+    expect(sched::run_until(&queue, &seq, 19, &log).is_ok() && log.len() == 0 && queue.len() == 4, "nothing before the first event fires", &failures);
+    sched::run_until(&queue, &seq, 50, &log);
+    expect(log.len() == 3, "events up to and including the limit fire", &failures);
+    expect(log.items()[0].kind == 8 && log.items()[1].kind == 9 && log.items()[2].time == 50, "equal times fire in scheduling order", &failures);
+    expect(queue.len() == 1 && heap::heap_peek(&queue).unwrap_some().time == 70, "later events stay queued", &failures);
+
+    Array(Event) q2 = {};
+    defer q2.deinit();
+    Array(Event) log2 = {};
+    defer log2.deinit();
+    u32 seq2 = 0;
+    sched::schedule(&q2, &seq2, 10, 1, 10);
+    sched::schedule(&q2, &seq2, 5, 3, 15);
+    sched::run_until(&q2, &seq2, 40, &log2);
+    expect(log2.len() == 7, "periodic events fire repeatedly", &failures);
+    bool in_order = true;
+    for usize i in 1..log2.len() {
+        if log2.items()[i - 1].time > log2.items()[i].time {
+            in_order = false;
+        }
+    }
+    expect(in_order, "the log is in time order", &failures);
+    expect(log2.items()[0].time == 5 && log2.items()[1].time == 10 && log2.items()[2].time == 20, "the first firings are at 5, 10 and 20", &failures);
+    expect(q2.len() == 2 && heap::heap_peek(&q2).unwrap_some().time == 50, "the next firings of both periodic events wait at 50", &failures);
+
+    bool seq_unique = true;
+    for usize i in 0..log2.len() {
+        for usize j in i + 1..log2.len() {
+            if log2.items()[i].seq == log2.items()[j].seq {
+                seq_unique = false;
+            }
+        }
+    }
+    expect(seq_unique, "every firing gets its own sequence number", &failures);
+    expect(seq2 == 2 + (log2.len() as u32), "each firing of a periodic event schedules exactly one successor", &failures);
+    return failures;
+}

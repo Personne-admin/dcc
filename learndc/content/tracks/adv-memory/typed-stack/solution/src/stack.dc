@@ -1,0 +1,46 @@
+module stack;
+
+public import std::alloc;
+
+using std::alloc::{ AllocError, AllocatorPolicy, create_item, destroy_item };
+
+public struct Node {
+    i32 value;
+    Node* next;
+}
+
+public struct Stack {
+    Node* top;
+    usize len;
+}
+
+public Status(AllocError) push(A)(Stack* stack, A* alloc, i32 value) if AllocatorPolicy(A) {
+    Result(Node*, AllocError) made = alloc.create_item();
+    if made.is_err() {
+        return made.unwrap_err();
+    }
+    Node* node = made.unwrap();
+    node.value = value;
+    node.next = stack.top;
+    stack.top = node;
+    stack.len += 1;
+    return Status::Ok;
+}
+
+public Optional(i32) pop(A)(Stack* stack, A* alloc) if AllocatorPolicy(A) {
+    Node* node = stack.top;
+    if node == null {
+        return Optional::None;
+    }
+    i32 value = node.value;
+    stack.top = node.next;
+    stack.len -= 1;
+    alloc.destroy_item(node);
+    return Optional::Some(value);
+}
+
+public void clear(A)(Stack* stack, A* alloc) if AllocatorPolicy(A) {
+    while stack.top != null {
+        pop(stack, alloc);
+    }
+}

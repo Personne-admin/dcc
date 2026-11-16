@@ -1,0 +1,27 @@
+module main;
+
+import std::os::heap;
+import std::alloc;
+
+using std::os::heap::Heap;
+using std::alloc::AllocError;
+
+public Status(Error) main() {
+    Heap heap = {};
+    Result([]u8, AllocError) got = heap.allocate(100, 16);
+    if got.is_err() {
+        println("out of memory")?;
+        return Status::Ok;
+    }
+    []u8 block = got.unwrap();
+    println("got {} bytes, aligned to 16: {}", block.len, block.ptr as usize % 16 == 0)?;
+    for usize i = 0; i < block.len; i++ {
+        block[i] = i as u8;
+    }
+    println("last byte: {}", block[99])?;
+    heap.free(block, 16);
+
+    Result([]u8, AllocError) bad = heap.allocate(8, 3);
+    println("alignment 3 refused: {}", bad.is_err())?;
+    return Status::Ok;
+}

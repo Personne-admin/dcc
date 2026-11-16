@@ -1,0 +1,47 @@
+module main;
+
+void insertion_sort_by(T)([]T items, i32(*)(const T*, const T*) compare) {
+    for usize i = 1; i < items.len; i++ {
+        T value = items[i];
+        usize j = i;
+        while j > 0 && compare(&items[j - 1], &value) > 0 {
+            items[j] = items[j - 1];
+            j -= 1;
+        }
+        items[j] = value;
+    }
+}
+
+i32 ascending(const i32* a, const i32* b) {
+    if *a < *b {
+        return -1;
+    }
+    if *a > *b {
+        return 1;
+    }
+    return 0;
+}
+
+i32 descending(const i32* a, const i32* b) {
+    return ascending(b, a);
+}
+
+Status(Error) show([]const i32 items) {
+    for i32 item in items {
+        print(" {}", item)?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    i32[7] data = { 42, 7, 19, 7, -3, 100, 0 };
+    []i32 view = data;
+    insertion_sort_by(view, ascending);
+    print("ascending:")?;
+    show(view)?;
+    insertion_sort_by(view, descending);
+    print("descending:")?;
+    show(view)?;
+    return Status::Ok;
+}

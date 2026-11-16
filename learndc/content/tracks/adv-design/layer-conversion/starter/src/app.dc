@@ -1,0 +1,24 @@
+module app;
+
+public import store;
+public import parse;
+using store::{ StoreError, LineProblem };
+using parse::{ ParseError, Ticket };
+
+public enum AppError {
+    @implicit_construction Store(StoreError),
+    NothingToLoad,
+}
+
+public Status(AppError) run(Array(Ticket)* tickets, []const []const char lines) {
+    return Status::Ok;
+}
+
+public i32 exit_code(AppError failure) {
+    return 0;
+}
+
+public Status(Error) explain(AppError failure) {
+    println("failed")?;
+    return Status::Ok;
+}

@@ -1,0 +1,66 @@
+module main;
+
+enum ParseError {
+    Empty,
+    BadNumber,
+}
+
+enum AppError {
+    BadInput(ParseError),
+    TooMany,
+    Quota,
+}
+
+Status(ParseError) check([]const char text) {
+    if text.len == 0 {
+        return ParseError::Empty;
+    }
+    for char c in text {
+        if c < '0' || c > '9' {
+            return ParseError::BadNumber;
+        }
+    }
+    return Status::Ok;
+}
+
+Status(AppError) submit([]const char text, u32 already) {
+    Status(ParseError) checked = check(text);
+    if !checked.is_ok() {
+        AppError wrapped = AppError::BadInput(checked.unwrap_err());
+        return wrapped;
+    }
+    if already >= 3 {
+        return AppError::TooMany;
+    }
+    return Status::Ok;
+}
+
+i32 exit_code(AppError failure) {
+    return match failure {
+        AppError::BadInput(why) => match why {
+            ParseError::Empty => 2,
+            ParseError::BadNumber => 3,
+        },
+        AppError::TooMany => 4,
+        AppError::Quota => 5,
+    };
+}
+
+Status(Error) attempt([]const char text, u32 already) {
+    Status(AppError) outcome = submit(text, already);
+    if outcome.is_ok() {
+        println("{:>4}: accepted", text)?;
+    } else {
+        println("{:>4}: exit code {}", text, exit_code(outcome.unwrap_err()))?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("explicit conversion")?;
+    attempt("42", 0)?;
+    attempt("", 0)?;
+    attempt("4x", 0)?;
+    attempt("7", 3)?;
+    return Status::Ok;
+}

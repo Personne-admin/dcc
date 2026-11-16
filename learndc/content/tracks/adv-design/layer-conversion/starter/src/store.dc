@@ -1,0 +1,23 @@
+module store;
+
+public import parse;
+using parse::{ ParseError, Ticket };
+
+public struct LineProblem {
+    u32 line;
+    ParseError cause;
+}
+
+public enum StoreError {
+    @implicit_construction Memory(AllocError),
+    Duplicate(u32),
+    Bad(LineProblem),
+}
+
+public Status(StoreError) add(Array(Ticket)* tickets, Ticket ticket) {
+    return Status::Ok;
+}
+
+public Status(StoreError) load(Array(Ticket)* tickets, []const []const char lines) {
+    return Status::Ok;
+}

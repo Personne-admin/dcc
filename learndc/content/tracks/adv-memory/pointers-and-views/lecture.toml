@@ -1,0 +1,165 @@
+schema = 1
+id = "adv-memory/pointers-and-views"
+revision = 1
+title = "Pointers and views"
+summary = "Pointer arithmetic and indexing, searching with pointers, and building slices over existing memory with core::slice::from_raw."
+difficulty = "advanced"
+estimated_minutes = 15
+concepts = ["pointer arithmetic", "pointer indexing", "null", "from_raw", "from_raw_const", "dangling", "views"]
+tags = ["lecture", "memory", "pointers"]
+objectives = [
+    "Move a pointer by elements, index through it and subtract two pointers",
+    "Return a pointer or null from a search over a pointer and a count",
+    "Build a slice over existing memory with from_raw and explain who owns the bytes",
+]
+prerequisites = ["adv-memory/shrink-the-packet"]
+
+[[examples]]
+name = "walk"
+expect_stdout = """
+first: 40
+after p++: 50
+two further: 70
+same, with an index: 70
+elements between: 3
+p before end: true
+p == end: true
+"""
+
+[[examples]]
+name = "find"
+expect_stdout = """
+found 13 at index 2
+99 found: false
+"""
+
+[[examples]]
+name = "views"
+expect_stdout = """
+len 3: 3 4 5
+data[2] is now 30
+tail: 5 6
+"""
+
+[[questions]]
+id = "step-size"
+type = "choice"
+prompt = "`i32* p` holds the address 1000. What address does `p + 2` hold?"
+choices = ["1002", "1008", "1004", "2000"]
+answer = 2
+why = [
+    "That would add two bytes. Pointer arithmetic counts elements.",
+    "",
+    "That is one element; p + 2 is two.",
+    "Addition never multiplies the address.",
+]
+explanation = "Adding n to a pointer moves it n elements, so the address changes by n * sizeof(i32) = 2 * 4 = 8 bytes: 1008."
+
+[[questions]]
+id = "predict-pointers"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+public Status(Error) main() {
+    i32[5] v = {10, 20, 30, 40, 50};
+    i32* p = &v[1];
+    p += 2;
+    println("{}", *p)?;
+    p--;
+    println("{} {}", p[1], p - &v[0])?;
+    return Status::Ok;
+}
+"""
+expect = """
+40
+40 2
+"""
+explanation = "p starts at v[1] and moves two elements to v[3], which is 40. After p-- it points at v[2]; p[1] is v[3] again, and v[2] is two elements after v[0]."
+
+[[questions]]
+id = "range-on-pointer"
+type = "error"
+prompt = "Why does this program not compile?"
+code = """
+module main;
+
+public Status(Error) main() {
+    i32[4] v = {1, 2, 3, 4};
+    i32* p = &v[0];
+    []i32 head = p[0..2];
+    println("{}", head.len)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "cannot range-slice a pointer"
+choices = [
+    "p is not initialized",
+    "A pointer has no length to check the range against",
+    "Ranges only work on i32",
+    "head must be declared const",
+]
+answer = 2
+why = [
+    "p points at v[0]; it is initialized.",
+    "",
+    "A range works on any element type of an array or slice.",
+    "Constness is unrelated to the error.",
+]
+explanation = "A pointer is only an address. To get a slice, state the count yourself: core::slice::from_raw(p, 2)."
+
+[[questions]]
+id = "local-view"
+type = "bug"
+prompt = "`first_three` is supposed to hand the caller a view of three numbers. Which line makes the view invalid before the caller can use it?"
+code = """
+module main;
+import core::slice;
+
+[]i32 first_three() {
+    i32[3] local = {1, 2, 3};
+    return core::slice::from_raw(&local[0], 3);
+}
+
+public Status(Error) main() {
+    []i32 s = first_three();
+    println("{}", s.len)?;
+    return Status::Ok;
+}
+"""
+lines = [6]
+fixed = """
+module main;
+import core::slice;
+
+[]i32 first_three(i32* data) {
+    return core::slice::from_raw(data, 3);
+}
+
+public Status(Error) main() {
+    i32[3] mine = {1, 2, 3};
+    []i32 s = first_three(&mine[0]);
+    println("{} items starting at {}", s.len, s[0])?;
+    return Status::Ok;
+}
+"""
+expect = """
+3 items starting at 1
+"""
+explanation = "`local` belongs to first_three and is gone when it returns, so the slice points at memory nobody owns. The fix lets the caller own the array and pass its address in: the owner then outlives the view."
+
+[[cards]]
+id = "ptr-add"
+front = "What does `p + n` do for `T* p`?"
+back = "It moves the pointer n elements: the address grows by n * sizeof(T). p[i] is *(p + i)."
+
+[[cards]]
+id = "from-raw"
+front = "What does core::slice::from_raw(p, n) do, and what does it not check?"
+back = "It builds a slice of n elements starting at p without copying. It does not check that n elements exist or stay alive."
+
+[[cards]]
+id = "end-pointer"
+front = "What is the end pointer `p + n` of n elements good for?"
+back = "Comparing: loop while p != end. It points one past the last element and must never be read."

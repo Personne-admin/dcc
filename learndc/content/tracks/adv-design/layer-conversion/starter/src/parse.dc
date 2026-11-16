@@ -1,0 +1,69 @@
+module parse;
+
+public enum ParseError {
+    MissingField,
+    BadId,
+    BadPriority,
+    EmptyTitle,
+}
+
+public struct Ticket {
+    u32 id;
+    u8 priority;
+    []const char title;
+}
+
+[]const char slice_of([]const char text, usize from, usize to) {
+    return text[from..to];
+}
+
+Optional(usize) find_colon([]const char text, usize from) {
+    for usize i = from; i < text.len; i++ {
+        if text[i] == ':' {
+            return Optional::Some(i);
+        }
+    }
+    return Optional::None;
+}
+
+Optional(u32) to_number([]const char text) {
+    if text.len == 0 || text.len > 6 {
+        return Optional::None;
+    }
+    u32 value = 0;
+    for char c in text {
+        if c < '0' || c > '9' {
+            return Optional::None;
+        }
+        value = value * 10 + ((c as u8) - 48) as u32;
+    }
+    return Optional::Some(value);
+}
+
+public Result(Ticket, ParseError) parse_ticket([]const char line) {
+    Optional(usize) first = find_colon(line, 0);
+    if first.is_none() {
+        return ParseError::MissingField;
+    }
+    usize a = first.unwrap_some();
+    Optional(usize) second = find_colon(line, a + 1);
+    if second.is_none() {
+        return ParseError::MissingField;
+    }
+    usize b = second.unwrap_some();
+
+    Optional(u32) id = to_number(slice_of(line, 0, a));
+    if id.is_none() {
+        return ParseError::BadId;
+    }
+    Optional(u32) priority = to_number(slice_of(line, a + 1, b));
+    if priority.is_none() || priority.unwrap_some() < 1 || priority.unwrap_some() > 5 {
+        return ParseError::BadPriority;
+    }
+    []const char title = slice_of(line, b + 1, line.len);
+    if title.len == 0 {
+        return ParseError::EmptyTitle;
+    }
+    Ticket ticket = { id = id.unwrap_some(), priority = priority.unwrap_some() as u8, title = title };
+    return Result::Ok(ticket);
+}

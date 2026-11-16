@@ -1,0 +1,57 @@
+module kinds_check;
+
+import kinds;
+
+struct Wrapper {
+    i64 inner;
+}
+
+enum Level {
+    Low,
+    High,
+}
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool is(const []const char got, const []const char want) {
+    if got.len != want.len {
+        return false;
+    }
+    for usize i in 0..got.len {
+        if got[i] != want[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Wrapper wrapper = { inner = 3 };
+    i32 target = 0;
+    []const u8 bytes = {1, 2};
+    []const f64 reals = {1.5};
+
+    expect(is(kinds::kind(1 as i8), "integer"), "i8 is an integer", &failures);
+    expect(is(kinds::kind(1 as u16), "integer"), "u16 is an integer", &failures);
+    expect(is(kinds::kind(1 as i64), "integer"), "i64 is an integer", &failures);
+    expect(is(kinds::kind(1 as u64), "integer"), "u64 is an integer", &failures);
+    expect(is(kinds::kind(1.5 as f32), "float"), "f32 is a float", &failures);
+    expect(is(kinds::kind(1.5), "float"), "f64 is a float", &failures);
+    expect(is(kinds::kind(bytes), "sequence"), "a slice of u8 is a sequence", &failures);
+    expect(is(kinds::kind(reals), "sequence"), "a slice of f64 is a sequence", &failures);
+    expect(is(kinds::kind(""), "sequence"), "empty text is a sequence", &failures);
+    expect(is(kinds::kind(false), "other"), "bool is other", &failures);
+    expect(is(kinds::kind('q'), "other"), "char is other", &failures);
+    expect(is(kinds::kind(wrapper), "other"), "a struct is other", &failures);
+    expect(is(kinds::kind(Level::High), "other"), "an enum is other", &failures);
+    expect(is(kinds::kind(&target), "other"), "a pointer is other", &failures);
+    return failures;
+}

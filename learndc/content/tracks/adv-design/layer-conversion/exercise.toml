@@ -1,0 +1,52 @@
+schema = 1
+id = "adv-design/layer-conversion"
+revision = 1
+title = "Three layers of errors"
+summary = "Complete the store and application layers of a ticket importer: duplicate and line-numbered errors, ? conversion between layers and exit codes at the edge."
+kind = "complete-program"
+difficulty = "advanced"
+estimated_minutes = 40
+concepts = ["layered errors", "@implicit_construction", "error payloads", "exit codes", "module boundaries"]
+tags = ["errors", "design", "modules"]
+objectives = [
+    "Convert a ParseError into a StoreError with the line number as context",
+    "Propagate a StoreError into an AppError with ?",
+    "Translate the nested error to an exit code and a message in one place",
+]
+entry_file = "src/main.dc"
+product = "tickets"
+prerequisites = ["adv-design/error-layers"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Four scenarios"
+expect_stdout = """
+tickets
+good: loaded 3 tickets, code 0
+duplicate: ticket 2 appears twice
+  code 3
+bad line: line 3: priority must be 1 to 5
+  code 2
+empty: nothing to load
+  code 4
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "load numbers lines from 1 and stops at the first failure. The duplicate in the second scenario is ticket 2, on its second occurrence."
+
+[[checks]]
+kind = "harness"
+name = "Errors, line numbers and exit codes in every layer"
+harness = "checks/layer_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Build StoreError::Duplicate(id) and StoreError::Bad(problem) in a local variable and return it. Everything below StoreError uses ?."

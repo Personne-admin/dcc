@@ -1,0 +1,43 @@
+schema = 1
+id = "adv-memory/shrink-the-packet"
+revision = 1
+title = "Shrink the packet"
+summary = "Measure the padding in a struct with sizeof and offsetof, then remove all of it by reordering the fields."
+kind = "refactor"
+difficulty = "advanced"
+estimated_minutes = 15
+concepts = ["sizeof", "alignof", "offsetof", "padding", "struct layout"]
+tags = ["memory", "layout", "structs"]
+objectives = [
+    "Compute the padding of a struct as sizeof minus the sum of its field sizes",
+    "Reorder fields from the largest alignment to the smallest to remove padding",
+    "Confirm the new layout with offsetof",
+]
+entry_file = "src/main.dc"
+product = "packet_layout"
+prerequisites = ["adv-memory/memory-layout"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "A 16-byte packet without padding"
+expect_stdout = """
+Packet: 16 bytes, align 8
+fields: 16 bytes, padding: 0 bytes
+id at 0
+length at 8
+port at 12
+kind at 14
+flags at 15
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Both edits are in src/packet.dc: field_bytes must add the sizes of all five field types, and the fields must be declared in the order id, length, port, kind, flags."

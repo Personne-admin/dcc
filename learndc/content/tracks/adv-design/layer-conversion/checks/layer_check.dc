@@ -1,0 +1,144 @@
+module layer_check;
+
+import app;
+import store;
+import parse;
+using parse::{ Ticket, ParseError };
+using store::{ StoreError, LineProblem };
+using app::AppError;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+i32 kind_of(StoreError failure) {
+    return match failure {
+        StoreError::Memory(why) => 1,
+        StoreError::Duplicate(id) => 2,
+        StoreError::Bad(problem) => 3,
+    };
+}
+
+u32 duplicate_id(StoreError failure) {
+    return match failure {
+        StoreError::Duplicate(id) => id,
+        _ => 0,
+    };
+}
+
+u32 bad_line(StoreError failure) {
+    return match failure {
+        StoreError::Bad(problem) => problem.line,
+        _ => 0,
+    };
+}
+
+i32 bad_cause(StoreError failure) {
+    return match failure {
+        StoreError::Bad(problem) => match problem.cause {
+            ParseError::MissingField => 1,
+            ParseError::BadId => 2,
+            ParseError::BadPriority => 3,
+            ParseError::EmptyTitle => 4,
+        },
+        _ => 0,
+    };
+}
+
+Ticket make(u32 id) {
+    Ticket t = { id = id, priority = 2, title = "t" };
+    return t;
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    Array(Ticket) tickets = {};
+    defer tickets.deinit();
+    expect(store::add(&tickets, make(1)).is_ok() && store::add(&tickets, make(2)).is_ok(), "add accepts new ids", &failures);
+    expect(tickets.len() == 2, "added tickets are stored", &failures);
+    Status(StoreError) twice = store::add(&tickets, make(2));
+    expect(!twice.is_ok(), "add refuses a duplicate id", &failures);
+    expect(twice.is_ok() || (kind_of(twice.unwrap_err()) == 2 && duplicate_id(twice.unwrap_err()) == 2), "the error is Duplicate carrying the id", &failures);
+    expect(tickets.len() == 2, "a refused ticket is not stored", &failures);
+
+    Array([]const char) lines = {};
+    defer lines.deinit();
+    lines.push("10:1:alpha");
+    lines.push("11:5:beta");
+    lines.push("12:3:gamma");
+    Array(Ticket) loaded = {};
+    defer loaded.deinit();
+    expect(store::load(&loaded, lines.items()).is_ok() && loaded.len() == 3, "load stores every good line", &failures);
+    expect(loaded.items()[2].id == 12 && loaded.items()[0].priority == 1, "the tickets are parsed", &failures);
+
+    Array([]const char) broken = {};
+    defer broken.deinit();
+    broken.push("20:1:ok");
+    broken.push("21:2");
+    broken.push("22:2:never reached");
+    Array(Ticket) partial = {};
+    defer partial.deinit();
+    Status(StoreError) r1 = store::load(&partial, broken.items());
+    expect(!r1.is_ok() && kind_of(r1.unwrap_err()) == 3, "a bad line fails with Bad", &failures);
+    expect(!r1.is_ok() && bad_line(r1.unwrap_err()) == 2, "the error carries the line number", &failures);
+    expect(!r1.is_ok() && bad_cause(r1.unwrap_err()) == 1, "and the parse cause", &failures);
+    expect(partial.len() == 1, "loading stops at the first bad line", &failures);
+
+    Array([]const char) causes = {};
+    defer causes.deinit();
+    causes.push("x:1:a");
+    Array(Ticket) c1 = {};
+    defer c1.deinit();
+    expect(bad_cause(store::load(&c1, causes.items()).unwrap_err()) == 2, "a bad id is BadId", &failures);
+    Array([]const char) prio = {};
+    defer prio.deinit();
+    prio.push("1:1:a");
+    prio.push("2:7:b");
+    Array(Ticket) c2 = {};
+    defer c2.deinit();
+    Status(StoreError) r2 = store::load(&c2, prio.items());
+    expect(bad_cause(r2.unwrap_err()) == 3 && bad_line(r2.unwrap_err()) == 2, "a bad priority is BadPriority on line 2", &failures);
+    Array([]const char) title = {};
+    defer title.deinit();
+    title.push("1:1:");
+    Array(Ticket) c3 = {};
+    defer c3.deinit();
+    expect(bad_cause(store::load(&c3, title.items()).unwrap_err()) == 4, "an empty title is EmptyTitle", &failures);
+
+    Array([]const char) dup = {};
+    defer dup.deinit();
+    dup.push("5:1:a");
+    dup.push("6:1:b");
+    dup.push("5:2:c");
+    Array(Ticket) c4 = {};
+    defer c4.deinit();
+    Status(StoreError) r3 = store::load(&c4, dup.items());
+    expect(kind_of(r3.unwrap_err()) == 2 && duplicate_id(r3.unwrap_err()) == 5, "load reports a duplicate id", &failures);
+
+    Array(Ticket) none = {};
+    defer none.deinit();
+    Status(AppError) empty = app::run(&none, lines.items()[0..0]);
+    expect(!empty.is_ok() && app::exit_code(empty.unwrap_err()) == 4, "run with no lines is NothingToLoad with code 4", &failures);
+    Array(Ticket) all = {};
+    defer all.deinit();
+    expect(app::run(&all, lines.items()).is_ok() && all.len() == 3, "run loads good lines", &failures);
+    Array(Ticket) some = {};
+    defer some.deinit();
+    Status(AppError) bad = app::run(&some, broken.items());
+    expect(!bad.is_ok() && app::exit_code(bad.unwrap_err()) == 2, "a bad line maps to code 2", &failures);
+    Array(Ticket) dups = {};
+    defer dups.deinit();
+    Status(AppError) dp = app::run(&dups, dup.items());
+    expect(!dp.is_ok() && app::exit_code(dp.unwrap_err()) == 3, "a duplicate maps to code 3", &failures);
+
+    StoreError oom = StoreError::Memory(AllocError::OutOfMemory);
+    AppError wrapped = AppError::Store(oom);
+    expect(app::exit_code(wrapped) == 70, "an allocation failure maps to code 70", &failures);
+    return failures;
+}

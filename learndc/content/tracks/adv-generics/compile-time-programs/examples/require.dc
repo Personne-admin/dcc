@@ -1,0 +1,22 @@
+module main;
+
+import core;
+
+void require_small(T)(T value) {
+    static if sizeof(T) > 4 {
+        core::compile_error("require_small: this type is wider than 4 bytes");
+    }
+}
+
+u32 widen(T)(T value) {
+    require_small(value);
+    return value as u32;
+}
+
+public Status(Error) main() {
+    u32 a = widen(200 as u8);
+    u32 b = widen(60000 as u16);
+    u32 c = widen(7 as i32);
+    println("{} {} {}", a, b, c)?;
+    return Status::Ok;
+}

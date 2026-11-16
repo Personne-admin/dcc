@@ -1,0 +1,17 @@
+module main;
+
+public Status(Error) main() {
+    i32[5] scores = {40, 50, 60, 70, 80};
+    i32* p = &scores[0];
+    println("first: {}", *p)?;
+    p++;
+    println("after p++: {}", *p)?;
+    println("two further: {}", *(p + 2))?;
+    println("same, with an index: {}", p[2])?;
+    i32* end = &scores[4];
+    println("elements between: {}", end - p)?;
+    println("p before end: {}", p < end)?;
+    p += 3;
+    println("p == end: {}", p == end)?;
+    return Status::Ok;
+}

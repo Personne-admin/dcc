@@ -1,0 +1,17 @@
+module main;
+
+struct Control {
+    u8 mode : 3;
+    u8 speed : 5;
+    u16 level : 4;
+}
+
+public Status(Error) main() {
+    Control c = {};
+    c.mode = 5;
+    c.speed = 20;
+    c.level = 9;
+    println("size {} align {}", sizeof(Control), alignof(Control))?;
+    println("{} {} {}", c.mode, c.speed, c.level)?;
+    return Status::Ok;
+}

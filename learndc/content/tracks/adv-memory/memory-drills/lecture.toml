@@ -1,0 +1,213 @@
+schema = 1
+id = "adv-memory/memory-drills"
+revision = 1
+kind = "drill"
+title = "Memory drills"
+summary = "Predict struct layouts and pointer arithmetic, spot an out-of-range read, read a pointer error and order a safe release."
+difficulty = "advanced"
+estimated_minutes = 20
+concepts = ["sizeof", "alignof", "padding", "pointer arithmetic", "allocator", "ownership"]
+tags = ["drill", "memory"]
+objectives = [
+    "Predict sizes, offsets and padding from a struct declaration",
+    "Work out where pointer arithmetic lands",
+    "Spot a read past the end of a block",
+    "Order the steps that release a node safely",
+]
+prerequisites = ["adv-memory/typed-stack"]
+
+[[examples]]
+name = "pop_order"
+expect_stdout = """
+popped 42, 0 left
+"""
+
+[[questions]]
+id = "predict-layout"
+type = "predict"
+prompt = "What does this program print? Type every line."
+code = """
+module main;
+
+struct Record {
+    u8 kind;
+    u32 id;
+    u8 flag;
+    u16 port;
+}
+
+public Status(Error) main() {
+    println("{} {}", offsetof(Record, id), offsetof(Record, flag))?;
+    println("{} {}", offsetof(Record, port), sizeof(Record))?;
+    return Status::Ok;
+}
+"""
+expect = """
+4 8
+10 12
+"""
+explanation = "kind is at 0; id needs a multiple of 4 and sits at 4; flag follows at 8; port needs a multiple of 2, so it skips byte 9 and sits at 10. The fields end at 12, already a multiple of the alignment 4, so the size is 12."
+
+[[questions]]
+id = "count-padding"
+type = "trace"
+prompt = "The fields of `Record` add up to 1 + 4 + 1 + 2 = 8 bytes. How many bytes of the struct are padding? Answer with a number."
+code = """
+module main;
+
+struct Record {
+    u8 kind;
+    u32 id;
+    u8 flag;
+    u16 port;
+}
+
+public Status(Error) main() {
+    println("{}", sizeof(Record))?;
+    return Status::Ok;
+}
+"""
+expect = """
+12
+"""
+accept = ["4"]
+explanation = "The struct is 12 bytes and the fields need 8, so 4 bytes are padding: 3 after kind, 1 after flag. Ordering the fields id, port, kind, flag would bring the size down to 8."
+
+[[questions]]
+id = "step-bytes"
+type = "short"
+prompt = "`i64* p` holds an address. By how many bytes does `p + 3` differ from `p`? Answer with a number."
+accept = ["24"]
+explanation = "Pointer arithmetic counts elements, and an i64 is 8 bytes: 3 * 8 = 24."
+
+[[questions]]
+id = "past-the-end"
+type = "bug"
+prompt = "`sum` should add the three elements of `items`, but it returns 106. Which line is wrong?"
+code = """
+module main;
+
+struct Box {
+    i32[3] items;
+    i32 after;
+}
+
+i32 sum(const i32* p, usize n) {
+    const i32* end = p + n;
+    i32 total = 0;
+    while p <= end {
+        total += *p;
+        p++;
+    }
+    return total;
+}
+
+public Status(Error) main() {
+    Box box = Box { items = {1, 2, 3}, after = 100 };
+    println("{}", sum(&box.items[0], 3))?;
+    return Status::Ok;
+}
+"""
+lines = [12]
+fixed = """
+module main;
+
+struct Box {
+    i32[3] items;
+    i32 after;
+}
+
+i32 sum(const i32* p, usize n) {
+    const i32* end = p + n;
+    i32 total = 0;
+    while p != end {
+        total += *p;
+        p++;
+    }
+    return total;
+}
+
+public Status(Error) main() {
+    Box box = Box { items = {1, 2, 3}, after = 100 };
+    println("{}", sum(&box.items[0], 3))?;
+    return Status::Ok;
+}
+"""
+expect = """
+6
+"""
+explanation = "`end` is one past the last element. The loop condition `p <= end` lets p reach it, so the body reads the element after the array (here `after`, 100). Stop when p equals the end address: `p != end`."
+
+[[questions]]
+id = "pointer-type"
+type = "error"
+prompt = "Why does this program not compile?"
+code = """
+module main;
+
+public Status(Error) main() {
+    i64 big = 5;
+    i32* p = &big;
+    println("{}", *p)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "initializer type mismatch"
+choices = [
+    "A local variable cannot have its address taken",
+    "A pointer to i64 is not a pointer to i32: the type decides how many bytes are read",
+    "big must be declared const",
+    "p must be assigned before it is declared",
+]
+answer = 2
+why = [
+    "Taking the address of a local with & is fine.",
+    "",
+    "Constness is unrelated to the mismatch.",
+    "Declaration and initialization happen in one statement.",
+]
+explanation = "A pointer carries the type it reads and its element size. Treating the eight bytes of an i64 as an i32 would read half of it, so DC refuses the implicit conversion. An explicit cast exists, but then you take responsibility for the layout."
+
+[[questions]]
+id = "release-order"
+type = "order"
+prompt = "Put the body of `pop_one` in the order a safe pop needs: take the top node, copy its value, unlink it from the stack, lower the length, free the node, return the value."
+code = """
+    Node* node = stack.top;
+    i32 value = node.value;
+    stack.top = node.next;
+    stack.len -= 1;
+    alloc.destroy_item(node);
+    return value;
+"""
+example = "pop_order"
+explanation = "Everything that needs the node (its value and its next pointer) is read before destroy_item. After the free the node's memory is no longer yours, so even `node.value` would be a use after free. Returning the copied value is safe."
+
+[[questions]]
+id = "facts-64"
+type = "multi"
+prompt = "Which statements are true on a 64-bit target?"
+choices = [
+    "sizeof([]u8) is 16",
+    "sizeof(i32[4]) is 4",
+    "alignof(u64) is 8",
+    "The size of a struct is the sum of its field sizes",
+]
+answers = [1, 3]
+why = [
+    "",
+    "An array holds all its elements: i32[4] is 16 bytes.",
+    "",
+    "Padding can make it larger; only a struct without padding has exactly the sum.",
+]
+explanation = "A slice is a pointer plus a length (8 + 8). An i32[4] is four elements (16 bytes). A u64 needs an address divisible by 8. Structs include padding."
+
+[[cards]]
+id = "padding-bytes"
+front = "How do you count the padding in a struct?"
+back = "sizeof(S) minus the sum of the field sizes. Reordering the fields from the largest alignment to the smallest usually removes it."
+
+[[cards]]
+id = "end-address"
+front = "Which loop condition stops a pointer walk at the end of a block?"
+back = "p != end, where end is p + n. The end address is one past the last element and is never read."

@@ -1,0 +1,101 @@
+schema = 1
+id = "adv-interop/linking-modes"
+revision = 1
+title = "Static, dynamic and shared"
+summary = "What makes an executable static or dynamic, static archives, shared libraries written in DC, and how the loader finds them with -rpath and $ORIGIN."
+difficulty = "advanced"
+estimated_minutes = 15
+concepts = ["static", "dynamic", "shared library", "rpath", "ORIGIN", "NEEDED", "loader", "link_mode"]
+tags = ["lecture", "interop", "linking"]
+objectives = [
+    "Tell from the linked libraries whether dcc produces a static or a dynamic executable",
+    "Build a static archive and a shared library and link a program against each",
+    "Explain the difference between -L and -rpath and use $ORIGIN",
+]
+prerequisites = ["adv-interop/sort-with-qsort"]
+
+[[examples]]
+name = "exports"
+expect_stdout = """
+42
+10 20 30
+"""
+
+[[questions]]
+id = "which-kind"
+type = "choice"
+prompt = "A program links `-l:libm.so.6`. What does dcc produce?"
+choices = [
+    "A static executable that contains a copy of libm",
+    "A dynamic executable with an interpreter and a NEEDED entry for libm.so.6",
+    "An error: shared libraries need -dynamic",
+    "A shared library",
+]
+answer = 2
+why = [
+    "A shared object is never copied in; that is what makes it shared.",
+    "",
+    "-dynamic is only needed to force dynamic linking when nothing requires it.",
+    "A shared library is only produced with -shared.",
+]
+explanation = "Linking a shared object makes the executable dynamic by itself: it gets an interpreter header and a NEEDED entry, and the loader maps libm into the process before main runs."
+
+[[questions]]
+id = "loader-error"
+type = "choice"
+prompt = "The build succeeded with `-L. -lshim`, but running the program prints `error while loading shared libraries: libshim.so: cannot open shared object file`. What is missing?"
+choices = [
+    "A -fPIC flag when compiling the program",
+    "A run-time search directory, for example -rpath '$ORIGIN'",
+    "The declaration of the functions with @nomangle extern",
+    "A second -L option",
+]
+answer = 2
+why = [
+    "The program itself needs no -fPIC.",
+    "",
+    "A missing declaration is a compile error, long before the program runs.",
+    "-L only affects the build; the loader never reads it.",
+]
+explanation = "The linker found libshim.so through -L, but that directory is not stored in the executable. At startup the loader searches its own places. Recording a directory with -rpath (or runtime_paths in DPM) fixes it; $ORIGIN keeps the pair relocatable."
+
+[[questions]]
+id = "rpath-flag"
+type = "short"
+prompt = "Which dcc option records a directory for the loader to search at run time? Answer with the option name, for example -foo."
+accept = ["-rpath", "rpath"]
+explanation = "-rpath adds a DT_RUNPATH entry. In a DPM product the same setting is runtime_paths."
+
+[[questions]]
+id = "shared-rules"
+type = "multi"
+prompt = "Which statements about a shared library written in DC are true?"
+choices = [
+    "Its exported functions are marked @nomangle public",
+    "It can be built with -fwhole-program -flibdcext, like a program",
+    "It should not rely on println or Array, which come from libdcext",
+    "It is built with the -shared option",
+]
+answers = [1, 3, 4]
+why = [
+    "",
+    "A shared library cannot be built with -fwhole-program -flibdcext.",
+    "",
+    "",
+]
+explanation = "A library is built with -shared and exports plain C-named functions. Because it cannot include libdcext, it has no standard library behind it: keep it to computation and C calls."
+
+[[cards]]
+id = "static-or-dynamic"
+front = "What decides whether dcc produces a static or a dynamic executable?"
+back = "What you link: a shared object (.so), -rpath or -dynamic-linker make it dynamic; otherwise it stays static. -static allows only .a archives."
+
+[[cards]]
+id = "l-vs-rpath"
+front = "What is the difference between -L and -rpath?"
+back = "-L is a build-time search directory for the linker and is not recorded. -rpath is stored in the executable and searched by the loader at start; $ORIGIN is the executable's directory."
+
+[[cards]]
+id = "shared-dc"
+front = "How do you build a shared library in DC?"
+back = "dcc lib.dc -shared -o liblib.so, with exported functions marked @nomangle public. No -fwhole-program or -flibdcext, so no println or Array inside."

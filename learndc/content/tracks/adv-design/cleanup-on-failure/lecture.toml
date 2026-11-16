@@ -1,0 +1,183 @@
+schema = 1
+id = "adv-design/cleanup-on-failure"
+revision = 1
+title = "Cleanup on every failure path"
+summary = "Place cleanup with defer, hand ownership over safely and prove with an allocation-failure sweep that no failure path leaks."
+difficulty = "advanced"
+estimated_minutes = 24
+concepts = ["defer", "error paths", "resource leaks", "failure injection", "ownership hand-over", "allocator policy"]
+tags = ["lecture", "errors", "memory", "testing"]
+objectives = [
+    "Explain why cleanup written at the end of a function misses the early exits of ?",
+    "Run an operation with the Nth allocation failing, for every N, and check that allocations equal frees",
+    "Hand an owned value to the caller on success and release it on failure",
+]
+prerequisites = ["adv-design/layer-conversion"]
+
+[[examples]]
+name = "leak"
+expect_stdout = """
+manual cleanup
+clean run: 8 allocations, 8 frees
+fail #2: 1 blocks leaked
+fail #3: 2 blocks leaked
+fail #4: 2 blocks leaked
+fail #5: 2 blocks leaked
+fail #6: 2 blocks leaked
+fail #7: 2 blocks leaked
+fail #8: 2 blocks leaked
+leaking failure points: 7 of 8
+"""
+
+[[examples]]
+name = "sweep"
+expect_stdout = """
+sweep
+clean run: 8 allocations, 8 frees
+failure points tried: 8, leaking: 0
+"""
+
+[[examples]]
+name = "handover"
+expect_stdout = """
+handing over
+success: 40 items, 4 allocations, 3 frees
+after the caller frees: 4 allocations, 4 frees
+failure points tried: 4, leaking: 0
+"""
+
+[[questions]]
+id = "why-leaks"
+type = "choice"
+prompt = "Why does `squares.deinit(); doubles.deinit();` at the end of `build_two` leak when `doubles.push(...)?` fails?"
+choices = [
+    "The `?` returns immediately, so the two lines at the end never run",
+    "`deinit` cannot be called twice",
+    "`push` allocates a second block that `deinit` does not know",
+    "The compiler removes cleanup code that follows a `?`",
+]
+answer = 1
+why = [
+    "",
+    "Each array is released once; the problem is that neither release happens.",
+    "`deinit` frees the array's block; the problem is that it is never called.",
+    "The code is kept; the early return simply skips it.",
+]
+explanation = "A `?` that finds an error returns from the function at that point. Statements after it, including cleanup, are skipped. `defer` is attached to the scope, so it runs on every exit."
+
+[[questions]]
+id = "sweep-count"
+type = "predict"
+prompt = "`acquire` fails when its call number equals `fail_at`. The function releases correctly with `defer`. What does the sweep print?"
+code = """
+module main;
+
+struct Stats {
+    usize allocs;
+    usize frees;
+    usize fail_at;
+    usize calls;
+}
+
+bool acquire(Stats* stats) {
+    stats.calls += 1;
+    if stats.calls == stats.fail_at {
+        return false;
+    }
+    stats.allocs += 1;
+    return true;
+}
+
+void release(Stats* stats) {
+    stats.frees += 1;
+}
+
+bool two_resources(Stats* stats) {
+    if !acquire(stats) {
+        return false;
+    }
+    defer release(stats);
+    if !acquire(stats) {
+        return false;
+    }
+    defer release(stats);
+    return true;
+}
+
+public Status(Error) main() {
+    Stats clean = { allocs = 0, frees = 0, fail_at = 0, calls = 0 };
+    bool first = two_resources(&clean);
+    println("clean: {} allocs, {} frees, ok {}", clean.allocs, clean.frees, first)?;
+    for usize n in 1..=clean.calls {
+        Stats run = { allocs = 0, frees = 0, fail_at = n, calls = 0 };
+        bool ok = two_resources(&run);
+        println("fail {}: ok {}, {} allocs, {} frees", n, ok, run.allocs, run.frees)?;
+    }
+    return Status::Ok;
+}
+"""
+expect = """
+clean: 2 allocs, 2 frees, ok true
+fail 1: ok false, 0 allocs, 0 frees
+fail 2: ok false, 1 allocs, 1 frees
+"""
+explanation = "The clean run makes two acquisitions, so there are two failure points. If the first fails, nothing was acquired and nothing is released. If the second fails, the first is already protected by its `defer` and is released on the early return: one allocation, one free. In both runs allocations equal frees."
+
+[[questions]]
+id = "double-free-bug"
+type = "bug"
+prompt = "`make` should return an array to the caller on success and free it on failure. As written it frees the array on success too, so the caller reads freed memory. Which line causes it?"
+code = """
+module main;
+
+Result(Array(i32), AllocError) make(i32 count) {
+    Array(i32) out = {};
+    defer out.deinit();
+    for i32 n in 0..count {
+        out.push(n)?;
+    }
+    return Result::Ok(out);
+}
+
+public Status(Error) main() {
+    Array(i32) data = make(3).unwrap();
+    println("{}", data.len())?;
+    return Status::Ok;
+}
+"""
+lines = [5]
+explanation = "`defer out.deinit();` runs on every exit, including the successful `return`, so the returned array's block is released before the caller sees it. The cleanup must be conditional: set a `handed_over` flag after the last fallible step and free only while it is false, inside a deferred block."
+
+[[questions]]
+id = "flag-place"
+type = "choice"
+prompt = "In the hand-over pattern, where must `handed_over = true;` be placed?"
+choices = [
+    "After the last fallible step, immediately before returning the value",
+    "Right after the array is created, before the loop",
+    "Inside the deferred block, after `out.deinit()`",
+    "Anywhere: the flag is only documentation",
+]
+answer = 1
+why = [
+    "",
+    "Then a failing `push` returns with the flag set, the deferred block skips the cleanup and the array leaks.",
+    "The deferred block only runs at the end; setting the flag there changes nothing for the return value.",
+    "The deferred block reads the flag to decide whether to free, so the position matters.",
+]
+explanation = "The flag says that the caller now owns the value. It may only become true once nothing can fail any more. Any `?` after it would leak, and any early return before it frees the value, which is what is wanted."
+
+[[cards]]
+id = "defer-rule"
+front = "Where does cleanup code go, and why?"
+back = "In a `defer` right after the resource is acquired. It runs on every exit of the block, including the early return of `?`, in reverse order of acquisition."
+
+[[cards]]
+id = "sweep-rule"
+front = "How do you test that no failure path leaks?"
+back = "Run the operation once to count the allocations. Then run it again for each N with the Nth allocation failing; each run must return an error and leave `allocs == frees`."
+
+[[cards]]
+id = "handover-rule"
+front = "How does a function give ownership to its caller safely?"
+back = "A `handed_over` flag, set after the last fallible step, and a deferred block that frees the resource only while the flag is false."

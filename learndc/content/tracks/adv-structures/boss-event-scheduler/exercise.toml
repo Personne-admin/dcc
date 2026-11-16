@@ -1,0 +1,237 @@
+schema = 1
+id = "adv-structures/boss-event-scheduler"
+revision = 1
+title = "The Event Scheduler"
+summary = "Build a discrete-event scheduler from a heap, a log, a binary search, a counting map and a stable sort."
+kind = "challenge"
+difficulty = "advanced"
+estimated_minutes = 100
+concepts = ["priority queue", "binary heap", "binary search", "stable sort", "Map", "Array", "tiebreaker", "simulation"]
+tags = ["boss", "data structures", "algorithms"]
+objectives = [
+    "Drive a simulation from a priority queue ordered by time with a deterministic tiebreaker",
+    "Query a time-ordered log with the library's binary search bounds",
+    "Count by key with a Map and regroup a log with a stable sort",
+]
+entry_file = "src/main.dc"
+product = "scheduler"
+prerequisites = ["adv-structures/min-heap"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 5
+story = """
+The control room of a small observatory runs ticks, syncs and alarms, and
+nobody can say in which order they really fire: the old scheduler kept the
+events in an array and sorted it before every step. Its log also cannot answer
+"how many things happened between 20 and 30?" without walking all of it. You
+are replacing it with a heap-driven scheduler, a log that can be searched by
+time and a report that counts and regroups what happened.
+"""
+
+[[stages]]
+id = "legacy"
+title = "Read the old scheduler"
+summary = "Find the off-by-one in the old time query and say what its array queue costs."
+questions = ["late-events", "legacy-cost"]
+hints = ["The query wants events strictly after a time. Look at which comparison separates the two halves of the search."]
+
+[[stages]]
+id = "simulate"
+title = "Schedule and run"
+summary = "schedule queues an event with the next sequence number; run_until fires every event up to a time, logs it and re-schedules periodic ones."
+hints = [
+    "Build an `Event` with the current `*next_seq` as `seq`, push it with `heap::heap_push(queue, event, events::by_time_then_seq)` and increase `*next_seq` only if the push worked.",
+    "run_until loops: peek at the front with `heap::heap_peek`, stop when the queue is empty or its time is above the limit, pop with `heap::heap_pop(queue, events::by_time_then_seq)`, push the event onto the log with `log.push(fired)`.",
+    "After logging, a fired event with `period > 0` calls `schedule(queue, next_seq, fired.time + fired.period, fired.kind, fired.period)`. Return the first failing status from any step.",
+]
+
+[[stages]]
+id = "window"
+title = "Events in a time window"
+summary = "count_between counts the log entries with time from..=to using binary search on the time-ordered log."
+hints = [
+    "The log is ordered by time, so the answer is the distance between two positions: the first event not before `from` and the first event after `to`.",
+    "`std::sort::lower_bound_by(log, &key, events::by_time)` and `std::sort::upper_bound_by(...)` take a key event whose `time` is the value to search for and the comparator `events::by_time`.",
+    "Make `low_key` with `time = from` and `high_key` with `time = to`. The count is `upper - lower`, or 0 when `to < from` makes it negative.",
+]
+
+[[stages]]
+id = "kinds"
+title = "Count and regroup by kind"
+summary = "count_kinds adds the events of a log into a Map by kind, sort_by_kind regroups the log by kind while keeping the time order inside a kind."
+hints = [
+    "`counts.get(kind)` returns an `Optional(u32)`; `some_or(0)` gives the current count. `counts.put(kind, n)` returns a `Result` that can carry an allocation error.",
+    "For the regrouping use a stable sort with `events::by_kind`: `std::sort::sort_stable_alloc(&allocator, log, events::by_kind)` with `std::os::heap::Heap allocator = {};`. A stable sort keeps the time order of events of the same kind.",
+    "Return the allocation errors: `Result(Optional(u32), AllocError) stored = counts.put(...); if stored.is_err() { return stored.unwrap_err(); }`.",
+]
+
+[[stages]]
+id = "report"
+title = "The report"
+summary = "main.dc runs the whole scenario; it prints exactly the expected report once every part works."
+hints = [
+    "main.dc is complete. If this stage fails and the others pass, compare the first differing line: a wrong order in the log means the heap comparator or the sequence numbers, a wrong count means count_between.",
+    "The first lines of the log are `t=5 sync`, `t=10 tick`, `t=20 sync`, `t=20 tick`. The sync at 20 comes first because its successor was scheduled (and numbered) before the tick's.",
+]
+
+[[stages]]
+id = "cancel"
+title = "Bonus: cancel a kind"
+summary = "cancel_kind removes every queued event of a kind, keeps the queue a valid heap and returns how many it removed."
+optional = true
+hints = ["Collect the events to keep in a second array, clear the queue and push them back with `heap::heap_push`. Count what you left out."]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "schedule and run_until, in order, periodic and bounded"
+stage = "simulate"
+harness = "checks/run_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "count_between on every window"
+stage = "window"
+harness = "checks/window_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "count_kinds and a stable sort_by_kind"
+stage = "kinds"
+harness = "checks/kinds_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "The report"
+stage = "report"
+expect_stdout = """
+event scheduler
+scheduled 4
+fired 9 events, 2 still waiting
+  t=5 sync
+  t=10 tick
+  t=20 sync
+  t=20 tick
+  t=25 alarm
+  t=30 alarm
+  t=30 tick
+  t=35 sync
+  ...
+events between 20 and 30: 5
+events between 41 and 90: 0
+ticks 4, alarms 2, syncs 3
+by kind:
+  t=10 tick
+  t=20 tick
+  t=30 tick
+  t=40 tick
+  ...
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Events at the same time fire in the order they were scheduled, and the successor of a periodic event is scheduled when it fires."
+
+[[checks]]
+kind = "harness"
+name = "cancel_kind keeps a valid heap"
+stage = "cancel"
+harness = "checks/cancel_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[questions]]
+id = "late-events"
+type = "bug"
+prompt = "The old `first_after` should return the index of the first event strictly after time `t`, so that `view.len - first_after(view, 3)` counts the events after time 3, which are 2 here. It prints 4. Which line is the bug?"
+code = """
+module main;
+
+struct Event {
+    u32 time;
+}
+
+usize first_after([]const Event log, u32 t) {
+    usize low = 0;
+    usize high = log.len;
+    while low < high {
+        usize mid = low + (high - low) / 2;
+        if log[mid].time < t {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    return low;
+}
+
+public Status(Error) main() {
+    Event[5] log = { { time = 1 }, { time = 3 }, { time = 3 }, { time = 5 }, { time = 8 } };
+    []const Event view = log;
+    println("{}", view.len - first_after(view, 3))?;
+    return Status::Ok;
+}
+"""
+lines = [12]
+fixed = """
+module main;
+
+struct Event {
+    u32 time;
+}
+
+usize first_after([]const Event log, u32 t) {
+    usize low = 0;
+    usize high = log.len;
+    while low < high {
+        usize mid = low + (high - low) / 2;
+        if log[mid].time <= t {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    return low;
+}
+
+public Status(Error) main() {
+    Event[5] log = { { time = 1 }, { time = 3 }, { time = 3 }, { time = 5 }, { time = 8 } };
+    []const Event view = log;
+    println("{}", view.len - first_after(view, 3))?;
+    return Status::Ok;
+}
+"""
+expect = "2\n"
+explanation = "With `<` the search finds the first event that is not before `t`: the lower bound, which is the first 3. Events equal to `t` are therefore counted as 'after'. To skip them the test must be `<=`, which gives the upper bound. This is exactly the difference between `lower_bound_by` and `upper_bound_by`."
+
+[[questions]]
+id = "legacy-cost"
+type = "choice"
+prompt = "The old scheduler sorted its whole event array before every step. For n events and n steps, what is the cost with a good sort, compared with a heap?"
+choices = [
+    "About n * n log n comparisons against about n log n for the heap",
+    "The same, since both sort the events",
+    "About n comparisons against about n log n for the heap",
+    "About n * n comparisons against about n for the heap",
+]
+answer = 1
+why = [
+    "",
+    "The heap never sorts everything: it keeps just enough order to know the front.",
+    "One sort already costs more than n comparisons.",
+    "A heap operation costs about log n, so n operations cost about n log n, not n.",
+]
+explanation = "One sort costs about n log n, and doing it for each of n steps costs n times that. A heap pays about log n per push and per pop, so n steps cost about n log n in total."

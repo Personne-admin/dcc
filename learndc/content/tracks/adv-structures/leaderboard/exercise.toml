@@ -1,0 +1,55 @@
+schema = 1
+id = "adv-structures/leaderboard"
+revision = 1
+title = "A stable leaderboard"
+summary = "Write a generic stable insertion sort with a comparator, a two-key comparator and a ranking pass that gives tied players the same rank."
+kind = "complete-program"
+difficulty = "advanced"
+estimated_minutes = 35
+concepts = ["insertion sort", "comparator", "stable sort", "two-key ordering", "ranking with ties"]
+tags = ["algorithms", "sorting"]
+objectives = [
+    "Write a generic insertion sort over a comparator function pointer that keeps equal items in order",
+    "Write a comparator that orders by score descending and then by name",
+    "Assign competition ranks to sorted data so that ties share a rank",
+]
+entry_file = "src/main.dc"
+product = "leaderboard"
+prerequisites = ["adv-structures/sorting"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The leaderboard"
+expect_stdout = """
+leaderboard
+1 kim 95
+1 otto 95
+3 ada 80
+3 bo 80
+3 mira 80
+6 lena 70
+7 ivo 60
+7 zed 60
+same as std::sort: true
+score order, ties by arrival: otto kim mira ada bo lena zed ivo
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Ties share the rank of the first tied place, and the next rank skips: 1 1 3 3 3 6 7 7. The last line needs a stable sort."
+
+[[checks]]
+kind = "harness"
+name = "The sort, the comparator and the ranks on other data"
+harness = "checks/board_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Shift an item only while the left neighbour compares strictly greater. For ranks, compare each score with the previous one."

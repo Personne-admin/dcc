@@ -1,0 +1,44 @@
+module main;
+
+import queue;
+import std::mem;
+using queue::Queue;
+
+Status(Error) report([]const char label, const Queue(i32)* jobs) {
+    Optional(i32) next = queue::peek(jobs);
+    if next.is_some() {
+        println("{}: {} waiting, next {}", label, queue::size(jobs), next.unwrap_some())?;
+    } else {
+        println("{}: {} waiting, none", label, queue::size(jobs))?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("print queue")?;
+    u8[512] backing = {};
+    std::mem::FixedBuffer buffer = std::mem::new_fixed_buffer(backing[0..512]);
+    std::mem::FixedHandle alloc = std::mem::borrow(&buffer);
+
+    Queue(i32) jobs = {};
+    defer queue::clear(&jobs, &alloc);
+
+    report("start", &jobs)?;
+    for i32 id in 101..=105 {
+        queue::push(&jobs, &alloc, id)?;
+    }
+    report("after five", &jobs)?;
+    i32 first = queue::pop(&jobs, &alloc).unwrap_some();
+    i32 second = queue::pop(&jobs, &alloc).unwrap_some();
+    println("printed {} and {}", first, second)?;
+    queue::push(&jobs, &alloc, 106)?;
+    report("after two prints", &jobs)?;
+    while queue::size(&jobs) > 0 {
+        print(" {}", queue::pop(&jobs, &alloc).unwrap_some())?;
+    }
+    println("")?;
+    report("drained", &jobs)?;
+    queue::push(&jobs, &alloc, 107)?;
+    report("reused", &jobs)?;
+    return Status::Ok;
+}

@@ -1,0 +1,33 @@
+module env_check;
+
+import std::slice;
+import native;
+
+using native::env_or;
+
+@nomangle extern i32 setenv(const char* name, const char* value, i32 overwrite);
+@nomangle extern i32 unsetenv(const char* name);
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    unsetenv("NATIVE_BRIDGE_CHECK\0".ptr);
+    expect(std::slice::eq(env_or("NATIVE_BRIDGE_CHECK", "fallback"), "fallback"), "an unset variable gives the fallback", &failures);
+    setenv("NATIVE_BRIDGE_CHECK\0".ptr, "value\0".ptr, 1);
+    expect(std::slice::eq(env_or("NATIVE_BRIDGE_CHECK", "fallback"), "value"), "a set variable gives its value", &failures);
+    setenv("NATIVE_BRIDGE_CHECK\0".ptr, "\0".ptr, 1);
+    []const char empty = env_or("NATIVE_BRIDGE_CHECK", "fallback");
+    expect(empty.len == 0, "a variable set to the empty text is not replaced by the fallback", &failures);
+    expect(std::slice::eq(env_or("", "fallback"), "fallback"), "an empty name gives the fallback", &failures);
+    expect(std::slice::eq(env_or("a\0b", "fallback"), "fallback"), "a name with a zero byte gives the fallback", &failures);
+    unsetenv("NATIVE_BRIDGE_CHECK\0".ptr);
+    return failures;
+}

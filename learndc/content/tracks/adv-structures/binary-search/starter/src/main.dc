@@ -1,0 +1,33 @@
+module main;
+
+import counter;
+import search;
+using counter::Counter;
+
+public Status(Error) main() {
+    println("sorted versions")?;
+    i32[8] data = { 1, 3, 3, 3, 5, 8, 8, 13 };
+    []const i32 items = data[0..8];
+    Counter counter = {};
+
+    println("lower_bound(3) = {}", search::lower_bound(items, 3, &counter))?;
+    println("upper_bound(3) = {}", search::upper_bound(items, 3, &counter))?;
+    println("count of 3: {}", search::count_of(items, 3, &counter))?;
+    println("count of 8: {}", search::count_of(items, 8, &counter))?;
+    println("count of 4: {}", search::count_of(items, 4, &counter))?;
+    println("insert 4 at {}", search::lower_bound(items, 4, &counter))?;
+
+    Optional(usize) hit = search::find_first(items, 13, &counter);
+    if hit.is_some() {
+        println("find 13 at {}", hit.unwrap_some())?;
+    } else {
+        println("find 13: none")?;
+    }
+    Optional(usize) miss = search::find_first(items, 6, &counter);
+    if miss.is_some() {
+        println("find 6 at {}", miss.unwrap_some())?;
+    } else {
+        println("find 6: none")?;
+    }
+    return Status::Ok;
+}

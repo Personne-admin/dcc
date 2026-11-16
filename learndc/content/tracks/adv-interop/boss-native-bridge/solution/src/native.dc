@@ -1,0 +1,170 @@
+module native;
+
+import cstr;
+
+using cstr::{ CTextError, to_c, from_c };
+
+@nomangle extern i64 strtol(const char* text, char** end, i32 base);
+@nomangle extern i32* __errno_location();
+@nomangle extern f64 sqrt(f64 x);
+@nomangle extern f64 log(f64 x);
+@nomangle extern f64 hypot(f64 x, f64 y);
+@nomangle extern void qsort_r(void* base, usize count, usize size, i32(*)(const void*, const void*, void*) compare, void* context);
+@nomangle extern void* fopen(const char* path, const char* mode);
+@nomangle extern usize fread(void* buffer, usize size, usize count, void* file);
+@nomangle extern i32 ferror(void* file);
+@nomangle extern i32 fclose(void* file);
+@nomangle extern const char* getenv(const char* name);
+
+public using i32 ENOENT = 2;
+public using i32 EACCES = 13;
+public using i32 EISDIR = 21;
+public using i32 ERANGE = 34;
+
+public enum ParseError {
+    Empty,
+    NotANumber,
+    TrailingText,
+    OutOfRange,
+}
+
+public enum MathError {
+    Domain,
+}
+
+public enum FileError {
+    NotFound,
+    PermissionDenied,
+    IsDirectory,
+    TooBig,
+    BadPath,
+    Other,
+}
+
+public Result(i64, ParseError) parse_int([]const char text) {
+    if text.len == 0 {
+        return ParseError::Empty;
+    }
+    char[64] buffer = {};
+    Result(const char*, CTextError) converted = to_c(text, buffer[0..64]);
+    if converted.is_err() {
+        return ParseError::NotANumber;
+    }
+    const char* start = converted.unwrap();
+    char* end = null;
+    *__errno_location() = 0;
+    i64 value = strtol(start, &end, 10);
+    i32 code = *__errno_location();
+    if end as usize == start as usize {
+        return ParseError::NotANumber;
+    }
+    if code == ERANGE {
+        return ParseError::OutOfRange;
+    }
+    if *end != '\0' {
+        return ParseError::TrailingText;
+    }
+    return Result::Ok(value);
+}
+
+struct Order {
+    bool descending;
+}
+
+i32 compare_i32(const void* a, const void* b, void* context) {
+    Order* order = context as Order*;
+    i32 x = *(a as const i32*);
+    i32 y = *(b as const i32*);
+    i32 sign = 0;
+    if x < y {
+        sign = -1;
+    }
+    if x > y {
+        sign = 1;
+    }
+    if order.descending {
+        return -sign;
+    }
+    return sign;
+}
+
+public void sort_values([]i32 values, bool descending) {
+    Order order = Order { descending = descending };
+    qsort_r(values.ptr as void*, values.len, sizeof(i32), compare_i32, &order as void*);
+}
+
+public Result(f64, MathError) checked_sqrt(f64 x) {
+    if x != x || x < 0.0 {
+        return MathError::Domain;
+    }
+    return Result::Ok(sqrt(x));
+}
+
+public Result(f64, MathError) checked_log(f64 x) {
+    if x != x || x <= 0.0 {
+        return MathError::Domain;
+    }
+    return Result::Ok(log(x));
+}
+
+public f64 distance(f64 x1, f64 y1, f64 x2, f64 y2) {
+    return hypot(x2 - x1, y2 - y1);
+}
+
+Result(usize, FileError) file_error(i32 code) {
+    if code == ENOENT {
+        return FileError::NotFound;
+    }
+    if code == EACCES {
+        return FileError::PermissionDenied;
+    }
+    if code == EISDIR {
+        return FileError::IsDirectory;
+    }
+    return FileError::Other;
+}
+
+public Result(usize, FileError) read_file([]const char path, []u8 buffer) {
+    char[256] c_path = {};
+    Result(const char*, CTextError) converted = to_c(path, c_path[0..256]);
+    if converted.is_err() {
+        return FileError::BadPath;
+    }
+    *__errno_location() = 0;
+    void* file = fopen(converted.unwrap(), "rb\0".ptr);
+    if file == null {
+        return file_error(*__errno_location());
+    }
+    defer fclose(file);
+    usize total = 0;
+    while total < buffer.len {
+        usize got = fread((buffer.ptr + total) as void*, 1, buffer.len - total, file);
+        if got == 0 {
+            break;
+        }
+        total += got;
+    }
+    if ferror(file) != 0 {
+        return file_error(*__errno_location());
+    }
+    if total == buffer.len {
+        u8[1] probe = {};
+        if fread(&probe[0] as void*, 1, 1, file) == 1 {
+            return FileError::TooBig;
+        }
+    }
+    return Result::Ok(total);
+}
+
+public []const char env_or([]const char name, []const char fallback) {
+    char[128] buffer = {};
+    Result(const char*, CTextError) converted = to_c(name, buffer[0..128]);
+    if converted.is_err() {
+        return fallback;
+    }
+    const char* value = getenv(converted.unwrap());
+    if value == null {
+        return fallback;
+    }
+    return from_c(value);
+}

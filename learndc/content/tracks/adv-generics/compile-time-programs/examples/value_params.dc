@@ -1,0 +1,27 @@
+module main;
+
+T sum_first(T, usize N)(T* items) {
+    T total = {};
+    for usize i = 0; i < N; i++ {
+        total += items[i];
+    }
+    return total;
+}
+
+[]const char size_class(usize bytes)() {
+    static if bytes <= 1 {
+        return "tiny";
+    } else static if bytes <= 4 {
+        return "small";
+    } else {
+        return "big";
+    }
+}
+
+public Status(Error) main() {
+    i32[5] data = { 10, 20, 30, 40, 50 };
+    println("{}", sum_first!(i32, 3)(&data[0]))?;
+    println("{}", sum_first!(i32, 5)(&data[0]))?;
+    println("{} {} {}", size_class!1(), size_class!(sizeof(f32))(), size_class!8())?;
+    return Status::Ok;
+}

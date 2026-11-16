@@ -1,0 +1,114 @@
+module arena;
+
+public import std::alloc;
+
+import core::slice;
+
+using std::alloc::{ AllocError, AllocatorPolicy };
+
+public enum ArenaError {
+    InvalidAlignment,
+    OutOfSpace,
+}
+
+public struct Arena {
+    []u8 memory;
+    usize used;
+    usize peak;
+    usize allocations;
+}
+
+public struct Stats {
+    usize used;
+    usize remaining;
+    usize peak;
+    usize allocations;
+}
+
+public Arena new_arena([]u8 memory) {
+    return Arena { memory = memory, used = 0, peak = 0, allocations = 0 };
+}
+
+public bool is_power_of_two(usize n) {
+    return n != 0 && (n & (n - 1)) == 0;
+}
+
+public usize align_up(usize value, usize align) {
+    return (value + align - 1) & ~(align - 1);
+}
+
+public Result([]u8, ArenaError) alloc_bytes(Arena* arena, usize size, usize align) {
+    if !is_power_of_two(align) {
+        return ArenaError::InvalidAlignment;
+    }
+    usize base = arena.memory.ptr as usize;
+    usize start = align_up(base + arena.used, align) - base;
+    if start > arena.memory.len || size > arena.memory.len - start {
+        return ArenaError::OutOfSpace;
+    }
+    arena.used = start + size;
+    if arena.used > arena.peak {
+        arena.peak = arena.used;
+    }
+    arena.allocations += 1;
+    return Result::Ok(core::slice::from_raw(arena.memory.ptr + start, size));
+}
+
+public Result(T*, ArenaError) alloc_one(T)(Arena* arena) {
+    Result([]u8, ArenaError) raw = alloc_bytes(arena, sizeof(T), alignof(T));
+    if raw.is_err() {
+        return raw.unwrap_err();
+    }
+    return Result::Ok(raw.unwrap().ptr as T*);
+}
+
+public Result([]T, ArenaError) alloc_many(T)(Arena* arena, usize count) {
+    if sizeof(T) != 0 && count > (~(0 as usize)) / sizeof(T) {
+        return ArenaError::OutOfSpace;
+    }
+    Result([]u8, ArenaError) raw = alloc_bytes(arena, count * sizeof(T), alignof(T));
+    if raw.is_err() {
+        return raw.unwrap_err();
+    }
+    return Result::Ok(core::slice::from_raw(raw.unwrap().ptr as T*, count));
+}
+
+public void reset(Arena* arena) {
+    arena.used = 0;
+    arena.allocations = 0;
+}
+
+public Stats stats(const Arena* arena) {
+    return Stats {
+        used = arena.used,
+        remaining = arena.memory.len - arena.used,
+        peak = arena.peak,
+        allocations = arena.allocations,
+    };
+}
+
+public struct ArenaHandle {
+    Arena* state;
+}
+
+public ArenaHandle handle_of(Arena* arena) {
+    return ArenaHandle { state = arena };
+}
+
+public Result([]u8, AllocError) allocate(const ArenaHandle* self, usize len, usize align) {
+    Result([]u8, ArenaError) block = alloc_bytes(self.state, len, align);
+    if block.is_ok() {
+        return Result::Ok(block.unwrap());
+    }
+    if block.unwrap_err() == ArenaError::InvalidAlignment {
+        return AllocError::InvalidAlignment;
+    }
+    return AllocError::OutOfMemory;
+}
+
+public bool resize_in_place(const ArenaHandle* self, []u8 block, usize new_bytes, usize align) {
+    return false;
+}
+
+public void free(const ArenaHandle* self, []u8 block, usize align) {
+}

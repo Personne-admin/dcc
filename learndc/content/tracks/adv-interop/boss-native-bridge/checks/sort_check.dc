@@ -1,0 +1,61 @@
+module sort_check;
+
+import native;
+
+using native::sort_values;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+bool equal([]const i32 a, []const i32 b) {
+    if a.len != b.len {
+        return false;
+    }
+    for usize i = 0; i < a.len; i++ {
+        if a[i] != b[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    i32[6] ascending = {5, -3, 9, 0, 9, 2};
+    sort_values(ascending[0..6], false);
+    i32[6] expected_up = {-3, 0, 2, 5, 9, 9};
+    expect(equal(ascending[0..6], expected_up[0..6]), "ascending order", &failures);
+
+    i32[6] descending = {5, -3, 9, 0, 9, 2};
+    sort_values(descending[0..6], true);
+    i32[6] expected_down = {9, 9, 5, 2, 0, -3};
+    expect(equal(descending[0..6], expected_down[0..6]), "descending order", &failures);
+
+    i32[4] extreme = {2147483647, -2147483647, 0, -1};
+    sort_values(extreme[0..4], false);
+    i32[4] expected_extreme = {-2147483647, -1, 0, 2147483647};
+    expect(equal(extreme[0..4], expected_extreme[0..4]), "values near the limits of i32 sort correctly", &failures);
+
+    i32[5] part = {50, 40, 30, 20, 10};
+    sort_values(part[1..4], false);
+    i32[5] expected_part = {50, 20, 30, 40, 10};
+    expect(equal(part[0..5], expected_part[0..5]), "only the given slice is sorted", &failures);
+
+    i32[1] one = {7};
+    sort_values(one[0..1], true);
+    sort_values(one[0..0], true);
+    expect(one[0] == 7, "one element and no elements", &failures);
+
+    i32[3] sorted = {1, 2, 3};
+    sort_values(sorted[0..3], false);
+    i32[3] same = {1, 2, 3};
+    expect(equal(sorted[0..3], same[0..3]), "an already sorted slice stays sorted", &failures);
+    return failures;
+}

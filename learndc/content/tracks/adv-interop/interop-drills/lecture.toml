@@ -1,0 +1,180 @@
+schema = 1
+id = "adv-interop/interop-drills"
+revision = 1
+kind = "drill"
+title = "Interop drills"
+summary = "Translate C prototypes, predict struct layouts, guard against null, read pointer errors and sort link problems from run-time problems."
+difficulty = "advanced"
+estimated_minutes = 20
+concepts = ["extern", "C types", "struct layout", "null", "void*", "link errors", "C strings"]
+tags = ["drill", "interop"]
+objectives = [
+    "Translate a C prototype into a DC extern declaration",
+    "Predict the layout of a struct that mirrors a C struct",
+    "Recognize which interop mistakes the linker reports and which only misbehave at run time",
+]
+prerequisites = ["adv-interop/linking-modes"]
+
+[[questions]]
+id = "translate-prototype"
+type = "choice"
+prompt = "Which DC declaration matches the C prototype `size_t fill(unsigned char* buffer, size_t length, int value);`?"
+choices = [
+    "@nomangle extern i32 fill(u8* buffer, i32 length, i32 value);",
+    "@nomangle extern usize fill(u8* buffer, usize length, i32 value);",
+    "@nomangle extern usize fill(char* buffer, usize length, u32 value);",
+    "extern usize fill(u8* buffer, usize length, i32 value);",
+]
+answer = 2
+why = [
+    "size_t is usize (64 bits), not i32, and the declaration would read half of the result.",
+    "",
+    "unsigned char is u8 and int is i32; char and u32 are different types.",
+    "Without @nomangle the linker looks for a mangled name and reports an undefined symbol.",
+]
+explanation = "size_t is usize, unsigned char* is u8*, int is i32, and @nomangle keeps the symbol name fill."
+
+[[questions]]
+id = "predict-record"
+type = "predict"
+prompt = "A C library describes `struct { int id; double value; unsigned char kind; }`. What does the matching DC struct print?"
+code = """
+module main;
+
+struct Record {
+    i32 id;
+    f64 value;
+    u8 kind;
+}
+
+public Status(Error) main() {
+    println("{} {}", offsetof(Record, value), offsetof(Record, kind))?;
+    println("{} {}", sizeof(Record), alignof(Record))?;
+    return Status::Ok;
+}
+"""
+expect = """
+8 16
+24 8
+"""
+explanation = "id takes bytes 0 to 3 and four bytes of padding follow, because the double needs a multiple of 8. kind sits at 16. The fields end at 17, and the size is rounded up to the alignment 8: 24."
+
+[[questions]]
+id = "null-guard"
+type = "bug"
+prompt = "`c_length` is used on a pointer returned by a C function that may return null. The program crashes. Which line must change?"
+code = """
+module main;
+
+usize c_length(const char* text) {
+    usize n = 0;
+    while text[n] != '\\0' {
+        n++;
+    }
+    return n;
+}
+
+public Status(Error) main() {
+    const char* value = null;
+    println("{}", c_length(value))?;
+    return Status::Ok;
+}
+"""
+lines = [4]
+fixed = """
+module main;
+
+usize c_length(const char* text) {
+    if text == null {
+        return 0;
+    }
+    usize n = 0;
+    while text[n] != '\\0' {
+        n++;
+    }
+    return n;
+}
+
+public Status(Error) main() {
+    const char* value = null;
+    println("{}", c_length(value))?;
+    return Status::Ok;
+}
+"""
+expect = """
+0
+"""
+explanation = "The function reads text[0] without asking whether text is null, and a null pointer has nothing to read. Functions such as getenv return null to mean 'nothing', so every consumer of C text tests for null first, as from_c did."
+
+[[questions]]
+id = "no-implicit-void"
+type = "error"
+prompt = "Why does this call not compile?"
+code = """
+module main;
+
+@nomangle public void fill_zero(void* block, usize bytes) {
+    u8* p = block as u8*;
+    for usize i = 0; i < bytes; i++ {
+        p[i] = 0;
+    }
+}
+
+public Status(Error) main() {
+    i32 value = 7;
+    fill_zero(&value, sizeof(i32));
+    println("{}", value)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "no matching call for `fill_zero`"
+choices = [
+    "fill_zero must be called with a literal",
+    "An i32* does not convert to void* implicitly: the call needs `&value as void*`",
+    "A void* parameter cannot be used in DC",
+    "sizeof(i32) is not a usize",
+]
+answer = 2
+why = [
+    "Variables may be passed; the problem is the type.",
+    "",
+    "void* parameters are common in C interfaces and fine in DC.",
+    "sizeof gives a usize.",
+]
+explanation = "DC does not convert a typed pointer to void* behind your back. Write the cast: it shows the reader that type information is being erased."
+
+[[questions]]
+id = "link-or-runtime"
+type = "multi"
+prompt = "Which of these mistakes does the linker report, so that the program is never produced?"
+choices = [
+    "Linking `-lnosuchlib` with a library that is not installed",
+    "Declaring a C function that none of the linked libraries defines",
+    "Declaring `size_t` as `i32` for a function that really returns size_t",
+    "Leaving @nomangle off an extern declaration",
+]
+answers = [1, 2, 4]
+why = [
+    "",
+    "",
+    "The symbol exists and links; the program quietly uses 32 bits of a 64-bit result.",
+    "",
+]
+explanation = "The linker checks names and files: a missing library, a missing symbol and a wrongly mangled symbol name all stop the build. It cannot check types, so a wrong type links cleanly and misbehaves while the program runs."
+
+[[questions]]
+id = "buffer-size"
+type = "short"
+prompt = "DC text of 7 characters is copied into a buffer for C, with its terminator. What is the smallest buffer size in bytes? Answer with a number."
+accept = ["8"]
+explanation = "Seven characters and one terminating zero: 8 bytes. The check in to_c is text.len >= buffer.len, which refuses a buffer of exactly 7."
+
+[[cards]]
+id = "link-vs-runtime"
+front = "Which interop mistakes does the linker catch, and which does it miss?"
+back = "It catches missing libraries, missing symbols and wrongly mangled names. It cannot check types, so a wrong declared type links and misbehaves at run time."
+
+[[cards]]
+id = "void-cast"
+front = "How do you pass a typed pointer where C wants a void*?"
+back = "Cast explicitly: &value as void* (or as const void*). DC does not convert implicitly."

@@ -1,0 +1,35 @@
+module sched;
+
+public import events;
+import heap;
+public import std::map;
+using std::map::Map;
+import std::sort;
+import std::os::heap;
+public import std::alloc;
+using events::Event;
+using std::alloc::AllocError;
+
+public Status(AllocError) schedule(Array(Event)* queue, u32* next_seq, u32 time, u32 kind, u32 period) {
+    return Status::Ok;
+}
+
+public Status(AllocError) run_until(Array(Event)* queue, u32* next_seq, u32 limit, Array(Event)* log) {
+    return Status::Ok;
+}
+
+public usize count_between([]const Event log, u32 from, u32 to) {
+    return 0;
+}
+
+public Status(AllocError) count_kinds([]const Event log, Map(u32, u32)* counts) {
+    return Status::Ok;
+}
+
+public Status(AllocError) sort_by_kind([]Event log) {
+    return Status::Ok;
+}
+
+public usize cancel_kind(Array(Event)* queue, u32 kind) {
+    return 0;
+}

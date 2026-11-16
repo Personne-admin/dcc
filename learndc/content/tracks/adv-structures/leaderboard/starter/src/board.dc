@@ -1,0 +1,32 @@
+module board;
+
+import std::mem;
+
+public struct Player {
+    []const char name;
+    i32 score;
+}
+
+public i32 by_score_then_name(const Player* a, const Player* b) {
+    return 0;
+}
+
+public i32 by_name(const Player* a, const Player* b) {
+    return std::mem::compare(a.name, b.name);
+}
+
+public i32 by_score_desc(const Player* a, const Player* b) {
+    if a.score > b.score {
+        return -1;
+    }
+    if a.score < b.score {
+        return 1;
+    }
+    return 0;
+}
+
+public void insertion_sort_by(T)([]T items, i32(*)(const T*, const T*) compare) {
+}
+
+public void assign_ranks([]const Player sorted, []u32 ranks) {
+}

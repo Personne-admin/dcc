@@ -1,0 +1,127 @@
+schema = 1
+id = "adv-structures/counting-cost"
+revision = 1
+title = "Counting cost"
+summary = "Compare algorithms by counting comparisons instead of timing them, and see how the cost grows with the input and depends on the data."
+difficulty = "advanced"
+estimated_minutes = 18
+concepts = ["algorithmic cost", "operation counting", "linear search", "binary search", "growth rate", "insertion sort", "merge sort"]
+tags = ["lecture", "algorithms"]
+objectives = [
+    "Instrument an algorithm with an explicit counter and read the count",
+    "Predict how the cost of linear, logarithmic, n log n and quadratic work grows when n doubles",
+    "Explain why the cost of an algorithm depends on the order of the input",
+]
+prerequisites = ["memory/boss-inventory-keeper"]
+
+[[examples]]
+name = "search_cost"
+expect_stdout = """
+key 2046: found true / true, linear 1024 comparisons, binary 11
+key 1000: found true / true, linear 501 comparisons, binary 11
+key 7: found false / false, linear 1024 comparisons, binary 11
+"""
+
+[[examples]]
+name = "sort_cost"
+expect_stdout = """
+sorted: insertion 255, merge 1024
+reversed: insertion 32640, merge 1024
+pseudo-random: insertion 16113, merge 1720
+"""
+
+[[questions]]
+id = "why-count"
+type = "choice"
+prompt = "Why compare two algorithms by counting operations instead of timing a run?"
+choices = [
+    "A count is exact and identical on every machine, and it is easy to assert in a test",
+    "Counting is always faster than timing",
+    "The compiler refuses to measure time",
+    "Timing cannot be used for algorithms that use arrays",
+]
+answer = 1
+why = [
+    "",
+    "Counting adds work; the reason is reliability, not speed.",
+    "Time can be measured; it is just noisy and machine-dependent.",
+    "Arrays do not matter for timing.",
+]
+explanation = "Time depends on the machine, the load and the data. A count of comparisons, moves or allocations is deterministic, so it can be printed, compared and asserted."
+
+[[questions]]
+id = "double-it"
+type = "multi"
+prompt = "The input grows from n = 1000 to n = 2000. Which statements about the work are true?"
+choices = [
+    "A linear search does about twice as many comparisons",
+    "A binary search does one more comparison",
+    "An insertion sort on random data does about four times as many comparisons",
+    "A binary search does twice as many comparisons",
+    "A merge sort does about the same number of comparisons",
+]
+answers = [1, 2, 3]
+why = [
+    "",
+    "",
+    "",
+    "Each halving step covers the doubled range with just one extra comparison.",
+    "Merge sort sorts n items in about n * log2(n) comparisons, so it does a bit more than twice the work.",
+]
+explanation = "Linear work doubles, logarithmic work grows by one step, quadratic work quadruples and n log n grows slightly faster than doubling."
+
+[[questions]]
+id = "reversed-count"
+type = "predict"
+prompt = "What does this program print? Insertion sort compares each new item with the sorted part until it finds a smaller or equal one."
+code = """
+module main;
+
+usize insertion_sort([]u32 items) {
+    usize comparisons = 0;
+    for usize i = 1; i < items.len; i++ {
+        u32 value = items[i];
+        usize j = i;
+        while j > 0 {
+            comparisons += 1;
+            if items[j - 1] <= value {
+                break;
+            }
+            items[j] = items[j - 1];
+            j -= 1;
+        }
+        items[j] = value;
+    }
+    return comparisons;
+}
+
+public Status(Error) main() {
+    u32[5] reversed = { 5, 4, 3, 2, 1 };
+    u32[5] sorted = { 1, 2, 3, 4, 5 };
+    println("{}", insertion_sort(reversed))?;
+    println("{}", insertion_sort(sorted))?;
+    return Status::Ok;
+}
+"""
+expect = """
+10
+4
+"""
+explanation = "On reversed data item i moves past all i earlier items: 1 + 2 + 3 + 4 = 10 comparisons, which is n * (n - 1) / 2 for n = 5. On sorted data each item needs one comparison with its left neighbour: n - 1 = 4."
+
+[[questions]]
+id = "search-failure"
+type = "short"
+prompt = "How many comparisons does a binary search need, at most, on a sorted array of 1024 elements (counting the final equality test)? Write the number."
+accept = ["11"]
+explanation = "1024 = 2^10, so ten halving comparisons narrow the range to one slot, plus one equality test: 11. The count is the same for a key that is not in the array."
+
+[[cards]]
+id = "count-ops"
+front = "How do you measure the cost of an algorithm reliably?"
+back = "Count the operation that dominates (comparisons, moves, allocations) with an explicit counter passed to the function. A count is deterministic and can be asserted in a test."
+
+[[cards]]
+id = "growth-table"
+front = "What happens to the work when n doubles: logarithmic, linear, n log n, quadratic?"
+back = "Logarithmic: one more step. Linear: twice the work. n log n: a bit more than twice. Quadratic: four times the work."

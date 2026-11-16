@@ -1,0 +1,58 @@
+module tables;
+
+public using u8 OTHER = 0;
+public using u8 DIGIT = 1;
+public using u8 UPPER = 2;
+public using u8 LOWER = 3;
+public using u8 SPACE = 4;
+
+u8[128] build_classes() {
+    u8[128] table = {};
+    for usize code = 0; code < 128; code++ {
+        if code >= 48 && code <= 57 {
+            table[code] = DIGIT;
+        } else if code >= 65 && code <= 90 {
+            table[code] = UPPER;
+        } else if code >= 97 && code <= 122 {
+            table[code] = LOWER;
+        } else if code == 32 || code == 9 || code == 10 {
+            table[code] = SPACE;
+        } else {
+            table[code] = OTHER;
+        }
+    }
+    return table;
+}
+
+u8[128] build_rot13() {
+    u8[128] table = {};
+    for usize code = 0; code < 128; code++ {
+        if code >= 65 && code <= 90 {
+            table[code] = ((code - 65 + 13) % 26 + 65) as u8;
+        } else if code >= 97 && code <= 122 {
+            table[code] = ((code - 97 + 13) % 26 + 97) as u8;
+        } else {
+            table[code] = code as u8;
+        }
+    }
+    return table;
+}
+
+using u8[128] CLASSES = build_classes();
+using u8[128] ROT13 = build_rot13();
+
+public u8 class_of(char c) {
+    usize code = (c as u8) as usize;
+    if code >= 128 {
+        return OTHER;
+    }
+    return CLASSES[code];
+}
+
+public char rot13(char c) {
+    usize code = (c as u8) as usize;
+    if code >= 128 {
+        return c;
+    }
+    return ROT13[code] as char;
+}

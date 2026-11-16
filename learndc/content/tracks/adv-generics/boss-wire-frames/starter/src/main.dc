@@ -1,0 +1,18 @@
+module main;
+
+import wire;
+using wire::Frame;
+
+Status(Error) dump(const Frame* frame) {
+    print("frame:")?;
+    for usize i in 0..frame.len {
+        print(" {:02x}", frame.bytes[i])?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("wire frames")?;
+    return Status::Ok;
+}

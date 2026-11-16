@@ -1,0 +1,184 @@
+schema = 1
+id = "adv-generics/boss-wire-frames"
+revision = 1
+title = "The Frame Codec"
+summary = "Build a generic binary frame codec: an integer-only put and get, an any-arity put_all, a checksum from a compile-time table, and a report."
+kind = "challenge"
+difficulty = "advanced"
+estimated_minutes = 90
+concepts = ["concept", "template constraint", "parameter pack", "static for", "CTFE", "lookup table", "value alias", "generic API design"]
+tags = ["boss", "generics", "compile time", "binary"]
+objectives = [
+    "Constrain a generic function with an integer concept that rejects floats, bool, char and structs",
+    "Write a variadic put_all that is all-or-nothing and sizes its work at compile time",
+    "Generate a CRC table with CTFE and use it for a seal and verify pair",
+]
+entry_file = "src/main.dc"
+product = "frames"
+prerequisites = ["adv-generics/adv-generics-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 5
+story = """
+A sensor node sends fixed-size binary frames over a noisy serial link, and the
+old C encoder silently truncated a floating-point temperature to its integer
+part, shipped three weeks of wrong data and never noticed a flipped bit. You
+are rewriting the codec so that wrong types are compile errors, a frame is
+written completely or not at all, and every frame ends with a checksum.
+"""
+
+[[stages]]
+id = "weak-concept"
+title = "Read the old constraint"
+summary = "Find out why the node's old Integer concept let a float through."
+questions = ["weak-probe", "strong-probe"]
+hints = ["A concept accepts every type for which the probe compiles. Ask which types support the one operation the probe uses."]
+
+[[stages]]
+id = "integers"
+title = "Integers only"
+summary = "Replace the weak concept, then write put and get for any integer type, little endian."
+hints = [
+    "Probe operations that only integers support: `a << 1`, `a % 3` and `a & a` together reject floats, bool, char and structs. Both functions already name `Integer(T)` in their `if` clause.",
+    "put converts the value with `value as u64` and writes `sizeof(T)` bytes, least significant byte first: byte `i` is `(wide >> (8 * i)) & 0xFF`. Shift counts must be `u64`, so cast `(8 * i) as u64`. get rebuilds `wide` by or-ing the bytes back and returns `Optional::Some(wide as T)`.",
+    "Check the room first: put returns `false` when `len + sizeof(T) > CAPACITY` and changes nothing; get returns `Optional::None` when `at + sizeof(T) > len`. The cast `wide as T` restores a negative value for signed types.",
+]
+
+[[stages]]
+id = "put-all"
+title = "Any number of values"
+summary = "wire_size adds the sizes of all arguments; put_all writes them all or none of them."
+hints = [
+    "Both functions are variadic: `(T...)(T args)`. Visit the elements with `static for item in args`. `size_of_value(item)` is provided because `sizeof(item)` on a loop variable is not supported by this compiler.",
+    "wire_size adds `size_of_value(item)` into a `usize`. put_all first compares `wire_size(args...)` with the room left, `CAPACITY - frame.len`, and returns false without touching the frame when it does not fit.",
+    "After the room check, call `put(frame, item)` for every element inside `static for` and return true. Because the whole size was checked first, no `put` can fail halfway.",
+]
+
+[[stages]]
+id = "checksum"
+title = "A checksum from a compile-time table"
+summary = "Build the CRC-8 table with CTFE and use it for crc8, seal, verify and a seal-aware tamper check."
+hints = [
+    "The table builder is an ordinary function: for each byte value `i` from 0 to 255 run eight steps: if the top bit of `crc` is set, shift left and xor with 0x07, otherwise only shift left. Store the result in `table[i]`.",
+    "crc8 starts at 0 and for each of the first `count` bytes does `crc = CRC_TABLE[(crc ^ frame.bytes[i]) as usize];`. seal appends `crc8(frame, frame.len)` with `put`; verify compares `crc8(frame, frame.len - 1)` with the last byte and is false for an empty frame.",
+    "`CRC_TABLE` is a value alias declared for you: `using u8[256] CRC_TABLE = build_crc_table();`, so only the builder body needs writing. For the eight steps use `for u32 bit = 0; bit < 8; bit++`.",
+]
+
+[[stages]]
+id = "report"
+title = "The report"
+summary = "main builds a sensor frame, prints it, verifies it, decodes it, corrupts a byte and tries to overfill a frame."
+hints = [
+    "`main.dc` already has `dump` and prints the title. Add the report in the order of the expected output; the sizes and capacity come from `wire::wire_size(...)` and `wire::CAPACITY`.",
+    "Build the record with `wire::put_all(&frame, id, temperature, delta, ticks)`, call `wire::seal(&frame)`, then `dump(&frame)?`. Decode with `wire::get!u8(&frame, 0).unwrap_some()` and the offsets 0, 1, 3 and 7 for u8, i16, i32 and u16.",
+    "Corrupt `frame.bytes[4] = 0;` and print `wire::verify`. For the last two lines use a fresh `Frame full = {};`, put two `i64` values, then try a third and print the bool and `full.len` each time.",
+]
+
+[[stages]]
+id = "unseal"
+title = "Bonus: unseal"
+summary = "unseal verifies a frame and removes its checksum byte, or refuses and changes nothing."
+optional = true
+hints = ["Call `verify` first and return false when it fails. Otherwise decrease `frame.len` by one and return true."]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "Integers only, little endian, with room checks"
+stage = "integers"
+harness = "checks/integers_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "wire_size and put_all, all or nothing"
+stage = "put-all"
+harness = "checks/putall_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "The CRC table, seal and verify"
+stage = "checksum"
+harness = "checks/crc_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "The report"
+stage = "report"
+expect_stdout = """
+wire frames
+size: 9 bytes, capacity 16
+frame: 07 f4 ff a0 86 01 00 01 02 5c
+verify: true
+decoded: id 7 temp -12 delta 100000 ticks 513
+tampered: false
+two i64: true, len 16
+third i64: false, len 16
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The frame has nine payload bytes and one checksum byte. Byte 4 is inside the i32, so changing it breaks the checksum."
+
+[[checks]]
+kind = "harness"
+name = "unseal verifies and removes the checksum"
+stage = "unseal"
+harness = "checks/unseal_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[questions]]
+id = "weak-probe"
+type = "predict"
+prompt = "The node's old encoder used a probe that only asks for `a + a`. What does this program print?"
+code = """
+module main;
+
+using Loose(T) = compiles(T a) { a + a; };
+
+bool put_byte(T)(u8* out, T value) if Loose(T) {
+    out[0] = value as u8;
+    return true;
+}
+
+public Status(Error) main() {
+    u8[1] slot = {};
+    put_byte(&slot[0], 2.75);
+    println("{}", slot[0])?;
+    return Status::Ok;
+}
+"""
+expect = "2\n"
+explanation = "`f64` can be added, so `Loose(f64)` holds and the call is accepted. The body then converts the float with `as u8`, which drops the fraction. The wrong data is stored with no error at all. A constraint that does not exclude a type is no protection."
+
+[[questions]]
+id = "strong-probe"
+type = "choice"
+prompt = "Which probe makes `Integer(T)` reject `f64`, `f32`, `bool`, `char` and structs, and accept every integer type?"
+choices = [
+    "`compiles(T a) { a << 1; a % 3; a & a; }`: shifts and bit operations exist only for integers",
+    "`compiles(T a) { a + a; }`",
+    "`compiles(T a, T b) { a < b; }`",
+    "`compiles(T a) { a as u64; }`",
+]
+answer = 1
+why = [
+    "",
+    "Floats can be added: this is the probe that let the float through.",
+    "Floats and chars can be compared with `<`.",
+    "A float converts to `u64` too, so `f64` would still be accepted.",
+]
+explanation = "Pick an operation that only the wanted types support. Shifting and bitwise and are defined for integers only, so floats, bool, char and structs fail the probe."

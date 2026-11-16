@@ -1,0 +1,53 @@
+module wire;
+
+public using usize CAPACITY = 16;
+
+public struct Frame {
+    u8[CAPACITY] bytes;
+    usize len;
+}
+
+public using Integer(T) = compiles(T a) { a + a; };
+
+public bool put(T)(Frame* frame, T value) if Integer(T) {
+    return false;
+}
+
+public Optional(T) get(T)(const Frame* frame, usize at) if Integer(T) {
+    return Optional::None;
+}
+
+usize size_of_value(T)(T value) {
+    return sizeof(T);
+}
+
+public usize wire_size(T...)(T args) {
+    return 0;
+}
+
+public bool put_all(T...)(Frame* frame, T args) {
+    return false;
+}
+
+u8[256] build_crc_table() {
+    u8[256] table = {};
+    return table;
+}
+
+using u8[256] CRC_TABLE = build_crc_table();
+
+public u8 crc8(const Frame* frame, usize count) {
+    return 0;
+}
+
+public bool seal(Frame* frame) {
+    return false;
+}
+
+public bool verify(const Frame* frame) {
+    return false;
+}
+
+public bool unseal(Frame* frame) {
+    return false;
+}

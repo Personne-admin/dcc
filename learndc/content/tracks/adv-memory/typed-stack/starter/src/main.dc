@@ -1,0 +1,29 @@
+module main;
+
+import std::os::heap;
+import stack;
+
+using std::os::heap::Heap;
+using stack::{ Stack, push, pop, clear };
+
+public Status(Error) main() {
+    Heap heap = {};
+    Stack values = {};
+
+    for i32 n in 1..=4 {
+        push(&values, &heap, n)?;
+    }
+    println("pushed {} values", values.len)?;
+
+    for i32 round in 0..2 {
+        Optional(i32) top = pop(&values, &heap);
+        if top.is_some() {
+            println("popped {}", top.unwrap_some())?;
+        }
+    }
+    println("{} values left", values.len)?;
+
+    clear(&values, &heap);
+    println("cleared: {} values left", values.len)?;
+    return Status::Ok;
+}

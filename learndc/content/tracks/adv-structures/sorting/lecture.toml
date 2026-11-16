@@ -1,0 +1,217 @@
+schema = 1
+id = "adv-structures/sorting"
+revision = 1
+title = "Sorting"
+summary = "Write insertion sort with a comparator, order by several keys, and choose between std::sort functions and their stability."
+difficulty = "advanced"
+estimated_minutes = 22
+concepts = ["insertion sort", "comparator", "function pointer", "stable sort", "std::sort", "introsort"]
+tags = ["lecture", "algorithms", "sorting"]
+objectives = [
+    "Write a generic sort that takes a comparator function pointer",
+    "Order records by several keys and read the sign convention of a comparator",
+    "Choose sort, sort_by or sort_stable_by and explain what stability means",
+]
+prerequisites = ["adv-structures/binary-search"]
+
+[[examples]]
+name = "insertion"
+expect_stdout = """
+ascending: -3 0 7 7 19 42 100
+descending: 100 42 19 7 7 0 -3
+"""
+
+[[examples]]
+name = "comparators"
+expect_stdout = """
+95 kim
+95 otto
+80 ada
+80 bo
+80 mira
+60 zed
+sorted: true
+"""
+
+[[examples]]
+name = "stable"
+expect_stdout = """
+stable: 1:2 1:4 1:7 2:1 2:3 2:6 3:5 3:8
+alloc: 4:2 4:4 9:1 9:3
+"""
+
+[[questions]]
+id = "comparator-sign"
+type = "choice"
+prompt = "A comparator `cmp(a, b)` for an ascending sort returns what when `a` must come before `b`?"
+choices = [
+    "A negative number",
+    "A positive number",
+    "true",
+    "Zero",
+]
+answer = 1
+why = [
+    "",
+    "Positive means `a` belongs after `b`.",
+    "A comparator returns an `i32`, not a bool.",
+    "Zero means the two are equal for this ordering.",
+]
+explanation = "The comparator returns negative, zero or positive, like `std::mem::compare`. Reversing the order of the arguments reverses the ordering, which is how `descending` is written from `ascending`."
+
+[[questions]]
+id = "unstable-insertion"
+type = "bug"
+prompt = "This insertion sort should be stable: tasks with the same priority keep their arrival order. The output is `2 3 1` instead of `2 1 3`. Which line is the bug?"
+code = """
+module main;
+
+struct Task {
+    u8 priority;
+    u8 id;
+}
+
+i32 by_priority(const Task* a, const Task* b) {
+    if a.priority < b.priority {
+        return -1;
+    }
+    if a.priority > b.priority {
+        return 1;
+    }
+    return 0;
+}
+
+void insertion_sort(T)([]T items, i32(*)(const T*, const T*) compare) {
+    for usize i = 1; i < items.len; i++ {
+        T value = items[i];
+        usize j = i;
+        while j > 0 && compare(&items[j - 1], &value) >= 0 {
+            items[j] = items[j - 1];
+            j -= 1;
+        }
+        items[j] = value;
+    }
+}
+
+public Status(Error) main() {
+    Task[3] tasks = { { priority = 2, id = 1 }, { priority = 1, id = 2 }, { priority = 2, id = 3 } };
+    []Task view = tasks;
+    insertion_sort(view, by_priority);
+    for Task t in view {
+        print("{} ", t.id)?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+"""
+lines = [23]
+fixed = """
+module main;
+
+struct Task {
+    u8 priority;
+    u8 id;
+}
+
+i32 by_priority(const Task* a, const Task* b) {
+    if a.priority < b.priority {
+        return -1;
+    }
+    if a.priority > b.priority {
+        return 1;
+    }
+    return 0;
+}
+
+void insertion_sort(T)([]T items, i32(*)(const T*, const T*) compare) {
+    for usize i = 1; i < items.len; i++ {
+        T value = items[i];
+        usize j = i;
+        while j > 0 && compare(&items[j - 1], &value) > 0 {
+            items[j] = items[j - 1];
+            j -= 1;
+        }
+        items[j] = value;
+    }
+}
+
+public Status(Error) main() {
+    Task[3] tasks = { { priority = 2, id = 1 }, { priority = 1, id = 2 }, { priority = 2, id = 3 } };
+    []Task view = tasks;
+    insertion_sort(view, by_priority);
+    for Task t in view {
+        print("{} ", t.id)?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+"""
+expect = "2 1 3 \n"
+explanation = "With `>= 0` an item equal to the one being inserted is shifted too, so equal items swap places and the arrival order is lost. Shifting only when the left neighbour is strictly greater (`> 0`) leaves equal items where they are."
+
+[[questions]]
+id = "two-keys"
+type = "predict"
+prompt = "What does this program print? The comparator orders by `group` first and by `rank` descending second."
+code = """
+module main;
+
+import std::sort;
+
+struct Row {
+    u8 group;
+    u8 rank;
+}
+
+i32 order(const Row* a, const Row* b) {
+    if a.group != b.group {
+        return if a.group < b.group { -1 } else { 1 };
+    }
+    if a.rank != b.rank {
+        return if a.rank > b.rank { -1 } else { 1 };
+    }
+    return 0;
+}
+
+public Status(Error) main() {
+    Row[5] rows = { { group = 2, rank = 1 }, { group = 1, rank = 5 }, { group = 2, rank = 9 }, { group = 1, rank = 7 }, { group = 3, rank = 2 } };
+    []Row view = rows;
+    std::sort::sort_by(view, order);
+    for Row r in view {
+        print("{}{} ", r.group, r.rank)?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+"""
+expect = "17 15 29 21 32 \n"
+explanation = "Rows are ordered by group (1, 2, 3). Inside a group the higher rank comes first: group 1 is 7 then 5, group 2 is 9 then 1. Every pair is ordered completely, so unstable `sort_by` gives the same result every time."
+
+[[questions]]
+id = "which-sort"
+type = "choice"
+prompt = "You sort tasks by priority and equal priorities must stay in arrival order. Which call do you use?"
+choices = [
+    "`std::sort::sort_stable_by(tasks, scratch, by_priority)`",
+    "`std::sort::sort_by(tasks, by_priority)`",
+    "`std::sort::sort(tasks)`",
+    "`std::sort::is_sorted_by(tasks, by_priority)`",
+]
+answer = 1
+why = [
+    "",
+    "`sort_by` makes no promise about equal items.",
+    "`sort` also gives no stability guarantee, and it orders by `<` instead of your comparator.",
+    "That only checks the order, it does not sort.",
+]
+explanation = "Only `sort_stable_by` and `sort_stable_alloc` guarantee that equal items keep their order, at the price of a scratch slice as long as the data."
+
+[[cards]]
+id = "comparator"
+front = "What is the type and the contract of a sort comparator?"
+back = "`i32(*)(const T*, const T*)`: negative if the first belongs before the second, zero if equal, positive if after."
+
+[[cards]]
+id = "stable"
+front = "What does a stable sort guarantee and what does it cost?"
+back = "Items that compare equal keep their original order. `sort_stable_by` needs a scratch slice as long as the data; `sort` and `sort_by` need none and do not promise it."

@@ -1,0 +1,24 @@
+module main;
+
+import kinds;
+
+struct Point {
+    i32 x;
+    i32 y;
+}
+
+public Status(Error) main() {
+    Point point = { x = 1, y = 2 };
+    i32 number = 5;
+    []const i32 values = {1, 2, 3};
+
+    println("u8: {}", kinds::kind(7 as u8))?;
+    println("f64: {}", kinds::kind(2.5))?;
+    println("char: {}", kinds::kind('x'))?;
+    println("bool: {}", kinds::kind(true))?;
+    println("Point: {}", kinds::kind(point))?;
+    println("text: {}", kinds::kind("hello"))?;
+    println("i32 slice: {}", kinds::kind(values))?;
+    println("pointer: {}", kinds::kind(&number))?;
+    return Status::Ok;
+}

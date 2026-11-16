@@ -1,0 +1,26 @@
+module stack;
+
+public import std::alloc;
+
+using std::alloc::{ AllocError, AllocatorPolicy, create_item, destroy_item };
+
+public struct Node {
+    i32 value;
+    Node* next;
+}
+
+public struct Stack {
+    Node* top;
+    usize len;
+}
+
+public Status(AllocError) push(A)(Stack* stack, A* alloc, i32 value) if AllocatorPolicy(A) {
+    return Status::Ok;
+}
+
+public Optional(i32) pop(A)(Stack* stack, A* alloc) if AllocatorPolicy(A) {
+    return Optional::None;
+}
+
+public void clear(A)(Stack* stack, A* alloc) if AllocatorPolicy(A) {
+}

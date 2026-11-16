@@ -1,0 +1,14 @@
+module main;
+
+import tools;
+
+public Status(Error) main() {
+    println("pack tools")?;
+    tools::log_line("sum", 1, 2.5, 3 as u8)?;
+    println("total: {:.1}", tools::sum_all(1, 2.5, 3 as u8))?;
+    println("largest: {:.1}", tools::largest_of(-4, 2.5, 3 as u8))?;
+    println("negatives: {}", tools::count_negative(-1, 2, -0.5, 7 as u8))?;
+    tools::log_line("empty")?;
+    tools::log_line("mixed", "text", 'c', 42, true)?;
+    return Status::Ok;
+}

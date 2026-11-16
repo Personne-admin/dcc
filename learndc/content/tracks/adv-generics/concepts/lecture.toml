@@ -1,0 +1,184 @@
+schema = 1
+id = "adv-generics/concepts"
+revision = 1
+title = "Concepts: what a type must be able to do"
+summary = "Write requirements as concepts, attach them to functions and structs, combine them and pick between overloads."
+difficulty = "advanced"
+estimated_minutes = 20
+concepts = ["concept", "compiles", "template constraint", "overload selection", "static if compiles"]
+tags = ["lecture", "generics", "concepts"]
+objectives = [
+    "Write a concept with compiles and attach it to a function or a struct template with if",
+    "Combine concepts with && and || and read the requirement list of a constraint diagnostic",
+    "Select between overloads with exclusive constraints and recognise an ambiguous call",
+]
+prerequisites = ["generics/boss-generic-toolkit"]
+
+[[examples]]
+name = "requirement"
+expect_stdout = """
+43
+0.75
+"""
+
+[[examples]]
+name = "composed"
+expect_stdout = """
+a number
+a number
+something else
+something else
+"""
+
+[[examples]]
+name = "probe"
+expect_stdout = """
+5
+3
+2
+"""
+
+[[examples]]
+name = "struct_constraint"
+expect_stdout = """
+4010
+3.5
+"""
+
+[[questions]]
+id = "probe-runs"
+type = "choice"
+prompt = "What does the compiler do with the body of `compiles(T a, T b) { a + b; }` when it checks a type?"
+choices = [
+    "It tries to compile the statements for the given type and never runs them",
+    "It runs the statements with zero values and reports a crash as failure",
+    "It checks only that the type is a number",
+    "It copies the body into every function that uses the concept",
+]
+answer = 1
+why = [
+    "",
+    "The probe is checked, not executed; `a / 0` would satisfy a concept for integers.",
+    "The compiler does not know the word number; it only asks whether the expressions compile.",
+    "The concept is a test, it adds no code to the function.",
+]
+explanation = "A concept is a list of requirements that must type-check for the given `T`. Nothing in the probe is executed, so it can say what a type must support but not what the operations do."
+
+[[questions]]
+id = "wrong-type"
+type = "error"
+prompt = "The call below is rejected. Why?"
+code = """
+module main;
+
+using Addable(T) = compiles(T a, T b) { a + b; };
+
+T twice(T)(T value) if Addable(T) {
+    return value + value;
+}
+
+public Status(Error) main() {
+    println("{}", twice(true))?;
+    return Status::Ok;
+}
+"""
+diagnostic = "template constraint not satisfied"
+choices = [
+    "`bool` fails the Addable requirement, so the call is rejected before the body is compiled",
+    "`twice` cannot be called with a literal",
+    "A generic function must name its type with !, here `twice!bool(true)`",
+    "The body returns `value + value`, which has the wrong type",
+]
+answer = 1
+why = [
+    "",
+    "Literals are fine; `twice(21)` compiles.",
+    "T is deduced from the argument; `!` is only needed when it cannot be.",
+    "The body is never looked at, the error is reported at the call.",
+]
+explanation = "`a + b` does not compile for two `bool` values, so `Addable(bool)` fails and the call is reported with the concept, the type and the failed requirement."
+
+[[questions]]
+id = "which-overload"
+type = "predict"
+prompt = "What does this program print? Remember that overloads are chosen by their constraints."
+code = """
+module main;
+
+using Addable(T) = compiles(T a, T b) { a + b; };
+using NotAddable(T) = !Addable(T);
+
+struct Blob {
+    u8 first;
+}
+
+[]const char rank(T)(T value) if Addable(T) {
+    return "adds";
+}
+
+[]const char rank(T)(T value) if NotAddable(T) {
+    return "no add";
+}
+
+public Status(Error) main() {
+    Blob blob = { first = 1 };
+    println("{} {} {}", rank(7), rank(blob), rank(1.5))?;
+    return Status::Ok;
+}
+"""
+expect = "adds no add adds\n"
+explanation = "`i32` and `f64` can be added, so they satisfy `Addable` and take the first overload. A struct has no `+`, so it takes the second."
+
+[[questions]]
+id = "ambiguous"
+type = "error"
+prompt = "Both overloads accept `i32`. What does the compiler do?"
+code = """
+module main;
+
+using Addable(T) = compiles(T a, T b) { a + b; };
+using Orderable(T) = compiles(T a, T b) { a < b; };
+
+[]const char kind(T)(T value) if Addable(T) {
+    return "addable";
+}
+
+[]const char kind(T)(T value) if Orderable(T) {
+    return "orderable";
+}
+
+public Status(Error) main() {
+    println("{}", kind(3))?;
+    return Status::Ok;
+}
+"""
+diagnostic = "ambiguous call to `kind`"
+choices = [
+    "It reports an ambiguous call: overloads are not ranked by how specific the constraint is",
+    "It picks the first overload because it was declared first",
+    "It picks the overload whose concept lists more requirements",
+    "It rejects the declarations of both functions",
+]
+answer = 1
+why = [
+    "",
+    "Declaration order never breaks a tie between viable candidates.",
+    "Constraints are not compared with each other.",
+    "The declarations are fine; the error appears at the call that matches both.",
+]
+explanation = "Constraint selection removes the candidates that fail their concept, then ordinary overload resolution runs on the rest. Two viable candidates with the same conversions are ambiguous, so constraints that select between overloads must exclude each other."
+
+[[cards]]
+id = "concept-def"
+front = "How do you declare a concept, and when is a type accepted?"
+back = "`using Name(T) = compiles(T a, T b) { a + b; };` The type is accepted when every statement in the braces compiles. The body is never run."
+
+[[cards]]
+id = "concept-attach"
+front = "Where do you attach a concept to a function or struct template?"
+back = "After the parameter list: `T sum(T)([]const T xs) if Addable(T) { ... }` and `struct Range(T) if Numeric(T) { ... }`."
+
+[[cards]]
+id = "overload-exclusive"
+front = "Two overloads have constraints that both hold for a type. What happens?"
+back = "The call is ambiguous. Constraints are not ranked by specificity, so make them exclusive (for example Numeric and NotNumeric)."

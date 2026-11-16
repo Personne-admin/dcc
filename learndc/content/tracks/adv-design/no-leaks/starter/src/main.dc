@@ -1,0 +1,31 @@
+module main;
+
+import lengths;
+import std::os::heap;
+
+public Status(Error) main() {
+    println("word lengths")?;
+    Array([]const char) words = {};
+    defer words.deinit();
+    words.push("the")?;
+    words.push("quick")?;
+    words.push("brown")?;
+    words.push("fox")?;
+    words.push("jumps")?;
+    words.push("over")?;
+    words.push("the")?;
+    words.push("lazy")?;
+    words.push("dog")?;
+    words.push("a")?;
+
+    std::os::heap::Heap heap = {};
+    Array(u32, std::os::heap::Heap) distinct = lengths::unique_lengths(heap, words.items())?;
+    defer distinct.deinit();
+    print("distinct lengths:")?;
+    for u32 length in distinct.items() {
+        print(" {}", length)?;
+    }
+    println("")?;
+    println("words: {}, distinct lengths: {}", words.len(), distinct.len())?;
+    return Status::Ok;
+}

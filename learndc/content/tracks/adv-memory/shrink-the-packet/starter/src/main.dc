@@ -1,0 +1,16 @@
+module main;
+
+import packet;
+using packet::*;
+
+public Status(Error) main() {
+    usize fields = field_bytes();
+    println("Packet: {} bytes, align {}", sizeof(Packet), alignof(Packet))?;
+    println("fields: {} bytes, padding: {} bytes", fields, sizeof(Packet) - fields)?;
+    println("id at {}", offsetof(Packet, id))?;
+    println("length at {}", offsetof(Packet, length))?;
+    println("port at {}", offsetof(Packet, port))?;
+    println("kind at {}", offsetof(Packet, kind))?;
+    println("flags at {}", offsetof(Packet, flags))?;
+    return Status::Ok;
+}

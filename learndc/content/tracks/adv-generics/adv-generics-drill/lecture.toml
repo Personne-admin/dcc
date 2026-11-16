@@ -1,0 +1,182 @@
+schema = 1
+id = "adv-generics/adv-generics-drill"
+revision = 1
+kind = "drill"
+title = "Compile-time drills"
+summary = "Predict constraint selection, find a bug in a pack function, read a constraint diagnostic, judge what CTFE may do and recall pack syntax."
+difficulty = "advanced"
+estimated_minutes = 15
+concepts = ["concept", "overload selection", "parameter pack", "CTFE", "compile_error"]
+tags = ["drill", "generics"]
+objectives = [
+    "Predict the overload a set of exclusive constraints selects",
+    "Find the invented starting value in a variadic maximum",
+    "Judge which operations a compile-time function may use and name pack syntax",
+]
+prerequisites = ["adv-generics/lookup-tables"]
+
+[[questions]]
+id = "select-overload"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+using HasLen(T) = compiles(T v) { v.len; };
+using Addable(T) = compiles(T a, T b) { a + b; };
+using Plain(T) = !HasLen(T) && !Addable(T);
+
+[]const char what(T)(T value) if HasLen(T) {
+    return "length";
+}
+
+[]const char what(T)(T value) if Addable(T) {
+    return "sum";
+}
+
+[]const char what(T)(T value) if Plain(T) {
+    return "plain";
+}
+
+public Status(Error) main() {
+    println("{} {} {} {}", what("abc"), what(2.5), what('x'), what(7 as u8))?;
+    return Status::Ok;
+}
+"""
+expect = "length sum plain sum\n"
+explanation = "Text has `.len`. `f64` and `u8` can be added. `char` has neither, so only `Plain` holds. The three concepts exclude each other for these types, so each call has exactly one candidate."
+
+[[questions]]
+id = "invented-start"
+type = "bug"
+prompt = "`largest_of` should print the largest argument. It prints 0.0 for a list of negative numbers. Which line is the bug?"
+code = """
+module main;
+
+f64 largest_of(T...)(T args) {
+    f64 best = 0.0;
+    static for item in args {
+        f64 value = item as f64;
+        if value > best {
+            best = value;
+        }
+    }
+    return best;
+}
+
+public Status(Error) main() {
+    println("{:.1}", largest_of(-4, -2.5, -9 as i64))?;
+    return Status::Ok;
+}
+"""
+lines = [4]
+fixed = """
+module main;
+
+f64 largest_of(F, T...)(F first, T rest) {
+    f64 best = first as f64;
+    static for item in rest {
+        f64 value = item as f64;
+        if value > best {
+            best = value;
+        }
+    }
+    return best;
+}
+
+public Status(Error) main() {
+    println("{:.1}", largest_of(-4, -2.5, -9 as i64))?;
+    return Status::Ok;
+}
+"""
+expect = "-2.5\n"
+explanation = "`0.0` is larger than every negative argument, so nothing replaces it. A pack may be empty, so there is no element to start from; the fix splits off a mandatory first parameter and starts from it. (The reported line is the invented starting value; the signature changes with it.)"
+
+[[questions]]
+id = "constraint-struct"
+type = "error"
+prompt = "What is wrong with this program?"
+code = """
+module main;
+
+using Numeric(T) = compiles(T a, T b) { a + b; a < b; };
+
+struct Range(T) if Numeric(T) {
+    T low;
+    T high;
+}
+
+public Status(Error) main() {
+    Range(bool) flags = { low = false, high = true };
+    println("{}", flags.high)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "template constraint not satisfied for `Range`"
+choices = [
+    "`bool` does not satisfy Numeric, so `Range(bool)` cannot be formed",
+    "A struct template cannot have an `if` clause",
+    "The literal `{ low = false, high = true }` lists the fields in the wrong order",
+    "`println` cannot print a `bool`",
+]
+answer = 1
+why = [
+    "",
+    "Struct templates accept the same constraints as functions.",
+    "Named fields may be listed in any order.",
+    "`println` prints bool values as true or false.",
+]
+explanation = "The constraint is checked wherever the struct is instantiated. `true + false` and `true < false` do not compile, so `Numeric(bool)` fails and the type `Range(bool)` is rejected."
+
+[[questions]]
+id = "ctfe-judge"
+type = "multi"
+prompt = "Which of these may a function do if it is called to initialise a value alias?"
+choices = [
+    "Fill a local array with a loop and return it",
+    "Call another ordinary function with constant arguments",
+    "Read a global variable that is assigned in main",
+    "Print a progress message with println",
+    "Use a recursive helper such as a factorial",
+]
+answers = [1, 2, 5]
+why = [
+    "",
+    "",
+    "A global variable's value exists only at run time.",
+    "Output happens at run time; the compiler has no output to produce.",
+    "",
+]
+explanation = "CTFE runs ordinary code on constants: loops, arrays, calls and recursion are all fine. Anything that depends on run-time state, reading a global, printing, files, the clock, makes the alias a non-constant."
+
+[[questions]]
+id = "pack-count"
+type = "trace"
+prompt = "What number does `describe(1, 'x', 2.5, true)` print? (The function prints `sizeof...(T)`.)"
+code = """
+module main;
+
+Status(Error) describe(T...)(T args) {
+    println("{}", sizeof...(T))?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("start")?;
+    describe(1, 'x', 2.5, true)?;
+    return Status::Ok;
+}
+"""
+accept = ["4", "four"]
+expect = """
+start
+4
+"""
+explanation = "`sizeof...(T)` is the number of types in the pack, which is the number of arguments. Each argument contributes one type, whatever its size."
+
+[[questions]]
+id = "pack-operator"
+type = "short"
+prompt = "Which operator gives the number of types in the pack `T`? Write it with its argument, for example `sizeof(T)` for one type."
+accept = ["sizeof...(T)", "sizeof...(t)"]
+explanation = "`sizeof(T)` is the size in bytes of one type; `sizeof...(T)` counts the elements of a type pack."

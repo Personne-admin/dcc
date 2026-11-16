@@ -1,0 +1,8 @@
+module main;
+
+import native;
+import text;
+
+public Status(Error) main() {
+    return Status::Ok;
+}

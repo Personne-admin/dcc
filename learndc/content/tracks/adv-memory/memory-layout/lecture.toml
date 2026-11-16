@@ -1,0 +1,118 @@
+schema = 1
+id = "adv-memory/memory-layout"
+revision = 1
+title = "How values sit in memory"
+summary = "Size, alignment and padding of types, why field order matters, and what arrays, slices and bitfields look like as bytes."
+difficulty = "advanced"
+estimated_minutes = 15
+concepts = ["sizeof", "alignof", "offsetof", "padding", "struct layout", "arrays", "slices", "bitfields"]
+tags = ["lecture", "memory", "layout"]
+objectives = [
+    "Read the size, alignment and field offsets of a type with sizeof, alignof and offsetof",
+    "Predict where padding appears and shrink a struct by reordering its fields",
+    "Describe arrays as contiguous elements and a slice as a pointer plus a length",
+]
+prerequisites = ["memory/boss-inventory-keeper"]
+
+[[examples]]
+name = "sizes"
+expect_stdout = """
+u8:  size 1 align 1
+i32: size 4 align 4
+i64: size 8 align 8
+f64: size 8 align 8
+i32[5]: size 20
+pointer: size 8
+"""
+
+[[examples]]
+name = "padding"
+expect_stdout = """
+Loose: size 24 align 8
+  tag at 0, id at 8, flag at 16
+Tight: size 16 align 8
+  id at 0, tag at 8, flag at 9
+"""
+
+[[examples]]
+name = "stride"
+expect_stdout = """
+one pixel: 3 bytes
+distance between neighbours: 3
+whole row: 12 bytes
+slice of 2 pixels starts 3 bytes in
+a slice value itself: 16 bytes
+"""
+
+[[examples]]
+name = "bitfields"
+expect_stdout = """
+size 4 align 2
+5 20 9
+"""
+
+[[questions]]
+id = "trailing-padding"
+type = "choice"
+prompt = "In `Tight` (an i64 and two u8 fields) the fields end at offset 10, yet sizeof is 16. Why?"
+choices = [
+    "The compiler adds a hidden header to every struct",
+    "A struct's size is rounded up to its alignment, so arrays of it keep every i64 aligned",
+    "Every struct is rounded up to a multiple of 16 bytes",
+    "The two u8 fields are stored as 32-bit values",
+]
+answer = 2
+why = [
+    "There is no header: sizeof(Tight) is only the fields plus padding.",
+    "",
+    "The rounding is to the struct's own alignment (8 here), not to 16.",
+    "A u8 field is one byte; you can see tag at 8 and flag at 9.",
+]
+explanation = "The alignment of a struct is the largest alignment among its fields. Its size is rounded up to a multiple of that, so in an array of Tight each element starts at a multiple of 8 and its i64 is aligned. The 6 trailing bytes are padding."
+
+[[questions]]
+id = "predict-offsets"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+struct Reading {
+    u8 sensor;
+    u32 value;
+    u16 scale;
+}
+
+public Status(Error) main() {
+    println("{} {}", offsetof(Reading, value), offsetof(Reading, scale))?;
+    println("{} {}", sizeof(Reading), alignof(Reading))?;
+    return Status::Ok;
+}
+"""
+expect = """
+4 8
+12 4
+"""
+explanation = "sensor takes byte 0, value needs a multiple of 4 so it sits at 4, and scale (alignment 2) follows at 8. The fields end at 10; rounding up to the struct alignment of 4 gives 12."
+
+[[questions]]
+id = "slice-size"
+type = "short"
+prompt = "On a 64-bit target, how many bytes does a slice value such as `[]Pixel` itself occupy, whatever the pixel type? Answer with a number."
+accept = ["16"]
+explanation = "A slice is a pointer (8 bytes) plus a length (8 bytes). It does not contain the elements; it only points at them."
+
+[[cards]]
+id = "layout-rule"
+front = "How does the compiler place the fields of a struct?"
+back = "In declaration order. Each field starts at the next multiple of its own alignment, and the total size is rounded up to the struct's alignment."
+
+[[cards]]
+id = "slice-is-fat"
+front = "What is a slice value made of?"
+back = "A pointer to the first element and a length. sizeof([]T) is 16 on 64-bit targets; the elements live elsewhere."
+
+[[cards]]
+id = "shrink-struct"
+front = "How do you remove padding from a struct without changing its data?"
+back = "Order the fields by alignment, largest first. The same fields then need less (or no) padding between them."

@@ -1,0 +1,59 @@
+module main;
+
+import board;
+import std::sort;
+import std::mem;
+using board::Player;
+
+public Status(Error) main() {
+    println("leaderboard")?;
+    Player[8] players = {
+        { name = "mira", score = 80 },
+        { name = "otto", score = 95 },
+        { name = "ada", score = 80 },
+        { name = "zed", score = 60 },
+        { name = "kim", score = 95 },
+        { name = "bo", score = 80 },
+        { name = "lena", score = 70 },
+        { name = "ivo", score = 60 },
+    };
+    Player[8] copy = players;
+    []Player table = players;
+    []Player reference = copy;
+
+    board::insertion_sort_by(table, board::by_score_then_name);
+    std::sort::sort_by(reference, board::by_score_then_name);
+
+    u32[8] ranks = {};
+    board::assign_ranks(table, ranks);
+    for usize i in 0..table.len {
+        println("{} {} {}", ranks[i], table[i].name, table[i].score)?;
+    }
+
+    bool same = true;
+    for usize i in 0..table.len {
+        if table[i].score != reference[i].score || !std::mem::equal(table[i].name, reference[i].name) {
+            same = false;
+        }
+    }
+    println("same as std::sort: {}", same)?;
+
+    Player[8] by_arrival = {
+        { name = "mira", score = 80 },
+        { name = "otto", score = 95 },
+        { name = "ada", score = 80 },
+        { name = "zed", score = 60 },
+        { name = "kim", score = 95 },
+        { name = "bo", score = 80 },
+        { name = "lena", score = 70 },
+        { name = "ivo", score = 60 },
+    };
+    []Player arrivals = by_arrival;
+    board::insertion_sort_by(arrivals, board::by_score_desc);
+    print("score order, ties by arrival:")?;
+    for Player p in arrivals {
+        print(" {}", p.name)?;
+    }
+    println("")?;
+    return Status::Ok;
+}

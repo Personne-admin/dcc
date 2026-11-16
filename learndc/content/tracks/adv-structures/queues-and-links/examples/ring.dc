@@ -1,0 +1,49 @@
+module main;
+
+using usize CAPACITY = 4;
+
+struct Ring(T) {
+    T[CAPACITY] items;
+    usize head;
+    usize len;
+}
+
+bool push(T)(Ring(T)* ring, T value) {
+    if ring.len == CAPACITY {
+        return false;
+    }
+    usize tail = (ring.head + ring.len) % CAPACITY;
+    ring.items[tail] = value;
+    ring.len += 1;
+    return true;
+}
+
+Optional(T) pop(T)(Ring(T)* ring) {
+    if ring.len == 0 {
+        return Optional::None;
+    }
+    T value = ring.items[ring.head];
+    ring.head = (ring.head + 1) % CAPACITY;
+    ring.len -= 1;
+    return Optional::Some(value);
+}
+
+public Status(Error) main() {
+    Ring(i32) queue = {};
+    for i32 n in 1..=4 {
+        push(&queue, n);
+    }
+    println("full, fifth accepted: {}", push(&queue, 5))?;
+    i32 first = pop(&queue).unwrap_some();
+    i32 second = pop(&queue).unwrap_some();
+    println("pop {} and {}", first, second)?;
+    push(&queue, 5);
+    push(&queue, 6);
+    println("head {} len {}", queue.head, queue.len)?;
+    while queue.len > 0 {
+        print(" {}", pop(&queue).unwrap_some())?;
+    }
+    println("")?;
+    println("empty pop is none: {}", pop(&queue).is_none())?;
+    return Status::Ok;
+}

@@ -1,0 +1,38 @@
+module main;
+
+import std::alloc;
+import std::os::heap;
+
+using std::alloc::{ AllocError, create_item, destroy_item };
+using std::os::heap::Heap;
+
+struct Node {
+    i32 value;
+    Node* next;
+}
+
+struct Stack {
+    Node* top;
+    usize len;
+}
+
+i32 pop_one(Stack* stack, Heap* alloc) {
+    Node* node = stack.top;
+    i32 value = node.value;
+    stack.top = node.next;
+    stack.len -= 1;
+    alloc.destroy_item(node);
+    return value;
+}
+
+public Status(Error) main() {
+    Heap heap = {};
+    Stack stack = {};
+    Node* only = heap.create_item()?;
+    only.value = 42;
+    only.next = null;
+    stack.top = only;
+    stack.len = 1;
+    println("popped {}, {} left", pop_one(&stack, &heap), stack.len)?;
+    return Status::Ok;
+}

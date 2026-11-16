@@ -1,0 +1,55 @@
+module crc_check;
+
+import wire;
+using wire::Frame;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    Frame digits = {};
+    for u8 d in 49..=57 {
+        wire::put(&digits, d);
+    }
+    expect(wire::crc8(&digits, 9) == 0xF4, "crc8 of 123456789 is 0xF4", &failures);
+    expect(wire::crc8(&digits, 0) == 0, "crc8 of nothing is 0", &failures);
+    expect(wire::crc8(&digits, 1) == 0x97, "crc8 of a single byte 1 is 0x97", &failures);
+
+    Frame frame = {};
+    wire::put_all(&frame, 7 as u8, -12 as i16, 100000 as i32, 513 as u16);
+    expect(wire::seal(&frame), "seal accepts a frame with room", &failures);
+    expect(frame.len == 10, "seal appends one byte", &failures);
+    expect(frame.bytes[9] == 0x5C, "the sealed byte is the crc of the payload", &failures);
+    expect(wire::verify(&frame), "a sealed frame verifies", &failures);
+
+    frame.bytes[2] = 0;
+    expect(!wire::verify(&frame), "a changed payload byte fails verification", &failures);
+    frame.bytes[2] = 0xFF;
+    expect(wire::verify(&frame), "restoring the byte makes it valid again", &failures);
+    frame.bytes[9] = 0;
+    expect(!wire::verify(&frame), "a changed checksum byte fails verification", &failures);
+
+    Frame empty = {};
+    expect(!wire::verify(&empty), "an empty frame never verifies", &failures);
+
+    Frame full = {};
+    wire::put_all(&full, 1 as i64, 2 as i64);
+    expect(!wire::seal(&full), "seal on a full frame is refused", &failures);
+    expect(full.len == 16, "and leaves the length alone", &failures);
+
+    Frame again = {};
+    wire::put_all(&again, 9 as u8, 8 as u8);
+    wire::seal(&again);
+    expect(wire::unseal(&again), "unseal accepts a valid frame", &failures);
+    expect(again.len == 2, "unseal removes the checksum byte", &failures);
+    expect(!wire::unseal(&again), "an unsealed frame does not verify", &failures);
+    return failures;
+}

@@ -1,0 +1,119 @@
+schema = 1
+id = "adv-structures/binary-heap"
+revision = 1
+title = "The binary heap"
+summary = "Store a complete binary tree in an Array, push by sifting up, pop by sifting down and see why a priority queue costs log n per operation."
+difficulty = "advanced"
+estimated_minutes = 20
+concepts = ["priority queue", "binary heap", "sift up", "sift down", "heap property", "implicit tree"]
+tags = ["lecture", "data structures", "priority queue"]
+objectives = [
+    "Compute parent and child indexes of a heap stored in an array",
+    "Trace a push and a pop and state the heap property they keep",
+    "Explain the cost of the heap operations and why ties need a tiebreaker",
+]
+prerequisites = ["adv-structures/linked-queue"]
+
+[[examples]]
+name = "heap_ops"
+expect_stdout = """
+after 9: 9
+after 4: 4 9
+after 7: 4 9 7
+after 1: 1 4 7 9
+after 8: 1 4 7 9 8
+after 2: 1 4 2 9 8 7
+after 6: 1 4 2 9 8 7 6
+popped: 1 2 4 6 7 8 9
+"""
+
+[[questions]]
+id = "indexes"
+type = "short"
+prompt = "In a heap stored in an array with the root at index 0, what is the index of the left child of the item at index 3? Write the number."
+accept = ["7"]
+explanation = "The left child of `i` is `2 * i + 1`, which is 7 for i = 3 (the right child is 8). The parent of `i` is `(i - 1) / 2`: the parent of 7 is 3."
+
+[[questions]]
+id = "trace-push"
+type = "trace"
+prompt = "The array holds the min-heap `2 5 3 9 6`. A new item 1 is pushed. What is the array afterwards? Write the numbers separated by spaces."
+code = """
+module main;
+
+void swap_items([]i32 items, usize a, usize b) {
+    i32 held = items[a];
+    items[a] = items[b];
+    items[b] = held;
+}
+
+public Status(Error) main() {
+    i32[6] heap = { 2, 5, 3, 9, 6, 1 };
+    []i32 items = heap;
+    usize i = 5;
+    while i > 0 {
+        usize parent = (i - 1) / 2;
+        if items[parent] <= items[i] {
+            break;
+        }
+        swap_items(items, parent, i);
+        i = parent;
+    }
+    for i32 item in items {
+        print("{} ", item)?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+"""
+accept = ["1 5 2 9 6 3", "1 5 2 9 6 3 "]
+expect = "1 5 2 9 6 3 \n"
+explanation = "The new item sits at index 5; its parent is index 2 (value 3), which is larger, so they swap. Now it is at index 2 with parent index 0 (value 2), also larger, so they swap again and it reaches the root. The old root 2 moved to index 2 and 3 to index 5."
+
+[[questions]]
+id = "heap-cost"
+type = "choice"
+prompt = "A scheduler pushes 1,000,000 events and pops them all through a binary heap. Roughly how many comparisons does that take?"
+choices = [
+    "About 1,000,000 * 20 times a small constant: n log n",
+    "About 1,000,000: one per event",
+    "About 1,000,000 * 1,000,000 / 2: n squared",
+    "About 20: log n",
+]
+answer = 1
+why = [
+    "",
+    "Each push and pop costs about log2(n) levels, not one comparison.",
+    "That would be the cost of inserting each event into a sorted array.",
+    "log n is the cost of a single operation, not of a million of them.",
+]
+explanation = "log2(1,000,000) is about 20, and each of the n pushes and n pops walks at most that many levels, so the total is on the order of n log n."
+
+[[questions]]
+id = "tie-order"
+type = "choice"
+prompt = "Two events have the same time and must run in the order they were scheduled. What do you add to a binary heap's comparison?"
+choices = [
+    "A sequence number that grows with every push, compared when the times are equal",
+    "Nothing: a heap is stable",
+    "A second heap for the equal events",
+    "A call to sort after every pop",
+]
+answer = 1
+why = [
+    "",
+    "A heap makes no promise about equal items; the swaps do not preserve arrival order.",
+    "That makes the structure complicated without solving the ordering of equal events.",
+    "That defeats the purpose of the heap and is far more expensive.",
+]
+explanation = "Sift-up and sift-down swap items without regard to their arrival order. Adding the sequence number to the comparison turns every pair into a strict order, so the result is deterministic and first scheduled runs first."
+
+[[cards]]
+id = "heap-indexes"
+front = "Index formulas of a binary heap with the root at 0?"
+back = "Parent `(i - 1) / 2`, left child `2 * i + 1`, right child `2 * i + 2`. The heap property: no item is greater than its children (min-heap)."
+
+[[cards]]
+id = "heap-ops"
+front = "How do push and pop keep the heap property?"
+back = "Push appends and sifts up while the parent is greater. Pop swaps the root with the last item, removes it, and sifts the new root down, swapping with the smaller child. Each is O(log n)."

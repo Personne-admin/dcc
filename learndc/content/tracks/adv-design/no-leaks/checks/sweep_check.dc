@@ -1,0 +1,134 @@
+module sweep_check;
+
+import lengths;
+import std::os::heap;
+import std::alloc;
+using std::alloc::AllocError;
+
+struct Stats {
+    usize allocs;
+    usize frees;
+    usize fail_at;
+    usize calls;
+}
+
+struct Probe {
+    Stats* stats;
+}
+
+Result([] u8, AllocError) allocate(Probe* self, usize len, usize align) {
+    self.stats.calls += 1;
+    if self.stats.calls == self.stats.fail_at {
+        return AllocError::OutOfMemory;
+    }
+    std::os::heap::Heap heap = {};
+    Result([] u8, AllocError) got = heap.allocate(len, align);
+    if got.is_ok() {
+        self.stats.allocs += 1;
+    }
+    return got;
+}
+
+bool resize_in_place(Probe* self, [] u8 block, usize new_bytes, usize align) {
+    return false;
+}
+
+void free(Probe* self, [] u8 block, usize align) {
+    std::os::heap::Heap heap = {};
+    self.stats.frees += 1;
+    heap.free(block, align);
+}
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+Array([]const char) make_words(usize copies) {
+    Array([]const char) words = {};
+    for usize i in 0..copies {
+        words.push("a");
+        words.push("bb");
+        words.push("cc");
+        words.push("dddd");
+        words.push("eee");
+        words.push("ffffff");
+        words.push("gg");
+        words.push("hhhhh");
+    }
+    return words;
+}
+
+bool sweep(usize copies, usize* points, usize* wrong) {
+    Array([]const char) words = make_words(copies);
+    defer words.deinit();
+
+    Stats clean = { allocs = 0, frees = 0, fail_at = 0, calls = 0 };
+    Probe clean_probe = { stats = &clean };
+    Result(Array(u32, Probe), AllocError) made = lengths::unique_lengths(clean_probe, words.items());
+    if made.is_err() {
+        return false;
+    }
+    Array(u32, Probe) kept = made.unwrap();
+    kept.deinit();
+    if clean.allocs != clean.frees {
+        *wrong += 1;
+    }
+
+    *points = clean.calls;
+    for usize n in 1..=clean.calls {
+        Stats run = { allocs = 0, frees = 0, fail_at = n, calls = 0 };
+        Probe probe = { stats = &run };
+        Result(Array(u32, Probe), AllocError) outcome = lengths::unique_lengths(probe, words.items());
+        if outcome.is_ok() {
+            *wrong += 1;
+        }
+        if run.allocs != run.frees {
+            *wrong += 1;
+        }
+    }
+    return true;
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    std::os::heap::Heap heap = {};
+    Array([]const char) words = make_words(1);
+    defer words.deinit();
+    Result(Array(u32, std::os::heap::Heap), AllocError) result = lengths::unique_lengths(heap, words.items());
+    expect(result.is_ok(), "unique_lengths succeeds with the heap", &failures);
+    Array(u32, std::os::heap::Heap) distinct = result.unwrap();
+    defer distinct.deinit();
+    expect(distinct.len() == 6, "six distinct lengths", &failures);
+    bool ascending = true;
+    for usize i in 1..distinct.len() {
+        if distinct.items()[i - 1] >= distinct.items()[i] {
+            ascending = false;
+        }
+    }
+    expect(ascending, "the lengths are distinct and ascending", &failures);
+    expect(distinct.items()[0] == 1 && distinct.items()[5] == 6, "from 1 to 6", &failures);
+
+    Array([]const char) none = {};
+    defer none.deinit();
+    Result(Array(u32, std::os::heap::Heap), AllocError) empty = lengths::unique_lengths(heap, none.items());
+    expect(empty.is_ok() && empty.unwrap().len() == 0, "no words give no lengths", &failures);
+
+    usize points_small = 0;
+    usize wrong_small = 0;
+    expect(sweep(1, &points_small, &wrong_small), "a clean run with 8 words works with a counting allocator", &failures);
+    expect(points_small >= 2, "the run allocates at least two blocks, so there are several failure points", &failures);
+    expect(wrong_small == 0, "every failure point returns an error and leaks nothing (8 words)", &failures);
+
+    usize points_big = 0;
+    usize wrong_big = 0;
+    sweep(40, &points_big, &wrong_big);
+    expect(points_big > points_small, "more words grow the arrays more often, so there are more failure points", &failures);
+    expect(wrong_big == 0, "every failure point returns an error and leaks nothing (320 words)", &failures);
+    return failures;
+}

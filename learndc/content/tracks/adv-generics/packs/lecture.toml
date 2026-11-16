@@ -1,0 +1,164 @@
+schema = 1
+id = "adv-generics/packs"
+revision = 1
+title = "Packs: any number of arguments"
+summary = "Declare type packs with T..., count them with sizeof..., unroll them with static for, forward and index them, and use pack fields in structs."
+difficulty = "advanced"
+estimated_minutes = 22
+concepts = ["parameter pack", "sizeof...", "static for", "pack expansion", "pack field", "compile_error"]
+tags = ["lecture", "generics", "packs"]
+objectives = [
+    "Declare a type pack and a pack parameter and count its elements with sizeof...",
+    "Visit every element with static for, forward a pack with args... and read one with args.N",
+    "Use a pack field in a struct and reject bad arguments with core::compile_error",
+]
+prerequisites = ["adv-generics/constraint-dispatch"]
+
+[[examples]]
+name = "count_total"
+expect_stdout = """
+0 1 3
+6.5
+"""
+
+[[examples]]
+name = "show_all"
+expect_stdout = """
+start
+3 items
+  item: 1
+  item: two
+  item: 3.500000
+report
+2 items
+  item: x
+  item: 42
+"""
+
+[[examples]]
+name = "pick"
+expect_stdout = """
+12.0
+9.0
+"""
+
+[[examples]]
+name = "record"
+expect_stdout = """
+7 40 2.5
+16 4
+field: 1
+field: 0.500000
+field: z
+"""
+
+[[examples]]
+name = "guard"
+expect_stdout = """
+2.50
+10.00
+"""
+
+[[questions]]
+id = "what-is-unrolled"
+type = "choice"
+prompt = "What does `static for item in args { total += item as f64; }` compile to for `total(1, 2.5, 3 as u8)`?"
+choices = [
+    "Three statements, one per argument, each with the element's own type",
+    "A loop over an array of three values converted to a common type",
+    "A single statement that is executed three times with a changing type",
+    "A call to a library function that walks the arguments at run time",
+]
+answer = 1
+why = [
+    "",
+    "There is no array of arguments; the elements keep their separate types.",
+    "A statement has one type per copy. The types differ, so the compiler needs three copies.",
+    "Packs have no run-time representation beyond the parameters themselves.",
+]
+explanation = "`static for` is unrolled by the compiler. Each copy of the body sees `item` as one element with its own type, which is how one body can handle an `i32`, an `f64` and a `u8`."
+
+[[questions]]
+id = "count-and-size"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+usize count(T...)(T args) {
+    return sizeof...(T);
+}
+
+public Status(Error) main() {
+    println("{}", count(1, 2.5, 'c', true))?;
+    println("{}", count())?;
+    return Status::Ok;
+}
+"""
+expect = """
+4
+0
+"""
+explanation = "`sizeof...(T)` counts the types in the pack: four for `1, 2.5, 'c', true`, none for an empty call."
+
+[[questions]]
+id = "index-too-far"
+type = "error"
+prompt = "Why does this program not compile?"
+code = """
+module main;
+
+f64 second(T...)(T args) {
+    return args.1 as f64;
+}
+
+public Status(Error) main() {
+    f64 value = second(10);
+    println("{:.1}", value)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "pack index 1 out of bounds"
+choices = [
+    "The call passes one argument, so the pack has one element and index 1 does not exist",
+    "Pack elements are numbered from 1, so `args.1` is the first element and `args.0` is invalid",
+    "`args.1` needs the type pack to be spelled out as `second!(i32)(10)`",
+    "An element of a pack cannot be converted with `as`",
+]
+answer = 1
+why = [
+    "",
+    "Elements are numbered from 0.",
+    "The pack is deduced from the arguments; no `!` is needed.",
+    "`as` works on an element like on any value of its own type.",
+]
+explanation = "The index must be a compile-time constant inside the pack. Each distinct call produces its own copy of the function, and the copy for one argument has no element 1, so it fails there."
+
+[[questions]]
+id = "forward-pack"
+type = "order"
+prompt = "Put the lines of `report` in order so that it prints a header and then forwards every argument to `show_all`."
+code = """
+Status(Error) report(T...)(T args) {
+    println("report")?;
+    show_all(args...)?;
+    return Status::Ok;
+}
+"""
+example = "show_all"
+explanation = "The signature comes first, the header is printed, `args...` expands the pack into the call and the status is returned last."
+
+[[cards]]
+id = "pack-decl"
+front = "How do you declare a function that takes any number of arguments of any types?"
+back = "`R f(T...)(T args) { ... }`. `T...` is the type pack, `T args` the pack parameter; `sizeof...(T)` counts, `static for item in args` visits, `args.N` picks, `g(args...)` forwards."
+
+[[cards]]
+id = "sizeof-dots"
+front = "What is the difference between sizeof(T) and sizeof...(T)?"
+back = "`sizeof(T)` is the size in bytes of one type. `sizeof...(T)` is the number of types in the pack T. Both are compile-time `usize` values."
+
+[[cards]]
+id = "compile-error"
+front = "How does a generic function reject an argument with your own message?"
+back = "Import `core` and call `core::compile_error(\"message\")` in a branch that only that argument type reaches, for example in the `else` of `static if compiles(...)`."

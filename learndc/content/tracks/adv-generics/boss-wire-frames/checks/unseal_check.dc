@@ -1,0 +1,35 @@
+module unseal_check;
+
+import wire;
+using wire::Frame;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    Frame frame = {};
+    wire::put_all(&frame, 5 as u8, 6 as u16);
+    wire::seal(&frame);
+    expect(wire::unseal(&frame), "a sealed frame can be unsealed", &failures);
+    expect(frame.len == 3, "the checksum byte is removed", &failures);
+    expect(frame.bytes[0] == 5 && frame.bytes[1] == 6, "the payload is untouched", &failures);
+
+    Frame bad = {};
+    wire::put_all(&bad, 5 as u8, 6 as u16);
+    wire::seal(&bad);
+    bad.bytes[0] = 99;
+    expect(!wire::unseal(&bad), "a corrupted frame is refused", &failures);
+    expect(bad.len == 4, "a refused unseal changes nothing", &failures);
+
+    Frame empty = {};
+    expect(!wire::unseal(&empty), "an empty frame is refused", &failures);
+    return failures;
+}

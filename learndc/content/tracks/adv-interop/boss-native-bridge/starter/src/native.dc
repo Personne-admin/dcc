@@ -1,0 +1,67 @@
+module native;
+
+import cstr;
+
+@nomangle extern i64 strtol(const char* text, char** end, i32 base);
+@nomangle extern i32* __errno_location();
+@nomangle extern f64 sqrt(f64 x);
+@nomangle extern f64 log(f64 x);
+@nomangle extern f64 hypot(f64 x, f64 y);
+@nomangle extern void qsort_r(void* base, usize count, usize size, i32(*)(const void*, const void*, void*) compare, void* context);
+@nomangle extern void* fopen(const char* path, const char* mode);
+@nomangle extern usize fread(void* buffer, usize size, usize count, void* file);
+@nomangle extern i32 ferror(void* file);
+@nomangle extern i32 fclose(void* file);
+@nomangle extern const char* getenv(const char* name);
+
+public using i32 ENOENT = 2;
+public using i32 EACCES = 13;
+public using i32 EISDIR = 21;
+public using i32 ERANGE = 34;
+
+public enum ParseError {
+    Empty,
+    NotANumber,
+    TrailingText,
+    OutOfRange,
+}
+
+public enum MathError {
+    Domain,
+}
+
+public enum FileError {
+    NotFound,
+    PermissionDenied,
+    IsDirectory,
+    TooBig,
+    BadPath,
+    Other,
+}
+
+public Result(i64, ParseError) parse_int([]const char text) {
+    return ParseError::NotANumber;
+}
+
+public void sort_values([]i32 values, bool descending) {
+}
+
+public Result(f64, MathError) checked_sqrt(f64 x) {
+    return MathError::Domain;
+}
+
+public Result(f64, MathError) checked_log(f64 x) {
+    return MathError::Domain;
+}
+
+public f64 distance(f64 x1, f64 y1, f64 x2, f64 y2) {
+    return 0.0;
+}
+
+public Result(usize, FileError) read_file([]const char path, []u8 buffer) {
+    return FileError::Other;
+}
+
+public []const char env_or([]const char name, []const char fallback) {
+    return fallback;
+}

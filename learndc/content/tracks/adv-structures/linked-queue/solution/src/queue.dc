@@ -1,0 +1,65 @@
+module queue;
+
+public import std::alloc;
+using std::alloc::{ AllocatorPolicy, AllocError };
+
+public struct Node(T) {
+    T value;
+    Node(T)* next;
+}
+
+public struct Queue(T) {
+    Node(T)* head;
+    Node(T)* tail;
+    usize len;
+}
+
+public usize size(T)(const Queue(T)* queue) {
+    return queue.len;
+}
+
+public Status(AllocError) push(T, A)(Queue(T)* queue, A* alloc, T value) if AllocatorPolicy(A) {
+    Result(Node(T)*, AllocError) made = alloc.create_item();
+    if made.is_err() {
+        return made.unwrap_err();
+    }
+    Node(T)* node = made.unwrap();
+    node.value = value;
+    node.next = null;
+    if queue.tail == null {
+        queue.head = node;
+    } else {
+        queue.tail.next = node;
+    }
+    queue.tail = node;
+    queue.len += 1;
+    return Status::Ok;
+}
+
+public Optional(T) peek(T)(const Queue(T)* queue) {
+    if queue.head == null {
+        return Optional::None;
+    }
+    return Optional::Some(queue.head.value);
+}
+
+public Optional(T) pop(T, A)(Queue(T)* queue, A* alloc) if AllocatorPolicy(A) {
+    if queue.head == null {
+        return Optional::None;
+    }
+    Node(T)* node = queue.head;
+    T value = node.value;
+    queue.head = node.next;
+    if queue.head == null {
+        queue.tail = null;
+    }
+    queue.len -= 1;
+    alloc.destroy_item(node);
+    return Optional::Some(value);
+}
+
+public void clear(T, A)(Queue(T)* queue, A* alloc) if AllocatorPolicy(A) {
+    while queue.head != null {
+        pop(queue, alloc);
+    }
+}

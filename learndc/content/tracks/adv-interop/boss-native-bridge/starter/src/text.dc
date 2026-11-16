@@ -1,0 +1,14 @@
+module text;
+
+public Optional([]const char) next_line([]const char data, usize* position) {
+    usize start = *position;
+    if start >= data.len {
+        return Optional::None;
+    }
+    usize end = start;
+    while end < data.len && data[end] != '\n' {
+        end++;
+    }
+    *position = end + 1;
+    return Optional::Some(data[start..end]);
+}

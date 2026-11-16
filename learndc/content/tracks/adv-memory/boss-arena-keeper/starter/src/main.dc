@@ -1,0 +1,20 @@
+module main;
+
+import arena;
+
+using arena::{ Arena, ArenaError, new_arena, align_up, alloc_one, alloc_many, alloc_bytes, reset, stats };
+
+struct Frame {
+    u64 number;
+    u32 count;
+}
+
+struct Particle {
+    f32 x;
+    f32 y;
+    i32 life;
+}
+
+public Status(Error) main() {
+    return Status::Ok;
+}

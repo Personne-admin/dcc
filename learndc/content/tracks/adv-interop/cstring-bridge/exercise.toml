@@ -1,0 +1,49 @@
+schema = 1
+id = "adv-interop/cstring-bridge"
+revision = 1
+title = "A bridge for C strings"
+summary = "Write to_c and from_c, the two conversions between DC text and C strings, and use them with strtol, getenv and strerror."
+kind = "implement-function"
+difficulty = "advanced"
+estimated_minutes = 25
+concepts = ["C string", "NUL terminator", "from_raw_const", "const char*", "null", "Result"]
+tags = ["interop", "text", "libc"]
+objectives = [
+    "Copy DC text into a caller's buffer with a terminator and refuse text that does not fit or contains a zero byte",
+    "Build a DC slice view over a C string, treating null as empty",
+    "Use both conversions around real libc calls",
+]
+entry_file = "src/main.dc"
+product = "cstring_bridge"
+prerequisites = ["adv-interop/c-strings"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The program talks to libc"
+expect_stdout = """
+parsed 42, rest " apples"
+too long: refused
+embedded NUL: refused
+unset variable: none
+strerror(2): No such file or directory
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "main is finished. It needs to_c to terminate the text and from_c to turn the pointers C returns back into slices."
+
+[[checks]]
+kind = "harness"
+name = "to_c and from_c handle their edge cases"
+harness = "checks/cbridge_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "A text of the same length as the buffer does not fit, an empty text is fine, and from_c must accept null."

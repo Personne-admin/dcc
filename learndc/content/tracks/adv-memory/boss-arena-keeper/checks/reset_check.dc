@@ -1,0 +1,58 @@
+module reset_check;
+
+import arena;
+
+using arena::{ Arena, ArenaError, Stats, new_arena, alloc_bytes, reset, stats };
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    u8[512] storage = {};
+    usize address = &storage[0] as usize;
+    usize skip = ((address + 63) / 64) * 64 - address;
+    Arena a = new_arena(storage[skip..skip + 200]);
+
+    Stats fresh = stats(&a);
+    expect(fresh.used == 0 && fresh.remaining == 200 && fresh.peak == 0 && fresh.allocations == 0, "a new arena is empty", &failures);
+
+    Result([]u8, ArenaError) first = alloc_bytes(&a, 10, 1);
+    Result([]u8, ArenaError) second = alloc_bytes(&a, 40, 8);
+    Stats s = stats(&a);
+    expect(s.used == 56 && s.remaining == 144, "used 56 (10, padding to 16, then 40), 144 remaining", &failures);
+    expect(s.allocations == 2 && s.peak == 56, "two allocations, peak 56", &failures);
+
+    usize first_start = 0;
+    if first.is_ok() {
+        first_start = first.unwrap().ptr as usize;
+    }
+    reset(&a);
+    Stats r = stats(&a);
+    expect(r.used == 0 && r.remaining == 200, "reset empties the arena", &failures);
+    expect(r.allocations == 0, "reset restarts the allocation count", &failures);
+    expect(r.peak == 56, "reset keeps the peak", &failures);
+
+    Result([]u8, ArenaError) again = alloc_bytes(&a, 8, 1);
+    expect(again.is_ok() && again.unwrap().ptr as usize == first_start, "after reset the first block is handed out again", &failures);
+
+    reset(&a);
+    Result([]u8, ArenaError) large = alloc_bytes(&a, 150, 1);
+    expect(large.is_ok(), "a larger round still fits", &failures);
+    expect(stats(&a).peak == 150, "a larger round raises the peak", &failures);
+    reset(&a);
+    Result([]u8, ArenaError) small = alloc_bytes(&a, 20, 1);
+    expect(small.is_ok() && stats(&a).peak == 150, "a smaller round keeps the peak", &failures);
+
+    Result([]u8, ArenaError) refused = alloc_bytes(&a, 500, 1);
+    expect(refused.is_err(), "500 bytes do not fit in 200", &failures);
+    Stats after = stats(&a);
+    expect(after.used == 20 && after.allocations == 1 && after.peak == 150, "a refused request leaves the statistics alone", &failures);
+    return failures;
+}

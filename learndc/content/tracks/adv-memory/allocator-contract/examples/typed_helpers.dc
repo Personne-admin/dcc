@@ -1,0 +1,32 @@
+module main;
+
+import std::os::heap;
+import std::alloc;
+
+using std::os::heap::Heap;
+using std::alloc::{ AllocError, allocate_slice, create_item, destroy_item, free_slice };
+
+struct Point {
+    f64 x;
+    f64 y;
+}
+
+public Status(Error) main() {
+    Heap heap = {};
+
+    Result(Point*, AllocError) made = heap.create_item();
+    Point* p = made.unwrap();
+    p.x = 1.5;
+    p.y = 2.5;
+    println("point {:.1} {:.1}", p.x, p.y)?;
+    heap.destroy_item(p);
+
+    Result([]u32, AllocError) made_slice = heap.allocate_slice(6);
+    []u32 squares = made_slice.unwrap();
+    for usize i = 0; i < squares.len; i++ {
+        squares[i] = (i * i) as u32;
+    }
+    println("{} squares, last {}", squares.len, squares[5])?;
+    heap.free_slice(squares);
+    return Status::Ok;
+}

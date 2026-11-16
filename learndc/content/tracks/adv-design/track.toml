@@ -1,0 +1,6 @@
+schema = 1
+id = "adv-design"
+title = "Robust Error Design and Architecture"
+summary = "Layer your errors, keep cleanup correct on every failure path, draw module boundaries and test them with failure injection."
+goal = "Design programs whose errors are typed per layer, whose cleanup is verified on every failure path and whose modules have clear boundaries."
+exercises = ["error-layers", "layer-conversion", "cleanup-on-failure", "no-leaks"]

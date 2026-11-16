@@ -1,0 +1,217 @@
+schema = 1
+id = "adv-interop/boss-native-bridge"
+revision = 1
+title = "The Native Bridge"
+summary = "Wrap libc and libm behind one safe DC module: number parsing with errno, sorting with a callback context, checked math, file reading that never leaks a handle, and a report that uses them."
+kind = "challenge"
+difficulty = "advanced"
+estimated_minutes = 90
+concepts = ["extern", "link", "errno", "strtol", "qsort_r", "libm", "fopen", "defer", "Result", "C strings", "callbacks"]
+tags = ["boss", "interop", "libc", "errors"]
+objectives = [
+    "Turn C return values and errno into typed DC errors",
+    "Sort with a callback that receives its configuration through a context pointer",
+    "Reject inputs outside a C function's domain before calling it",
+    "Release a C resource on every path with defer",
+    "Combine the wrappers in a program that reports every kind of failure",
+]
+entry_file = "src/main.dc"
+product = "native_bridge"
+prerequisites = ["adv-interop/interop-drills"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 5
+story = """
+A lab keeps its instrument readings in a text file and its numeric tools in C.
+The old glue code trusted both: a bad line became a zero, an unreadable file
+leaked its handle, and nothing told anyone why. You are given the C libraries
+and one rule: nothing from C crosses into the rest of the program without a
+typed DC error attached. Build the bridge.
+"""
+
+[[stages]]
+id = "old-glue"
+title = "Read the old glue"
+summary = "Find what the lab's legacy wrappers get wrong before you write the new ones."
+questions = ["legacy-parse", "errno-reset", "legacy-read"]
+hints = [
+    "strtol reports trouble in three ways: it consumes no characters, it stops before the end of the text, or it sets errno.",
+    "A C resource that is opened must be closed on every path out of the function, including the error paths.",
+]
+
+[[stages]]
+id = "parse"
+title = "Parse with typed errors"
+summary = "parse_int turns text into an i64 or a ParseError, using strtol, its end pointer and errno."
+hints = [
+    "Copy the text with to_c into a char[64] buffer (a text that does not fit or contains a zero byte cannot be a number, so NotANumber). Empty text is Empty before any C call.",
+    "Set *__errno_location() = 0 before strtol, and read it right after, before any other call. If the end pointer equals the start, no digits were found (NotANumber); ERANGE (34) is OutOfRange; a character other than the terminator at *end is TrailingText.",
+]
+
+[[stages]]
+id = "sort"
+title = "Sort with a context"
+summary = "sort_values sorts an i32 slice ascending or descending with qsort_r, passing the direction through the context pointer."
+hints = [
+    "qsort_r takes a comparator with a third void* parameter. The context you pass in is handed back on every call.",
+    "Put the direction in a small struct, pass &order as void*, cast it back with context as Order* in the comparator, and return -sign for descending. Compare with < and >, not subtraction.",
+]
+
+[[stages]]
+id = "math"
+title = "Math with a domain check"
+summary = "checked_sqrt and checked_log refuse inputs outside their domain, and distance uses hypot."
+hints = [
+    "C's sqrt and log return NaN for inputs outside their domain and set errno. Check the input yourself before calling, and treat NaN as a domain error: x != x is true only for NaN.",
+    "sqrt accepts 0.0 and above; log accepts only above 0.0. distance is hypot(x2 - x1, y2 - y1), which also avoids overflow for huge coordinates.",
+]
+
+[[stages]]
+id = "file"
+title = "Read a file, leak nothing"
+summary = "read_file maps fopen and fread failures to FileError and closes the file on every path."
+hints = [
+    "Convert the path with to_c into a char[256] buffer (BadPath if it does not convert). Clear errno, call fopen, and map errno 2, 13 and 21 to NotFound, PermissionDenied and IsDirectory; anything else is Other.",
+    "Register defer fclose(file) right after a successful fopen. Read in a loop until the buffer is full or fread returns 0, check ferror, and if the buffer is full try to read one more byte: if it succeeds the file did not fit (TooBig).",
+]
+
+[[stages]]
+id = "report"
+title = "The report"
+summary = "main reads data/readings.txt, parses every line, sorts the good numbers, prints their roots and reports each failure."
+hints = [
+    "Read the file into a u8[1024] buffer with read_file and make a []const char of the bytes read. text::next_line gives one line at a time and advances a position you keep.",
+    "Count lines from 1, report each parse error with its line number, keep the good values in an i32 array, then sort_values(values[0..count], true) and loop with checked_sqrt. Print the missing-file error for data/missing.txt, then the distance and ln results.",
+]
+
+[[stages]]
+id = "environment"
+title = "Bonus: the environment"
+summary = "env_or returns an environment variable's value, or a fallback when it is not set."
+optional = true
+hints = [
+    "getenv returns null for an unset name. Convert the name with to_c; if it does not convert, return the fallback. A variable set to the empty text is set: return that, not the fallback.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "parse_int reports every kind of bad number"
+stage = "parse"
+harness = "checks/parse_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "sort_values sorts in both directions"
+stage = "sort"
+harness = "checks/sort_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "checked math refuses what C would turn into NaN"
+stage = "math"
+harness = "checks/math_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "read_file maps errors and closes every file"
+stage = "file"
+harness = "checks/file_check.dc"
+expect_exit = 0
+max_seconds = 20
+
+[[checks]]
+kind = "run"
+name = "The lab report"
+stage = "report"
+expect_stdout = """
+line 3: not a number
+line 5: trailing text
+line 6: out of range
+line 8: empty
+read 9 lines
+sorted: 144 49 25 9 -4
+roots: 12.0 7.0 5.0 3.0 domain
+data/missing.txt: not found
+distance (0,0)-(3,4): 5.0
+ln(1) = 0.0, ln(0) is an error: true
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Nine lines are read, lines 3, 5, 6 and 8 fail, and five numbers remain. Errors are printed while the lines are parsed, the count after the loop."
+
+[[checks]]
+kind = "harness"
+name = "env_or reads the environment safely"
+stage = "environment"
+harness = "checks/env_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[questions]]
+id = "legacy-parse"
+type = "bug"
+prompt = "The legacy `parse_legacy` turns \"abc\" into 0 and \"12 apples\" into 12, and the lab has been trusting those numbers. Which line throws away the information that would reveal it?"
+code = """
+public i64 parse_legacy(const char* text) {
+    char* end = null;
+    i64 value = strtol(text, &end, 10);
+    return value;
+}
+"""
+lines = [4]
+explanation = "strtol answers with a value and, separately, tells where it stopped (the end pointer) and whether the value was out of range (errno). The legacy code reads the value and drops both. A reliable wrapper checks end against the start and against the terminator, and errno against ERANGE."
+
+[[questions]]
+id = "errno-reset"
+type = "choice"
+prompt = "Why does a correct wrapper set errno to 0 before it calls strtol?"
+choices = [
+    "strtol needs errno to be 0 to start",
+    "strtol sets errno only when it fails and never clears it, so an older error would look like ERANGE",
+    "errno is read-only unless it is reset",
+    "To make the call faster",
+]
+answer = 2
+why = [
+    "strtol does not read errno.",
+    "",
+    "errno is an ordinary variable; any code may write it.",
+    "Setting a variable has nothing to do with speed.",
+]
+explanation = "errno keeps whatever the last failing library call left in it. A function that only reports errors on failure leaves a successful call's errno untouched, so the caller has to clear it first and read it immediately afterwards."
+
+[[questions]]
+id = "legacy-read"
+type = "bug"
+prompt = "The legacy `read_legacy` works until a read fails; after enough failures the lab tool can no longer open any file. Which line is the leak?"
+code = """
+public Result(usize, FileError) read_legacy(const char* path, []u8 buffer) {
+    void* file = fopen(path, "rb\\0".ptr);
+    if file == null {
+        return FileError::NotFound;
+    }
+    usize got = fread(buffer.ptr as void*, 1, buffer.len, file);
+    if ferror(file) != 0 {
+        return FileError::Other;
+    }
+    fclose(file);
+    return Result::Ok(got);
+}
+"""
+lines = [8]
+explanation = "The early return on a read error leaves the FILE open, and each failure uses up one of the process's limited file handles. defer fclose(file); right after the successful fopen closes it on every path out of the function."

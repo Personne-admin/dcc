@@ -1,0 +1,52 @@
+module views_check;
+
+import views;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    i32[5] data = {4, -2, 8, -2, 6};
+    i32* base = &data[0];
+
+    expect(views::sum(base, 5) == 14, "sum adds all five elements", &failures);
+    expect(views::sum(base, 0) == 0, "sum of nothing is 0", &failures);
+    expect(views::sum(base + 1, 2) == 6, "sum of a middle range", &failures);
+
+    const i32* d0 = &data[0];
+    const i32* d3 = &data[3];
+    const i32* last = views::find_last(base, 5, -2);
+    expect(last == d3, "find_last returns the pointer to the last match", &failures);
+    expect(views::find_last(base, 5, 4) == d0, "find_last finds the first element too", &failures);
+    expect(views::find_last(base, 5, 99) == null, "find_last returns null when absent", &failures);
+    expect(views::find_last(base, 0, 4) == null, "find_last of nothing is null", &failures);
+
+    []i32 w = views::window(base, 1, 3);
+    expect(w.len == 3, "window has the requested length", &failures);
+    if w.len == 3 {
+        expect(w[0] == -2 && w[1] == 8 && w[2] == -2, "window shows the elements from start", &failures);
+        w[1] = 100;
+        expect(data[2] == 100, "window shares the memory of data", &failures);
+    }
+    data[2] = 8;
+
+    views::reverse(base, 5);
+    expect(data[0] == 6 && data[1] == -2 && data[2] == 8 && data[3] == -2 && data[4] == 4, "reverse flips five elements", &failures);
+    i32[4] even = {1, 2, 3, 4};
+    views::reverse(&even[0], 4);
+    expect(even[0] == 4 && even[1] == 3 && even[2] == 2 && even[3] == 1, "reverse flips an even count", &failures);
+    i32[1] one = {7};
+    views::reverse(&one[0], 1);
+    views::reverse(&one[0], 0);
+    expect(one[0] == 7, "reverse leaves one element and none alone", &failures);
+    views::reverse(base + 1, 3);
+    expect(data[0] == 6 && data[4] == 4, "reverse of a middle range does not touch its neighbours", &failures);
+    return failures;
+}

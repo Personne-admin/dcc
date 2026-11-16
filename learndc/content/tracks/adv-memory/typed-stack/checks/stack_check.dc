@@ -1,0 +1,98 @@
+module stack_check;
+
+import std::alloc;
+import std::alloc::fixed;
+import std::os::heap;
+import stack;
+
+using std::alloc::AllocError;
+using std::alloc::fixed::{ FixedBuffer, FixedHandle, new_fixed_buffer, borrow };
+using std::os::heap::Heap;
+using stack::{ Stack, push, pop, clear };
+
+struct Counting {
+    Heap inner;
+    usize allocations;
+    usize frees;
+    usize freed_bytes;
+    usize allocated_bytes;
+}
+
+Result([]u8, AllocError) allocate(Counting* self, usize len, usize align) {
+    Result([]u8, AllocError) block = self.inner.allocate(len, align);
+    if block.is_ok() {
+        self.allocations += 1;
+        self.allocated_bytes += len;
+    }
+    return block;
+}
+
+bool resize_in_place(Counting* self, []u8 block, usize new_bytes, usize align) {
+    return self.inner.resize_in_place(block, new_bytes, align);
+}
+
+void free(Counting* self, []u8 block, usize align) {
+    self.frees += 1;
+    self.freed_bytes += block.len;
+    self.inner.free(block, align);
+}
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    Counting counting = {};
+    Stack s = {};
+    for i32 n = 1; n <= 5; n++ {
+        if !push(&s, &counting, n * 10).is_ok() {
+            expect(false, "push succeeds with the heap", &failures);
+            return failures + 1;
+        }
+    }
+    expect(s.len == 5, "len counts the pushed values", &failures);
+    expect(counting.allocations == 5, "push allocates exactly one node per value", &failures);
+    expect(counting.frees == 0, "nothing is freed while the values are on the stack", &failures);
+
+    Optional(i32) top = pop(&s, &counting);
+    expect(top.is_some() && top.unwrap_some() == 50, "pop returns the last pushed value", &failures);
+    expect(s.len == 4, "pop lowers len", &failures);
+    expect(counting.frees == 1, "pop frees the node it removes", &failures);
+    Optional(i32) next = pop(&s, &counting);
+    expect(next.is_some() && next.unwrap_some() == 40, "values come back in reverse order", &failures);
+
+    clear(&s, &counting);
+    expect(s.len == 0 && s.top == null, "clear empties the stack", &failures);
+    expect(counting.frees == counting.allocations, "every node that was allocated was freed", &failures);
+    expect(counting.freed_bytes == counting.allocated_bytes, "the freed blocks have the allocated sizes", &failures);
+
+    usize frees_before = counting.frees;
+    Optional(i32) none = pop(&s, &counting);
+    expect(none.is_none(), "pop on an empty stack is None", &failures);
+    clear(&s, &counting);
+    expect(counting.frees == frees_before, "an empty stack frees nothing", &failures);
+
+    u8[56] storage = {};
+    FixedBuffer buffer = new_fixed_buffer(storage[0..56]);
+    FixedHandle fixed = borrow(&buffer);
+    Stack small = {};
+    bool one = push(&small, &fixed, 1).is_ok();
+    bool two = push(&small, &fixed, 2).is_ok();
+    bool three = push(&small, &fixed, 3).is_ok();
+    expect(one && two && three, "three nodes fit in 56 bytes", &failures);
+    Status(AllocError) full = push(&small, &fixed, 4);
+    expect(!full.is_ok(), "the fourth push reports the allocation error", &failures);
+    expect(small.len == 3, "a failed push leaves len unchanged", &failures);
+    Optional(i32) back = pop(&small, &fixed);
+    expect(back.is_some() && back.unwrap_some() == 3, "the failed push left the top untouched", &failures);
+    expect(push(&small, &fixed, 5).is_ok(), "after a pop the freed room can be used again", &failures);
+    clear(&small, &fixed);
+    return failures;
+}

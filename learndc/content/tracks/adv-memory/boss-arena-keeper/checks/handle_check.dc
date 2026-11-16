@@ -1,0 +1,64 @@
+module handle_check;
+
+import std::alloc;
+import std::array;
+import arena;
+
+using std::alloc::{ AllocError, AllocatorPolicy };
+using arena::{ Arena, ArenaHandle, new_arena, handle_of, reset, stats };
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+void require_policy(A)(A* alloc) if AllocatorPolicy(A) {
+}
+
+public i32 main() {
+    i32 failures = 0;
+    u8[1024] storage = {};
+    usize address = &storage[0] as usize;
+    usize skip = ((address + 63) / 64) * 64 - address;
+    Arena a = new_arena(storage[skip..skip + 512]);
+    ArenaHandle handle = handle_of(&a);
+    require_policy(&handle);
+
+    Result([]u8, AllocError) block = handle.allocate(24, 8);
+    expect(block.is_ok() && block.unwrap().len == 24, "allocate returns a block through the handle", &failures);
+    if block.is_ok() {
+        expect(block.unwrap().ptr as usize % 8 == 0, "the block is aligned", &failures);
+        handle.free(block.unwrap(), 8);
+    }
+    expect(stats(&a).used == 24 && stats(&a).allocations == 1, "the handle allocates from the arena itself", &failures);
+
+    Result([]u8, AllocError) odd = handle.allocate(8, 5);
+    expect(odd.is_err() && odd.unwrap_err() == AllocError::InvalidAlignment, "a bad alignment becomes InvalidAlignment", &failures);
+    Result([]u8, AllocError) huge = handle.allocate(4096, 1);
+    expect(huge.is_err() && huge.unwrap_err() == AllocError::OutOfMemory, "running out of space becomes OutOfMemory", &failures);
+    expect(stats(&a).used == 24, "refused requests use nothing", &failures);
+
+    reset(&a);
+    Array(i32, ArenaHandle) numbers = std::array::new_array(handle);
+    i32 pushed = 0;
+    for i32 n in 1..=20 {
+        if numbers.push(n).is_ok() {
+            pushed += 1;
+        }
+    }
+    expect(pushed == 20, "an Array can grow inside the arena", &failures);
+    i32 total = 0;
+    for n in numbers.items() {
+        total += n;
+    }
+    expect(total == 210, "the array contents are intact after growing", &failures);
+    expect(stats(&a).used > 0 && stats(&a).allocations >= 2, "growing allocated blocks from the arena", &failures);
+    numbers.deinit();
+    reset(&a);
+    expect(stats(&a).used == 0, "reset gives everything back at once", &failures);
+    return failures;
+}

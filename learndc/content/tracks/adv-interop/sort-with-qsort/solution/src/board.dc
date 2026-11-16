@@ -1,0 +1,73 @@
+module board;
+
+using Compare = i32(*)(const void*, const void*);
+using CompareWith = i32(*)(const void*, const void*, void*);
+
+@nomangle extern void qsort(void* base, usize count, usize size, Compare compare);
+@nomangle extern void* bsearch(const void* key, const void* base, usize count, usize size, Compare compare);
+@nomangle extern void qsort_r(void* base, usize count, usize size, CompareWith compare, void* context);
+
+public struct Player {
+    i32 id;
+    i32 score;
+}
+
+public i32 by_score_desc(const void* a, const void* b) {
+    const Player* x = a as const Player*;
+    const Player* y = b as const Player*;
+    if x.score > y.score {
+        return -1;
+    }
+    if x.score < y.score {
+        return 1;
+    }
+    if x.id < y.id {
+        return -1;
+    }
+    if x.id > y.id {
+        return 1;
+    }
+    return 0;
+}
+
+public i32 by_id(const void* a, const void* b) {
+    const Player* x = a as const Player*;
+    const Player* y = b as const Player*;
+    if x.id < y.id {
+        return -1;
+    }
+    if x.id > y.id {
+        return 1;
+    }
+    return 0;
+}
+
+public void sort_by_score(Player* players, usize count) {
+    qsort(players as void*, count, sizeof(Player), by_score_desc);
+}
+
+public void sort_by_id(Player* players, usize count) {
+    qsort(players as void*, count, sizeof(Player), by_id);
+}
+
+public Player* find_by_id(Player* players, usize count, i32 id) {
+    Player key = Player { id = id, score = 0 };
+    void* hit = bsearch(&key as const void*, players as const void*, count, sizeof(Player), by_id);
+    return hit as Player*;
+}
+
+struct Counter {
+    u32 calls;
+}
+
+i32 counting_by_score(const void* a, const void* b, void* context) {
+    Counter* counter = context as Counter*;
+    counter.calls += 1;
+    return by_score_desc(a, b);
+}
+
+public u32 sort_counting(Player* players, usize count) {
+    Counter counter = Counter { calls = 0 };
+    qsort_r(players as void*, count, sizeof(Player), counting_by_score, &counter as void*);
+    return counter.calls;
+}

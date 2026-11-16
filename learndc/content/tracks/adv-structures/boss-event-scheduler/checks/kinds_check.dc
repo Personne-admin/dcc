@@ -1,0 +1,71 @@
+module kinds_check;
+
+import events;
+import sched;
+import std::map;
+using events::Event;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+u32 time_at([]const Event items, usize index) {
+    Event event = items[index];
+    return event.time;
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    Event[9] log = {
+        { time = 1, seq = 0, kind = 3, period = 0 },
+        { time = 2, seq = 1, kind = 1, period = 0 },
+        { time = 3, seq = 2, kind = 2, period = 0 },
+        { time = 4, seq = 3, kind = 1, period = 0 },
+        { time = 5, seq = 4, kind = 3, period = 0 },
+        { time = 6, seq = 5, kind = 1, period = 0 },
+        { time = 7, seq = 6, kind = 2, period = 0 },
+        { time = 8, seq = 7, kind = 3, period = 0 },
+        { time = 9, seq = 8, kind = 3, period = 0 },
+    };
+
+    std::map::Map(u32, u32) counts = {};
+    defer counts.deinit();
+    expect(sched::count_kinds(log, &counts).is_ok(), "count_kinds succeeds", &failures);
+    expect(counts.get(1).some_or(0) == 3, "three events of kind 1", &failures);
+    expect(counts.get(2).some_or(0) == 2, "two events of kind 2", &failures);
+    expect(counts.get(3).some_or(0) == 4, "four events of kind 3", &failures);
+    expect(counts.get(9).is_none(), "a kind that never occurs has no entry", &failures);
+    sched::count_kinds(log, &counts);
+    expect(counts.get(1).some_or(0) == 6, "counts accumulate in an existing map", &failures);
+
+    []Event view = log;
+    expect(sched::sort_by_kind(view).is_ok(), "sort_by_kind succeeds", &failures);
+    bool grouped = true;
+    for usize i in 1..9 {
+        if view[i - 1].kind > view[i].kind {
+            grouped = false;
+        }
+    }
+    expect(grouped, "the events are grouped by kind", &failures);
+    bool stable = true;
+    for usize i in 1..9 {
+        if view[i - 1].kind == view[i].kind && view[i - 1].time > view[i].time {
+            stable = false;
+        }
+    }
+    expect(stable, "inside a kind the time order is kept (stable sort)", &failures);
+    expect(time_at(view, 0) == 2 && time_at(view, 1) == 4 && time_at(view, 2) == 6, "kind 1 comes first in its original order", &failures);
+    expect(time_at(view, 3) == 3 && time_at(view, 4) == 7, "then kind 2", &failures);
+    expect(time_at(view, 5) == 1 && time_at(view, 8) == 9, "then kind 3", &failures);
+
+    Event[0] none = {};
+    []Event nothing = none[0..0];
+    expect(sched::sort_by_kind(nothing).is_ok(), "an empty log is fine", &failures);
+    return failures;
+}

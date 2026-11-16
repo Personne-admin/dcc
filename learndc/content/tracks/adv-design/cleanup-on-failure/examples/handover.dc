@@ -1,0 +1,76 @@
+module main;
+
+import std::os::heap;
+import std::array;
+import std::alloc;
+using std::alloc::AllocError;
+
+struct Stats {
+    usize allocs;
+    usize frees;
+    usize fail_at;
+    usize calls;
+}
+
+struct Probe {
+    Stats* stats;
+}
+
+Result([] u8, AllocError) allocate(Probe* self, usize len, usize align) {
+    self.stats.calls += 1;
+    if self.stats.calls == self.stats.fail_at {
+        return AllocError::OutOfMemory;
+    }
+    std::os::heap::Heap heap = {};
+    Result([] u8, AllocError) got = heap.allocate(len, align);
+    if got.is_ok() {
+        self.stats.allocs += 1;
+    }
+    return got;
+}
+
+bool resize_in_place(Probe* self, [] u8 block, usize new_bytes, usize align) {
+    return false;
+}
+
+void free(Probe* self, [] u8 block, usize align) {
+    std::os::heap::Heap heap = {};
+    self.stats.frees += 1;
+    heap.free(block, align);
+}
+
+Result(Array(i32, Probe), AllocError) squares(Stats* stats, i32 count) {
+    Probe probe = { stats = stats };
+    Array(i32, Probe) out = std::array::new_array!(i32, Probe)(probe);
+    bool handed_over = false;
+    defer {
+        if !handed_over {
+            out.deinit();
+        }
+    }
+    for i32 n in 0..count {
+        out.push(n * n)?;
+    }
+    handed_over = true;
+    return Result::Ok(out);
+}
+
+public Status(Error) main() {
+    println("handing over")?;
+    Stats clean = { allocs = 0, frees = 0, fail_at = 0, calls = 0 };
+    Result(Array(i32, Probe), AllocError) made = squares(&clean, 40);
+    Array(i32, Probe) owned = made.unwrap();
+    println("success: {} items, {} allocations, {} frees", owned.len(), clean.allocs, clean.frees)?;
+    owned.deinit();
+    println("after the caller frees: {} allocations, {} frees", clean.allocs, clean.frees)?;
+    usize leaks = 0;
+    for usize n in 1..=clean.calls {
+        Stats run = { allocs = 0, frees = 0, fail_at = n, calls = 0 };
+        Result(Array(i32, Probe), AllocError) outcome = squares(&run, 40);
+        if outcome.is_ok() || run.allocs != run.frees {
+            leaks += 1;
+        }
+    }
+    println("failure points tried: {}, leaking: {}", clean.calls, leaks)?;
+    return Status::Ok;
+}

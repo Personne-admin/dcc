@@ -1,0 +1,23 @@
+module main;
+
+import core::slice;
+
+usize c_length(const char* text) {
+    usize n = 0;
+    while text[n] != '\0' {
+        n++;
+    }
+    return n;
+}
+
+[]const char c_view(const char* text) {
+    return core::slice::from_raw_const(text, c_length(text));
+}
+
+public Status(Error) main() {
+    const char* greeting = "hello, C\0".ptr;
+    println("length {}", c_length(greeting))?;
+    []const char view = c_view(greeting + 7);
+    println("view of the tail: {} ({} chars)", view, view.len)?;
+    return Status::Ok;
+}

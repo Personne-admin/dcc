@@ -1,0 +1,20 @@
+module main;
+
+@nomangle public i32 shim_add(i32 a, i32 b) {
+    return a + b;
+}
+
+@nomangle public i32 shim_scale(i32* values, usize count, i32 factor) {
+    for usize i = 0; i < count; i++ {
+        values[i] *= factor;
+    }
+    return count as i32;
+}
+
+public Status(Error) main() {
+    println("{}", shim_add(40, 2))?;
+    i32[3] numbers = {1, 2, 3};
+    shim_scale(&numbers[0], 3, 10);
+    println("{} {} {}", numbers[0], numbers[1], numbers[2])?;
+    return Status::Ok;
+}

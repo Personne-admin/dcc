@@ -1,0 +1,44 @@
+module main;
+
+import heap;
+
+struct Task {
+    u32 due;
+    u32 order;
+    []const char name;
+}
+
+i32 by_due_then_order(const Task* a, const Task* b) {
+    if a.due != b.due {
+        return if a.due < b.due { -1 } else { 1 };
+    }
+    if a.order != b.order {
+        return if a.order < b.order { -1 } else { 1 };
+    }
+    return 0;
+}
+
+public Status(Error) main() {
+    println("deadline queue")?;
+    Array(Task) queue = {};
+    defer queue.deinit();
+
+    heap::heap_push(&queue, Task { due = 30, order = 0, name = "backup" }, by_due_then_order)?;
+    heap::heap_push(&queue, Task { due = 10, order = 1, name = "email" }, by_due_then_order)?;
+    heap::heap_push(&queue, Task { due = 20, order = 2, name = "report" }, by_due_then_order)?;
+    heap::heap_push(&queue, Task { due = 10, order = 3, name = "standup" }, by_due_then_order)?;
+    heap::heap_push(&queue, Task { due = 5, order = 4, name = "deploy" }, by_due_then_order)?;
+    heap::heap_push(&queue, Task { due = 20, order = 5, name = "review" }, by_due_then_order)?;
+    heap::heap_push(&queue, Task { due = 25, order = 6, name = "lunch" }, by_due_then_order)?;
+
+    println("waiting: {}, heap valid: {}", queue.len(), heap::is_heap(&queue, by_due_then_order))?;
+    Optional(Task) next = heap::heap_peek(&queue);
+    println("next: {} (due {})", next.unwrap_some().name, next.unwrap_some().due)?;
+
+    while queue.len() > 0 {
+        Task t = heap::heap_pop(&queue, by_due_then_order).unwrap_some();
+        println("{:>3} {}", t.due, t.name)?;
+    }
+    println("empty pop is none: {}", heap::heap_pop(&queue, by_due_then_order).is_none())?;
+    return Status::Ok;
+}

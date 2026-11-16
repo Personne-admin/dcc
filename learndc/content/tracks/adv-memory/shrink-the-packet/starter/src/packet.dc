@@ -1,0 +1,13 @@
+module packet;
+
+public struct Packet {
+    u8 kind;
+    u64 id;
+    u8 flags;
+    u32 length;
+    u16 port;
+}
+
+public usize field_bytes() {
+    return 0;
+}

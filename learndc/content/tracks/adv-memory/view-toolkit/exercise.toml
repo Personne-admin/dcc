@@ -1,0 +1,51 @@
+schema = 1
+id = "adv-memory/view-toolkit"
+revision = 1
+title = "A toolkit of views"
+summary = "Write four small functions over a pointer and a count: sum, find_last, window and reverse."
+kind = "implement-function"
+difficulty = "advanced"
+estimated_minutes = 25
+concepts = ["pointer arithmetic", "from_raw", "null", "views", "in-place update"]
+tags = ["memory", "pointers", "slices"]
+objectives = [
+    "Walk a block of memory with a pointer and an end pointer",
+    "Return a pointer into the block, or null, from a search",
+    "Build a window over part of a block with core::slice::from_raw",
+    "Swap elements in place from both ends with two pointers",
+]
+entry_file = "src/main.dc"
+product = "view_toolkit"
+prerequisites = ["adv-memory/pointers-and-views"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The demonstration prints the expected report"
+expect_stdout = """
+sum: 28
+last 3 at index 3
+4 not found
+window: 9 3 7
+after write: 5 3 0 3 7 1
+reversed: 1 7 3 0 3 5
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "main is finished; the report depends on all four functions in src/views.dc."
+
+[[checks]]
+kind = "harness"
+name = "Every function handles its edge cases"
+harness = "checks/views_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Check empty input (n == 0), a match at index 0, and ranges that do not start at the first element."

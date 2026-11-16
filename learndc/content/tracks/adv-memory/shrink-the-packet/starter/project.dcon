@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "packet_layout",
+    version = "0.1.0",
+    products = {
+        { name = "packet_layout", entry = "src/main.dc" },
+    },
+}

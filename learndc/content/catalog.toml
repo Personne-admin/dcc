@@ -13,6 +13,11 @@ tracks = [
     "projects",
     "library",
     "generics",
+    "adv-memory",
+    "adv-interop",
+    "adv-generics",
+    "adv-structures",
+    "adv-design",
     "lab",
     "clinic",
     "reading",
@@ -26,6 +31,13 @@ title = "Core curriculum"
 summary = "The beginner journey: programs, values, functions, decisions, loops, data, errors, memory, modules and generics, one concept at a time."
 kind = "core"
 tracks = ["first-steps", "values", "functions", "decisions", "loops", "collections", "data", "errors", "memory", "projects", "library", "generics"]
+
+[[paths]]
+id = "advanced"
+title = "Advanced DC"
+summary = "Memory layout, allocators, C interop and native linking, generics and compile-time programming, data structures and robust design."
+kind = "specialization"
+tracks = ["adv-memory", "adv-interop", "adv-generics", "adv-structures", "adv-design"]
 
 [[paths]]
 id = "practice"

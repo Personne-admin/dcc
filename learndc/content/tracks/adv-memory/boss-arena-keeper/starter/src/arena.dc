@@ -1,0 +1,88 @@
+module arena;
+
+public import std::alloc;
+
+import core::slice;
+
+using std::alloc::{ AllocError, AllocatorPolicy };
+
+public enum ArenaError {
+    InvalidAlignment,
+    OutOfSpace,
+}
+
+// An arena hands out pieces of a buffer it does not own.
+// used counts every byte taken so far, padding included.
+public struct Arena {
+    []u8 memory;
+    usize used;
+    usize peak;
+    usize allocations;
+}
+
+public struct Stats {
+    usize used;
+    usize remaining;
+    usize peak;
+    usize allocations;
+}
+
+public Arena new_arena([]u8 memory) {
+    return Arena { memory = memory, used = 0, peak = 0, allocations = 0 };
+}
+
+// Stage 1: alignment arithmetic
+
+public bool is_power_of_two(usize n) {
+    return false;
+}
+
+public usize align_up(usize value, usize align) {
+    return value;
+}
+
+// Stage 2: allocate raw bytes
+
+public Result([]u8, ArenaError) alloc_bytes(Arena* arena, usize size, usize align) {
+    return ArenaError::OutOfSpace;
+}
+
+// Stage 3: typed allocation
+
+public Result(T*, ArenaError) alloc_one(T)(Arena* arena) {
+    return ArenaError::OutOfSpace;
+}
+
+public Result([]T, ArenaError) alloc_many(T)(Arena* arena, usize count) {
+    return ArenaError::OutOfSpace;
+}
+
+// Stage 4: reset and statistics
+
+public void reset(Arena* arena) {
+}
+
+public Stats stats(const Arena* arena) {
+    return Stats { used = 0, remaining = 0, peak = 0, allocations = 0 };
+}
+
+// Bonus stage: the allocator contract
+
+public struct ArenaHandle {
+    Arena* state;
+}
+
+public ArenaHandle handle_of(Arena* arena) {
+    return ArenaHandle { state = arena };
+}
+
+public Result([]u8, AllocError) allocate(const ArenaHandle* self, usize len, usize align) {
+    return AllocError::OutOfMemory;
+}
+
+public bool resize_in_place(const ArenaHandle* self, []u8 block, usize new_bytes, usize align) {
+    return false;
+}
+
+public void free(const ArenaHandle* self, []u8 block, usize align) {
+}

@@ -1,0 +1,49 @@
+schema = 1
+id = "adv-memory/typed-stack"
+revision = 1
+title = "A stack that owns its nodes"
+summary = "Build a linked stack whose nodes come from any allocator, and give every node back exactly once."
+kind = "implement-function"
+difficulty = "advanced"
+estimated_minutes = 30
+concepts = ["allocator", "create_item", "destroy_item", "ownership", "linked list", "AllocError", "generics"]
+tags = ["memory", "allocators", "ownership"]
+objectives = [
+    "Allocate one node per value with create_item and report allocation failure to the caller",
+    "Free the node that pop removes and every remaining node in clear",
+    "Keep the stack unchanged when an allocation fails",
+]
+entry_file = "src/main.dc"
+product = "typed_stack"
+prerequisites = ["adv-memory/allocator-contract"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The demonstration"
+expect_stdout = """
+pushed 4 values
+popped 4
+popped 3
+2 values left
+cleared: 0 values left
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "main is finished. push, pop and clear in src/stack.dc do all the work."
+
+[[checks]]
+kind = "harness"
+name = "Nodes are allocated and freed exactly once, and failure is safe"
+harness = "checks/stack_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "The harness counts allocations and frees with its own allocator and also runs the stack in a 56-byte FixedBuffer where only three nodes fit."

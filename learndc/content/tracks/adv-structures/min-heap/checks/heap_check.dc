@@ -1,0 +1,131 @@
+module heap_check;
+
+import heap;
+import std::sort;
+
+usize calls = 0;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+i32 up(const i32* a, const i32* b) {
+    calls += 1;
+    if *a < *b {
+        return -1;
+    }
+    return if *a > *b { 1 } else { 0 };
+}
+
+i32 down(const u8* a, const u8* b) {
+    if *a > *b {
+        return -1;
+    }
+    return if *a < *b { 1 } else { 0 };
+}
+
+bool valid(const Array(i32)* h) {
+    []const i32 items = h.items();
+    for usize i = 1; i < items.len; i++ {
+        if items[(i - 1) / 2] > items[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+usize levels(usize n) {
+    usize bits = 0;
+    usize rest = n;
+    while rest > 0 {
+        bits += 1;
+        rest /= 2;
+    }
+    return bits;
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    Array(i32) h = {};
+    defer h.deinit();
+    expect(heap::heap_peek(&h).is_none() && heap::heap_pop(&h, up).is_none(), "an empty heap has no smallest item", &failures);
+
+    u32 state = 777;
+    bool always_valid = true;
+    bool push_cost_ok = true;
+    for usize i in 0..200 {
+        state = state * 1103515245 + 12345;
+        i32 value = ((state >> 16) & 0x3FF) as i32 - 512;
+        calls = 0;
+        heap::heap_push(&h, value, up);
+        if calls > levels(h.len()) {
+            push_cost_ok = false;
+        }
+        if !valid(&h) {
+            always_valid = false;
+        }
+    }
+    expect(h.len() == 200, "200 items are stored", &failures);
+    expect(always_valid, "the heap property holds after every push", &failures);
+    expect(push_cost_ok, "a push compares at most log2(n) times", &failures);
+    expect(heap::is_heap(&h, up), "is_heap accepts a real heap", &failures);
+
+    i32[200] reference = {};
+    for usize i in 0..200 {
+        reference[i] = h.items()[i];
+    }
+    []i32 ref = reference;
+    std::sort::sort(ref);
+    expect(heap::heap_peek(&h).unwrap_some() == reference[0], "peek is the minimum", &failures);
+
+    bool order_ok = true;
+    bool pop_cost_ok = true;
+    bool valid_after_pop = true;
+    for usize i in 0..200 {
+        usize before = h.len();
+        calls = 0;
+        Optional(i32) got = heap::heap_pop(&h, up);
+        if calls > 2 * levels(before) {
+            pop_cost_ok = false;
+        }
+        if got.is_none() || got.unwrap_some() != reference[i] {
+            order_ok = false;
+        }
+        if !valid(&h) {
+            valid_after_pop = false;
+        }
+    }
+    expect(order_ok, "pop returns the items in ascending order", &failures);
+    expect(valid_after_pop, "the heap property holds after every pop", &failures);
+    expect(pop_cost_ok, "a pop compares at most 2 * log2(n) times", &failures);
+    expect(h.len() == 0 && heap::heap_pop(&h, up).is_none(), "the heap ends empty", &failures);
+
+    Array(i32) bad = {};
+    defer bad.deinit();
+    bad.push(5);
+    bad.push(1);
+    bad.push(2);
+    expect(!heap::is_heap(&bad, up), "is_heap rejects a parent greater than its child", &failures);
+    Array(i32) good = {};
+    defer good.deinit();
+    good.push(1);
+    good.push(5);
+    good.push(2);
+    good.push(9);
+    expect(heap::is_heap(&good, up), "is_heap accepts 1 5 2 9", &failures);
+
+    Array(u8) maxes = {};
+    defer maxes.deinit();
+    heap::heap_push(&maxes, 3 as u8, down);
+    heap::heap_push(&maxes, 9 as u8, down);
+    heap::heap_push(&maxes, 4 as u8, down);
+    expect(heap::heap_pop(&maxes, down).unwrap_some() == 9, "a reversed comparator gives a max-heap", &failures);
+    expect(heap::heap_pop(&maxes, down).unwrap_some() == 4, "and the next largest", &failures);
+    return failures;
+}

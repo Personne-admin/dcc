@@ -1,0 +1,53 @@
+schema = 1
+id = "adv-generics/constraint-dispatch"
+revision = 1
+title = "Dispatch on what a type can do"
+summary = "Write four exclusive concepts so that one call to kind picks the integer, float, sequence or other overload."
+kind = "implement-function"
+difficulty = "advanced"
+estimated_minutes = 25
+concepts = ["concept", "compiles", "overload selection", "exclusive constraints"]
+tags = ["generics", "concepts"]
+objectives = [
+    "Express integer, float and sequence as concepts built from small probes",
+    "Make constraints exclusive with && and negation inside a concept",
+    "Read the ambiguity diagnostic that overlapping constraints cause",
+]
+entry_file = "src/main.dc"
+product = "kinds"
+prerequisites = ["adv-generics/concepts"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+hint = "Every call matches all four overloads while the concepts accept everything. Make the four concepts exclusive."
+
+[[checks]]
+kind = "run"
+name = "The kind table"
+expect_stdout = """
+u8: integer
+f64: float
+char: other
+bool: other
+Point: other
+text: sequence
+i32 slice: sequence
+pointer: other
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "char cannot be added, so it is not numeric. A slice has both .len and an element at index 0."
+
+[[checks]]
+kind = "harness"
+name = "Every integer, float and sequence type lands in its own overload"
+harness = "checks/kinds_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "A float supports + and < but not << ; an integer supports all three."

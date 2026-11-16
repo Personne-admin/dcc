@@ -1,0 +1,18 @@
+module cbridge;
+
+import core::slice;
+
+@nomangle extern usize strlen(const char* s);
+
+public enum CTextError {
+    TooLong,
+    ContainsNul,
+}
+
+public Result(const char*, CTextError) to_c([]const char text, []char buffer) {
+    return CTextError::TooLong;
+}
+
+public []const char from_c(const char* text) {
+    return "";
+}

@@ -1,0 +1,93 @@
+module main;
+
+usize insertion_sort([]u32 items) {
+    usize comparisons = 0;
+    for usize i = 1; i < items.len; i++ {
+        u32 value = items[i];
+        usize j = i;
+        while j > 0 {
+            comparisons += 1;
+            if items[j - 1] <= value {
+                break;
+            }
+            items[j] = items[j - 1];
+            j -= 1;
+        }
+        items[j] = value;
+    }
+    return comparisons;
+}
+
+usize merge_sort([]u32 items, []u32 scratch) {
+    usize comparisons = 0;
+    usize width = 1;
+    while width < items.len {
+        usize start = 0;
+        while start < items.len {
+            usize mid = if start + width < items.len { start + width } else { items.len };
+            usize end = if start + 2 * width < items.len { start + 2 * width } else { items.len };
+            usize left = start;
+            usize right = mid;
+            for usize k = start; k < end; k++ {
+                bool take_left = false;
+                if left < mid && right < end {
+                    comparisons += 1;
+                    take_left = items[left] <= items[right];
+                } else {
+                    take_left = left < mid;
+                }
+                if take_left {
+                    scratch[k] = items[left];
+                    left += 1;
+                } else {
+                    scratch[k] = items[right];
+                    right += 1;
+                }
+            }
+            start = end;
+        }
+        for usize k in 0..items.len {
+            items[k] = scratch[k];
+        }
+        width *= 2;
+    }
+    return comparisons;
+}
+
+void fill([]u32 data, u32 kind) {
+    u32 state = 12345;
+    for usize i in 0..data.len {
+        if kind == 0 {
+            data[i] = i as u32;
+        } else if kind == 1 {
+            data[i] = (255 - i) as u32;
+        } else {
+            state = state * 1103515245 + 12345;
+            data[i] = (state >> 16) & 0xFFFF;
+        }
+    }
+}
+
+[]const char label(u32 kind) {
+    if kind == 0 {
+        return "sorted";
+    }
+    if kind == 1 {
+        return "reversed";
+    }
+    return "pseudo-random";
+}
+
+public Status(Error) main() {
+    for u32 kind in 0..3 {
+        u32[256] a = {};
+        u32[256] b = {};
+        u32[256] scratch = {};
+        fill(a, kind);
+        fill(b, kind);
+        usize insertion = insertion_sort(a);
+        usize merge = merge_sort(b, scratch);
+        println("{}: insertion {}, merge {}", label(kind), insertion, merge)?;
+    }
+    return Status::Ok;
+}

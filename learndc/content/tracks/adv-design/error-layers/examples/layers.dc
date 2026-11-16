@@ -1,0 +1,85 @@
+module main;
+
+enum ParseError {
+    Empty,
+    BadNumber,
+    OutOfRange,
+}
+
+enum ImportError {
+    @implicit_construction Parse(ParseError),
+    @implicit_construction Memory(AllocError),
+    Duplicate,
+}
+
+enum AppError {
+    @implicit_construction Import(ImportError),
+    NothingToDo,
+}
+
+Result(i32, ParseError) parse_small([]const char text) {
+    if text.len == 0 {
+        return ParseError::Empty;
+    }
+    i32 value = 0;
+    for char c in text {
+        if c < '0' || c > '9' {
+            return ParseError::BadNumber;
+        }
+        value = value * 10 + (c as i32 - '0' as i32);
+    }
+    if value > 100 {
+        return ParseError::OutOfRange;
+    }
+    return Result::Ok(value);
+}
+
+Status(ImportError) add_item(Array(i32)* items, []const char text) {
+    i32 value = parse_small(text)?;
+    for i32 existing in items.items() {
+        if existing == value {
+            return ImportError::Duplicate;
+        }
+    }
+    items.push(value)?;
+    return Status::Ok;
+}
+
+Status(AppError) import_pair([]const char a, []const char b) {
+    Array(i32) items = {};
+    defer items.deinit();
+    add_item(&items, a)?;
+    add_item(&items, b)?;
+    return Status::Ok;
+}
+
+Status(Error) say(Status(AppError) outcome) {
+    if outcome.is_ok() {
+        println("ok")?;
+        return Status::Ok;
+    }
+    AppError failure = outcome.unwrap_err();
+    match failure {
+        AppError::Import(inner) => match inner {
+            ImportError::Parse(why) => match why {
+                ParseError::Empty => println("empty field")?,
+                ParseError::BadNumber => println("not a number")?,
+                ParseError::OutOfRange => println("too large")?,
+            },
+            ImportError::Memory(why) => println("out of memory")?,
+            ImportError::Duplicate => println("duplicate")?,
+        },
+        AppError::NothingToDo => println("nothing to do")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("layers")?;
+    say(import_pair("5", "7"))?;
+    say(import_pair("5", "5"))?;
+    say(import_pair("5", "x"))?;
+    say(import_pair("", "1"))?;
+    say(import_pair("1", "500"))?;
+    return Status::Ok;
+}

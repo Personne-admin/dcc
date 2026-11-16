@@ -1,0 +1,77 @@
+module heap;
+
+public import std::alloc;
+using std::alloc::AllocError;
+
+void swap_items(T)([]T items, usize a, usize b) {
+    T held = items[a];
+    items[a] = items[b];
+    items[b] = held;
+}
+
+public Status(AllocError) heap_push(T)(Array(T)* heap, T value, i32(*)(const T*, const T*) compare) {
+    Status(AllocError) added = heap.push(value);
+    if !added.is_ok() {
+        return added;
+    }
+    []T items = heap.items();
+    usize i = items.len - 1;
+    while i > 0 {
+        usize parent = (i - 1) / 2;
+        if compare(&items[parent], &items[i]) <= 0 {
+            break;
+        }
+        swap_items(items, parent, i);
+        i = parent;
+    }
+    return Status::Ok;
+}
+
+public Optional(T) heap_peek(T)(const Array(T)* heap) {
+    if heap.len() == 0 {
+        return Optional::None;
+    }
+    return Optional::Some(heap.items()[0]);
+}
+
+public Optional(T) heap_pop(T)(Array(T)* heap, i32(*)(const T*, const T*) compare) {
+    usize count = heap.len();
+    if count == 0 {
+        return Optional::None;
+    }
+    []T items = heap.items();
+    T top = items[0];
+    swap_items(items, 0, count - 1);
+    heap.pop();
+    count -= 1;
+
+    items = heap.items();
+    usize i = 0;
+    while true {
+        usize left = 2 * i + 1;
+        usize right = left + 1;
+        usize best = i;
+        if left < count && compare(&items[left], &items[best]) < 0 {
+            best = left;
+        }
+        if right < count && compare(&items[right], &items[best]) < 0 {
+            best = right;
+        }
+        if best == i {
+            break;
+        }
+        swap_items(items, i, best);
+        i = best;
+    }
+    return Optional::Some(top);
+}
+
+public bool is_heap(T)(const Array(T)* heap, i32(*)(const T*, const T*) compare) {
+    []const T items = heap.items();
+    for usize i = 1; i < items.len; i++ {
+        if compare(&items[(i - 1) / 2], &items[i]) > 0 {
+            return false;
+        }
+    }
+    return true;
+}

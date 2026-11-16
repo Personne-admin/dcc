@@ -1,0 +1,66 @@
+module tables_check;
+
+import tables;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+u8 expected_class(u32 code) {
+    if code >= 48 && code <= 57 {
+        return tables::DIGIT;
+    }
+    if code >= 65 && code <= 90 {
+        return tables::UPPER;
+    }
+    if code >= 97 && code <= 122 {
+        return tables::LOWER;
+    }
+    if code == 32 || code == 9 || code == 10 {
+        return tables::SPACE;
+    }
+    return tables::OTHER;
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    u32 wrong_class = 0;
+    for u32 code in 0..128 {
+        if tables::class_of(code as u8 as char) != expected_class(code) {
+            wrong_class += 1;
+        }
+    }
+    expect(wrong_class == 0, "class_of agrees with the rules for all 128 ASCII codes", &failures);
+    expect(tables::class_of('7') == tables::DIGIT, "7 is a digit", &failures);
+    expect(tables::class_of('Q') == tables::UPPER, "Q is upper case", &failures);
+    expect(tables::class_of('q') == tables::LOWER, "q is lower case", &failures);
+    expect(tables::class_of(' ') == tables::SPACE, "a space is a space", &failures);
+    expect(tables::class_of('_') == tables::OTHER, "an underscore is other", &failures);
+
+    u32 wrong_rot = 0;
+    u32 not_involution = 0;
+    for u32 code in 0..128 {
+        char c = code as u8 as char;
+        char r = tables::rot13(c);
+        bool letter = (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+        if !letter && r != c {
+            wrong_rot += 1;
+        }
+        if tables::rot13(r) != c {
+            not_involution += 1;
+        }
+    }
+    expect(wrong_rot == 0, "rot13 leaves every non-letter unchanged", &failures);
+    expect(not_involution == 0, "rot13 applied twice gives the original character", &failures);
+    expect(tables::rot13('a') == 'n', "a becomes n", &failures);
+    expect(tables::rot13('z') == 'm', "z wraps around to m", &failures);
+    expect(tables::rot13('A') == 'N', "A becomes N", &failures);
+    expect(tables::rot13('Z') == 'M', "Z wraps around to M", &failures);
+    return failures;
+}

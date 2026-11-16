@@ -1,0 +1,59 @@
+module main;
+
+struct Counter {
+    usize comparisons;
+}
+
+bool less(Counter* counter, u32 a, u32 b) {
+    counter.comparisons += 1;
+    return a < b;
+}
+
+bool equal(Counter* counter, u32 a, u32 b) {
+    counter.comparisons += 1;
+    return a == b;
+}
+
+Optional(usize) linear_search([]const u32 items, u32 key, Counter* counter) {
+    for usize i in 0..items.len {
+        if equal(counter, items[i], key) {
+            return Optional::Some(i);
+        }
+    }
+    return Optional::None;
+}
+
+Optional(usize) binary_search([]const u32 items, u32 key, Counter* counter) {
+    usize low = 0;
+    usize high = items.len;
+    while low < high {
+        usize mid = low + (high - low) / 2;
+        if less(counter, items[mid], key) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    if low < items.len && equal(counter, items[low], key) {
+        return Optional::Some(low);
+    }
+    return Optional::None;
+}
+
+public Status(Error) main() {
+    u32[1024] data = {};
+    for usize i in 0..1024 {
+        data[i] = (i * 2) as u32;
+    }
+    []const u32 sorted = data[0..1024];
+    u32[3] keys = { 2046, 1000, 7 };
+    for u32 key in keys {
+        Counter linear = {};
+        Counter binary = {};
+        Optional(usize) a = linear_search(sorted, key, &linear);
+        Optional(usize) b = binary_search(sorted, key, &binary);
+        println("key {}: found {} / {}, linear {} comparisons, binary {}", key, a.is_some(), b.is_some(),
+                linear.comparisons, binary.comparisons)?;
+    }
+    return Status::Ok;
+}

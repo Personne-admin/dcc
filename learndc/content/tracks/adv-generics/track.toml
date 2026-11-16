@@ -1,0 +1,6 @@
+schema = 1
+id = "adv-generics"
+title = "Concepts and Compile-Time Programming"
+summary = "Constrain generic code with concepts, accept any number of arguments with packs and let the compiler build tables and check your API."
+goal = "Design generic APIs that reject the wrong types with clear diagnostics and move work to compile time."
+exercises = ["concepts", "constraint-dispatch", "packs", "pack-tools", "compile-time-programs", "lookup-tables", "adv-generics-drill", "boss-wire-frames"]

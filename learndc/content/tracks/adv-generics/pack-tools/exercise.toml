@@ -1,0 +1,51 @@
+schema = 1
+id = "adv-generics/pack-tools"
+revision = 1
+title = "Variadic tools"
+summary = "Write four functions that accept any number of arguments of any types: sum, largest, count negatives and a log line."
+kind = "implement-function"
+difficulty = "advanced"
+estimated_minutes = 30
+concepts = ["parameter pack", "sizeof...", "static for", "variadic function", "first argument plus pack"]
+tags = ["generics", "packs"]
+objectives = [
+    "Accumulate over a pack with static for and convert each element with as",
+    "Require at least one argument by splitting off a first parameter",
+    "Print a separator between elements by tracking whether the first one was written",
+]
+entry_file = "src/main.dc"
+product = "packtools"
+prerequisites = ["adv-generics/packs"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The report"
+expect_stdout = """
+pack tools
+[sum] 1, 2.500000, 3
+total: 6.5
+largest: 3.0
+negatives: 2
+[empty]
+[mixed] text, c, 42, true
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "log_line prints the tag in brackets, then the elements separated by a comma and a space; with no elements the line ends after the tag."
+
+[[checks]]
+kind = "harness"
+name = "sum_all, largest_of and count_negative accept mixed types"
+harness = "checks/numbers_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Convert every element with `item as f64` before comparing or adding. largest_of starts from its first parameter, not from zero."

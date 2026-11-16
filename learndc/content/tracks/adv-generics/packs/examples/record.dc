@@ -1,0 +1,24 @@
+module main;
+
+import std::tuple;
+
+struct Row(T...) {
+    u32 id;
+    T... cells;
+}
+
+Row(T) make_row(T...)(u32 id, T cells) {
+    return { id = id, cells = {cells...} };
+}
+
+public Status(Error) main() {
+    Row(i32, f64) row = make_row(7, 40, 2.5);
+    println("{} {} {:.1}", row.id, row.cells.0, row.cells.1)?;
+    println("{} {}", sizeof(Row(i32, f64)), sizeof(Row()))?;
+
+    std::tuple::Tuple(i32, f64, char) t = { 1, 0.5, 'z' };
+    static for field in t.items {
+        println("field: {}", field)?;
+    }
+    return Status::Ok;
+}

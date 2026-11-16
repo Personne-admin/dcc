@@ -1,0 +1,87 @@
+module sched;
+
+public import events;
+import heap;
+public import std::map;
+using std::map::Map;
+import std::sort;
+import std::os::heap;
+public import std::alloc;
+using events::Event;
+using std::alloc::AllocError;
+
+public Status(AllocError) schedule(Array(Event)* queue, u32* next_seq, u32 time, u32 kind, u32 period) {
+    Event event = { time = time, seq = *next_seq, kind = kind, period = period };
+    Status(AllocError) added = heap::heap_push(queue, event, events::by_time_then_seq);
+    if !added.is_ok() {
+        return added;
+    }
+    *next_seq += 1;
+    return Status::Ok;
+}
+
+public Status(AllocError) run_until(Array(Event)* queue, u32* next_seq, u32 limit, Array(Event)* log) {
+    while true {
+        Optional(Event) head = heap::heap_peek(queue);
+        if head.is_none() || head.unwrap_some().time > limit {
+            break;
+        }
+        Event fired = heap::heap_pop(queue, events::by_time_then_seq).unwrap_some();
+        Status(AllocError) logged = log.push(fired);
+        if !logged.is_ok() {
+            return logged;
+        }
+        if fired.period > 0 {
+            Status(AllocError) again = schedule(queue, next_seq, fired.time + fired.period, fired.kind, fired.period);
+            if !again.is_ok() {
+                return again;
+            }
+        }
+    }
+    return Status::Ok;
+}
+
+public usize count_between([]const Event log, u32 from, u32 to) {
+    Event low_key = { time = from, seq = 0, kind = 0, period = 0 };
+    Event high_key = { time = to, seq = 0, kind = 0, period = 0 };
+    usize first = std::sort::lower_bound_by(log, &low_key, events::by_time);
+    usize after = std::sort::upper_bound_by(log, &high_key, events::by_time);
+    if after < first {
+        return 0;
+    }
+    return after - first;
+}
+
+public Status(AllocError) count_kinds([]const Event log, Map(u32, u32)* counts) {
+    for Event event in log {
+        u32 so_far = counts.get(event.kind).some_or(0);
+        Result(Optional(u32), AllocError) stored = counts.put(event.kind, so_far + 1);
+        if stored.is_err() {
+            return stored.unwrap_err();
+        }
+    }
+    return Status::Ok;
+}
+
+public Status(AllocError) sort_by_kind([]Event log) {
+    std::os::heap::Heap allocator = {};
+    return std::sort::sort_stable_alloc(&allocator, log, events::by_kind);
+}
+
+public usize cancel_kind(Array(Event)* queue, u32 kind) {
+    Array(Event) kept = {};
+    defer kept.deinit();
+    usize removed = 0;
+    for Event event in queue.items() {
+        if event.kind == kind {
+            removed += 1;
+        } else {
+            kept.push(event);
+        }
+    }
+    queue.clear();
+    for Event event in kept.items() {
+        heap::heap_push(queue, event, events::by_time_then_seq);
+    }
+    return removed;
+}

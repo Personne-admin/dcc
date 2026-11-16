@@ -1,0 +1,11 @@
+module main;
+
+public Status(Error) main() {
+    []const char plain = "abc";
+    []const char terminated = "abc\0";
+    println("plain: {} bytes", plain.len)?;
+    println("terminated: {} bytes, last is {}", terminated.len, terminated[3] as i32)?;
+    const char* for_c = terminated.ptr;
+    println("first char through the pointer: {}", *for_c)?;
+    return Status::Ok;
+}

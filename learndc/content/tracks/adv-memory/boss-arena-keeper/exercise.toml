@@ -1,0 +1,221 @@
+schema = 1
+id = "adv-memory/boss-arena-keeper"
+revision = 1
+title = "The Arena Keeper"
+summary = "Write an arena allocator over a fixed buffer: alignment, allocation, typed allocation, reset and statistics, and a frame loop that uses it."
+kind = "challenge"
+difficulty = "advanced"
+estimated_minutes = 75
+concepts = ["arena", "alignment", "allocator", "pointers", "from_raw", "generics", "Result", "sizeof", "alignof"]
+tags = ["boss", "memory", "allocators"]
+objectives = [
+    "Round addresses up to an alignment and allocate aligned blocks from a fixed buffer",
+    "Refuse impossible requests without changing the arena",
+    "Allocate typed values and arrays with sizeof and alignof, guarding against overflow",
+    "Reset an arena and keep statistics, and use the arena in a frame loop",
+    "Plug the arena into Array through the allocator contract",
+]
+entry_file = "src/main.dc"
+product = "arena_keeper"
+prerequisites = ["adv-memory/memory-drills"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 4
+story = """
+The game studio's frame loop allocates thousands of small objects every
+sixtieth of a second, and the profiler says the heap is the bottleneck. Its
+lead engineer wants one fixed buffer, a pointer that only moves forward and a
+single reset at the end of each frame. The legacy attempt in the ledger
+crashed on odd addresses. Write the arena that does not.
+"""
+
+[[stages]]
+id = "old-ledger"
+title = "Read the legacy arena"
+summary = "Find why the studio's old alignment code hands out the wrong addresses."
+questions = ["legacy-align", "address-or-offset", "next-offset"]
+hints = [
+    "Test the formula with a value that is already aligned: it must not move.",
+    "Alignment is a property of the address a block starts at, not of the offset inside the buffer.",
+]
+
+[[stages]]
+id = "alignment"
+title = "Alignment arithmetic"
+summary = "is_power_of_two and align_up round a value up to a multiple of a power of two."
+hints = [
+    "A power of two has exactly one bit set, so n & (n - 1) is 0 for it. Zero is not a power of two.",
+    "Add align - 1 and clear the low bits: (value + align - 1) & ~(align - 1). Already aligned values stay where they are.",
+]
+
+[[stages]]
+id = "carve"
+title = "Carve out aligned blocks"
+summary = "alloc_bytes returns an aligned block or an ArenaError, and a refused request changes nothing."
+hints = [
+    "The next free address is memory.ptr as usize plus used. Align that address, then subtract the base again to get the start offset.",
+    "Check the alignment first (InvalidAlignment), then check that start + size fits without overflowing: start > memory.len || size > memory.len - start means OutOfSpace.",
+    "Only after both checks update used, peak (the largest used so far) and allocations. Build the block with core::slice::from_raw(memory.ptr + start, size).",
+]
+
+[[stages]]
+id = "typed"
+title = "Typed allocation"
+summary = "alloc_one and alloc_many give aligned T values, and a huge count is refused instead of overflowing."
+hints = [
+    "Both ask alloc_bytes for sizeof(T) bytes with alignment alignof(T), then cast the pointer: raw.ptr as T*.",
+    "In alloc_many multiply count by sizeof(T) only after checking count > (~(0 as usize)) / sizeof(T); otherwise the product can wrap around to a small number.",
+]
+
+[[stages]]
+id = "reset-stats"
+title = "Reset and statistics"
+summary = "reset empties the arena and keeps the peak; stats reports used, remaining, peak and allocations."
+hints = [
+    "reset sets used and allocations back to 0. It does not touch peak.",
+    "remaining is memory.len - used. Fill the Stats struct from the arena fields.",
+]
+
+[[stages]]
+id = "frame-loop"
+title = "The frame loop"
+summary = "main aligns a buffer, runs three frames on one arena, resets after each and reports."
+hints = [
+    "The array's address may not be 16-aligned: skip = align_up(address, 16) - address, then slice storage[skip..skip + 512] for the arena.",
+    "Per frame: alloc_one!Frame(&frames).unwrap(), then alloc_many!Particle(&frames, count).unwrap(). Fill life with the index, sum it, print, reset(&frames).",
+]
+
+[[stages]]
+id = "handle"
+title = "Bonus: the allocator contract"
+summary = "ArenaHandle lets an Array grow inside your arena."
+optional = true
+hints = [
+    "allocate calls alloc_bytes on self.state and converts the ArenaError: InvalidAlignment stays InvalidAlignment, OutOfSpace becomes AllocError::OutOfMemory.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "is_power_of_two and align_up"
+stage = "alignment"
+harness = "checks/align_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "alloc_bytes aligns, refuses and changes nothing on failure"
+stage = "carve"
+harness = "checks/carve_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "alloc_one and alloc_many"
+stage = "typed"
+harness = "checks/typed_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "reset keeps the peak and stats reports the numbers"
+stage = "reset-stats"
+harness = "checks/reset_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "The frame loop report"
+stage = "frame-loop"
+expect_stdout = """
+frame 1: 10 particles, life sum 45, used 136, free 376
+frame 2: 20 particles, life sum 190, used 256, free 256
+frame 3: 30 particles, life sum 435, used 376, free 136
+peak: 376 bytes
+after reset: 0 bytes used
+600 bytes: out of space
+alignment 3: invalid
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "A Frame is 16 bytes and a Particle 12 bytes with alignment 4, so frame 1 uses 16 + 120 = 136 bytes when the buffer starts on a 16-byte boundary. The refused requests come last, after the final reset."
+
+[[checks]]
+kind = "harness"
+name = "ArenaHandle satisfies the allocator contract"
+stage = "handle"
+harness = "checks/handle_check.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[questions]]
+id = "legacy-align"
+type = "bug"
+prompt = "The legacy `align_up` is supposed to round a value up to a multiple of `align`, but it moves values that are already aligned. Which line is wrong?"
+code = """
+module main;
+
+usize align_up(usize value, usize align) {
+    return (value + align) & ~(align - 1);
+}
+
+public Status(Error) main() {
+    println("{} {}", align_up(8, 8), align_up(9, 8))?;
+    return Status::Ok;
+}
+"""
+lines = [4]
+fixed = """
+module main;
+
+usize align_up(usize value, usize align) {
+    return (value + align - 1) & ~(align - 1);
+}
+
+public Status(Error) main() {
+    println("{} {}", align_up(8, 8), align_up(9, 8))?;
+    return Status::Ok;
+}
+"""
+expect = """
+8 16
+"""
+explanation = "Adding align pushes an aligned value into the next multiple: 8 + 8 = 16. Adding align - 1 reaches the next multiple only when the value is not already on one: 8 + 7 = 15 rounds down to 8, 9 + 7 = 16."
+
+[[questions]]
+id = "address-or-offset"
+type = "choice"
+prompt = "The legacy `alloc` aligns `used`, the offset inside the buffer. When does that hand out a misaligned pointer?"
+choices = [
+    "Never: an offset that is a multiple of 8 gives an address that is a multiple of 8",
+    "When the buffer itself does not start at an address that is a multiple of the alignment",
+    "Only when the request is larger than the buffer",
+    "Only on the custom backend",
+]
+answer = 2
+why = [
+    "That holds only if the buffer's own address is a multiple of 8. A local array can start anywhere its type allows.",
+    "",
+    "Size has nothing to do with alignment of the start.",
+    "Both backends place a u8 array wherever suits them; code must not rely on it.",
+]
+explanation = "The pointer you return is base + start. For it to be a multiple of align, the whole sum must be, so the arithmetic has to be done on the address. The harness starts your arena at odd addresses on purpose."
+
+[[questions]]
+id = "next-offset"
+type = "short"
+prompt = "A buffer starts on a 64-byte boundary. After a 3-byte allocation with alignment 1, a 4-byte allocation with alignment 4 is requested. At which offset does it start? Answer with a number."
+accept = ["4"]
+explanation = "The next free offset is 3. The next multiple of 4 is 4, so one byte of padding is skipped and the block starts at 4. used becomes 8."

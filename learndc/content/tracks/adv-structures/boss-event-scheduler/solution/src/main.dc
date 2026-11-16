@@ -1,0 +1,51 @@
+module main;
+
+import events;
+import sched;
+import std::map;
+using events::Event;
+
+Status(Error) show_log([]const Event log, usize limit) {
+    usize shown = 0;
+    for Event event in log {
+        if shown == limit {
+            println("  ...")?;
+            break;
+        }
+        println("  t={} {}", event.time, events::kind_name(event.kind))?;
+        shown += 1;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("event scheduler")?;
+    Array(Event) queue = {};
+    defer queue.deinit();
+    Array(Event) log = {};
+    defer log.deinit();
+    u32 next_seq = 0;
+
+    sched::schedule(&queue, &next_seq, 10, events::KIND_TICK, 10)?;
+    sched::schedule(&queue, &next_seq, 5, events::KIND_SYNC, 15)?;
+    sched::schedule(&queue, &next_seq, 25, events::KIND_ALARM, 0)?;
+    sched::schedule(&queue, &next_seq, 30, events::KIND_ALARM, 0)?;
+    println("scheduled {}", queue.len())?;
+
+    sched::run_until(&queue, &next_seq, 40, &log)?;
+    println("fired {} events, {} still waiting", log.len(), queue.len())?;
+    show_log(log.items(), 8)?;
+
+    println("events between 20 and 30: {}", sched::count_between(log.items(), 20, 30))?;
+    println("events between 41 and 90: {}", sched::count_between(log.items(), 41, 90))?;
+
+    std::map::Map(u32, u32) counts = {};
+    defer counts.deinit();
+    sched::count_kinds(log.items(), &counts)?;
+    println("ticks {}, alarms {}, syncs {}", counts.get(events::KIND_TICK).some_or(0), counts.get(events::KIND_ALARM).some_or(0), counts.get(events::KIND_SYNC).some_or(0))?;
+
+    sched::sort_by_kind(log.items())?;
+    println("by kind:")?;
+    show_log(log.items(), 4)?;
+    return Status::Ok;
+}

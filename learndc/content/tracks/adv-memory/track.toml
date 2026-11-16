@@ -1,0 +1,6 @@
+schema = 1
+id = "adv-memory"
+title = "Memory, Layout and Allocators"
+summary = "See how values sit in memory, work with raw pointers and slices, understand the allocator contract and write an allocator of your own."
+goal = "Reason about sizes, alignment and ownership of raw memory, and build an arena allocator that other code can use."
+exercises = ["memory-layout", "shrink-the-packet", "pointers-and-views", "view-toolkit", "allocator-contract", "typed-stack", "memory-drills", "boss-arena-keeper"]

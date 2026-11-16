@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "packtools",
+    version = "0.1.0",
+    products = {
+        { name = "packtools", entry = "src/main.dc" },
+    },
+}

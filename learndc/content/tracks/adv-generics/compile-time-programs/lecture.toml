@@ -1,0 +1,195 @@
+schema = 1
+id = "adv-generics/compile-time-programs"
+revision = 1
+title = "Compile-time programs"
+summary = "Build tables with CTFE, drive code from constants and value template parameters, and report bad requests with core::compile_error."
+difficulty = "advanced"
+estimated_minutes = 22
+concepts = ["CTFE", "value alias", "lookup table", "value template parameter", "static if", "compile_error"]
+tags = ["lecture", "generics", "compile time"]
+objectives = [
+    "Build a lookup table with an ordinary function run by the compiler and read it at run time",
+    "State what a compile-time function may not do and read the diagnostic when it does it",
+    "Use value template parameters and core::compile_error to design an API with clear errors",
+]
+prerequisites = ["adv-generics/pack-tools"]
+
+[[examples]]
+name = "sieve"
+expect_stdout = """
+true false true
+11
+"""
+
+[[examples]]
+name = "config"
+expect_stdout = """
+blue weight 4
+slots in use: 6
+done
+"""
+
+[[examples]]
+name = "value_params"
+expect_stdout = """
+60
+150
+tiny small big
+"""
+
+[[examples]]
+name = "require"
+expect_stdout = """
+200 60000 7
+"""
+
+[[questions]]
+id = "table-when"
+type = "choice"
+prompt = "`using bool[32] IS_PRIME = build_primes();` appears at module level. When does `build_primes` run?"
+choices = [
+    "While the program is being compiled; the program only contains the finished table",
+    "Once, when the program starts, before main",
+    "Every time `IS_PRIME` is read",
+    "Never, the compiler only checks the types",
+]
+answer = 1
+why = [
+    "",
+    "A value alias is a constant, not a global initialised at startup.",
+    "Reading the alias reads data; nothing is recomputed.",
+    "The initializer must be evaluated to get the constant, so the function really runs.",
+]
+explanation = "A value alias is a compile-time constant. The compiler runs the function once, stores the resulting array in the program and every use reads that data."
+
+[[questions]]
+id = "global-read"
+type = "error"
+prompt = "Why is this program rejected?"
+code = """
+module main;
+
+u32 base = 5;
+
+u32 shifted() {
+    return base + 1;
+}
+
+using u32 LIMIT = shifted();
+
+public Status(Error) main() {
+    println("{}", LIMIT)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "is not a compile-time constant"
+choices = [
+    "`shifted` reads a global variable, whose value does not exist while compiling",
+    "A value alias may not call a function that returns a `u32`",
+    "`using u32 LIMIT` must be written `const u32 LIMIT`",
+    "`shifted` must be declared `public` to be called at compile time",
+]
+answer = 1
+why = [
+    "",
+    "Functions with any return type can initialise a value alias, as long as they can be evaluated.",
+    "`const` would be an ordinary object, not a compile-time constant.",
+    "Visibility does not matter for evaluation.",
+]
+explanation = "CTFE can use only constants and the function's own locals. `base` is a variable with storage; its content is decided at run time, so `LIMIT` cannot be computed."
+
+[[questions]]
+id = "which-branch"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+using bool LOUD = true;
+using usize REPEAT = 3;
+
+usize times(usize n) {
+    return if n > REPEAT { REPEAT } else { n };
+}
+
+using usize COUNT = times(5);
+
+Status(Error) say(T)(T value) {
+    static if LOUD {
+        println("{}!", value)?;
+    } else {
+        println("{}", value)?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("start")?;
+    say(COUNT)?;
+    say(times(2))?;
+    return Status::Ok;
+}
+"""
+expect = """
+start
+3!
+2!
+"""
+explanation = "`LOUD` is true while compiling, so only the first branch of `say` exists. `COUNT` is `times(5)` clamped to `REPEAT`, which is 3; `times(2)` is an ordinary call at run time and gives 2."
+
+[[questions]]
+id = "too-wide"
+type = "error"
+prompt = "Which text appears in the compiler's message for this program?"
+code = """
+module main;
+
+import core;
+
+void require_small(T)(T value) {
+    static if sizeof(T) > 4 {
+        core::compile_error("require_small: this type is wider than 4 bytes");
+    }
+}
+
+u32 narrow(T)(T value) {
+    require_small(value);
+    return value as u32;
+}
+
+public Status(Error) main() {
+    u32 big = narrow(7 as i64);
+    println("{}", big)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "wider than 4 bytes"
+choices = [
+    "Your own message, because `sizeof(i64)` is 8 and the static if branch is kept",
+    "A message about an invalid cast from i64 to u32",
+    "A warning that the value will be truncated at run time",
+    "Nothing, the program compiles and truncates",
+]
+answer = 1
+why = [
+    "",
+    "The cast is never analysed: the compile_error stops compilation first.",
+    "`compile_error` is an error, not a warning.",
+    "For a type that reaches the `compile_error` branch the program does not compile.",
+]
+explanation = "The call instantiates `require_small(i64)`; `sizeof(i64) > 4` is true, the branch is kept and `core::compile_error` reports its text. For `u8`, `u16` and `i32` the branch is dropped and no message appears."
+
+[[cards]]
+id = "ctfe-rule"
+front = "What can a function run by a value alias use?"
+back = "Constants, other value aliases, its own locals and arrays, and other functions that obey the same rules. Not globals, I/O, out-of-range reads or `@runtime` functions."
+
+[[cards]]
+id = "value-param"
+front = "How do you declare and call a function with a value template parameter?"
+back = "`T sum_first(T, usize N)(T* items)` is called `sum_first!(i32, 3)(&data[0])`. A computed value needs parentheses: `f!(sizeof(T))()`. Value parameters belong to functions, not to struct templates."
+
+[[cards]]
+id = "compile-error-use"
+front = "Where does core::compile_error belong?"
+back = "In a `static if` branch that only the unwanted type or value reaches, usually inside a small helper that names itself in the message. It stops compilation with your text."

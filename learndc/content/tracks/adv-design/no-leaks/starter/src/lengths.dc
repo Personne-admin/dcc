@@ -1,0 +1,25 @@
+module lengths;
+
+import std::array;
+import std::sort;
+public import std::alloc;
+using std::alloc::{ AllocError, AllocatorPolicy };
+
+public Result(Array(u32, A), AllocError) unique_lengths(A)(A alloc, []const []const char words) if AllocatorPolicy(A) {
+    Array(u32, A) all = std::array::new_array!(u32, A)(alloc);
+    Array(u32, A) result = std::array::new_array!(u32, A)(alloc);
+
+    for []const char word in words {
+        all.push(word.len as u32)?;
+    }
+    std::sort::sort(all.items());
+    for u32 length in all.items() {
+        usize count = result.len();
+        if count == 0 || result.items()[count - 1] != length {
+            result.push(length)?;
+        }
+    }
+
+    all.deinit();
+    return Result::Ok(result);
+}

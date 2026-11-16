@@ -1,0 +1,86 @@
+module board_check;
+
+import board;
+
+using board::{ Player, by_score_desc, by_id, sort_by_score, sort_by_id, find_by_id, sort_counting };
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+i32 compare_scores(i32 a, i32 b) {
+    Player x = Player { id = 1, score = a };
+    Player y = Player { id = 1, score = b };
+    return by_score_desc(&x as const void*, &y as const void*);
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    expect(compare_scores(90, 10) < 0, "a higher score sorts first", &failures);
+    expect(compare_scores(10, 90) > 0, "a lower score sorts later", &failures);
+    expect(compare_scores(40, 40) == 0, "equal score and id compare equal", &failures);
+    expect(compare_scores(2147483647, -2147483647) < 0, "extreme scores do not overflow", &failures);
+    expect(compare_scores(-2147483647, 2147483647) > 0, "extreme scores do not overflow the other way", &failures);
+    Player low = Player { id = 2, score = 50 };
+    Player high = Player { id = 8, score = 50 };
+    expect(by_score_desc(&low as const void*, &high as const void*) < 0, "a tie is broken by the smaller id", &failures);
+    Player small = Player { id = -2000000000, score = 0 };
+    Player large = Player { id = 2000000000, score = 0 };
+    expect(by_id(&small as const void*, &large as const void*) < 0, "by_id does not overflow", &failures);
+    expect(by_id(&large as const void*, &small as const void*) > 0, "by_id does not overflow the other way", &failures);
+
+    Player[6] players = {
+        Player { id = 4, score = 20 },
+        Player { id = 2, score = 70 },
+        Player { id = 6, score = 70 },
+        Player { id = 1, score = 5 },
+        Player { id = 5, score = 100 },
+        Player { id = 3, score = 70 },
+    };
+    sort_by_score(&players[0], 6);
+    expect(players[0].id == 5 && players[1].id == 2 && players[2].id == 3 && players[3].id == 6 && players[4].id == 4 && players[5].id == 1, "sort_by_score orders by score then id", &failures);
+
+    sort_by_id(&players[0], 6);
+    bool ids = true;
+    for usize i = 0; i < 6; i++ {
+        if players[i].id != (i + 1) as i32 {
+            ids = false;
+        }
+    }
+    expect(ids, "sort_by_id orders by id", &failures);
+    expect(players[1].score == 70 && players[4].score == 100, "scores travel with their players", &failures);
+
+    Player* found = find_by_id(&players[0], 6, 5);
+    expect(found != null && found.score == 100, "find_by_id returns a pointer to the matching player", &failures);
+    if found != null {
+        found.score = 99;
+        expect(players[4].score == 99, "the pointer points into the array", &failures);
+    }
+    expect(find_by_id(&players[0], 6, 1) == &players[0], "the first element can be found", &failures);
+    expect(find_by_id(&players[0], 6, 6) == &players[5], "the last element can be found", &failures);
+    expect(find_by_id(&players[0], 6, 7) == null, "a missing id gives null", &failures);
+    expect(find_by_id(&players[0], 0, 1) == null, "an empty array gives null", &failures);
+
+    Player[1] one = {};
+    one[0] = Player { id = 1, score = 1 };
+    sort_by_score(&one[0], 1);
+    sort_by_score(&one[0], 0);
+    expect(one[0].id == 1, "sorting one or no players changes nothing", &failures);
+
+    Player[4] fresh = {
+        Player { id = 1, score = 10 },
+        Player { id = 2, score = 40 },
+        Player { id = 3, score = 20 },
+        Player { id = 4, score = 30 },
+    };
+    u32 calls = sort_counting(&fresh[0], 4);
+    expect(calls >= 3, "sort_counting counted the comparisons", &failures);
+    expect(fresh[0].id == 2 && fresh[1].id == 4 && fresh[2].id == 3 && fresh[3].id == 1, "sort_counting sorts by score", &failures);
+    return failures;
+}

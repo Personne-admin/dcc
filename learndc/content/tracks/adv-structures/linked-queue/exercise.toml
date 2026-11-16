@@ -1,0 +1,52 @@
+schema = 1
+id = "adv-structures/linked-queue"
+revision = 1
+title = "A linked queue that owns its nodes"
+summary = "Write a generic first-in first-out queue of heap nodes over any allocator, with a head and tail pointer, and prove with a counting allocator that nothing leaks."
+kind = "implement-function"
+difficulty = "advanced"
+estimated_minutes = 40
+concepts = ["linked list", "queue", "ownership", "allocator policy", "tail pointer", "failure atomicity"]
+tags = ["data structures", "memory"]
+objectives = [
+    "Link and unlink nodes at the two ends of a singly linked list with a tail pointer",
+    "Allocate and free every node through the allocator argument, exactly once",
+    "Leave the queue unchanged when an allocation fails",
+]
+entry_file = "src/main.dc"
+product = "printqueue"
+prerequisites = ["adv-structures/queues-and-links"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The print queue"
+expect_stdout = """
+print queue
+start: 0 waiting, none
+after five: 5 waiting, next 101
+printed 101 and 102
+after two prints: 4 waiting, next 103
+ 103 104 105 106
+drained: 0 waiting, none
+reused: 1 waiting, next 107
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "push adds at the tail and pop removes at the head. When the last node is popped, the tail must become null, or the next push writes through a freed node."
+
+[[checks]]
+kind = "harness"
+name = "Order, ownership and failure behaviour with counting allocators"
+harness = "checks/queue_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "Every successful push allocates one node and every pop or clear frees one. When create_item fails, return its error before touching the queue."

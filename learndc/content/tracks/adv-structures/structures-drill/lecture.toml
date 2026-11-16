@@ -1,0 +1,239 @@
+schema = 1
+id = "adv-structures/structures-drill"
+revision = 1
+kind = "drill"
+title = "Structures and algorithms drills"
+summary = "Predict a search with duplicates, find a ring buffer slip, trace a heap pop, pick structures and recall costs."
+difficulty = "advanced"
+estimated_minutes = 15
+concepts = ["binary search", "ring buffer", "binary heap", "stable sort", "container choice", "algorithmic cost"]
+tags = ["drill", "algorithms", "data structures"]
+objectives = [
+    "Predict the bounds a binary search returns on data with duplicates",
+    "Trace a heap pop and find a wrap-around slip in a ring buffer",
+    "Choose a structure from the operations a task needs",
+]
+prerequisites = ["adv-structures/min-heap"]
+
+[[questions]]
+id = "bounds"
+type = "predict"
+prompt = "What does this program print? `lower` is the first index not below the key; `upper` is the first index above it."
+code = """
+module main;
+
+usize lower([]const i32 items, i32 key) {
+    usize low = 0;
+    usize high = items.len;
+    while low < high {
+        usize mid = low + (high - low) / 2;
+        if items[mid] < key {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    return low;
+}
+
+usize upper([]const i32 items, i32 key) {
+    usize low = 0;
+    usize high = items.len;
+    while low < high {
+        usize mid = low + (high - low) / 2;
+        if items[mid] <= key {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    return low;
+}
+
+public Status(Error) main() {
+    i32[7] data = { 1, 2, 2, 2, 5, 5, 9 };
+    []const i32 items = data;
+    println("{} {}", lower(items, 2), upper(items, 2))?;
+    println("{} {}", lower(items, 3), upper(items, 3))?;
+    println("{} {}", lower(items, 9), upper(items, 9))?;
+    println("{} {}", lower(items, 0), upper(items, 10))?;
+    return Status::Ok;
+}
+"""
+expect = """
+1 4
+4 4
+6 7
+0 7
+"""
+explanation = "For the key 2 the three 2s occupy indexes 1 to 3, so lower is 1 and upper is 4. The key 3 is absent: both bounds are 4, the place where 3 would be inserted. 9 is the last item, so upper is the length. A key below everything has lower 0, a key above everything has upper 7."
+
+[[questions]]
+id = "ring-slip"
+type = "bug"
+prompt = "A ring buffer of capacity 4 should print `10 20 30`. It prints garbage for the third item after the first pop-and-push cycle. Which line writes to the wrong slot?"
+code = """
+module main;
+
+using usize CAPACITY = 4;
+
+struct Ring {
+    i32[CAPACITY] items;
+    usize head;
+    usize len;
+}
+
+void push(Ring* ring, i32 value) {
+    ring.items[(ring.head + ring.len + 1) % CAPACITY] = value;
+    ring.len += 1;
+}
+
+i32 pop(Ring* ring) {
+    i32 value = ring.items[ring.head];
+    ring.head = (ring.head + 1) % CAPACITY;
+    ring.len -= 1;
+    return value;
+}
+
+public Status(Error) main() {
+    Ring ring = {};
+    push(&ring, 10);
+    push(&ring, 20);
+    push(&ring, 30);
+    while ring.len > 0 {
+        print("{} ", pop(&ring))?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+"""
+lines = [13]
+fixed = """
+module main;
+
+using usize CAPACITY = 4;
+
+struct Ring {
+    i32[CAPACITY] items;
+    usize head;
+    usize len;
+}
+
+void push(Ring* ring, i32 value) {
+    ring.items[(ring.head + ring.len) % CAPACITY] = value;
+    ring.len += 1;
+}
+
+i32 pop(Ring* ring) {
+    i32 value = ring.items[ring.head];
+    ring.head = (ring.head + 1) % CAPACITY;
+    ring.len -= 1;
+    return value;
+}
+
+public Status(Error) main() {
+    Ring ring = {};
+    push(&ring, 10);
+    push(&ring, 20);
+    push(&ring, 30);
+    while ring.len > 0 {
+        print("{} ", pop(&ring))?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+"""
+expect = "10 20 30 \n"
+explanation = "The slot after the last item is `(head + len) % CAPACITY`. The extra `+ 1` skips a slot: the first push lands in slot 1 while `pop` reads slot 0, so the first value is lost and the reads see stale data."
+
+[[questions]]
+id = "heap-pop"
+type = "predict"
+prompt = "The min-heap `1 4 2 9 8 7 6` pops its smallest item. What does the program print for the heap that remains?"
+code = """
+module main;
+
+void swap_items([]i32 items, usize a, usize b) {
+    i32 held = items[a];
+    items[a] = items[b];
+    items[b] = held;
+}
+
+public Status(Error) main() {
+    i32[7] data = { 1, 4, 2, 9, 8, 7, 6 };
+    []i32 items = data;
+    swap_items(items, 0, 6);
+    usize count = 6;
+    usize i = 0;
+    while true {
+        usize left = 2 * i + 1;
+        usize right = left + 1;
+        usize best = i;
+        if left < count && items[left] < items[best] {
+            best = left;
+        }
+        if right < count && items[right] < items[best] {
+            best = right;
+        }
+        if best == i {
+            break;
+        }
+        swap_items(items, i, best);
+        i = best;
+    }
+    for usize k in 0..count {
+        print("{} ", items[k])?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+"""
+expect = "2 4 6 9 8 7 \n"
+explanation = "The last item 6 moves to the root: `6 4 2 9 8 7`. Its children are 4 and 2; the smaller one, 2, is below 6, so they swap: `2 4 6 9 8 7`. The item 6 now sits at index 2 whose only child is 7, which is larger, so the sift stops."
+
+[[questions]]
+id = "pick-structure"
+type = "choice"
+prompt = "A sensor produces one reading per millisecond and you must keep only the latest 1000 readings, allocating nothing while running. Which structure fits?"
+choices = [
+    "A ring buffer of capacity 1000 that overwrites the oldest reading",
+    "An Array that grows with push",
+    "A std::list with one node per reading",
+    "A Map keyed by the time of the reading",
+]
+answer = 1
+why = [
+    "",
+    "It grows without bound and allocates while growing.",
+    "Every reading would allocate a node, and old nodes must be freed one by one.",
+    "A map has no notion of 'the oldest' and allocates as it grows.",
+]
+explanation = "A ring buffer has a fixed size and no allocation after it exists. Overwriting means moving `head` forward when the ring is full, so memory stays bounded."
+
+[[questions]]
+id = "claims"
+type = "multi"
+prompt = "Which statements are true?"
+choices = [
+    "`std::sort::sort_by` keeps the order of items that compare equal",
+    "`std::sort::sort_stable_by` needs scratch space as long as the data",
+    "A binary heap makes the smallest item available in constant time",
+    "Binary search works on any slice, sorted or not",
+    "Pop from a binary heap costs about log n comparisons",
+]
+answers = [2, 3, 5]
+why = [
+    "`sort_by` is unstable; use `sort_stable_by` for that.",
+    "",
+    "",
+    "Binary search needs data sorted in the same order as its comparator.",
+    "",
+]
+explanation = "Stability costs scratch memory. A heap keeps the smallest item at index 0 and restores the order along one path of about log n nodes after a pop. Binary search is only meaningful on sorted data."
+
+[[questions]]
+id = "ring-slot"
+type = "short"
+prompt = "A ring buffer has capacity 8, `head` is 6 and `len` is 3. Which slot does the next push write? Write the number."
+accept = ["1"]
+explanation = "The next slot is `(head + len) % CAPACITY` = (6 + 3) % 8 = 1: the three items occupy slots 6, 7 and 0."

@@ -1,0 +1,55 @@
+module main;
+
+import arena;
+
+using arena::{ Arena, ArenaError, new_arena, align_up, alloc_one, alloc_many, alloc_bytes, reset, stats };
+
+struct Frame {
+    u64 number;
+    u32 count;
+}
+
+struct Particle {
+    f32 x;
+    f32 y;
+    i32 life;
+}
+
+Status(Error) report(Arena* frames, Frame* info, i32 life_sum) {
+    println("frame {}: {} particles, life sum {}, used {}, free {}", info.number, info.count, life_sum, stats(frames).used, stats(frames).remaining)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    u8[1024] storage = {};
+    usize address = &storage[0] as usize;
+    usize skip = align_up(address, 16) - address;
+    Arena frames = new_arena(storage[skip..skip + 512]);
+
+    for u32 number in 1..=3 {
+        Frame* info = alloc_one!Frame(&frames).unwrap();
+        info.number = number as u64;
+        info.count = number * 10;
+        []Particle particles = alloc_many!Particle(&frames, info.count as usize).unwrap();
+        i32 life_sum = 0;
+        for usize i = 0; i < particles.len; i++ {
+            particles[i] = Particle { x = 0.0, y = 0.0, life = i as i32 };
+            life_sum += particles[i].life;
+        }
+        report(&frames, info, life_sum)?;
+        reset(&frames);
+    }
+
+    println("peak: {} bytes", stats(&frames).peak)?;
+    println("after reset: {} bytes used", stats(&frames).used)?;
+
+    Result([]u8, ArenaError) too_big = alloc_bytes(&frames, 600, 1);
+    if too_big.is_err() && too_big.unwrap_err() == ArenaError::OutOfSpace {
+        println("600 bytes: out of space")?;
+    }
+    Result([]u8, ArenaError) odd = alloc_bytes(&frames, 8, 3);
+    if odd.is_err() && odd.unwrap_err() == ArenaError::InvalidAlignment {
+        println("alignment 3: invalid")?;
+    }
+    return Status::Ok;
+}

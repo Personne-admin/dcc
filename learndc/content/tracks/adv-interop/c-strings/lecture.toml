@@ -1,0 +1,171 @@
+schema = 1
+id = "adv-interop/c-strings"
+revision = 1
+title = "Text across the boundary"
+summary = "NUL-terminated C strings versus length-carrying DC slices: terminating literals, viewing C text with from_raw_const, and copying DC text into a buffer."
+difficulty = "advanced"
+estimated_minutes = 15
+concepts = ["C string", "NUL terminator", "from_raw_const", "const char*", "buffer", "null"]
+tags = ["lecture", "interop", "text"]
+objectives = [
+    "Explain why a DC string literal is not a C string and terminate it explicitly",
+    "Turn a const char* returned by C into a DC slice view",
+    "Copy DC text into a terminated buffer and refuse text that does not fit",
+]
+prerequisites = ["adv-interop/link-the-math"]
+
+[[examples]]
+name = "terminator"
+expect_stdout = """
+plain: 3 bytes
+terminated: 4 bytes, last is 0
+first char through the pointer: a
+"""
+
+[[examples]]
+name = "own_strlen"
+expect_stdout = """
+length 8
+view of the tail: C (1 chars)
+"""
+
+[[examples]]
+name = "to_buffer"
+expect_stdout = """
+copied: true, C sees 5 chars
+long text copied: false
+"""
+
+[[questions]]
+id = "literal-terminator"
+type = "choice"
+prompt = "You pass `\"hello\".ptr` to C's strlen. What is the problem?"
+choices = [
+    "There is none: every literal ends with a zero",
+    "The literal is not terminated, so strlen may read past its end",
+    "strlen cannot take a pointer",
+    "The literal must be copied to the heap first",
+]
+answer = 2
+why = [
+    "DC literals hold exactly the characters written; no zero is added.",
+    "",
+    "strlen takes a const char*; the pointer is fine.",
+    "A literal lives in read-only data for the whole run; copying is not needed, only a terminator.",
+]
+explanation = "The slice knows its length (5), but C's strlen does not look at it. It scans for a zero byte, and after \"hello\" the compiler stores whatever comes next. Write \"hello\\0\" so the terminator is part of the data."
+
+[[questions]]
+id = "slice-to-c"
+type = "error"
+prompt = "Why does this program not compile?"
+code = """
+module main;
+
+@nomangle extern usize strlen(const char* s);
+
+public Status(Error) main() {
+    []const char text = "abc\\0";
+    println("{}", strlen(text))?;
+    return Status::Ok;
+}
+"""
+diagnostic = "no matching call for `strlen`"
+choices = [
+    "strlen is not a valid function name",
+    "A slice is not a pointer: the call needs text.ptr",
+    "The literal contains a zero byte",
+    "println cannot print a usize",
+]
+answer = 2
+why = [
+    "The name is fine; the call is rejected because of the argument.",
+    "",
+    "A zero byte in a literal is allowed (and needed).",
+    "println prints every integer type.",
+]
+explanation = "A []const char holds a pointer and a length; strlen wants only a pointer. Pass `text.ptr`; the terminator in the literal then makes it a valid C string."
+
+[[questions]]
+id = "off-by-one"
+type = "bug"
+prompt = "`copy_text` copies text into `out` and terminates it. It accepts a text that is exactly as long as the buffer. Which line is wrong?"
+code = """
+module main;
+
+bool copy_text([]const char text, []char out) {
+    if text.len > out.len {
+        return false;
+    }
+    for usize i = 0; i < text.len; i++ {
+        out[i] = text[i];
+    }
+    out[text.len] = '\\0';
+    return true;
+}
+
+public Status(Error) main() {
+    char[4] buffer = {};
+    println("{}", copy_text("abcd", buffer[0..4]))?;
+    return Status::Ok;
+}
+"""
+lines = [4]
+fixed = """
+module main;
+
+bool copy_text([]const char text, []char out) {
+    if text.len >= out.len {
+        return false;
+    }
+    for usize i = 0; i < text.len; i++ {
+        out[i] = text[i];
+    }
+    out[text.len] = '\\0';
+    return true;
+}
+
+public Status(Error) main() {
+    char[4] buffer = {};
+    println("{}", copy_text("abcd", buffer[0..4]))?;
+    return Status::Ok;
+}
+"""
+expect = """
+false
+"""
+explanation = "A text of 4 characters needs 5 bytes: the characters and the terminator. The condition must reject text.len == out.len, so use >=. With `>` the write to out[text.len] lands one byte past the buffer."
+
+[[questions]]
+id = "view-lifetime"
+type = "multi"
+prompt = "C returns a `const char*` from `getenv`. You build `[]const char view = from_raw_const(p, length)`. Which statements are true?"
+choices = [
+    "The view and the C memory are the same bytes; nothing was copied",
+    "You must compare p with null before you search for the terminator",
+    "The view stays valid for as long as you keep it, whatever C does",
+    "p[0..length] would be an equivalent way to build the view",
+]
+answers = [1, 2]
+why = [
+    "",
+    "",
+    "It is valid only while C leaves that memory alone.",
+    "Range indexing is rejected on a pointer; from_raw_const is the way.",
+]
+explanation = "A view is a pointer plus a length over memory that C owns. getenv may return null for an unknown name, so test before you read. If the program changes the environment, or the buffer is reused, the view dangles."
+
+[[cards]]
+id = "nul-literal"
+front = "How do you make a string literal safe to pass to a C function?"
+back = "End it with \\0 inside the literal (\"abc\\0\") and pass its .ptr. DC adds no terminator of its own."
+
+[[cards]]
+id = "c-to-dc"
+front = "How do you turn a const char* from C into a DC slice?"
+back = "Scan for the NUL to get the length (or call strlen), then core::slice::from_raw_const(p, length). It is a view, not a copy. Check for null first."
+
+[[cards]]
+id = "buffer-fits"
+front = "When does text of length n fit into a buffer of size m for C?"
+back = "Only when n < m: the terminator takes one byte. Also refuse text that already contains a zero byte."

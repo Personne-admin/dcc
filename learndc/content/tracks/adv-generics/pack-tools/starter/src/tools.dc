@@ -1,0 +1,17 @@
+module tools;
+
+public f64 sum_all(T...)(T args) {
+    return 0.0;
+}
+
+public f64 largest_of(F, T...)(F first, T rest) {
+    return 0.0;
+}
+
+public usize count_negative(T...)(T args) {
+    return 0;
+}
+
+public Status(Error) log_line(T...)(const []const char tag, T args) {
+    return Status::Ok;
+}

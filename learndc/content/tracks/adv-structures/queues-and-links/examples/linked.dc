@@ -1,0 +1,88 @@
+module main;
+
+import std::mem;
+import std::alloc;
+
+struct Counting {
+    std::mem::FixedHandle inner;
+    usize allocs;
+    usize frees;
+}
+
+Result([] u8, AllocError) allocate(Counting* self, usize len, usize align) {
+    Result([] u8, AllocError) got = self.inner.allocate(len, align);
+    if got.is_ok() {
+        self.allocs += 1;
+    }
+    return got;
+}
+
+bool resize_in_place(Counting* self, [] u8 block, usize new_bytes, usize align) {
+    return self.inner.resize_in_place(block, new_bytes, align);
+}
+
+void free(Counting* self, [] u8 block, usize align) {
+    self.frees += 1;
+    self.inner.free(block, align);
+}
+
+struct Node {
+    i32 value;
+    Node* next;
+}
+
+struct Stack {
+    Node* top;
+    usize len;
+}
+
+Status(AllocError) push(Stack* stack, Counting* alloc, i32 value) {
+    Result(Node*, AllocError) made = alloc.create_item();
+    if made.is_err() {
+        return made.unwrap_err();
+    }
+    Node* node = made.unwrap();
+    node.value = value;
+    node.next = stack.top;
+    stack.top = node;
+    stack.len += 1;
+    return Status::Ok;
+}
+
+Optional(i32) pop(Stack* stack, Counting* alloc) {
+    if stack.top == null {
+        return Optional::None;
+    }
+    Node* node = stack.top;
+    i32 value = node.value;
+    stack.top = node.next;
+    stack.len -= 1;
+    alloc.destroy_item(node);
+    return Optional::Some(value);
+}
+
+void clear(Stack* stack, Counting* alloc) {
+    while stack.top != null {
+        pop(stack, alloc);
+    }
+}
+
+public Status(Error) main() {
+    u8[1024] backing = {};
+    std::mem::FixedBuffer buffer = std::mem::new_fixed_buffer(backing[0..1024]);
+    Counting alloc = { inner = std::mem::borrow(&buffer), allocs = 0, frees = 0 };
+    Stack stack = {};
+    defer clear(&stack, &alloc);
+
+    for i32 n in 1..=5 {
+        push(&stack, &alloc, n * n)?;
+    }
+    println("pushed {}, allocations {}", stack.len, alloc.allocs)?;
+    i32 first = pop(&stack, &alloc).unwrap_some();
+    i32 second = pop(&stack, &alloc).unwrap_some();
+    println("pop {} then {}", first, second)?;
+    println("live nodes {}, frees so far {}", stack.len, alloc.frees)?;
+    clear(&stack, &alloc);
+    println("after clear: allocations {}, frees {}", alloc.allocs, alloc.frees)?;
+    return Status::Ok;
+}

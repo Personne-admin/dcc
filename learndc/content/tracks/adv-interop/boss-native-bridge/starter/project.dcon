@@ -1,0 +1,8 @@
+dpm::v1::Project {
+    name = "native_bridge",
+    version = "0.1.0",
+    link = { ":libc.so.6", ":libm.so.6" },
+    products = {
+        { name = "native_bridge", entry = "src/main.dc" },
+    },
+}

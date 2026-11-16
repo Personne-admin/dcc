@@ -1,0 +1,42 @@
+module main;
+
+import board;
+
+using board::Player;
+
+Status(Error) show([]const char title, Player* players, usize count) {
+    println("{}:", title)?;
+    for usize i = 0; i < count; i++ {
+        println("  {} {}", players[i].id, players[i].score)?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Player[5] players = {
+        Player { id = 7, score = 40 },
+        Player { id = 3, score = 90 },
+        Player { id = 5, score = 90 },
+        Player { id = 9, score = 10 },
+        Player { id = 1, score = 65 },
+    };
+    Player* first = &players[0];
+
+    board::sort_by_score(first, 5);
+    show("by score", first, 5)?;
+
+    board::sort_by_id(first, 5);
+    show("by id", first, 5)?;
+
+    Player* found = board::find_by_id(first, 5, 5);
+    if found != null {
+        println("found 5: score {}", found.score)?;
+    }
+    if board::find_by_id(first, 5, 4) == null {
+        println("4 not found")?;
+    }
+
+    u32 calls = board::sort_counting(first, 5);
+    println("counted comparisons: {}", calls > 0)?;
+    return Status::Ok;
+}

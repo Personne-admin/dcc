@@ -1,0 +1,26 @@
+module main;
+
+import core::source_location;
+import std::slice;
+
+using core::source_location::{ FunctionNameStyle, function_name };
+
+[]const char seen = "";
+
+i32 helper() {
+    seen = function_name(FunctionNameStyle::Mangled);
+    return 0;
+}
+
+@nomangle public i32 shim_add(i32 a, i32 b) {
+    seen = function_name(FunctionNameStyle::Mangled);
+    return a + b;
+}
+
+public Status(Error) main() {
+    helper();
+    println("helper is emitted as a mangled symbol: {}", std::slice::eq(seen[0..3], "_DC"))?;
+    shim_add(1, 2);
+    println("the C name is exactly: {}", seen)?;
+    return Status::Ok;
+}

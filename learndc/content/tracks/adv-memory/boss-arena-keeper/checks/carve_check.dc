@@ -1,0 +1,85 @@
+module carve_check;
+
+import arena;
+
+using arena::{ Arena, ArenaError, new_arena, alloc_bytes };
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+usize start_of(Arena* a, []u8 block) {
+    return block.ptr as usize - a.memory.ptr as usize;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    u8[512] storage = {};
+    usize address = &storage[0] as usize;
+    usize skip = ((address + 63) / 64) * 64 - address;
+    Arena a = new_arena(storage[skip..skip + 256]);
+
+    Result([]u8, ArenaError) r1 = alloc_bytes(&a, 10, 1);
+    expect(r1.is_ok() && r1.unwrap().len == 10, "10 bytes at alignment 1", &failures);
+    if r1.is_ok() {
+        expect(start_of(&a, r1.unwrap()) == 0, "the first block starts at 0", &failures);
+    }
+    expect(a.used == 10, "used is 10", &failures);
+
+    Result([]u8, ArenaError) r2 = alloc_bytes(&a, 4, 4);
+    expect(r2.is_ok() && start_of(&a, r2.unwrap()) == 12, "alignment 4 skips to offset 12", &failures);
+    expect(a.used == 16, "used includes the padding", &failures);
+
+    Result([]u8, ArenaError) r3 = alloc_bytes(&a, 8, 8);
+    expect(r3.is_ok() && start_of(&a, r3.unwrap()) == 16, "alignment 8 at 16 needs no padding", &failures);
+    Result([]u8, ArenaError) r4 = alloc_bytes(&a, 1, 32);
+    expect(r4.is_ok() && start_of(&a, r4.unwrap()) == 32, "alignment 32 skips to offset 32", &failures);
+    expect(a.used == 33, "used is 33", &failures);
+    expect(a.allocations == 4, "four allocations are counted", &failures);
+
+    if r1.is_ok() && r2.is_ok() {
+        []u8 x = r1.unwrap();
+        []u8 y = r2.unwrap();
+        for usize i = 0; i < x.len; i++ { x[i] = 1; }
+        for usize i = 0; i < y.len; i++ { y[i] = 2; }
+        bool intact = true;
+        for usize i = 0; i < x.len; i++ { if x[i] != 1 { intact = false; } }
+        expect(intact, "blocks do not overlap", &failures);
+    }
+
+    Result([]u8, ArenaError) odd = alloc_bytes(&a, 4, 3);
+    expect(odd.is_err() && odd.unwrap_err() == ArenaError::InvalidAlignment, "alignment 3 is invalid", &failures);
+    Result([]u8, ArenaError) zero = alloc_bytes(&a, 4, 0);
+    expect(zero.is_err() && zero.unwrap_err() == ArenaError::InvalidAlignment, "alignment 0 is invalid", &failures);
+    expect(a.used == 33 && a.allocations == 4, "a refused request changes nothing", &failures);
+
+    Result([]u8, ArenaError) too_big = alloc_bytes(&a, 300, 1);
+    expect(too_big.is_err() && too_big.unwrap_err() == ArenaError::OutOfSpace, "300 bytes do not fit", &failures);
+    Result([]u8, ArenaError) huge = alloc_bytes(&a, ~(0 as usize), 1);
+    expect(huge.is_err() && huge.unwrap_err() == ArenaError::OutOfSpace, "a huge size does not overflow into success", &failures);
+    expect(a.used == 33 && a.allocations == 4, "out of space changes nothing", &failures);
+
+    Result([]u8, ArenaError) rest = alloc_bytes(&a, 223, 1);
+    expect(rest.is_ok(), "the remaining 223 bytes fit exactly", &failures);
+    expect(a.used == 256, "the arena is now full", &failures);
+    Result([]u8, ArenaError) none = alloc_bytes(&a, 1, 1);
+    expect(none.is_err() && none.unwrap_err() == ArenaError::OutOfSpace, "one more byte does not fit", &failures);
+
+    Arena shifted = new_arena(storage[skip + 257..skip + 257 + 128]);
+    Result([]u8, ArenaError) s1 = alloc_bytes(&shifted, 1, 1);
+    Result([]u8, ArenaError) s2 = alloc_bytes(&shifted, 4, 4);
+    expect(s1.is_ok() && s2.is_ok(), "allocation works in an arena that starts at an odd address", &failures);
+    if s2.is_ok() {
+        expect(s2.unwrap().ptr as usize % 4 == 0, "the address, not the offset, is aligned", &failures);
+    }
+
+    Arena tiny = new_arena(storage[skip..skip + 0]);
+    Result([]u8, ArenaError) t = alloc_bytes(&tiny, 1, 1);
+    expect(t.is_err() && t.unwrap_err() == ArenaError::OutOfSpace, "an empty arena has no room", &failures);
+    return failures;
+}

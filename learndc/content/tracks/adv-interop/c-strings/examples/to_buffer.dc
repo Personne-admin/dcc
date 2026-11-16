@@ -1,0 +1,29 @@
+module main;
+
+bool copy_text([]const char text, []char out) {
+    if text.len >= out.len {
+        return false;
+    }
+    for usize i = 0; i < text.len; i++ {
+        out[i] = text[i];
+    }
+    out[text.len] = '\0';
+    return true;
+}
+
+usize c_length(const char* text) {
+    usize n = 0;
+    while text[n] != '\0' {
+        n++;
+    }
+    return n;
+}
+
+public Status(Error) main() {
+    char[16] buffer = {};
+    bool ok = copy_text("tools", buffer[0..16]);
+    println("copied: {}, C sees {} chars", ok, c_length(&buffer[0]))?;
+    bool too_long = copy_text("this text is far too long", buffer[0..16]);
+    println("long text copied: {}", too_long)?;
+    return Status::Ok;
+}

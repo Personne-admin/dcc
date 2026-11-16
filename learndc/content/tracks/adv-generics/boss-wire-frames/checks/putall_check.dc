@@ -1,0 +1,38 @@
+module putall_check;
+
+import wire;
+using wire::Frame;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    expect(wire::wire_size() == 0, "wire_size of nothing is 0", &failures);
+    expect(wire::wire_size(1 as u8) == 1, "wire_size of a u8", &failures);
+    expect(wire::wire_size(1 as u8, 2 as u16, 3 as i64) == 11, "wire_size adds the sizes", &failures);
+
+    Frame frame = {};
+    expect(wire::put_all(&frame, 1 as u8, 2 as u16, 3 as u32), "put_all writes several values", &failures);
+    expect(frame.len == 7, "the length covers all values", &failures);
+    expect(frame.bytes[0] == 1 && frame.bytes[1] == 2 && frame.bytes[2] == 0 && frame.bytes[3] == 3, "the values are in argument order", &failures);
+
+    expect(wire::put_all(&frame), "put_all of nothing succeeds", &failures);
+    expect(frame.len == 7, "and writes nothing", &failures);
+
+    Frame nearly = {};
+    wire::put_all(&nearly, 1 as i64, 2 as u32);
+    expect(nearly.len == 12, "twelve bytes written", &failures);
+    expect(!wire::put_all(&nearly, 9 as u8, 9 as u16, 9 as u32), "a call that does not fit is refused", &failures);
+    expect(nearly.len == 12, "a refused call writes nothing, not even the leading values", &failures);
+    expect(wire::put_all(&nearly, 9 as u8, 9 as u16, 9 as u8), "a call that exactly fits is accepted", &failures);
+    expect(nearly.len == 16, "the frame is full", &failures);
+    return failures;
+}

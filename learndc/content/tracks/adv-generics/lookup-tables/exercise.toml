@@ -1,0 +1,46 @@
+schema = 1
+id = "adv-generics/lookup-tables"
+revision = 1
+title = "Tables built by the compiler"
+summary = "Write two table builders that the compiler runs, a character-class table and a rot13 table, and use them from ordinary functions."
+kind = "complete-program"
+difficulty = "advanced"
+estimated_minutes = 30
+concepts = ["CTFE", "value alias", "lookup table", "compile-time array"]
+tags = ["generics", "compile time"]
+objectives = [
+    "Fill an array in a function that the compiler evaluates for a value alias",
+    "Read a compile-time table with a run-time index and guard the index range",
+    "Verify a table against the rules it encodes",
+]
+entry_file = "src/main.dc"
+product = "tables"
+prerequisites = ["adv-generics/compile-time-programs"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Counts and rot13"
+expect_stdout = """
+digits 4 upper 4 lower 13 spaces 4 others 2
+Uryyb Jbeyq 2026: QP ebpxf!
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Tabs and newlines count as spaces. Letters are rotated by 13 inside their own case; everything else maps to itself."
+
+[[checks]]
+kind = "harness"
+name = "Both tables are right for all 128 ASCII codes"
+harness = "checks/tables_check.dc"
+expect_exit = 0
+max_seconds = 10
+hint = "build_classes must fill every index; start from the rules for digits, upper case, lower case and white space and make everything else OTHER."

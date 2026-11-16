@@ -1,0 +1,184 @@
+schema = 1
+id = "adv-structures/queues-and-links"
+revision = 1
+title = "Stacks, queues and linked structures"
+summary = "Build a stack on Array, a ring-buffer queue and a linked stack with an explicit allocator, count allocations to find leaks and choose between the library structures."
+difficulty = "advanced"
+estimated_minutes = 25
+concepts = ["stack", "queue", "ring buffer", "linked list", "ownership", "allocator", "std::list", "container choice"]
+tags = ["lecture", "data structures"]
+objectives = [
+    "Use an Array as a stack and a ring buffer as a bounded queue",
+    "Write a linked structure that owns its nodes through an allocator and frees them exactly once",
+    "Choose between Array, Map, std::list and a ring buffer from the operations needed",
+]
+prerequisites = ["adv-structures/leaderboard"]
+
+[[examples]]
+name = "brackets"
+expect_stdout = """
+true
+false
+false
+false
+"""
+
+[[examples]]
+name = "ring"
+expect_stdout = """
+full, fifth accepted: false
+pop 1 and 2
+head 2 len 4
+ 3 4 5 6
+empty pop is none: true
+"""
+
+[[examples]]
+name = "linked"
+expect_stdout = """
+pushed 5, allocations 5
+pop 25 then 16
+live nodes 3, frees so far 2
+after clear: allocations 5, frees 5
+"""
+
+[[examples]]
+name = "std_list"
+expect_stdout = """
+std::list
+forward: 0 10 20 30 40
+popped 0
+len 4
+"""
+
+[[questions]]
+id = "queue-array"
+type = "choice"
+prompt = "Why is `Array.remove(0)` a poor way to take the next item from a queue?"
+choices = [
+    "It moves every remaining element one place, so each pop costs as much as the queue is long",
+    "It frees the whole array",
+    "It can only be called once per array",
+    "It returns the last element instead of the first",
+]
+answer = 1
+why = [
+    "",
+    "The array is kept; only its elements move.",
+    "It can be called any number of times.",
+    "It removes and returns the element at the given index.",
+]
+explanation = "Removing at the front shifts the other n - 1 elements. A ring buffer or a linked queue removes from the front in constant time."
+
+[[questions]]
+id = "ring-wrap"
+type = "predict"
+prompt = "A ring has CAPACITY 4. After these operations, what does the program print?"
+code = """
+module main;
+
+using usize CAPACITY = 4;
+
+struct Ring {
+    i32[CAPACITY] items;
+    usize head;
+    usize len;
+}
+
+void push(Ring* ring, i32 value) {
+    ring.items[(ring.head + ring.len) % CAPACITY] = value;
+    ring.len += 1;
+}
+
+i32 pop(Ring* ring) {
+    i32 value = ring.items[ring.head];
+    ring.head = (ring.head + 1) % CAPACITY;
+    ring.len -= 1;
+    return value;
+}
+
+public Status(Error) main() {
+    Ring ring = {};
+    push(&ring, 1);
+    push(&ring, 2);
+    push(&ring, 3);
+    pop(&ring);
+    pop(&ring);
+    push(&ring, 4);
+    push(&ring, 5);
+    push(&ring, 6);
+    println("head {} len {} next {}", ring.head, ring.len, ring.items[ring.head])?;
+    return Status::Ok;
+}
+"""
+expect = "head 2 len 4 next 3\n"
+explanation = "After three pushes and two pops, `head` is 2 and one item (3) is left. Pushing 4, 5 and 6 writes slots (2 + 1) % 4 = 3, then 0, then 1, so the live items are in slots 2, 3, 0 and 1: head 2, len 4, and slot 2 still holds 3, the oldest item."
+
+[[questions]]
+id = "use-after-free"
+type = "bug"
+prompt = "`pop` should return the value of the top node and free it. It reads from freed memory. Which line is the bug?"
+code = """
+module main;
+
+struct Node {
+    i32 value;
+    Node* next;
+}
+
+struct Stack {
+    Node* top;
+}
+
+Optional(i32) pop(T)(Stack* stack, T* alloc) {
+    if stack.top == null {
+        return Optional::None;
+    }
+    Node* node = stack.top;
+    alloc.destroy_item(node);
+    stack.top = node.next;
+    return Optional::Some(node.value);
+}
+
+public Status(Error) main() {
+    return Status::Ok;
+}
+"""
+lines = [17]
+explanation = "After `destroy_item(node)` the node belongs to the allocator again. `node.next` and `node.value` read memory that may already be reused. Copy `value` and `next` out first, then free the node (and the old top must be unlinked before it is freed)."
+
+[[questions]]
+id = "which-structure"
+type = "multi"
+prompt = "Which tasks suit a `Map` rather than an `Array`? (Pick all.)"
+choices = [
+    "Is this user id already in the set?",
+    "Count how many times each word appears",
+    "Walk the items in the order they were added",
+    "Find the 3rd item",
+    "Look up a price by product code",
+]
+answers = [1, 2, 5]
+why = [
+    "",
+    "",
+    "A map has no order; an Array keeps insertion order.",
+    "An Array indexes in one step; a Map has no positions.",
+    "",
+]
+explanation = "A map answers questions about a key in O(1) on average. Order and position questions belong to an Array."
+
+[[cards]]
+id = "ring-formula"
+front = "How does a ring buffer find the slot for a push and the next item to pop?"
+back = "Push writes at `(head + len) % CAPACITY` and increases `len`. Pop reads at `head`, sets `head = (head + 1) % CAPACITY` and decreases `len`. Full is `len == CAPACITY`, empty is `len == 0`."
+
+[[cards]]
+id = "free-order"
+front = "In what order do you unlink and free a node?"
+back = "Copy out `value` and `next`, move the structure's pointers past the node, then `destroy_item(node)`. Never read the node afterwards."
+
+[[cards]]
+id = "container-choice"
+front = "When do you use Array, ring buffer, Map or std::list?"
+back = "Array by default; a ring buffer for a bounded allocation-free queue; a Map to answer questions about keys; std::list when you need stable node addresses or O(1) unlinking in the middle."

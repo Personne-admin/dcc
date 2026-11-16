@@ -1,0 +1,35 @@
+module board;
+
+using Compare = i32(*)(const void*, const void*);
+using CompareWith = i32(*)(const void*, const void*, void*);
+
+@nomangle extern void qsort(void* base, usize count, usize size, Compare compare);
+@nomangle extern void* bsearch(const void* key, const void* base, usize count, usize size, Compare compare);
+@nomangle extern void qsort_r(void* base, usize count, usize size, CompareWith compare, void* context);
+
+public struct Player {
+    i32 id;
+    i32 score;
+}
+
+public i32 by_score_desc(const void* a, const void* b) {
+    return 0;
+}
+
+public i32 by_id(const void* a, const void* b) {
+    return 0;
+}
+
+public void sort_by_score(Player* players, usize count) {
+}
+
+public void sort_by_id(Player* players, usize count) {
+}
+
+public Player* find_by_id(Player* players, usize count, i32 id) {
+    return null;
+}
+
+public u32 sort_counting(Player* players, usize count) {
+    return 0;
+}

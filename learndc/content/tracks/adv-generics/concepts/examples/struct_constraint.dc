@@ -1,0 +1,20 @@
+module main;
+
+using Numeric(T) = compiles(T a, T b) { a + b; a < b; };
+
+struct Range(T) if Numeric(T) {
+    T low;
+    T high;
+}
+
+T span(T)(Range(T) r) if Numeric(T) {
+    return r.high + r.low;
+}
+
+public Status(Error) main() {
+    Range(i32) years = { low = 1990, high = 2020 };
+    Range(f64) heights = { low = 1.5, high = 2.0 };
+    println("{}", span(years))?;
+    println("{:.1}", span(heights))?;
+    return Status::Ok;
+}
