@@ -9438,3 +9438,50 @@ TEST_CASE("cli paths of the shipped content name one boss in the singular")
     CHECK(r.out.find("of 1 bosses") == std::string::npos);
     CHECK(r.out.find("of 6 bosses") != std::string::npos);
 }
+
+TEST_CASE("boss fight stage questions are shown and answered through the cli and persist")
+{
+    char const* content = std::getenv("DCC_TEST_LEARNDC_CONTENT");
+    REQUIRE(content != nullptr);
+    CliFixture f;
+    f.content = std::filesystem::path(content);
+    std::string const boss = "lib-files/boss-configuration-manager";
+    auto r = f.run({"show", boss});
+    CHECK_EQ(r.code, 0);
+    CHECK(r.out.find("[legacy-save]") != std::string::npos);
+    CHECK(r.out.find("Answer with: learndc answer " + boss + " --question legacy-save <the number of the buggy line>") != std::string::npos);
+    CHECK(r.out.find("std::fmt::format(&out, \"port = {}\\n\", s.port)?;") != std::string::npos);
+    r = f.run({"show", boss, "--json"});
+    auto j = json::parse(r.out);
+    REQUIRE(j.has_value());
+    auto const* qs = j->find("questions")->as_array();
+    REQUIRE(qs != nullptr);
+    REQUIRE(!qs->empty());
+    CHECK((*qs)[0].find("stage")->as_string() == std::optional<std::string_view>("legacy"));
+    CHECK(r.out.find("\"lines\"") == std::string::npos);
+    CHECK(r.out.find("\"explanation\"") == std::string::npos);
+    r = f.run({"answer", boss});
+    CHECK_EQ(r.code, 2);
+    CHECK(r.err.find("the next question of '" + boss + "' is 'legacy-save'") != std::string::npos);
+    r = f.run({"answer", boss, "3"});
+    CHECK_EQ(r.code, 1);
+    CHECK(r.out.find("Not yet") != std::string::npos);
+    CHECK(r.out.find("create truncates") == std::string::npos);
+    r = f.run({"answer", boss, "2"});
+    CHECK_EQ(r.code, 0);
+    CHECK(r.out.find("Stage cleared: Read the legacy saver") != std::string::npos);
+    r = f.run({"show", boss, "--json"});
+    j = json::parse(r.out);
+    REQUIRE(j.has_value());
+    auto const* stages = j->find("stages")->as_array();
+    REQUIRE(stages != nullptr);
+    CHECK((*stages)[0].find("achieved")->as_bool() == std::optional<bool>(true));
+    CHECK((*stages)[1].find("achieved")->as_bool() == std::optional<bool>(false));
+    CHECK(j->find("questions")->as_array()->front().find("answered")->as_bool() == std::optional<bool>(true));
+    r = f.run({"answer", boss, "1"});
+    CHECK_EQ(r.code, 0);
+    CHECK(r.out.find("Every question of " + boss + " is already answered") != std::string::npos);
+    r = f.run({"answer", "first-steps/hello-world"});
+    CHECK_EQ(r.code, 5);
+    CHECK(r.err.find("has no questions; its stages are checked with: learndc check first-steps/hello-world") != std::string::npos);
+}

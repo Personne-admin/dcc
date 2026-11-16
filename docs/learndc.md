@@ -204,6 +204,7 @@ Commands that take an optional `id` use the exercise of the current directory's 
 | `learndc hint [ID] [--level N] [--stage STAGE]` | Reveal the next hint, or hint N (1 to 3); with `--stage`, the hints of that stage of a multi-stage exercise. |
 | `learndc answer ID [CHOICE...]` | Answer a lecture whose questions are all multiple choice, one choice number per question; with no choices, mark a lecture without questions as read. |
 | `learndc answer ID --question Q ANSWER...` | Answer one question of any kind: a choice number, numbers like `1,3`, a line number, the shown line numbers in order, a short answer, or predicted output with `\n` between lines. Prints the feedback; exits 1 while the answer is wrong. |
+| `learndc answer ID [--] ANSWER...` | For a multi-stage exercise or Boss Fight: answer the next unanswered stage question in stage order (`learndc show ID` lists them under their stages). A correct answer is recorded like one given in the terminal interface; a question-only stage is cleared once all its questions are right. |
 | `learndc cards [--json]` | Flashcards due for review and the questions to try again. |
 | `learndc card LESSON#CARD [again\|hard\|good\|easy]` | Show a flashcard, or rate it and schedule its next review. |
 | `learndc solution [ID] --show\|--diff` | Print the reference solution and its explanation, or a unified diff of your files against it. Either marks the solution as viewed. |

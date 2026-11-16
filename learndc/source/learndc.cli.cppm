@@ -816,6 +816,24 @@ export namespace learndc::cli
             return app::exit_ok;
         }
 
+        [[nodiscard]] inline catalog::Question const* next_open_question(catalog::Exercise const& ex, progress::Progress const& p)
+        {
+            auto const open = [&](std::string_view qid) -> catalog::Question const* {
+                auto const* q = ex.find_question(qid);
+                if (q && progress::question_of(p, ex.id, q->id).last != "right")
+                    return q;
+                return nullptr;
+            };
+            for (auto const& st : ex.stages)
+                for (auto const& qid : st.questions)
+                    if (auto const* q = open(qid))
+                        return q;
+            for (auto const& q : ex.questions)
+                if (auto const* found = open(q.id))
+                    return found;
+            return nullptr;
+        }
+
         inline int answer_one(Session& s, catalog::Exercise const& ex, std::string const& qid)
         {
             auto const* q = ex.find_question(qid);
@@ -956,6 +974,23 @@ export namespace learndc::cli
             auto const& ex = **found;
             if (auto qid = s.args.value("question"))
                 return answer_one(s, ex, *qid);
+            if (!ex.is_lecture())
+            {
+                if (ex.questions.empty())
+                    return report_failure(s, app::Failure{app::exit_not_found,
+                                                          std::format("'{}' has no questions; its stages are checked with: learndc check {}", ex.id, ex.id)});
+                auto const* next = next_open_question(ex, *s.loaded);
+                if (!next)
+                {
+                    std::print(s.out(), "Every question of {} is already answered. Answer one again with: learndc answer {} --question Q ANSWER...\n", ex.id,
+                               ex.id);
+                    return app::exit_ok;
+                }
+                if (s.args.positionals.size() < 2)
+                    return usage_error(s, std::format("the next question of '{}' is '{}' and needs {}: learndc answer {} --question {} <{}>", ex.id, next->id,
+                                                      answer_form(*next), ex.id, next->id, answer_form(*next)));
+                return answer_one(s, ex, next->id);
+            }
             std::vector<int> answers;
             for (std::size_t i = 1; i < s.args.positionals.size(); ++i)
             {
@@ -1043,6 +1078,23 @@ export namespace learndc::cli
                     checks.push(std::move(cj));
                 }
                 j.set("checks", std::move(checks));
+                auto questions = json::Json::make_array();
+                for (auto const& q : ex.questions)
+                {
+                    auto qj = json::Json::make_object();
+                    qj.set("id", json::Json(q.id));
+                    qj.set("type", json::Json(std::string(catalog::to_string(q.type))));
+                    std::string stage_id;
+                    for (auto const& st : ex.stages)
+                        if (std::ranges::find(st.questions, q.id) != st.questions.end())
+                            stage_id = st.id;
+                    qj.set("stage", stage_id.empty() ? json::Json() : json::Json(stage_id));
+                    qj.set("prompt", json::Json(q.prompt));
+                    qj.set("choices", strings_json(q.choices));
+                    qj.set("answered", json::Json(progress::question_of(p, ex.id, q.id).last == "right"));
+                    questions.push(std::move(qj));
+                }
+                j.set("questions", std::move(questions));
                 if (workspace_path.empty())
                     j.set("workspace", json::Json());
                 else
@@ -1081,8 +1133,18 @@ export namespace learndc::cli
                     fingerprint = runner::workspace_fingerprint((*ws)->root);
                 std::print(o, "\nStages\n");
                 for (auto const& v : app::stage_views(ex, p, fingerprint))
+                {
                     std::print(o, "  {} {}. {}{}  ({})\n", stage_mark(s, v), v.number, v.stage->title, v.stage->optional ? " (bonus)" : "",
                                app::to_string(v.state));
+                    for (auto const& qid : v.stage->questions)
+                        if (auto const* q = ex.find_question(qid))
+                        {
+                            auto const qp = progress::question_of(p, ex.id, q->id);
+                            auto const body = text::replace_all(std::string(text::trim(question_text(*q))), "\n", "\n       ");
+                            std::print(o, "     {} {}{}\n", paint(s, "2", std::format("[{}]", q->id)), qp.last == "right" ? "(done) " : "", body);
+                            std::print(o, "       Answer with: learndc answer {} --question {} <{}>\n", ex.id, q->id, answer_form(*q));
+                        }
+                }
             }
             else
             {
