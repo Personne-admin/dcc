@@ -378,3 +378,8 @@ $(OBJ_DIR)/tests/source/test_learndc.cc.o: $(LEARNDC_PCMS) $(LEARNDC_CORE_LIB) $
 
 $(BUILD_DIR)/bin/tests/test_learndc: $(OBJ_DIR)/tests/source/test_learndc.cc.o $(LEARNDC_TUI_LIB) $(LEARNDC_CORE_LIB) $(OBJ_DIR)/dcc.host.process.pcm.o
 	$(call link-binary,$@,$^,)
+
+$(OBJ_DIR)/tests/source/test_learndc_textedit.cc.o: $(LEARNDC_PCMS) $(PCM_DIR)/learndc.textedit.pcm $(PCM_DIR)/learndc.highlight.pcm
+
+$(BUILD_DIR)/bin/tests/test_learndc_textedit: $(OBJ_DIR)/tests/source/test_learndc_textedit.cc.o $(OBJ_DIR)/learndc.textedit.pcm.o $(OBJ_DIR)/learndc.highlight.pcm.o $(LEARNDC_CORE_LIB)
+	$(call link-binary,$@,$^,)
