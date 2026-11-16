@@ -1,0 +1,71 @@
+module save_stage;
+
+import manager;
+import settings;
+import std::os::file;
+
+using manager::save_settings;
+using settings::{Settings, default_settings, set_host};
+using std::os::file::File;
+
+void dump([]const char path) {
+    File f = std::os::file::open(path, std::os::file::read_only()).unwrap();
+    u8[256] buffer = {};
+    usize n = f.read_all(buffer[0..256]).unwrap();
+    f.close();
+    print("{}", buffer[0..n] as []const char);
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    Settings s = default_settings();
+    set_host(&s, "example.org");
+    s.port = 8443;
+    s.workers = 3;
+    s.debug = true;
+
+    Status(Error) saved = save_settings(&s, "save-stage.toml");
+    if saved.is_ok() {
+        println("ok: saved");
+        dump("save-stage.toml");
+    } else {
+        println("FAIL: save_settings returned an error");
+        failures += 1;
+        return failures;
+    }
+
+    Settings other = default_settings();
+    Status(Error) again = save_settings(&other, "save-stage.toml");
+    if again.is_ok() {
+        println("ok: saved over the old file");
+        dump("save-stage.toml");
+    } else {
+        println("FAIL: saving over an existing file failed");
+        failures += 1;
+    }
+
+    Status(Error) nowhere = save_settings(&s, "save-stage-nodir/x.toml");
+    if !nowhere.is_ok() {
+        println("ok: a missing folder is an error");
+    } else {
+        println("FAIL: saving into a missing folder must fail");
+        failures += 1;
+    }
+
+    i32 bad = 0;
+    for i32 round = 0; round < 3000; round++ {
+        if !save_settings(&s, "save-stage.toml").is_ok() {
+            bad += 1;
+        }
+    }
+    if bad == 0 {
+        println("ok: 3000 saves without running out of handles");
+    } else {
+        println("FAIL: save_settings leaks its file handle");
+        failures += 1;
+    }
+
+    std::os::file::delete_file("save-stage.toml");
+    return failures;
+}

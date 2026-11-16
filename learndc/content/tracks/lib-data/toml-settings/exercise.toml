@@ -1,0 +1,44 @@
+schema = 1
+id = "lib-data/toml-settings"
+revision = 1
+title = "Server settings from TOML"
+summary = "Read nested TOML tables with get_path, validate a port range and walk an array of route tables."
+kind = "libdcext"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["toml", "get_path", "as_array", "as_table", "validation", "array of tables"]
+tags = ["library", "toml"]
+objectives = [
+    "Read integers from nested tables with get_path and defaults",
+    "Reject a value outside its allowed range and fall back",
+    "Walk an array of tables and skip entries that lack a required key",
+]
+entry_file = "src/main.dc"
+product = "serverconf"
+prerequisites = ["lib-data/toml-documents"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Effective server settings"
+expect_stdout = """
+name: edge
+host: 0.0.0.0
+port: 8080
+workers: 4
+max_connections: 100
+route /health -> ok
+route /api -> (no target)
+routes: 2
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "port 70000 is out of range and max_connections is a string, so both fall back; the third route has no path and is skipped."

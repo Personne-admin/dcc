@@ -1,0 +1,35 @@
+module main;
+
+import std::os::file;
+
+using std::os::file::{File, OpenFlags};
+
+Status(Error) add_line([]const char name, []const char line) {
+    OpenFlags flags = std::os::file::write_only();
+    flags.truncate = false;
+    flags.append = true;
+
+    File f = std::os::file::open(name, flags)?;
+    defer f.close();
+    f.write_all(line as []const u8)?;
+    f.write_all("\n" as []const u8)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    File f = std::os::file::create("journal.txt")?;
+    f.write_all("start\n" as []const u8)?;
+    f.close();
+
+    add_line("journal.txt", "first")?;
+    add_line("journal.txt", "second")?;
+
+    println("size: {}", std::os::file::metadata("journal.txt")?.size)?;
+
+    File again = std::os::file::create("journal.txt")?;
+    again.close();
+    println("size after create: {}", std::os::file::metadata("journal.txt")?.size)?;
+
+    std::os::file::delete_file("journal.txt")?;
+    return Status::Ok;
+}

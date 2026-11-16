@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "fingerprints",
+    version = "0.1.0",
+    products = {
+        { name = "fingerprints", entry = "src/main.dc" },
+    },
+}

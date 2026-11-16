@@ -1,0 +1,198 @@
+module analyzer;
+
+import std::slice;
+import std::sort;
+import std::parse;
+import std::utf8;
+import std::map;
+import std::sha;
+import std::os::heap;
+
+public enum Level : u8 {
+    Info,
+    Warn,
+    Failure,
+}
+
+public enum LineError : u8 {
+    MissingField,
+    BadLevel,
+    BadNumber,
+    BadText,
+}
+
+public struct Entry {
+    Level level;
+    []const char source;
+    u32 millis;
+}
+
+public struct Problem {
+    usize line;
+    LineError error;
+}
+
+public struct SourceCount {
+    []const char source;
+    u32 count;
+}
+
+public struct Bucket {
+    u32 start;
+    u32 count;
+}
+
+public []const char take_field([]const char line, usize* cursor) {
+    usize start = *cursor;
+    usize end = start;
+    while end < line.len && line[end] != ' ' as char {
+        end++;
+    }
+    *cursor = if end < line.len { end + 1 } else { end };
+    return line[start..end];
+}
+
+Optional(u32) parse_millis([]const char text) {
+    usize cursor = 0;
+    usize digits = 0;
+    Result(u64, std::parse::NumError) value = std::parse::accumulate_digits(text, &cursor, 10, false, &digits);
+    if value.is_err() || cursor != text.len || value.unwrap() > 4294967295 {
+        return Optional::None;
+    }
+    return Optional::Some(value.unwrap() as u32);
+}
+
+Optional(Level) parse_level([]const char text) {
+    if std::slice::eq(text, "INFO") {
+        return Optional::Some(Level::Info);
+    }
+    if std::slice::eq(text, "WARN") {
+        return Optional::Some(Level::Warn);
+    }
+    if std::slice::eq(text, "ERROR") {
+        return Optional::Some(Level::Failure);
+    }
+    return Optional::None;
+}
+
+public Result(Entry, LineError) parse_line([]const char line) {
+    usize cursor = 0;
+    []const char level_text = take_field(line, &cursor);
+    []const char source = take_field(line, &cursor);
+    []const char millis_text = take_field(line, &cursor);
+    if source.len == 0 || millis_text.len == 0 {
+        return LineError::MissingField;
+    }
+    Optional(Level) level = parse_level(level_text);
+    if level.is_none() {
+        return LineError::BadLevel;
+    }
+    Optional(u32) millis = parse_millis(millis_text);
+    if millis.is_none() {
+        return LineError::BadNumber;
+    }
+    if !std::utf8::is_valid(line[cursor..line.len]) {
+        return LineError::BadText;
+    }
+    return Result::Ok(Entry { level = level.unwrap_some(), source = source, millis = millis.unwrap_some() });
+}
+
+public Status(AllocError) read_log([]const char text, Array(Entry)* entries, Array(Problem)* problems) {
+    usize number = 0;
+    std::slice::Split(char) lines = std::slice::split(text, '\n' as char);
+    bool more = true;
+    while more {
+        match lines.next() {
+            Optional::Some(line) => {
+                number++;
+                if line.len > 0 {
+                    match parse_line(line) {
+                        Result::Ok(entry) => entries.push(entry)?,
+                        Result::Err(error) => problems.push(Problem { line = number, error = error })?,
+                    }
+                }
+            },
+            Optional::None => more = false,
+        }
+    }
+    return Status::Ok;
+}
+
+public u32 count_level([]const Entry entries, Level level) {
+    u32 total = 0;
+    for entry in entries {
+        if entry.level == level {
+            total++;
+        }
+    }
+    return total;
+}
+
+i32 by_count_desc(const SourceCount* a, const SourceCount* b) {
+    if a.count > b.count {
+        return -1;
+    }
+    if a.count < b.count {
+        return 1;
+    }
+    return 0;
+}
+
+public Status(AllocError) top_sources([]const Entry entries, usize limit, Array(SourceCount)* out) {
+    Array(SourceCount) all = {};
+    defer all.deinit();
+    for entry in entries {
+        bool found = false;
+        for usize i = 0; i < all.len(); i++ {
+            if std::slice::eq(all.items()[i].source, entry.source) {
+                all.items()[i].count += 1;
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            all.push(SourceCount { source = entry.source, count = 1 })?;
+        }
+    }
+    Array(SourceCount) scratch = {};
+    defer scratch.deinit();
+    scratch.resize(all.len())?;
+    std::sort::sort_stable_by(all.items(), scratch.items(), by_count_desc);
+    usize keep = if limit < all.len() { limit } else { all.len() };
+    out.append_slice(all.items()[0..keep])?;
+    return Status::Ok;
+}
+
+using Counts = std::map::Map(u32, u32);
+using CountsIter = std::map::Iterator(u32, u32, std::os::heap::Heap);
+
+public Status(AllocError) latency_buckets([]const Entry entries, Array(Bucket)* out) {
+    Counts counts = {};
+    defer counts.deinit();
+    for entry in entries {
+        u32* slot = counts.get_or_put(entry.millis / 100 * 100, 0)?;
+        *slot += 1;
+    }
+    Array(u32) starts = {};
+    defer starts.deinit();
+    CountsIter it = counts.iterate();
+    bool more = true;
+    while more {
+        match it.next() {
+            Optional::Some(item) => starts.push(*item.key)?,
+            Optional::None => more = false,
+        }
+    }
+    std::sort::sort(starts.items());
+    for start in starts.items() {
+        out.push(Bucket { start = start, count = counts.get(start).some_or(0) })?;
+    }
+    return Status::Ok;
+}
+
+public []const char fingerprint([]const char text, [] char out) {
+    u8[32] digest = {};
+    std::sha::sha256(text as []const u8, digest[0..32]);
+    std::sha::hex_encode(digest[0..32], out[0..64]);
+    return out[0..12] as []const char;
+}

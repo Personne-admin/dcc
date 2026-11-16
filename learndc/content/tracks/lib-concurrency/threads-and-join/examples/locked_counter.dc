@@ -1,0 +1,29 @@
+module main;
+
+import std::os::thread;
+
+struct Counter {
+    std::os::thread::Mutex lock;
+    u32 value;
+}
+
+void bump(Counter* counter, u32 times) {
+    for u32 i = 0; i < times; i++ {
+        counter.lock.lock();
+        defer counter.lock.unlock();
+        counter.value += 1;
+    }
+}
+
+public Status(Error) main() {
+    Counter counter = {};
+    std::os::thread::Thread[4] workers;
+    for usize i = 0; i < 4; i++ {
+        workers[i] = std::os::thread::spawn(bump, &counter, 2500 as u32)?;
+    }
+    for usize i = 0; i < 4; i++ {
+        workers[i].join()?;
+    }
+    println("counter: {}", counter.value)?;
+    return Status::Ok;
+}

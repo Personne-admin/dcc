@@ -1,0 +1,153 @@
+schema = 1
+id = "lib-files/paths-and-directories"
+revision = 1
+title = "Paths and directories"
+summary = "Split and join paths as text, list a directory in a deterministic order, and ask the file system about a path."
+kind = "lecture"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["path", "basename", "join", "normalize", "dir::Iterator", "sorting", "metadata", "make_directory_all"]
+tags = ["lecture", "library", "directories"]
+objectives = [
+    "Take a path apart and put one together with the path functions and a caller-supplied buffer",
+    "List a directory by copying the names, skipping dot entries and sorting them",
+    "Use metadata and the directory functions, and know when a check is not a guarantee",
+]
+prerequisites = ["lib-files/write-a-log"]
+
+[[examples]]
+name = "path_parts"
+expect_stdout = """
+basename:  app.2026.log
+dirname:   data/logs
+extension: .log
+stem:      app.2026
+absolute:  false true
+joined:    data/logs/today.log
+normalized: data/cache/x.txt
+no dir:    []
+no ext:    []
+"""
+
+[[examples]]
+name = "list_dir"
+expect_stdout = """
+apple.txt
+inner/
+mango.txt
+zebra.txt
+"""
+
+[[examples]]
+name = "metadata_walk"
+expect_stdout = """
+probe/sub: directory
+probe/sub/a.txt: file of 5 bytes
+probe/sub/none.txt: does not exist
+"""
+
+[[questions]]
+id = "sorted-listing"
+type = "choice"
+prompt = "Why does a program with reproducible output sort the entries of a directory?"
+choices = [
+    "Because next() returns entries in reverse order",
+    "Because the order of entries is unspecified and can differ between file systems and machines",
+    "Because sorting is faster than reading",
+    "Because the library cannot list more than 64 entries",
+]
+answer = 2
+why = [
+    "There is no fixed order, reversed or otherwise.",
+    "",
+    "Sorting costs time; it exists to make the output the same everywhere.",
+    "There is no such limit.",
+]
+explanation = "The operating system returns entries in whatever order its structures hold them. Only an explicit sort gives the same output on every run and every machine."
+
+[[questions]]
+id = "name-lifetime"
+type = "bug"
+prompt = "Which line keeps a name that is no longer valid?"
+code = """
+module main;
+
+import std::os::dir;
+
+using std::os::dir::{Entry, Iterator};
+
+public Status(Error) main() {
+    Iterator it;
+    std::os::dir::open(".", &it)?;
+    defer it.close();
+    []const char first = "";
+    Optional(Entry) a = it.next();
+    if a.is_some() {
+        first = a.unwrap_some().name;
+    }
+    Optional(Entry) b = it.next();
+    println("first: {}", first)?;
+    return Status::Ok;
+}
+"""
+lines = [14]
+explanation = "The name borrows the iterator's buffer and is only valid until the next call to next(). Line 14 stores the borrowed slice, and line 16 then calls next() before the slice is used. Copy the bytes into your own storage first."
+
+[[questions]]
+id = "join-absolute"
+type = "predict"
+prompt = "What does this program print on Linux?"
+code = """
+module main;
+
+import std::os::path;
+
+public Status(Error) main() {
+    char[64] storage = {};
+    []const char a = std::os::path::join("base", "x.txt", storage[0..64])?;
+    println("{}", a)?;
+    char[64] other = {};
+    []const char b = std::os::path::join("base", "/etc/x.txt", other[0..64])?;
+    println("{}", b)?;
+    return Status::Ok;
+}
+"""
+expect = """
+base/x.txt
+/etc/x.txt
+"""
+explanation = "A relative tail is appended with the separator. An absolute tail replaces the base entirely, so joining user-supplied paths cannot escape into a surprise."
+
+[[questions]]
+id = "remove-nonempty"
+type = "multi"
+prompt = "Select the true statements about directories."
+choices = [
+    "make_directory_all succeeds when the directory already exists",
+    "remove_directory removes a directory with its files",
+    "make_directory fails with AlreadyExists when the directory exists",
+    "Checking exists() before creating a file guarantees the create will succeed",
+]
+answers = [1, 3]
+why = [
+    "",
+    "It only removes empty directories and reports DirectoryNotEmpty.",
+    "",
+    "Another process can create it between the check and the call. Call and handle the error.",
+]
+explanation = "make_directory_all is idempotent, make_directory is not, and removing a tree takes deleting its files first. A check is a hint, not a lock."
+
+[[cards]]
+id = "dir-order"
+front = "Three facts about listing a directory with std::os::dir?"
+back = "The order is unspecified (sort it), `.` and `..` are reported (skip them), and entry.name borrows the iterator buffer until the next call (copy it)."
+
+[[cards]]
+id = "path-buffers"
+front = "Why do join and normalize take a buffer?"
+back = "They never allocate: you supply the storage and get back the used part. A buffer that is too small gives NameTooLong."
+
+[[cards]]
+id = "dir-metadata"
+front = "How do you get the size and kind of a path without opening it?"
+back = "std::os::file::metadata(path) returns Result(Metadata, Error) with size and kind; NotFound for a missing path. Links are not followed."

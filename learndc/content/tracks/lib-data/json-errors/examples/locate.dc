@@ -1,0 +1,36 @@
+module main;
+
+import std::json;
+import std::parse;
+
+using std::json::{Event, JsonError, Scanner};
+using std::parse::Located;
+
+Status(Error) locate([]const char text) {
+    Scanner scanner = std::json::scan(text);
+    bool going = true;
+    while going {
+        Result(Located(Event), JsonError) step = std::json::next(&scanner);
+        if step.is_err() {
+            println("error at line {}, column {} (byte {})", scanner.at.line, scanner.at.column,
+                    scanner.at.offset)?;
+            going = false;
+        } else {
+            match step.unwrap().event {
+                Event::End => {
+                    println("valid")?;
+                    going = false;
+                },
+                _ => {},
+            }
+        }
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    locate("{\"a\": 1, \"b\": [true, null]}")?;
+    locate("{\"a\": 1,\n \"b\": [1, 2,, 3]}")?;
+    locate("{\"a\": tru}")?;
+    return Status::Ok;
+}

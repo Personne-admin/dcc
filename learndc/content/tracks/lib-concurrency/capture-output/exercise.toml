@@ -1,0 +1,46 @@
+schema = 1
+id = "lib-concurrency/capture-output"
+revision = 1
+title = "Capture a program's output"
+summary = "Connect a pipe to a child's standard output, close the right ends in the right order, read what it wrote and wait for its exit status."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["Command", "pipe", "stdout", "read_all", "spawn", "wait", "defer"]
+tags = ["process", "pipe", "linux"]
+objectives = [
+    "Redirect a child's standard output into a pipe",
+    "Close the parent's copy of the write end so reading ends",
+    "Release every handle on every path, including a failed launch",
+]
+entry_file = "src/main.dc"
+product = "capture"
+prerequisites = ["lib-concurrency/child-processes"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Captured output and exit codes"
+expect_stdout = """
+echo: 17 bytes, 1 lines, exit 0
+  first line: alpha beta gamma
+sort: 15 bytes, 3 lines, exit 0
+  first line: apple
+failing: 8 bytes, 1 lines, exit 4
+  first line: partial
+silent: 0 bytes, 0 lines, exit 0
+  first line: 
+missing: could not start
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "If the program hangs, the write end of the pipe is still open in your program: a read only sees the end of the data when every copy of the write end is closed."

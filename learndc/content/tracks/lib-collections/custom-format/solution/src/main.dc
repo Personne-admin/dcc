@@ -1,0 +1,60 @@
+module main;
+
+public import std::fmt;
+
+public struct Money {
+    i64 cents;
+}
+
+public struct Span {
+    i32 low;
+    i32 high;
+}
+
+public enum Level : u8 {
+    Info,
+    Warn,
+    Fail,
+}
+
+public Status(std::fmt::FormatError(std::fmt::WriterError(W))) format(W)(const Money* self, W* out, const std::fmt::Options* opts) if std::fmt::Writer(W) {
+    i64 magnitude = if self.cents < 0 { 0 - self.cents } else { self.cents };
+    if self.cents < 0 {
+        out.write_all("-")?;
+    }
+    std::fmt::format(out, "${}.{:02}", magnitude / 100, magnitude % 100)?;
+    return Status::Ok;
+}
+
+public Status(std::fmt::FormatError(std::fmt::WriterError(W))) format(W)(const Level* self, W* out, const std::fmt::Options* opts) if std::fmt::Writer(W) {
+    match *self {
+        Level::Info => std::fmt::write_padded(out, "INFO", opts)?,
+        Level::Warn => std::fmt::write_padded(out, "WARN", opts)?,
+        Level::Fail => std::fmt::write_padded(out, "FAIL", opts)?,
+    }
+    return Status::Ok;
+}
+
+public Status(std::fmt::FormatError(std::fmt::WriterError(W))) format(W)(const Span* self, W* out, const std::fmt::Options* opts) if std::fmt::Writer(W) {
+    return std::fmt::format(out, "{}..{}", self.low, self.high);
+}
+
+public Status(Error) main() {
+    println("price: {}", Money { cents = 1234 })?;
+    println("refund: {}", Money { cents = -5 })?;
+    println("[{}] [{:<6}] [{:>6}] [{:^6}]", Level::Info, Level::Warn, Level::Fail, Level::Info)?;
+    println("spans: {} and {}", Span { low = 3, high = 9 }, Span { low = -2, high = 2 })?;
+    char[64] storage = {};
+    std::fmt::BufferWriter line = std::fmt::new_buffer_writer(storage[0..64]);
+    std::fmt::format(&line, "[{:>5}] total {}", Level::Warn, Money { cents = 250000 })?;
+    println("{}", std::fmt::written_slice(&line))?;
+
+    char[8] tiny_storage = {};
+    std::fmt::BufferWriter tiny = std::fmt::new_buffer_writer(tiny_storage[0..8]);
+    if std::fmt::format(&tiny, "total {}", Money { cents = 250000 }).is_ok() {
+        println("fits")?;
+    } else {
+        println("buffer too small")?;
+    }
+    return Status::Ok;
+}

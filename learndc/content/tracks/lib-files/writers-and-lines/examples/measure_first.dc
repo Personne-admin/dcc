@@ -1,0 +1,25 @@
+module main;
+
+import std::fmt;
+
+using std::fmt::{BufferWriter, CountingWriter};
+
+Status(Error) write_row(W)(W* out, []const char name, i32 qty) if std::fmt::Writer(W) {
+    std::fmt::format(out, "{:<8}|{:>4}\n", name, qty)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    CountingWriter counter = CountingWriter::new();
+    write_row(&counter, "pens", 12)?;
+    write_row(&counter, "paper", 3)?;
+    println("needs {} bytes", counter.count)?;
+
+    char[20] small = {};
+    BufferWriter tight = BufferWriter::new(small[0..20]);
+    Status(Error) outcome = write_row(&tight, "pens", 12);
+    println("first row fits: {}", outcome.is_ok())?;
+    outcome = write_row(&tight, "paper", 3);
+    println("second row fits: {}", outcome.is_ok())?;
+    return Status::Ok;
+}

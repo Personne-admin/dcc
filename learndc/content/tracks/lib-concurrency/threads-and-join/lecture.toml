@@ -1,0 +1,120 @@
+schema = 1
+id = "lib-concurrency/threads-and-join"
+revision = 1
+title = "Threads, join and shared data"
+summary = "Spawn threads with arguments, join them, give each thread its own result slot, and protect shared data with a Mutex."
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["thread", "spawn", "join", "Mutex", "data race", "result slot", "determinism"]
+tags = ["lecture", "threads", "linux"]
+objectives = [
+    "Start threads with arguments and join every one of them exactly once",
+    "Give each thread its own result slot so no lock is needed",
+    "Protect data that threads really share with a Mutex and defer unlock"
+]
+prerequisites = ["lib-concurrency/capture-output"]
+
+[[examples]]
+name = "sum_in_chunks"
+expect_stdout = """
+1..25: 325
+26..50: 950
+51..75: 1575
+76..100: 2200
+total: 5050
+join twice fails: true
+"""
+
+[[examples]]
+name = "locked_counter"
+expect_stdout = """
+counter: 10000
+"""
+
+[[questions]]
+id = "join-needed"
+type = "choice"
+prompt = "`main` spawns four threads, never joins them and returns. What is the problem?"
+choices = [
+    "None: threads finish by themselves before the program ends",
+    "main may return, and the process end, while the threads still run; their results are lost and their resources not reclaimed",
+    "The compiler refuses to build the program",
+    "Each thread runs twice",
+]
+answer = 2
+why = [
+    "Nothing makes the program wait for them.",
+    "",
+    "The compiler cannot know when a thread should be waited for.",
+    "A thread runs its function once.",
+]
+explanation = "join is how you wait for a thread: it blocks until the function returned and then reclaims the thread's stack. Without it, results may not exist yet when you read them, and the program may end under the threads' feet."
+
+[[questions]]
+id = "which-needs-lock"
+type = "multi"
+prompt = "Four threads run at once. Which of these need a Mutex?"
+choices = [
+    "Every thread adds 1 to the same `u32` counter",
+    "Every thread writes its answer into its own element of a result array",
+    "Every thread pushes into one shared `Array`",
+    "Every thread only reads a constant table",
+]
+answers = [1, 3]
+why = [
+    "",
+    "Different elements are different memory: nobody else touches your slot, and you join before reading.",
+    "",
+    "Reading data that nobody changes is safe.",
+]
+explanation = "A lock is needed when two threads can touch the same memory and at least one writes. A counter and a shared array's length are exactly that. Separate result slots avoid the problem by design, which is why they are the first choice."
+
+[[questions]]
+id = "print-order"
+type = "choice"
+prompt = "Four threads each call `println(\"done {}\", id)`. Why can a test not expect a fixed output?"
+choices = [
+    "println is not thread-safe and prints nothing",
+    "The scheduler decides which thread prints first, so the order differs from run to run",
+    "Threads cannot print",
+    "println buffers until the program ends",
+]
+answer = 2
+why = [
+    "Printing works; the order is the problem.",
+    "",
+    "Any thread can print.",
+    "Output is written as println runs.",
+]
+explanation = "The operating system runs threads in whatever order and overlap it likes. To get reproducible output, let threads only compute, store results in slots, join them all and print from one thread in a fixed order."
+
+[[questions]]
+id = "lock-defer"
+type = "bug"
+prompt = "This function returns early when the value is too big, and then the program hangs the next time any thread calls it. Which line is the bug?"
+code = """
+Status(Error) add_limited(Counter* counter, u32 amount) {
+    counter.lock.lock();
+    if counter.value + amount > 100 {
+        return Status::Ok;
+    }
+    counter.value += amount;
+    counter.lock.unlock();
+    return Status::Ok;
+}
+"""
+lines = [4]
+explanation = "The early return leaves the function with the mutex still locked, so the next thread waits forever. Put `defer counter.lock.unlock();` on the line right after the lock and every exit unlocks, exactly like deinit after creating an array."
+
+[[cards]]
+id = "thread-slot"
+front = "How do threads hand back results without a lock?"
+back = "Each thread writes only to its own slot (a struct or array element it was given a pointer to). The parent reads the slots after joining every thread."
+[[cards]]
+id = "thread-join"
+front = "What does join do, and how often may you call it?"
+back = "It waits for the thread to finish and reclaims its stack. Exactly once per thread: a second join fails."
+[[cards]]
+id = "thread-lock-defer"
+front = "How do you pair lock and unlock safely?"
+back = "`m.lock(); defer m.unlock();` on consecutive lines, so every return path unlocks. Keep the locked region small."

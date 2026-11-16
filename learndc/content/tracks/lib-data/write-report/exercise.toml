@@ -1,0 +1,63 @@
+schema = 1
+id = "lib-data/write-report"
+revision = 1
+title = "Write a stock report as JSON"
+summary = "Emit a nested JSON report with the Emitter: an object, an array of objects, escaped text and a null."
+kind = "libdcext"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["Emitter", "FileWriter", "key", "string", "integer", "null_value", "nesting"]
+tags = ["library", "json"]
+objectives = [
+    "Write objects and arrays with paired begin and end calls",
+    "Follow every key with exactly one value",
+    "Write a null for missing text and let string escape quotes",
+]
+entry_file = "src/main.dc"
+product = "report"
+prerequisites = ["lib-data/json-output"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The stock report"
+expect_stdout = """
+{
+  "shop": "Night Market",
+  "total_qty": 11,
+  "items": [
+    {
+      "name": "Pen",
+      "qty": 3,
+      "price_cents": 250,
+      "in_stock": true,
+      "note": null
+    },
+    {
+      "name": "Ink \\"blue\\"",
+      "qty": 0,
+      "price_cents": 700,
+      "in_stock": false,
+      "note": null
+    },
+    {
+      "name": "Pad",
+      "qty": 8,
+      "price_cents": 399,
+      "in_stock": true,
+      "note": "A5, ruled"
+    }
+  ]
+}
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Keys come in the order name, qty, price_cents, in_stock, note. An empty note is written as null, and the Ink name must be escaped by string()."

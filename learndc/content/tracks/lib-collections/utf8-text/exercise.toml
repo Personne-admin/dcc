@@ -1,0 +1,46 @@
+schema = 1
+id = "lib-collections/utf8-text"
+revision = 1
+title = "Characters are not bytes"
+summary = "Count code points, find the first malformed byte and cut text on a character boundary with std::utf8."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["utf8", "code point", "validate", "count_codepoints", "decode_lossy"]
+tags = ["collections", "text", "utf8"]
+objectives = [
+    "Explain why a text's length in bytes differs from its length in characters",
+    "Validate UTF-8 and report the offset of the first bad byte",
+    "Cut text at a character boundary instead of in the middle of a sequence",
+]
+entry_file = "src/main.dc"
+product = "utf8_text"
+prerequisites = ["lib-collections/playlist-list"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Counts, validation and cuts"
+expect_stdout = """
+#1: 5 bytes, 5 chars, valid
+#2: 6 bytes, 5 chars, valid
+#3: 6 bytes, 4 chars, valid
+#4: 5 bytes, 5 chars, invalid at byte 2
+#5: 4 bytes, 4 chars, invalid at byte 2
+first 2 chars of #3: 4 bytes
+first 9 chars of #3: 6 bytes
+first 0 chars of #3: 0 bytes
+first 3 chars of #2: 4 bytes
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Samples 2 and 3 contain characters that take 2 and 3 bytes. A function that returns text.len counts bytes, not characters."

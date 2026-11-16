@@ -1,0 +1,38 @@
+module main;
+
+import std::os::file;
+
+using std::os::file::File;
+
+Status(Error) save([]const char name, []const char text) {
+    File f = std::os::file::create(name)?;
+    defer f.close();
+    f.write_all(text as []const u8)?;
+    return Status::Ok;
+}
+
+Status(Error) load([]const char name, Array(char)* out) {
+    File f = std::os::file::open(name, std::os::file::read_only())?;
+    defer f.close();
+
+    u64 size = f.size()?;
+    out.resize(size as usize)?;
+    usize got = f.read_all(out.items() as []u8)?;
+    out.resize(got)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    save("greeting.txt", "hello\nfrom a file\n")?;
+
+    Array(char) text = {};
+    defer text.deinit();
+    load("greeting.txt", &text)?;
+
+    println("{} bytes", text.len())?;
+    print("{}", text.items() as []const char)?;
+
+    std::os::file::delete_file("greeting.txt")?;
+    println("exists after delete: {}", std::os::file::exists("greeting.txt"))?;
+    return Status::Ok;
+}

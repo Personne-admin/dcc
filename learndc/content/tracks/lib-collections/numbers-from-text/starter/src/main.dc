@@ -1,0 +1,52 @@
+module main;
+
+import std::parse;
+import std::slice;
+
+enum ParseFail : u8 {
+    Empty,
+    NotANumber,
+    TooBig,
+}
+
+Result(i64, ParseFail) parse_i64([]const char text) {
+    // TODO: optional sign, then digits with std::parse::accumulate_digits; the whole text must be used
+    return Result::Ok(0);
+}
+
+Result(i64, ParseFail) sum_line([]const char line) {
+    // TODO: split on spaces, skip empty tokens, add parse_i64 of every token; the first bad token fails the line
+    return Result::Ok(0);
+}
+
+Status(Error) report([]const char text) {
+    print("{:>22} -> ", text)?;
+    match parse_i64(text) {
+        Result::Ok(n) => println("{}", n)?,
+        Result::Err(e) => match e {
+            ParseFail::Empty => println("empty")?,
+            ParseFail::NotANumber => println("not a number")?,
+            ParseFail::TooBig => println("too big")?,
+        },
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const []const char inputs = {
+        "42", "-17", "+8", "", "-", "12ab",
+        "99999999999999999999", "9223372036854775807",
+        "-9223372036854775808", "-9223372036854775809",
+    };
+    for text in inputs {
+        report(text)?;
+    }
+    []const []const char lines = { "3 4 5", "10 -4  1", "7 x 2", "1 99999999999999999999" };
+    for line in lines {
+        match sum_line(line) {
+            Result::Ok(total) => println("sum of '{}' is {}", line, total)?,
+            Result::Err(e) => println("'{}' has a bad number", line)?,
+        }
+    }
+    return Status::Ok;
+}

@@ -1,0 +1,15 @@
+module fileio;
+
+import std::os::file;
+
+using std::os::file::File;
+
+public Status(Error) read_file([]const char path, Array(char)* out) {
+    File f = std::os::file::open(path, std::os::file::read_only())?;
+    defer f.close();
+
+    out.resize(f.size()? as usize)?;
+    usize got = f.read_all(out.items() as []u8)?;
+    out.resize(got)?;
+    return Status::Ok;
+}

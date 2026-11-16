@@ -1,0 +1,136 @@
+module scanner;
+
+import std::hash;
+public import std::os::thread;
+import std::os::thread_pool;
+import std::os::pipe;
+import std::process;
+import std::parse;
+
+public struct Summary {
+    u32 words;
+    u32 lines;
+    u64 checksum;
+}
+
+public struct Job {
+    []const char name;
+    []const char text;
+    Summary summary;
+}
+
+public struct Progress {
+    std::os::thread::Mutex lock;
+    u32 finished;
+}
+
+struct Task {
+    Job* job;
+    Progress* progress;
+}
+
+public Summary summarize([]const char text) {
+    Summary summary = {};
+    bool inside = false;
+    bool line_open = false;
+    for byte in text {
+        if byte == '\n' as char {
+            summary.lines++;
+            line_open = false;
+        } else {
+            line_open = true;
+        }
+        bool space = byte == ' ' as char || byte == '\n' as char || byte == '\t' as char;
+        if space {
+            inside = false;
+        } else if !inside {
+            inside = true;
+            summary.words++;
+        }
+    }
+    if line_open {
+        summary.lines++;
+    }
+    summary.checksum = std::hash::fnv1a_64(text as []const u8);
+    return summary;
+}
+
+public void mark_finished(Progress* progress) {
+    progress.lock.lock();
+    defer progress.lock.unlock();
+    progress.finished += 1;
+}
+
+public u32 finished_count(Progress* progress) {
+    progress.lock.lock();
+    defer progress.lock.unlock();
+    return progress.finished;
+}
+
+void analyze_task(void* context) {
+    Task* task = context as Task*;
+    task.job.summary = summarize(task.job.text);
+    mark_finished(task.progress);
+}
+
+public Status(Error) analyze_all([] Job jobs, usize workers, Progress* progress) {
+    if jobs.len == 0 {
+        return Status::Ok;
+    }
+    Array(Task) tasks = {};
+    defer tasks.deinit();
+    tasks.resize(jobs.len)?;
+    std::os::thread_pool::ThreadPool* pool = std::os::thread_pool::create(workers)?;
+    defer pool.destroy();
+    for usize i = 0; i < jobs.len; i++ {
+        tasks.items()[i].job = &jobs[i];
+        tasks.items()[i].progress = progress;
+        pool.submit(analyze_task, &tasks.items()[i] as void*)?;
+    }
+    pool.wait_all();
+    return Status::Ok;
+}
+
+public Optional(usize) busiest([]const Job jobs) {
+    Optional(usize) best = Optional::None;
+    u32 best_words = 0;
+    for usize i = 0; i < jobs.len; i++ {
+        if best.is_none() || jobs[i].summary.words > best_words {
+            best = Optional::Some(i);
+            best_words = jobs[i].summary.words;
+        }
+    }
+    return best;
+}
+
+public Result(u32, Error) newlines_by_wc([]const char text) {
+    std::process::Command command = std::process::Command::new("wc")?;
+    defer command.deinit();
+    command.arg("-l")?;
+    std::os::pipe::Pipe input = std::os::pipe::create()?;
+    defer input.reader.close();
+    defer input.writer.close();
+    std::os::pipe::Pipe output = std::os::pipe::create()?;
+    defer output.reader.close();
+    defer output.writer.close();
+    command.stdin(input.reader.handle);
+    command.stdout(output.writer.handle);
+    std::process::Child child = command.spawn()?;
+    input.reader.close();
+    output.writer.close();
+    input.writer.write_all(text)?;
+    input.writer.close();
+    u8[64] answer = {};
+    usize got = output.reader.read_all(answer[0..64])?;
+    child.wait()?;
+    usize cursor = 0;
+    while cursor < got && answer[cursor] == ' ' as u8 {
+        cursor++;
+    }
+    usize digits = 0;
+    Result(u64, std::parse::NumError) count = std::parse::accumulate_digits(answer[0..got] as []const char, &cursor, 10, false, &digits);
+    if count.is_err() {
+        return Result::Ok(0 as u32);
+    }
+    return Result::Ok(count.unwrap() as u32);
+}

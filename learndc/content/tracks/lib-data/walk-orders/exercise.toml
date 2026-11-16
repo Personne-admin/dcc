@@ -1,0 +1,42 @@
+schema = 1
+id = "lib-data/walk-orders"
+revision = 1
+title = "Total the orders"
+summary = "Walk an array of JSON objects with len and at, add up each order and skip items that are malformed."
+kind = "libdcext"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["json", "array", "at", "len", "Optional", "as_float", "malformed input"]
+tags = ["library", "json"]
+objectives = [
+    "Visit the items of a JSON array with len and at",
+    "Return an Optional for a record that may be malformed, and count the skipped ones",
+    "Rely on as_float widening an integer price",
+]
+entry_file = "src/main.dc"
+product = "orders"
+prerequisites = ["lib-data/read-settings"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Order totals"
+expect_stdout = """
+order 101 ann: 14.50
+order 102 bob: 0.00
+order 103 cy: 0.00
+order 104 unknown: 4.00
+grand total: 18.50
+skipped items: 1
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Order 103 has a quantity that is a string: that item is skipped and counted. Order 104 has an integer price, which as_float accepts."

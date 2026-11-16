@@ -1,0 +1,78 @@
+module main;
+
+import std::map;
+import std::sort;
+import std::os::heap;
+
+using Totals = std::map::Map(u32, u32);
+using TotalsIter = std::map::Iterator(u32, u32, std::os::heap::Heap);
+
+struct Order {
+    u32 customer;
+    u32 cents;
+}
+
+Status(AllocError) add_up(Totals* totals, []const Order orders) {
+    for order in orders {
+        u32* sum = totals.get_or_put(order.customer, 0)?;
+        *sum += order.cents;
+    }
+    return Status::Ok;
+}
+
+Status(AllocError) sorted_ids(Totals* totals, Array(u32)* ids) {
+    TotalsIter it = totals.iterate();
+    bool more = true;
+    while more {
+        match it.next() {
+            Optional::Some(entry) => ids.push(*entry.key)?,
+            Optional::None => more = false,
+        }
+    }
+    std::sort::sort(ids.items());
+    return Status::Ok;
+}
+
+Optional(u32) best_customer(Totals* totals, []const u32 ids) {
+    Optional(u32) best = Optional::None;
+    u32 best_total = 0;
+    for id in ids {
+        u32 total = totals.get(id).some_or(0);
+        if best.is_none() || total > best_total {
+            best = Optional::Some(id);
+            best_total = total;
+        }
+    }
+    return best;
+}
+
+public Status(Error) main() {
+    []const Order orders = {
+        { 31, 1250 },
+        { 7, 400 },
+        { 31, 300 },
+        { 12, 1550 },
+        { 7, 1150 },
+        { 12, 0 },
+        { 40, 99 },
+    };
+
+    Totals totals = {};
+    defer totals.deinit();
+    add_up(&totals, orders)?;
+
+    Array(u32) ids = {};
+    defer ids.deinit();
+    sorted_ids(&totals, &ids)?;
+
+    println("{} customers", ids.len())?;
+    for id in ids.items() {
+        u32 cents = totals.get(id).some_or(0);
+        println("customer {:>2}: {:>4}.{:02}", id, cents / 100, cents % 100)?;
+    }
+    match best_customer(&totals, ids.items()) {
+        Optional::Some(id) => println("top spender: {}", id)?,
+        Optional::None => println("no orders")?,
+    }
+    return Status::Ok;
+}

@@ -1,0 +1,85 @@
+module main;
+
+import std::sort;
+
+struct Player {
+    []const char name;
+    u32 score;
+}
+
+i32 compare_text([]const char a, []const char b) {
+    usize shared = if a.len < b.len { a.len } else { b.len };
+    for usize i = 0; i < shared; i++ {
+        if a[i] != b[i] {
+            return if a[i] < b[i] { -1 } else { 1 };
+        }
+    }
+    if a.len == b.len {
+        return 0;
+    }
+    return if a.len < b.len { -1 } else { 1 };
+}
+
+i32 by_score_desc(const Player* a, const Player* b) {
+    if a.score > b.score {
+        return -1;
+    }
+    if a.score < b.score {
+        return 1;
+    }
+    return 0;
+}
+
+i32 by_name(const Player* a, const Player* b) {
+    return compare_text(a.name, b.name);
+}
+
+Status(AllocError) rank(Array(Player)* players) {
+    Array(Player) scratch = {};
+    defer scratch.deinit();
+    scratch.resize(players.len())?;
+    std::sort::sort_stable_by(players.items(), scratch.items(), by_score_desc);
+    return Status::Ok;
+}
+
+Optional(usize) find_by_name([]const Player sorted, []const char name) {
+    Player key = Player { name = name, score = 0 };
+    return std::sort::binary_search_by(sorted, &key, by_name);
+}
+
+public Status(Error) main() {
+    Array(Player) players = {};
+    defer players.deinit();
+    []const Player roster = {
+        { "Ana", 70 },
+        { "Bo", 85 },
+        { "Cy", 70 },
+        { "Dara", 90 },
+        { "Eli", 85 },
+    };
+    players.append_slice(roster)?;
+
+    rank(&players)?;
+    println("ranking:")?;
+    usize place = 1;
+    for p in players.items() {
+        println("{}. {} {}", place, p.name, p.score)?;
+        place++;
+    }
+
+    std::sort::sort_by(players.items(), by_name);
+    print("alphabetical:")?;
+    for p in players.items() {
+        print(" {}", p.name)?;
+    }
+    println("")?;
+
+    []const []const char wanted = { "Eli", "Zed" };
+    for name in wanted {
+        match find_by_name(players.items(), name) {
+            Optional::Some(i) => println("{} is at index {}", name, i)?,
+            Optional::None => println("{} not found", name)?,
+        }
+    }
+    return Status::Ok;
+}

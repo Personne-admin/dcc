@@ -1,0 +1,133 @@
+schema = 1
+id = "lib-data/toml-documents"
+revision = 1
+title = "TOML documents: tables, paths and arrays"
+summary = "Parse TOML into an owned Document, read nested tables with get_path and arrays of tables, and know which errors have positions."
+kind = "lecture"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["toml", "Table", "get_path", "array of tables", "TomlError", "Scanner", "limits"]
+tags = ["lecture", "library", "toml"]
+objectives = [
+    "Parse a TOML text and read nested values with get and get_path",
+    "Walk an array and an array of tables with as_array and as_table",
+    "Tell syntax errors, which have positions, from document errors, which do not",
+]
+prerequisites = ["lib-data/write-report"]
+
+[[examples]]
+name = "toml_read"
+expect_stdout = """
+title: demo
+host: localhost
+user: nobody
+port as text: not text
+jobs: 4
+tls: false
+top-level entries: 4
+"""
+
+[[examples]]
+name = "toml_arrays"
+expect_stdout = """
+3 ports, sum 8603
+ann: admin=true
+bob: admin=false
+"""
+
+[[examples]]
+name = "toml_errors"
+expect_stdout = """
+ok
+duplicate key (no position)
+duplicate key (no position)
+expected end of line at line 1, column 11
+bad string at line 1, column 13
+"""
+
+[[questions]]
+id = "get-path"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+import std::toml;
+
+using std::toml::{Document, Value};
+
+public Status(Error) main() {
+    Document() doc = std::toml::parse("[a]\\nb = 1\\n[a.c]\\nd = 2\\n")?;
+    defer doc.deinit();
+    println("{}", doc.root.get_path("a.c.d").some_or(Value::Integer(0)).as_integer().some_or(-1))?;
+    println("{}", doc.root.get_path("a.d").some_or(Value::Integer(0)).as_integer().some_or(-1))?;
+    println("{}", doc.root.get_path("a.b.x").some_or(Value::Integer(7)).as_integer().some_or(-1))?;
+    return Status::Ok;
+}
+"""
+expect = """
+2
+0
+7
+"""
+explanation = "a.c.d exists and is 2. a.d is missing, so some_or supplies Integer(0). In a.b.x the path walks into b, which is an integer and not a table, so the lookup is empty and the Integer(7) placeholder is used."
+
+[[questions]]
+id = "no-position"
+type = "choice"
+prompt = "A settings file defines the same key twice. What does the TOML library tell you?"
+choices = [
+    "TomlError::DuplicateKey and the line of the second definition",
+    "TomlError::DuplicateKey, with no line or column",
+    "Nothing: the second value replaces the first",
+    "TomlError::UnexpectedByte at the second definition",
+]
+answer = 2
+why = [
+    "The error value carries no position, and the scanner does not detect duplicates, so a rescan finds nothing either.",
+    "",
+    "The parse fails; nothing is replaced.",
+    "The syntax is fine. The text is rejected for its meaning, not its characters.",
+]
+explanation = "Duplicates are found while the tree is built. The scanner only checks syntax, so neither the error value nor a rescan yields a position. Your message should name the file and, if you can, the key."
+
+[[questions]]
+id = "toml-no-writer"
+type = "choice"
+prompt = "You have a parsed TOML document and need to save a modified copy. What does the library offer?"
+choices = [
+    "std::toml::write, like std::json::write",
+    "An Emitter in std::toml",
+    "No TOML writer: print the text yourself or write JSON with the JSON emitter",
+    "clone() renders the document back as text",
+]
+answer = 3
+why = [
+    "std::toml has no write function.",
+    "Only std::json has an Emitter.",
+    "",
+    "clone copies the tree in memory; it does not render text.",
+]
+explanation = "The library reads TOML but does not write it. A program that edits a TOML file has to print the keys it supports with println or a file writer."
+
+[[questions]]
+id = "array-of-tables"
+type = "short"
+prompt = "Which `as_*` conversion turns the Value of `[[user]]` (repeated headers) into something a `for` loop can walk?"
+accept = ["as_array", "as_array()"]
+explanation = "A repeated [[user]] header gives an array whose elements are tables. as_array returns the slice; as_table on each element gives the fields."
+
+[[cards]]
+id = "toml-get-path"
+front = "How do you read `[server.tls] enabled` from a parsed TOML document?"
+back = "`doc.root.get_path(\"server.tls.enabled\")` returns an Optional(Value); finish with as_bool and some_or. get_path cannot index arrays."
+
+[[cards]]
+id = "toml-positions"
+front = "Which TOML errors can be located with line and column?"
+back = "Syntax errors, by rescanning with std::toml::scan and next. DuplicateKey and KeyConflict are found while building the tree and have no position."
+
+[[cards]]
+id = "toml-no-writer"
+front = "How do you write a TOML file with the standard library?"
+back = "You do not: there is no TOML writer. Print the text yourself, or convert to JSON with the json Emitter."

@@ -1,0 +1,51 @@
+module main;
+
+import analyzer;
+import log_data;
+
+Status(Error) say_problem(analyzer::Problem problem) {
+    print("  line {}: ", problem.line)?;
+    match problem.error {
+        analyzer::LineError::MissingField => println("missing field")?,
+        analyzer::LineError::BadLevel => println("unknown level")?,
+        analyzer::LineError::BadNumber => println("bad duration")?,
+        analyzer::LineError::BadText => println("text is not valid UTF-8")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Array(analyzer::Entry) entries = {};
+    defer entries.deinit();
+    Array(analyzer::Problem) problems = {};
+    defer problems.deinit();
+    analyzer::read_log(log_data::TEXT, &entries, &problems)?;
+    println("{} entries, {} malformed", entries.len(), problems.len())?;
+
+    println("levels:")?;
+    println("  INFO  {}", analyzer::count_level(entries.items(), analyzer::Level::Info))?;
+    println("  WARN  {}", analyzer::count_level(entries.items(), analyzer::Level::Warn))?;
+    println("  ERROR {}", analyzer::count_level(entries.items(), analyzer::Level::Failure))?;
+
+    Array(analyzer::SourceCount) top = {};
+    defer top.deinit();
+    analyzer::top_sources(entries.items(), 3, &top)?;
+    println("busiest sources:")?;
+    for item in top.items() {
+        println("  {:<6}{}", item.source, item.count)?;
+    }
+
+    Array(analyzer::Bucket) buckets = {};
+    defer buckets.deinit();
+    analyzer::latency_buckets(entries.items(), &buckets)?;
+    println("latency:")?;
+    for bucket in buckets.items() {
+        println("  {:>3}-{:<3} {}", bucket.start, bucket.start + 99, bucket.count)?;
+    }
+
+    println("malformed lines:")?;
+    for problem in problems.items() {
+        say_problem(problem)?;
+    }
+    return Status::Ok;
+}

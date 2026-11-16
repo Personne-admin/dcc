@@ -1,0 +1,83 @@
+module main;
+
+import std::mem;
+import std::os::dir;
+import std::os::file;
+import std::os::path;
+import std::sort;
+
+using std::os::dir::{Entry, EntryKind, Iterator};
+using std::os::file::File;
+
+struct Name {
+    char[64] text;
+    usize len;
+    EntryKind kind;
+}
+
+i32 by_text(const Name* a, const Name* b) {
+    return std::mem::compare(a.text[0..a.len], b.text[0..b.len]);
+}
+
+bool is_dot([]const char name) {
+    return std::mem::equal(name, "." as []const char) || std::mem::equal(name, ".." as []const char);
+}
+
+Status(Error) collect([]const char folder, Array(Name)* out) {
+    Iterator it;
+    std::os::dir::open(folder, &it)?;
+    defer it.close();
+
+    while true {
+        Optional(Entry) next = it.next();
+        if next.is_none() {
+            break;
+        }
+        Entry entry = next.unwrap_some();
+        if is_dot(entry.name) || entry.name.len > 64 {
+            continue;
+        }
+        Name copy = {};
+        std::mem::copy(copy.text[0..entry.name.len], entry.name);
+        copy.len = entry.name.len;
+        copy.kind = entry.kind;
+        out.push(copy)?;
+    }
+    return Status::Ok;
+}
+
+Status(Error) make_file([]const char name, []const char text) {
+    File f = std::os::file::create(name)?;
+    defer f.close();
+    f.write_all(text as []const u8)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    std::os::file::make_directory_all("demo/inner")?;
+    make_file("demo/zebra.txt", "zz")?;
+    make_file("demo/apple.txt", "a")?;
+    make_file("demo/mango.txt", "mmm")?;
+    make_file("demo/inner/deep.txt", "d")?;
+
+    Array(Name) names = {};
+    defer names.deinit();
+    collect("demo", &names)?;
+    std::sort::sort_by(names.items(), by_text);
+
+    for name in names.items() {
+        if name.kind == EntryKind::Directory {
+            println("{}/", name.text[0..name.len] as []const char)?;
+        } else {
+            println("{}", name.text[0..name.len] as []const char)?;
+        }
+    }
+
+    std::os::file::delete_file("demo/zebra.txt")?;
+    std::os::file::delete_file("demo/apple.txt")?;
+    std::os::file::delete_file("demo/mango.txt")?;
+    std::os::file::delete_file("demo/inner/deep.txt")?;
+    std::os::file::remove_directory("demo/inner")?;
+    std::os::file::remove_directory("demo")?;
+    return Status::Ok;
+}

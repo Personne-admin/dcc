@@ -1,0 +1,64 @@
+module main;
+
+import std::toml;
+
+using std::toml::{Document, Table, Value};
+
+[]const char text_at(const Table* table, []const char path, []const char fallback) {
+    Optional(Value) found = table.get_path(path);
+    if found.is_none() {
+        return fallback;
+    }
+    Value value = found.unwrap_some();
+    return value.as_string().some_or(fallback);
+}
+
+i64 int_at(const Table* table, []const char path, i64 fallback) {
+    return fallback;
+}
+
+i64 port_at(const Table* table, []const char path, i64 fallback) {
+    return fallback;
+}
+
+Status(Error) print_routes(const Table* table, usize* printed) {
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const char text =
+        \\name = "edge"
+        \\
+        \\[server]
+        \\host = "0.0.0.0"
+        \\port = 70000
+        \\workers = 4
+        \\
+        \\[limits]
+        \\max_connections = "many"
+        \\
+        \\[[route]]
+        \\path = "/health"
+        \\target = "ok"
+        \\
+        \\[[route]]
+        \\path = "/api"
+        \\
+        \\[[route]]
+        \\target = "orphan"
+    ;
+
+    Document() doc = std::toml::parse(text)?;
+    defer doc.deinit();
+
+    println("name: {}", text_at(&doc.root, "name", "unnamed"))?;
+    println("host: {}", text_at(&doc.root, "server.host", "127.0.0.1"))?;
+    println("port: {}", port_at(&doc.root, "server.port", 8080))?;
+    println("workers: {}", int_at(&doc.root, "server.workers", 1))?;
+    println("max_connections: {}", int_at(&doc.root, "limits.max_connections", 100))?;
+
+    usize printed = 0;
+    print_routes(&doc.root, &printed)?;
+    println("routes: {}", printed)?;
+    return Status::Ok;
+}

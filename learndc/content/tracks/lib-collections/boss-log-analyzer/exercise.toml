@@ -1,0 +1,205 @@
+schema = 1
+id = "lib-collections/boss-log-analyzer"
+revision = 1
+title = "The Log Analyzer"
+summary = "Parse a service log into entries, count levels, rank the busiest sources, bucket latencies deterministically and report every malformed line with its line number."
+kind = "challenge"
+difficulty = "advanced"
+estimated_minutes = 90
+concepts = ["Array", "Map", "sort_stable_by", "std::parse", "std::utf8", "std::slice", "split", "Result", "std::sha"]
+tags = ["boss", "collections", "text", "errors"]
+objectives = [
+    "Parse log lines into typed entries and classify every way a line can be malformed",
+    "Aggregate counts per level, per source and per latency bucket with Array and Map",
+    "Produce a report whose order never depends on hash order or on unstable sorts",
+]
+entry_file = "src/main.dc"
+product = "log_analyzer"
+prerequisites = ["lib-collections/collections-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[boss]
+rating = 4
+story = """
+The night operator left a log file and a note: *the service was slow around
+midnight and somebody sent garbage into the log*. You are the new on-call.
+Turn the raw text into numbers you can trust: what happened, where, how
+slowly, and which lines cannot be believed at all.
+"""
+
+[[stages]]
+id = "old-parser"
+title = "Read the old parser"
+summary = "Find the bug in the previous on-call's duration parser before you write your own."
+questions = ["old-millis", "text-lifetime"]
+hints = ["Compare what accumulate_digits promises with what the old function checks before it returns."]
+
+[[stages]]
+id = "parse-line"
+title = "One line, one entry"
+summary = "parse_line turns LEVEL source millis [message] into an Entry or says exactly what is wrong."
+hints = [
+    "take_field is finished: call it three times to get the level, the source and the duration. An empty source or duration means MissingField. After the third call, cursor points at the message.",
+    "Check in this order: missing fields, level (std::slice::eq against INFO, WARN, ERROR; ERROR is Level::Failure), duration, message. For the duration use std::parse::accumulate_digits; the digits must use the whole field and the value must fit a u32 (at most 4294967295).",
+    "Validate the message with std::utf8::is_valid(line[cursor..line.len]) and return LineError::BadText when it is false. Return Result::Ok(Entry { level = ..., source = source, millis = ... }) at the end.",
+]
+
+[[stages]]
+id = "read-log"
+title = "The whole log"
+summary = "read_log splits the text into lines, numbers them from 1, skips empty lines and sorts every line into entries or problems."
+hints = [
+    "std::slice::split(text, '\\n' as char) gives an iterator; next() returns an Optional of the next line. Count every line, including the empty ones, so that line numbers match the file.",
+    "For a non-empty line call parse_line and match the result: Ok pushes into entries, Err pushes a Problem { line = number, error = error } into problems. Pass push failures on with ?.",
+]
+
+[[stages]]
+id = "tally"
+title = "Levels and busiest sources"
+summary = "count_level counts entries of a level; top_sources ranks sources by entry count with ties in order of first appearance."
+hints = [
+    "count_level is a loop with a counter. For sources, a Map cannot be keyed by text here, so keep an Array of SourceCount and search it with std::slice::eq, as the Inventory Keeper did.",
+    "Sort a copy of the counts with std::sort::sort_stable_by (a stable sort keeps the first-seen order of ties). It needs a scratch Array resized to the same length and a comparison that puts the higher count first.",
+    "Only the first `limit` sources go into `out`: take the smaller of limit and the number of sources, and out.append_slice(sorted.items()[0..keep])?.",
+]
+
+[[stages]]
+id = "latency"
+title = "Latency buckets"
+summary = "latency_buckets counts entries per 100 ms bucket in a Map and returns the buckets in ascending order."
+hints = [
+    "The bucket start is millis / 100 * 100. A Map(u32, u32) with get_or_put counts them.",
+    "Never push in map order. Collect the keys with iterate() and next() into an Array(u32), sort it with std::sort::sort, then push a Bucket for every key with the count from map.get(key).some_or(0).",
+]
+
+[[stages]]
+id = "report"
+title = "The on-call report"
+summary = "main reads the log text and prints the report: totals, levels, top 3 sources, latency buckets and the malformed lines."
+hints = [
+    "Create the entries and problems arrays in main with defer deinit on the next line each, then call read_log(log_data::TEXT, &entries, &problems)?.",
+    "Print the sections in the order of the expected output. Levels use count_level; sources use top_sources with limit 3; each bucket prints start and start + 99. say_problem is finished.",
+]
+
+[[stages]]
+id = "fingerprint"
+title = "Bonus: fingerprint the log"
+summary = "fingerprint writes the SHA-256 of the log text as hex and returns the first 12 characters."
+optional = true
+hints = ["std::sha::sha256(text as []const u8, digest[0..32]) then std::sha::hex_encode(digest[0..32], out[0..64]); return out[0..12] as []const char."]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "parse_line classifies lines"
+stage = "parse-line"
+harness = "checks/parse_line.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "read_log numbers lines and separates problems"
+stage = "read-log"
+harness = "checks/read_log.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "level counts and the stable top sources"
+stage = "tally"
+harness = "checks/tally.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "latency buckets in ascending order"
+stage = "latency"
+harness = "checks/latency.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "The on-call report"
+stage = "report"
+expect_stdout = """
+13 entries, 3 malformed
+levels:
+  INFO  8
+  WARN  3
+  ERROR 2
+busiest sources:
+  web   5
+  db    4
+  auth  3
+latency:
+    0-99  8
+  100-199 1
+  200-299 1
+  300-399 1
+  500-599 1
+  900-999 1
+malformed lines:
+  line 7: unknown level
+  line 10: missing field
+  line 14: bad duration
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Sources print with {:<6} after two spaces, buckets as {:>3}-{:<3} followed by the count; ties among sources keep first-seen order."
+
+[[checks]]
+kind = "harness"
+name = "fingerprint of the log"
+stage = "fingerprint"
+harness = "checks/digest.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[questions]]
+id = "old-millis"
+type = "bug"
+prompt = "The previous on-call's duration parser accepts the line `INFO db 12ms query` as 12 milliseconds and lets some huge numbers wrap around. Which line is the bug?"
+code = """
+Optional(u32) parse_millis([]const char text) {
+    usize cursor = 0;
+    usize digits = 0;
+    Result(u64, std::parse::NumError) value = std::parse::accumulate_digits(text, &cursor, 10, false, &digits);
+    if value.is_err() {
+        return Optional::None;
+    }
+    return Optional::Some(value.unwrap() as u32);
+}
+"""
+lines = [8]
+explanation = "accumulate_digits stops at the first non-digit and reports how far it got in the cursor, so `12ms` succeeds with the value 12 and a cursor of 2. Line 8 trusts the value without checking that the cursor reached the end of the text, and `as u32` silently drops the high bits of a value above 4294967295. Both checks belong before the return."
+
+[[questions]]
+id = "text-lifetime"
+type = "choice"
+prompt = "An `Entry` stores `source` as a slice of the log text, not a copy. What must stay valid for as long as the entries are used?"
+choices = [
+    "The entries Array only",
+    "The log text the slices point into",
+    "The problems Array",
+    "Nothing; slices own their characters",
+]
+answer = 2
+why = [
+    "The array holds the Entry structs, but the characters of each source live elsewhere.",
+    "",
+    "Problems store line numbers and error codes, not text.",
+    "A slice is a borrowed view: it points at characters owned by someone else.",
+]
+explanation = "log_data::TEXT is a constant that lives for the whole program, so main is safe. A program that read the log into a temporary buffer would have to keep that buffer alive, or copy each source, before releasing it."

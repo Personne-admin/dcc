@@ -1,0 +1,45 @@
+module parse_line;
+
+import analyzer;
+import std::slice;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+
+bool is_error(Result(analyzer::Entry, analyzer::LineError) r, analyzer::LineError want) {
+    return match r {
+        Result::Ok(_) => false,
+        Result::Err(e) => e == want,
+    };
+}
+
+public i32 main() {
+    i32 failures = 0;
+    Result(analyzer::Entry, analyzer::LineError) full = analyzer::parse_line("INFO auth 12 user logged in");
+    expect(full.is_ok(), "a complete line parses", &failures);
+    if full.is_ok() {
+        analyzer::Entry e = full.unwrap();
+        expect(e.level == analyzer::Level::Info, "level INFO", &failures);
+        expect(std::slice::eq(e.source, "auth"), "source auth", &failures);
+        expect(e.millis == 12, "millis 12", &failures);
+    }
+    Result(analyzer::Entry, analyzer::LineError) bare = analyzer::parse_line("WARN db 310");
+    expect(bare.is_ok() && bare.unwrap().level == analyzer::Level::Warn && bare.unwrap().millis == 310, "a line without a message is fine", &failures);
+    Result(analyzer::Entry, analyzer::LineError) failing = analyzer::parse_line("ERROR web 520 upstream timeout");
+    expect(failing.is_ok() && failing.unwrap().level == analyzer::Level::Failure, "ERROR maps to Failure", &failures);
+    expect(is_error(analyzer::parse_line("DEBUG web 3 x"), analyzer::LineError::BadLevel), "unknown level", &failures);
+    expect(is_error(analyzer::parse_line("INFO db"), analyzer::LineError::MissingField), "missing duration", &failures);
+    expect(is_error(analyzer::parse_line("INFO"), analyzer::LineError::MissingField), "missing source", &failures);
+    expect(is_error(analyzer::parse_line("INFO db abc x"), analyzer::LineError::BadNumber), "letters as duration", &failures);
+    expect(is_error(analyzer::parse_line("INFO db 12ab x"), analyzer::LineError::BadNumber), "trailing letters in the duration", &failures);
+    expect(is_error(analyzer::parse_line("INFO db 99999999999 x"), analyzer::LineError::BadNumber), "duration too big for u32", &failures);
+    expect(is_error(analyzer::parse_line("INFO db 5 bad\xffbyte"), analyzer::LineError::BadText), "message with invalid UTF-8", &failures);
+    return failures;
+}

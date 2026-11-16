@@ -1,0 +1,217 @@
+schema = 1
+id = "lib-concurrency/concurrency-drill"
+revision = 1
+kind = "drill"
+title = "Processes and threads drills"
+summary = "Predict exit codes and slot results, find a missing unlock and a pipe deadlock and read the errors for thread and pool entry points."
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["Command", "pipe", "spawn", "join", "Mutex", "ThreadPool", "determinism"]
+tags = ["drill", "process", "threads", "linux"]
+objectives = [
+    "Predict exit codes and per-slot thread results",
+    "Spot a pipe deadlock and a missing unlock",
+    "Read the compiler errors for wrong thread and pool entry points"
+]
+prerequisites = ["lib-concurrency/loopback-talk"]
+
+[[questions]]
+id = "exit-code"
+type = "predict"
+prompt = "What does this program print? (`sh -c \"exit 7\"` exits with code 7.)"
+code = """
+module main;
+
+import std::process;
+
+public Status(Error) main() {
+    std::process::Command command = std::process::Command::new("sh")?;
+    defer command.deinit();
+    command.arg("-c")?;
+    command.arg("exit 7")?;
+    std::process::ExitStatus status = command.status()?;
+    println("code {}, success {}", status.code, status.success())?;
+    return Status::Ok;
+}
+"""
+expect = """
+code 7, success false
+"""
+explanation = "The program ran, so status() is Ok; its code is whatever the program exited with, and success() is only true for 0. Two separate arg calls give sh exactly two arguments: -c and the script text."
+
+[[questions]]
+id = "pipe-hang"
+type = "bug"
+prompt = "This function should capture a child's output, but it never returns when the child has finished writing. Which line is the bug?"
+code = """
+Result(usize, Error) capture(Command* command, [] u8 buffer) {
+    Pipe pipe = std::os::pipe::create()?;
+    command.stdout(pipe.writer.handle);
+    Child child = command.spawn()?;
+    usize len = pipe.reader.read_all(buffer)?;
+    pipe.writer.close();
+    pipe.reader.close();
+    child.wait()?;
+    return Result::Ok(len);
+}
+"""
+lines = [5]
+explanation = "read_all only sees the end of the data when every copy of the write end is closed. The parent still holds one (line 6 closes it too late), so the read waits for data that can never come. Close the writer right after the spawn and read afterwards."
+
+[[questions]]
+id = "slots-result"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+import std::os::thread;
+
+struct Slot {
+    u32 input;
+    u32 output;
+}
+
+void square(Slot* slot) {
+    slot.output = slot.input * slot.input;
+}
+
+public Status(Error) main() {
+    Slot[3] slots = { { 2, 0 }, { 5, 0 }, { 3, 0 } };
+    std::os::thread::Thread[3] threads;
+    for usize i = 0; i < 3; i++ {
+        threads[i] = std::os::thread::spawn(square, &slots[i])?;
+    }
+    for usize i = 0; i < 3; i++ {
+        threads[i].join()?;
+    }
+    for slot in slots {
+        println("{}", slot.output)?;
+    }
+    return Status::Ok;
+}
+"""
+expect = """
+4
+25
+9
+"""
+explanation = "Each thread writes its own slot, and the loop at the end reads the slots in array order after every join. The order of the output follows the array, not the order in which the threads finished."
+
+[[questions]]
+id = "missing-unlock"
+type = "bug"
+prompt = "Once `take` has returned `false` for the first time, every other thread that calls it hangs. Which line is the bug?"
+code = """
+bool take(Pool* pool) {
+    pool.lock.lock();
+    if pool.free == 0 {
+        return false;
+    }
+    pool.free -= 1;
+    pool.lock.unlock();
+    return true;
+}
+"""
+lines = [4]
+explanation = "The early return leaves the mutex locked. Every later lock() waits for an unlock that never comes. Write `defer pool.lock.unlock();` directly after the lock and every exit releases it."
+
+[[questions]]
+id = "join-pattern"
+type = "choice"
+prompt = "Why does the parallel word count spawn all threads in one loop and join them in a second loop?"
+choices = [
+    "Joining is only allowed after every spawn",
+    "A join right after each spawn would wait for that thread before the next one starts, so the work would run one thread at a time",
+    "The second loop reverses the results",
+    "Spawn needs the handles to be joined in reverse order",
+]
+answer = 2
+why = [
+    "Join can be called as soon as the thread was spawned.",
+    "",
+    "Nothing is reversed; the order of the slots is the order of the array.",
+    "Any order of joins works.",
+]
+explanation = "A thread runs while you start the others. Joining immediately removes that overlap. Two loops give the parallelism: first start everything, then wait for everything."
+
+[[questions]]
+id = "pool-context"
+type = "error"
+prompt = "Why is this call rejected?"
+code = """
+module main;
+
+import std::os::thread_pool;
+
+struct Job { u32 value; }
+
+void task(void* context) {
+}
+
+public Status(Error) main() {
+    Job job = { 1 };
+    std::os::thread_pool::ThreadPool* pool = std::os::thread_pool::create(2)?;
+    defer pool.destroy();
+    pool.submit(task, &job)?;
+    pool.wait_all();
+    return Status::Ok;
+}
+"""
+diagnostic = "no matching UFCS function for `submit`"
+choices = [
+    "submit does not exist",
+    "The context argument has to be a `void*`: write `&job as void*`",
+    "The pool was not created with enough workers",
+    "task must return a Status",
+]
+answer = 2
+why = [
+    "It exists; the call does not match its parameters.",
+    "",
+    "The worker count has nothing to do with types.",
+    "A task is a function void(void*) with no result.",
+]
+explanation = "The pool stores tasks as a plain function plus a void pointer, so the pointer you pass must be converted with `as void*` (and converted back to `Job*` inside the task)."
+
+[[questions]]
+id = "thread-return"
+type = "error"
+prompt = "Why does the compiler reject `spawn(work, 4)`?"
+code = """
+module main;
+
+import std::os::thread;
+
+i32 work(i32 n) {
+    return n * 2;
+}
+
+public Status(Error) main() {
+    std::os::thread::Thread t = std::os::thread::spawn(work, 4)?;
+    t.join()?;
+    return Status::Ok;
+}
+"""
+diagnostic = "function pointer return type mismatch"
+choices = [
+    "A thread function has to return void; results go through a slot you pass a pointer to",
+    "spawn takes no arguments",
+    "4 is not a valid i32",
+    "Threads cannot call functions that multiply",
+]
+answer = 1
+why = [
+    "",
+    "It takes the function and its arguments.",
+    "The literal is fine.",
+    "Arithmetic has no effect on thread entry points.",
+]
+explanation = "A thread runs a `void` function: there is nobody to receive a return value. Write the result into memory the parent owns and read it after join."
+
+[[questions]]
+id = "reap-word"
+type = "short"
+prompt = "Which Child method must be called exactly once for every spawned child, also after kill? One word."
+accept = ["wait", "wait()", "child.wait", "child.wait()"]
+explanation = "wait reaps the child and releases its resources. Without it the child stays as a zombie until your program ends; a second wait fails."

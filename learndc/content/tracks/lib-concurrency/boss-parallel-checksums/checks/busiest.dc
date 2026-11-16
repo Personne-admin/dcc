@@ -1,0 +1,34 @@
+module busiest;
+
+import scanner;
+import std::hash;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+
+scanner::Job with_words(u32 words) {
+    scanner::Job j = scanner::Job { name = "x", text = "", summary = {} };
+    j.summary.words = words;
+    return j;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    scanner::Job[4] jobs = { with_words(3), with_words(9), with_words(9), with_words(1) };
+    Optional(usize) best = scanner::busiest(jobs[0..4]);
+    expect(best.is_some() && best.unwrap_some() == 1, "the first of two ties wins", &failures);
+    expect(scanner::busiest(jobs[0..0]).is_none(), "no jobs, no busiest", &failures);
+    Optional(usize) one = scanner::busiest(jobs[3..4]);
+    expect(one.is_some() && one.unwrap_some() == 0, "a single job is the busiest", &failures);
+    scanner::Job[2] zeros = { with_words(0), with_words(0) };
+    Optional(usize) flat = scanner::busiest(zeros[0..2]);
+    expect(flat.is_some() && flat.unwrap_some() == 0, "all zero: the first job", &failures);
+    return failures;
+}

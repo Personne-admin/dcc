@@ -1,0 +1,50 @@
+module main;
+
+import std::toml;
+
+using std::toml::{Document, Table, Value};
+
+[]const char text_at(const Table* table, []const char path, []const char fallback) {
+    Optional(Value) found = table.get_path(path);
+    if found.is_none() {
+        return fallback;
+    }
+    Value value = found.unwrap_some();
+    return value.as_string().some_or(fallback);
+}
+
+public Status(Error) main() {
+    []const char text =
+        \\# build settings
+        \\title = "demo"
+        \\jobs = 4
+        \\ratio = 0.5
+        \\
+        \\[server]
+        \\host = "localhost"
+        \\port = 8080
+        \\
+        \\[server.tls]
+        \\enabled = false
+    ;
+
+    Document() doc = std::toml::parse(text)?;
+    defer doc.deinit();
+
+    println("title: {}", text_at(&doc.root, "title", "?"))?;
+    println("host: {}", text_at(&doc.root, "server.host", "?"))?;
+    println("user: {}", text_at(&doc.root, "server.user", "nobody"))?;
+    println("port as text: {}", text_at(&doc.root, "server.port", "not text"))?;
+
+    Optional(Value) jobs = doc.root.get("jobs");
+    if jobs.is_some() {
+        Value value = jobs.unwrap_some();
+        println("jobs: {}", value.as_integer().some_or(1))?;
+    }
+
+    Optional(Value) enabled = doc.root.get_path("server.tls.enabled");
+    Value flag = enabled.some_or(Value::Bool(true));
+    println("tls: {}", flag.as_bool().some_or(true))?;
+    println("top-level entries: {}", doc.root.entries.len)?;
+    return Status::Ok;
+}

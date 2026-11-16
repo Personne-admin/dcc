@@ -1,0 +1,134 @@
+module settings;
+
+import std::fmt;
+import std::mem;
+import std::toml;
+
+using std::toml::{Document, TomlError, Value};
+
+public enum LoadError : u8 {
+    Syntax,
+    HostNotText,
+    HostInvalid,
+    PortNotNumber,
+    WorkersNotNumber,
+    DebugNotBool,
+    Unreadable,
+}
+
+public struct Settings {
+    char[64] host;
+    usize host_len;
+    i64 port;
+    i64 workers;
+    bool debug;
+}
+
+public bool set_host(Settings* s, []const char text) {
+    if text.len == 0 || text.len > 63 {
+        return false;
+    }
+    for ch in text {
+        if ch == ('"' as char) || ch == ('\\' as char) || (ch as u8) < 32 {
+            return false;
+        }
+    }
+    std::mem::copy(s.host[0..text.len], text);
+    s.host_len = text.len;
+    return true;
+}
+
+public []const char host_text(const Settings* s) {
+    return s.host[0..s.host_len] as []const char;
+}
+
+public Settings default_settings() {
+    Settings s = {};
+    set_host(&s, "127.0.0.1");
+    s.port = 8080;
+    s.workers = 4;
+    s.debug = false;
+    return s;
+}
+
+public Status(LoadError) apply_toml(Settings* s, []const char text) {
+    Result(Document(), TomlError) parsed = std::toml::parse(text);
+    if parsed.is_err() {
+        return LoadError::Syntax;
+    }
+    Document() doc = parsed.unwrap();
+    defer doc.deinit();
+
+    Optional(Value) host = doc.root.get("host");
+    if host.is_some() {
+        Value value = host.unwrap_some();
+        Optional([]const char) text_value = value.as_string();
+        if text_value.is_none() {
+            return LoadError::HostNotText;
+        }
+        if !set_host(s, text_value.unwrap_some()) {
+            return LoadError::HostInvalid;
+        }
+    }
+
+    Optional(Value) port = doc.root.get("port");
+    if port.is_some() {
+        Value value = port.unwrap_some();
+        Optional(i64) number = value.as_integer();
+        if number.is_none() {
+            return LoadError::PortNotNumber;
+        }
+        s.port = number.unwrap_some();
+    }
+
+    Optional(Value) workers = doc.root.get("workers");
+    if workers.is_some() {
+        Value value = workers.unwrap_some();
+        Optional(i64) number = value.as_integer();
+        if number.is_none() {
+            return LoadError::WorkersNotNumber;
+        }
+        s.workers = number.unwrap_some();
+    }
+
+    Optional(Value) debug = doc.root.get("debug");
+    if debug.is_some() {
+        Value value = debug.unwrap_some();
+        Optional(bool) flag = value.as_bool();
+        if flag.is_none() {
+            return LoadError::DebugNotBool;
+        }
+        s.debug = flag.unwrap_some();
+    }
+    return Status::Ok;
+}
+
+public Status(Error) print_load_error(LoadError failure) {
+    match failure {
+        LoadError::Syntax => println("config is not valid TOML")?,
+        LoadError::HostNotText => println("host must be a string")?,
+        LoadError::HostInvalid => println("host must be 1 to 63 characters without quotes or backslashes")?,
+        LoadError::PortNotNumber => println("port must be a whole number")?,
+        LoadError::WorkersNotNumber => println("workers must be a whole number")?,
+        LoadError::DebugNotBool => println("debug must be true or false")?,
+        LoadError::Unreadable => println("config file could not be read")?,
+    }
+    return Status::Ok;
+}
+
+public Result(usize, Error) check_settings(const Settings* s) {
+    usize problems = 0;
+    if s.host_len == 0 {
+        println("problem: host is empty")?;
+        problems += 1;
+    }
+    if s.port < 1 || s.port > 65535 {
+        println("problem: port {} is outside 1..65535", s.port)?;
+        problems += 1;
+    }
+    if s.workers < 1 || s.workers > 64 {
+        println("problem: workers {} is outside 1..64", s.workers)?;
+        problems += 1;
+    }
+    return Result::Ok(problems);
+}

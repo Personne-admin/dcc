@@ -1,0 +1,119 @@
+schema = 1
+id = "lib-collections/maps-in-depth"
+revision = 1
+title = "Maps beyond lookup"
+summary = "put, get_or_put, remove and iteration on Map, why iteration order must never reach your output, and which key types work."
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["Map", "put", "get_or_put", "remove", "iterate", "Entry", "sort", "hashing"]
+tags = ["lecture", "collections", "maps"]
+objectives = [
+    "Insert, replace, count and remove entries and read what each call returns",
+    "Walk every entry of a Map with iterate and next",
+    "Produce deterministic output from a Map by collecting and sorting the keys",
+]
+prerequisites = ["lib-collections/ticket-queue"]
+
+[[examples]]
+name = "map_calls"
+expect_stdout = """
+first put had a previous value: false
+second put replaced 1
+42 -> 2
+contains 7: true, contains 8: false
+removed 2, len now 1
+7 -> 0
+"""
+
+[[examples]]
+name = "sorted_dump"
+expect_stdout = """
+page 10: 3 visits
+page 20: 1 visits
+page 30: 2 visits
+page 40: 1 visits
+"""
+
+[[questions]]
+id = "put-return"
+type = "choice"
+prompt = "`visits.put(7, 2)` when key 7 already holds 1. What happens?"
+choices = [
+    "A second entry for key 7 is added",
+    "The value becomes 2 and the call reports the old value 1 in an Optional",
+    "The call fails with an error",
+    "Nothing changes because the key exists",
+]
+answer = 2
+why = [
+    "A key appears at most once in a Map.",
+    "",
+    "Replacing is normal; only an allocation failure is an error.",
+    "put inserts or replaces; use contains first if you want to keep the old value.",
+]
+explanation = "put returns a Result(Optional(V), AllocError). The Result is the allocation outcome; the inner Optional holds the replaced value, or None for a new key."
+
+[[questions]]
+id = "order-output"
+type = "multi"
+prompt = "A program prints the entries of a Map while iterating. Which statements are true?"
+choices = [
+    "The order depends on hash values and table size, so it is not part of the Map's contract",
+    "Entries come out in the order they were inserted",
+    "Entries come out in ascending key order",
+    "Collecting the keys into an Array and sorting it gives a stable, testable order",
+]
+answers = [1, 4]
+why = [
+    "",
+    "A Map is a hash table, not a log of insertions.",
+    "Keys are spread by their hash; nothing sorts them.",
+    "",
+]
+explanation = "Hash tables place entries by hash. The order can change when the table grows or the hashing changes, so output that must be reproducible comes from sorting the keys first."
+
+[[questions]]
+id = "get-or-put-count"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+import std::map;
+
+public Status(Error) main() {
+    std::map::Map(u32, u32) m = {};
+    defer m.deinit();
+    []const u32 xs = { 5, 6, 5, 5, 6 };
+    for x in xs {
+        u32* c = m.get_or_put(x, 0)?;
+        *c += 1;
+    }
+    println("{} {} {}", m.len(), m.get(5).some_or(0), m.get(6).some_or(0))?;
+    return Status::Ok;
+}
+"""
+expect = """
+2 3 2
+"""
+explanation = "get_or_put returns a pointer to the value for the key, inserting 0 first when the key is new. Adding 1 through the pointer counts each key: 5 appears three times, 6 twice, and there are two keys."
+
+[[questions]]
+id = "pointer-lifetime"
+type = "short"
+prompt = "A pointer from `get_or_put` or `get_ptr` stays valid only until the map next does what? One word."
+accept = ["grows", "grow", "resizes", "resize", "rehashes", "rehash"]
+explanation = "An insertion that makes the table grow moves every entry into a new block, so a pointer into the old table is stale. Use the pointer right away."
+
+[[cards]]
+id = "map-order"
+front = "Can you rely on the order in which a Map iterates?"
+back = "No. Hash order is unspecified. Collect the keys into an Array, sort it, and look each key up."
+[[cards]]
+id = "map-getorput"
+front = "What does `map.get_or_put(key, fallback)?` give you?"
+back = "A pointer to the stored value, after inserting fallback when the key was missing. Ideal for counters: `*map.get_or_put(k, 0)? += 1`. The pointer is valid until the next growing insert."
+[[cards]]
+id = "map-keys"
+front = "Which key types are safe for std::map::Map in this library?"
+back = "Integers, char, bool and pointers. Text and struct keys need equality and hashing support the library does not provide yet, so use an integer id or an Array of structs."

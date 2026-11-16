@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "shared_tally",
+    version = "0.1.0",
+    products = {
+        { name = "shared_tally", entry = "src/main.dc" },
+    },
+}

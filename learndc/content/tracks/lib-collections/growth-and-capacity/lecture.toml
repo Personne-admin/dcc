@@ -1,0 +1,141 @@
+schema = 1
+id = "lib-collections/growth-and-capacity"
+revision = 1
+title = "How an Array grows"
+summary = "Length versus capacity, the doubling rule, reserve and shrink_to_fit, and the editing methods insert, remove, swap_remove, pop and clear."
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["Array", "capacity", "reserve", "shrink_to_fit", "insert", "remove", "swap_remove", "pop", "clear"]
+tags = ["lecture", "collections", "arrays"]
+objectives = [
+    "Tell length from capacity and predict when a push has to allocate",
+    "Reserve room up front and release spare room with shrink_to_fit",
+    "Choose between remove, swap_remove and pop and know what each returns",
+]
+prerequisites = ["memory/boss-inventory-keeper"]
+
+[[examples]]
+name = "capacity_steps"
+expect_stdout = """
+start: len 0, capacity 0
+push  1: capacity 0 -> 8
+push  9: capacity 8 -> 16
+push 17: capacity 16 -> 32
+end: len 20, capacity 32
+"""
+
+[[examples]]
+name = "reserve_once"
+expect_stdout = """
+reserved: len 0, capacity 100
+filled: len 100, capacity 100
+cleared: len 0, capacity 100
+trimmed: len 1, capacity 1
+"""
+
+[[examples]]
+name = "edit_in_place"
+expect_stdout = """
+10 20 30 40 50 
+10 15 20 30 40 50 
+removed 10
+15 20 30 40 50 
+swap_removed 15
+50 20 30 40 
+popped 40, left 3
+remove(99) is none: true
+"""
+
+[[questions]]
+id = "growth-steps"
+type = "predict"
+prompt = "An empty `Array(i32)` gets ten pushes in a row. What does this program print?"
+code = """
+module main;
+
+public Status(Error) main() {
+    Array(i32) a = {};
+    defer a.deinit();
+    for i32 n in 1..=10 {
+        a.push(n)?;
+    }
+    println("{} {}", a.len(), a.capacity())?;
+    return Status::Ok;
+}
+"""
+expect = """
+10 16
+"""
+explanation = "The first push allocates room for 8 elements. The ninth push needs more, so the capacity doubles to 16. Ten elements fit, so there is no further growth: len is 10 and capacity is 16."
+
+[[questions]]
+id = "reserve-why"
+type = "choice"
+prompt = "You know you are about to push 5000 numbers. Why call `a.reserve(5000)?` first?"
+choices = [
+    "Without it the pushes fail",
+    "One allocation replaces many grow-and-copy steps, and the elements never move while you fill",
+    "reserve makes the array 5000 elements long",
+    "reserve sorts the array",
+]
+answer = 2
+why = [
+    "Pushes grow the array by themselves; reserve is an optimisation.",
+    "",
+    "reserve changes capacity, not length: len stays 0.",
+    "reserve never touches the elements.",
+]
+explanation = "reserve asks for the whole block once. Without it the array doubles 8, 16, 32 ... and copies its elements into every new block. It still produces the same contents; it only saves work and keeps element addresses stable while filling."
+
+[[questions]]
+id = "remove-which"
+type = "choice"
+prompt = "Array `10 20 30 40 50`. You want to delete the first element and do not care about the order of the rest, and you want the cheapest delete. Which call?"
+choices = [
+    "a.remove(0)",
+    "a.swap_remove(0)",
+    "a.pop()",
+    "a.clear()",
+]
+answer = 2
+why = [
+    "remove keeps the order but shifts every later element one place left.",
+    "",
+    "pop removes the last element, not the first.",
+    "clear removes every element.",
+]
+explanation = "swap_remove moves the last element into the hole and shortens the array by one: no shifting. The order changes (50 20 30 40), which is the price. remove(0) keeps 20 30 40 50 but copies every later element."
+
+[[questions]]
+id = "stale-slice"
+type = "bug"
+prompt = "This function should return the largest value after adding `extra` to the array. It sometimes reads freed memory. Which line is the bug?"
+code = """
+Status(Error) largest_with(Array(i32)* a, i32 extra) {
+    []const i32 view = a.items();
+    a.push(extra)?;
+    i32 best = view[0];
+    for v in view {
+        if v > best { best = v; }
+    }
+    println("{}", best)?;
+    return Status::Ok;
+}
+"""
+lines = [2]
+explanation = "The slice is taken before the push. If the push has to grow the array, the elements move to a new block and `view` still points at the old, freed one. Take the slice after the push, or read `a.items()` again."
+
+[[cards]]
+id = "len-vs-capacity"
+front = "What is the difference between `len()` and `capacity()` of an Array?"
+back = "len is how many elements are stored; capacity is how many fit before the next allocation. Capacity is always at least len."
+
+[[cards]]
+id = "growth-rule"
+front = "How does an Array grow when it is full?"
+back = "The first allocation holds 8 elements; after that the capacity doubles (8, 16, 32 ...), or jumps to the amount you reserve if that is larger. Elements are copied into the new block."
+
+[[cards]]
+id = "remove-vs-swap"
+front = "remove(i) versus swap_remove(i)?"
+back = "remove keeps the order and shifts later elements left. swap_remove moves the last element into the hole: faster, but the order changes. Both return Optional(T) and give None for a bad index."

@@ -1,0 +1,50 @@
+module apply_stage;
+
+import settings;
+
+using settings::{LoadError, Settings, apply_toml, default_settings, host_text};
+
+void show([]const char label, const Settings* s) {
+    println("{}: host={} port={} workers={} debug={}", label, host_text(s), s.port, s.workers, s.debug);
+}
+
+void outcome([]const char label, Status(LoadError) result) {
+    if result.is_ok() {
+        println("{}: ok", label);
+        return;
+    }
+    match result.unwrap_err() {
+        LoadError::Syntax => println("{}: syntax", label),
+        LoadError::HostNotText => println("{}: host-not-text", label),
+        LoadError::HostInvalid => println("{}: host-invalid", label),
+        LoadError::PortNotNumber => println("{}: port-not-number", label),
+        LoadError::WorkersNotNumber => println("{}: workers-not-number", label),
+        LoadError::DebugNotBool => println("{}: debug-not-bool", label),
+        LoadError::Unreadable => println("{}: unreadable", label),
+    }
+}
+
+public i32 main() {
+    Settings s = default_settings();
+    show("defaults", &s);
+
+    apply_toml(&s, "port = 9000\ndebug = true\n");
+    show("port and debug", &s);
+
+    apply_toml(&s, "# only a comment\nhost = \"example.org\"\nworkers = 8\n");
+    show("host and workers", &s);
+
+    apply_toml(&s, "");
+    show("empty text", &s);
+
+    Settings t = default_settings();
+    outcome("broken syntax", apply_toml(&t, "port = = 3\n"));
+    outcome("port as text", apply_toml(&t, "port = \"high\"\n"));
+    outcome("workers as float", apply_toml(&t, "workers = 2.5\n"));
+    outcome("debug as number", apply_toml(&t, "debug = 1\n"));
+    outcome("host as number", apply_toml(&t, "host = 5\n"));
+    outcome("host with quote", apply_toml(&t, "host = 'a\"b'\n"));
+    outcome("host too long", apply_toml(&t, "host = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n"));
+    outcome("good text", apply_toml(&t, "port = 1\n"));
+    return 0;
+}

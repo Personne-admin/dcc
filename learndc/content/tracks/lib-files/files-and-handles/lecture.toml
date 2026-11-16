@@ -1,0 +1,140 @@
+schema = 1
+id = "lib-files/files-and-handles"
+revision = 1
+title = "Files and handles"
+summary = "Open, write, read and close files with defer, handle the failures an open can report and append without losing content."
+kind = "lecture"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["File", "open", "create", "read_all", "write_all", "defer close", "OpenFlags", "append", "Error"]
+tags = ["lecture", "library", "files"]
+objectives = [
+    "Open, write, read and close a file, with the close deferred right after the open",
+    "Handle the errors a failed open reports without a handle to close",
+    "Choose between create (truncate) and append",
+]
+prerequisites = ["lib-data/toml-to-json"]
+
+[[examples]]
+name = "write_read"
+expect_stdout = """
+18 bytes
+hello
+from a file
+exists after delete: false
+"""
+
+[[examples]]
+name = "open_failures"
+expect_stdout = """
+exists.txt: opened
+missing.txt: no such file
+"""
+
+[[examples]]
+name = "append_mode"
+expect_stdout = """
+size: 19
+size after create: 0
+"""
+
+[[questions]]
+id = "defer-position"
+type = "choice"
+prompt = "Where does `defer f.close();` belong?"
+choices = [
+    "At the very end of the function, as the last statement",
+    "On the line right after the successful open, before anything else can return",
+    "Before the open, so that it is already registered",
+    "Inside the loop that reads the file",
+]
+answer = 2
+why = [
+    "A `?` or return in between would skip it, and defer registered at the end never runs for those exits.",
+    "",
+    "Before the open there is no handle to close; a failed open would try to close nothing valid.",
+    "A loop iteration is a scope of its own; the file is opened once, so close it once.",
+]
+explanation = "A defer only covers the exits after the line where it is written. Writing it right after the open covers all of them, including every `?` that follows."
+
+[[questions]]
+id = "create-truncates"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+import std::os::file;
+
+using std::os::file::File;
+
+public Status(Error) main() {
+    File f = std::os::file::create("t.txt")?;
+    f.write_all("12345" as []const u8)?;
+    f.close();
+    File g = std::os::file::create("t.txt")?;
+    g.write_all("ab" as []const u8)?;
+    g.close();
+    println("{}", std::os::file::metadata("t.txt")?.size)?;
+    std::os::file::delete_file("t.txt")?;
+    return Status::Ok;
+}
+"""
+expect = """
+2
+"""
+explanation = "create truncates an existing file. The second create empties it, and only the two bytes of ab are written, so the size is 2."
+
+[[questions]]
+id = "leak-bug"
+type = "bug"
+prompt = "Which line returns while the file is still open when the file is empty?"
+code = """
+module main;
+
+import std::os::file;
+
+using std::os::file::File;
+
+Status(Error) first_byte([]const char name, u8* out) {
+    File f = std::os::file::open(name, std::os::file::read_only())?;
+    u8[1] one = {};
+    usize n = f.read_all(one[0..1])?;
+    if n == 0 {
+        return Status::Ok;
+    }
+    *out = one[0];
+    f.close();
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    u8 b = 0;
+    first_byte("x.txt", &b)?;
+    return Status::Ok;
+}
+"""
+lines = [12]
+explanation = "The early return skips the close at the end of the function. Put `defer f.close();` right after the open and delete the explicit close, and every exit is covered."
+
+[[questions]]
+id = "which-flag"
+type = "short"
+prompt = "Which OpenFlags field must be switched on to add to the end of an existing file? (one word)"
+accept = ["append"]
+explanation = "write_only() creates and truncates. Switch truncate off and append on, and each write goes to the end of the existing content."
+
+[[cards]]
+id = "file-defer-close"
+front = "Where do you write `defer f.close();`?"
+back = "On the line right after the successful open. It then covers every later return and every `?`. A failed open has no handle, so nothing to close."
+
+[[cards]]
+id = "file-create-truncates"
+front = "What does std::os::file::create do to an existing file?"
+back = "It truncates it to zero length. To add to a file, open with write_only(), set truncate = false and append = true."
+
+[[cards]]
+id = "file-read-all"
+front = "Why call size() before read_all?"
+back = "read_all stops when the buffer is full, so a small buffer silently truncates the file. Size the buffer (an Array resized to the file size) first."

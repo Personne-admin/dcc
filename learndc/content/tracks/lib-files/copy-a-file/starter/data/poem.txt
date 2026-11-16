@@ -1,0 +1,4 @@
+Roses are red,
+Violets are blue,
+Files need closing,
+And so do you.

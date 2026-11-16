@@ -1,0 +1,43 @@
+schema = 1
+id = "lib-concurrency/parallel-word-count"
+revision = 1
+title = "Count words on several threads"
+summary = "Write the pure counting function, then run it for every text on its own thread with a result slot per thread and join them all."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["spawn", "join", "result slot", "Array", "pointer arguments"]
+tags = ["threads", "linux"]
+objectives = [
+    "Spawn one thread per job and pass each a pointer to its own slot",
+    "Join every thread before reading the results",
+    "Print results in input order, never in completion order",
+]
+entry_file = "src/main.dc"
+product = "word_count"
+prerequisites = ["lib-concurrency/threads-and-join"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Word counts per text"
+expect_stdout = """
+text 1: 4 words
+text 2: 5 words
+text 3: 0 words
+text 4: 1 words
+text 5: 5 words
+total: 15 words
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "count_words must be right first: run the program and compare the per-text lines. Then check that every thread was joined before main prints."

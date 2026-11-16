@@ -1,0 +1,21 @@
+module log_data;
+
+public []const char TEXT =
+    \\INFO auth 12 user logged in
+    \\INFO db 45 query ok
+    \\WARN db 310 slow query
+    \\INFO web 8 GET /index
+    \\ERROR web 520 upstream timeout
+    \\INFO auth 15 token refreshed
+    \\DEBUG web 3 cache probe
+    \\INFO db 41 query ok
+    \\WARN auth 205 retry login
+    \\ERROR db
+    \\
+    \\INFO web 11 GET /about
+    \\INFO db 48 query ok
+    \\ERROR auth abc login crashed
+    \\WARN web 150 queue growing
+    \\INFO cache 2 hit
+    \\ERROR web 980 upstream timeout
+    ;

@@ -1,0 +1,66 @@
+module main;
+
+import std::fmt;
+import std::json;
+import std::toml;
+import std::os::time;
+
+using std::fmt::BufferWriter;
+using std::json::Emitter;
+using std::toml::{Document, Table, Value};
+using std::os::time::Date;
+
+using Out = Emitter(BufferWriter);
+
+Status(Error) emit_date(Out* json, Date date) {
+    char[16] storage = {};
+    []const char text = std::fmt::format_buf(storage[0..16], "{}-{:02}-{:02}", date.year, date.month, date.day)?;
+    json.string(text)?;
+    return Status::Ok;
+}
+
+Status(Error) emit_table(Out* json, const Table* table) {
+    return Status::Ok;
+}
+
+Status(Error) emit_value(Out* json, const Value* value) {
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const char text =
+        \\title = "Demo \"quoted\""
+        \\count = 3
+        \\ratio = 2.5
+        \\debug = true
+        \\released = 2026-11-16
+        \\
+        \\[server]
+        \\host = "localhost"
+        \\ports = [80, 443]
+        \\
+        \\[[user]]
+        \\name = "ann"
+        \\roles = ["admin", "dev"]
+        \\
+        \\[[user]]
+        \\name = "bob"
+        \\roles = []
+    ;
+
+    Document() doc = std::toml::parse(text)?;
+    defer doc.deinit();
+
+    char[2048] storage = {};
+    BufferWriter buffer = BufferWriter::new(storage[0..2048]);
+    Out json = Emitter(BufferWriter)::new(&buffer, 2);
+    emit_table(&json, &doc.root)?;
+
+    []const char output = std::fmt::written_slice(&buffer);
+    println("{}", output)?;
+
+    std::json::Document() check = std::json::parse(output)?;
+    defer check.deinit();
+    println("round trip: {} members, {} users", check.root.len(), check.root.get("user").some_or(std::json::Value::Null).len())?;
+    return Status::Ok;
+}

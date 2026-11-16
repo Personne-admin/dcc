@@ -1,0 +1,19 @@
+module main;
+
+import std::json;
+import std::os::file;
+
+using std::json::Document;
+using std::os::file::{FileWriter, stdout};
+
+public Status(Error) main() {
+    Document() doc = std::json::parse("{\"b\":[1,2.5,{\"c\":null}],\"a\":\"x\"}")?;
+    defer doc.deinit();
+
+    FileWriter out = FileWriter::new(stdout());
+    std::json::write(&out, &doc.root, 0)?;
+    out.write_all("\n")?;
+    std::json::write(&out, &doc.root, 2)?;
+    out.write_all("\n")?;
+    return Status::Ok;
+}

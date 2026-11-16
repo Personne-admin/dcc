@@ -1,0 +1,50 @@
+module main;
+
+import std::utf8;
+
+usize char_count([]const char text) {
+    // TODO: count characters (code points), not bytes
+    return text.len;
+}
+
+Optional(usize) first_bad_byte([]const char text) {
+    // TODO: the byte offset of the first malformed sequence, None when the text is valid UTF-8
+    return Optional::None;
+}
+
+[]const char cut_chars([]const char text, usize max_chars) {
+    // TODO: the longest prefix with at most max_chars characters, never splitting one
+    return text;
+}
+
+Status(Error) describe(usize number, []const char text) {
+    print("#{}: {} bytes, {} chars, ", number, text.len, char_count(text))?;
+    match first_bad_byte(text) {
+        Optional::Some(at) => println("invalid at byte {}", at)?,
+        Optional::None => println("valid")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const []const char samples = {
+        "naive",
+        "na\xc3\xafve",
+        "\xe2\x82\xac100",
+        "ab\xffcd",
+        "ok\xe2\x82",
+    };
+    usize number = 1;
+    for sample in samples {
+        describe(number, sample)?;
+        number++;
+    }
+
+    []const char price = "\xe2\x82\xac100";
+    println("first 2 chars of #3: {} bytes", cut_chars(price, 2).len)?;
+    println("first 9 chars of #3: {} bytes", cut_chars(price, 9).len)?;
+    println("first 0 chars of #3: {} bytes", cut_chars(price, 0).len)?;
+    []const char accent = "na\xc3\xafve";
+    println("first 3 chars of #2: {} bytes", cut_chars(accent, 3).len)?;
+    return Status::Ok;
+}

@@ -1,0 +1,44 @@
+module main;
+
+import fileio;
+import manager;
+import settings;
+import std::os::file;
+
+using fileio::read_file;
+using manager::{load_layers, save_settings};
+using settings::{LoadError, Settings, check_settings, default_settings, print_load_error};
+
+Status(Error) run_scenario([]const char name, []const char defaults_path, []const char override_path, []const char out_path) {
+    println("== {}", name)?;
+    Settings s = default_settings();
+    Status(LoadError) loaded = load_layers(&s, defaults_path, override_path);
+    if !loaded.is_ok() {
+        print("error: ")?;
+        print_load_error(loaded.unwrap_err())?;
+        return Status::Ok;
+    }
+
+    usize problems = check_settings(&s)?;
+    if problems > 0 {
+        println("not saved: {} problem(s)", problems)?;
+        return Status::Ok;
+    }
+
+    save_settings(&s, out_path)?;
+    Array(char) text = {};
+    defer text.deinit();
+    read_file(out_path, &text)?;
+    print("{}", text.items() as []const char)?;
+    std::os::file::delete_file(out_path)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    run_scenario("merged", "data/defaults.toml", "data/override.toml", "normalized.toml")?;
+    run_scenario("defaults only", "data/defaults.toml", "data/none.toml", "normalized.toml")?;
+    run_scenario("out of range", "data/defaults.toml", "data/broken.toml", "normalized.toml")?;
+    run_scenario("wrong type", "data/defaults.toml", "data/typo.toml", "normalized.toml")?;
+    run_scenario("no defaults", "data/gone.toml", "data/override.toml", "normalized.toml")?;
+    return Status::Ok;
+}

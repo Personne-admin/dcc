@@ -1,0 +1,40 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+
+using std::os::file::File;
+using FsError = std::os::error::Error;
+
+Status(Error) describe(FsError failure) {
+    match failure {
+        FsError::NotFound => println("no such file")?,
+        FsError::AccessDenied => println("not allowed to open it")?,
+        _ => println("some other file error")?,
+    }
+    return Status::Ok;
+}
+
+Status(Error) try_open([]const char name) {
+    Result(File, FsError) opened = std::os::file::open(name, std::os::file::read_only());
+    if opened.is_err() {
+        print("{}: ", name)?;
+        describe(opened.unwrap_err())?;
+        return Status::Ok;
+    }
+    File f = opened.unwrap();
+    defer f.close();
+    println("{}: opened", name)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    File f = std::os::file::create("exists.txt")?;
+    f.close();
+
+    try_open("exists.txt")?;
+    try_open("missing.txt")?;
+
+    std::os::file::delete_file("exists.txt")?;
+    return Status::Ok;
+}

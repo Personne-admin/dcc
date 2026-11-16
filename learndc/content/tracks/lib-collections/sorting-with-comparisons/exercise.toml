@@ -1,0 +1,46 @@
+schema = 1
+id = "lib-collections/sorting-with-comparisons"
+revision = 1
+title = "Sort a leaderboard with comparisons"
+summary = "Write comparison functions, sort stably so ties keep their input order, and find a player with a binary search."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["sort_by", "sort_stable_by", "binary_search_by", "comparator", "stability"]
+tags = ["collections", "sorting"]
+objectives = [
+    "Write a comparison function that returns negative, zero or positive",
+    "Choose a stable sort when equal elements must keep their input order",
+    "Search a sorted array with binary_search_by",
+]
+entry_file = "src/main.dc"
+product = "leaderboard"
+prerequisites = ["lib-collections/spend-report"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Ranking, alphabetical order and lookups"
+expect_stdout = """
+ranking:
+1. Dara 90
+2. Bo 85
+3. Eli 85
+4. Ana 70
+5. Cy 70
+alphabetical: Ana Bo Cy Dara Eli
+Eli is at index 4
+Zed not found
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Bo and Eli both have 85: the stable sort keeps Bo first because Bo came first in the roster. Cy comes after Ana for the same reason."

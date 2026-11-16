@@ -1,0 +1,55 @@
+module main;
+
+import std::toml;
+import std::parse;
+
+using std::toml::{Document, Event, Scanner, TomlError};
+using std::parse::Located;
+
+Status(Error) report([]const char text) {
+    Result(Document(), TomlError) parsed = std::toml::parse(text);
+    if parsed.is_ok() {
+        Document() doc = parsed.unwrap();
+        doc.deinit();
+        println("ok")?;
+        return Status::Ok;
+    }
+
+    match parsed.unwrap_err() {
+        TomlError::DuplicateKey => print("duplicate key")?,
+        TomlError::KeyConflict => print("key conflict")?,
+        TomlError::ExpectedNewline => print("expected end of line")?,
+        TomlError::InvalidString => print("bad string")?,
+        _ => print("other error")?,
+    }
+
+    Scanner scanner = std::toml::scan(text);
+    bool going = true;
+    bool located = false;
+    while going {
+        Result(Located(Event), TomlError) step = std::toml::next(&scanner);
+        if step.is_err() {
+            println(" at line {}, column {}", scanner.at.line, scanner.at.column)?;
+            located = true;
+            going = false;
+        } else {
+            match step.unwrap().event {
+                Event::End => going = false,
+                _ => {},
+            }
+        }
+    }
+    if !located {
+        println(" (no position)")?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    report("name = \"ok\"\nport = 8080\n")?;
+    report("name = \"a\"\nname = \"b\"\n")?;
+    report("a.b = 1\na = 2\n")?;
+    report("port = 80 x = 1\n")?;
+    report("name = \"open\n")?;
+    return Status::Ok;
+}

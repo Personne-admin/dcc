@@ -1,0 +1,40 @@
+module main;
+
+import std::json;
+
+using std::json::{Document, Value, JsonError};
+
+Result(i64, JsonError) read_port([]const char text) {
+    Document() doc = std::json::parse(text)?;
+    defer doc.deinit();
+
+    Value port = doc.root.get("port").some_or(Value::Null);
+    if port.as_integer().is_none() {
+        return JsonError::TypeMismatch;
+    }
+    return Result::Ok(port.as_integer().unwrap_some());
+}
+
+Status(Error) report([]const char text) {
+    Result(i64, JsonError) port = read_port(text);
+    if port.is_ok() {
+        println("port {}", port.unwrap())?;
+        return Status::Ok;
+    }
+    match port.unwrap_err() {
+        JsonError::UnexpectedByte => println("not valid JSON: unexpected character")?,
+        JsonError::UnexpectedEnd => println("not valid JSON: text ends too early")?,
+        JsonError::TypeMismatch => println("valid JSON, but port is not a number")?,
+        _ => println("could not read the settings")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    report("{\"port\": 8080}")?;
+    report("{\"port\": \"8080\"}")?;
+    report("{\"port\": 8080,}")?;
+    report("{\"port\": ")?;
+    report("{\"port\": 99999999999999999999}")?;
+    return Status::Ok;
+}

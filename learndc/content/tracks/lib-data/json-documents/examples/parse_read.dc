@@ -1,0 +1,23 @@
+module main;
+
+import std::json;
+
+using std::json::{Document, Value};
+
+public Status(Error) main() {
+    []const char text = "{\"name\": \"Ada\", \"visits\": 3, \"member\": true, \"score\": 4.5}";
+
+    Document() doc = std::json::parse(text)?;
+    defer doc.deinit();
+
+    Value name = doc.root.get("name").some_or(Value::Null);
+    Value visits = doc.root.get("visits").some_or(Value::Null);
+    Value missing = doc.root.get("email").some_or(Value::Null);
+
+    println("name: {}", name.as_string().some_or("(none)"))?;
+    println("visits: {}", visits.as_integer().some_or(0))?;
+    println("email: {}", missing.as_string().some_or("(none)"))?;
+    println("visits as text: {}", visits.as_string().some_or("(not text)"))?;
+    println("members: {}", doc.root.len())?;
+    return Status::Ok;
+}

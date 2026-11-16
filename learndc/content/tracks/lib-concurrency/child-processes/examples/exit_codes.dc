@@ -1,0 +1,31 @@
+module main;
+
+import std::process;
+import std::os::pipe;
+using std::process::{Command, ExitStatus};
+
+Status(Error) run_and_report([]const char program, []const []const char arguments) {
+    Command command = Command::new(program)?;
+    defer command.deinit();
+    for argument in arguments {
+        command.arg(argument)?;
+    }
+    ExitStatus status = command.status()?;
+    println("{} exited with {}", program, status.code)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const []const char none = {};
+    []const []const char shell = { "-c", "exit 3" };
+    run_and_report("true", none)?;
+    run_and_report("false", none)?;
+    run_and_report("sh", shell)?;
+    Command missing = Command::new("definitely-not-a-program")?;
+    defer missing.deinit();
+    match missing.status() {
+        Result::Ok(s) => println("unexpected {}", s.code)?,
+        Result::Err(_) => println("could not start it")?,
+    }
+    return Status::Ok;
+}

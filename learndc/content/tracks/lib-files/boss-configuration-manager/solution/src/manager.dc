@@ -1,0 +1,58 @@
+module manager;
+
+import fileio;
+public import settings;
+import std::fmt;
+import std::os::error;
+import std::os::file;
+
+using fileio::read_file;
+using settings::{LoadError, Settings, apply_toml, default_settings, host_text};
+using std::os::file::{File, FileWriter};
+
+Status(LoadError) apply_file(Settings* s, []const char path) {
+    Array(char) text = {};
+    defer text.deinit();
+    if !read_file(path, &text).is_ok() {
+        return LoadError::Unreadable;
+    }
+    return apply_toml(s, text.items() as []const char);
+}
+
+public Status(LoadError) load_layers(Settings* s, []const char defaults_path, []const char override_path) {
+    *s = default_settings();
+    apply_file(s, defaults_path)?;
+    if std::os::file::exists(override_path) {
+        apply_file(s, override_path)?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) save_settings(const Settings* s, []const char path) {
+    File f = std::os::file::create(path)?;
+    defer f.close();
+
+    FileWriter out = std::os::file::FileWriter::new(f);
+    std::fmt::format(&out, "host = \"{}\"\n", host_text(s))?;
+    std::fmt::format(&out, "port = {}\n", s.port)?;
+    std::fmt::format(&out, "workers = {}\n", s.workers)?;
+    std::fmt::format(&out, "debug = {}\n", s.debug)?;
+    return Status::Ok;
+}
+
+public Status(Error) save_settings_atomic(const Settings* s, []const char path) {
+    char[256] storage = {};
+    []const char temp = std::fmt::format_buf(storage[0..256], "{}.tmp", path)?;
+
+    Status(Error) written = save_settings(s, temp);
+    if !written.is_ok() {
+        std::os::file::delete_file(temp);
+        return written;
+    }
+    Status(std::os::error::Error) moved = std::os::file::rename(temp, path);
+    if !moved.is_ok() {
+        std::os::file::delete_file(temp);
+    }
+    moved?;
+    return Status::Ok;
+}

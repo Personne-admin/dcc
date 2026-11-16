@@ -1,0 +1,94 @@
+module main;
+
+import std::mem;
+import std::os::dir;
+import std::os::file;
+import std::os::path;
+import std::sort;
+
+using std::os::dir::{Entry, EntryKind, Iterator};
+
+struct Name {
+    char[64] text;
+    usize len;
+    EntryKind kind;
+}
+
+struct Totals {
+    usize files;
+    usize folders;
+    u64 bytes;
+}
+
+i32 by_text(const Name* a, const Name* b) {
+    return std::mem::compare(a.text[0..a.len], b.text[0..b.len]);
+}
+
+bool is_dot([]const char name) {
+    return std::mem::equal(name, "." as []const char) || std::mem::equal(name, ".." as []const char);
+}
+
+Status(Error) collect_sorted([]const char folder, Array(Name)* out) {
+    Iterator it;
+    std::os::dir::open(folder, &it)?;
+    defer it.close();
+
+    while true {
+        Optional(Entry) next = it.next();
+        if next.is_none() {
+            break;
+        }
+        Entry entry = next.unwrap_some();
+        if is_dot(entry.name) || entry.name.len > 64 {
+            continue;
+        }
+        Name copy = {};
+        std::mem::copy(copy.text[0..entry.name.len], entry.name);
+        copy.len = entry.name.len;
+        copy.kind = entry.kind;
+        out.push(copy)?;
+    }
+    std::sort::sort_by(out.items(), by_text);
+    return Status::Ok;
+}
+
+Status(Error) list_tree([]const char folder, u32 depth, Totals* totals) {
+    Array(Name) names = {};
+    defer names.deinit();
+    collect_sorted(folder, &names)?;
+
+    for name in names.items() {
+        []const char label = name.text[0..name.len] as []const char;
+        char[256] storage = {};
+        []const char child = std::os::path::join(folder, label, storage[0..256])?;
+
+        for u32 i = 0; i < depth; i++ {
+            print("  ")?;
+        }
+        if name.kind == EntryKind::Directory {
+            println("{}/", label)?;
+            totals.folders += 1;
+            list_tree(child, depth + 1, totals)?;
+        } else {
+            u64 size = std::os::file::metadata(child)?.size;
+            println("{} ({} bytes)", label, size)?;
+            totals.files += 1;
+            totals.bytes += size;
+        }
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Totals totals = {};
+    println("tree/")?;
+    list_tree("data/tree", 1, &totals)?;
+    println("files: {}", totals.files)?;
+    println("folders: {}", totals.folders)?;
+    println("bytes: {}", totals.bytes)?;
+
+    Totals missing = {};
+    Status(Error) outcome = list_tree("data/nothing", 0, &missing);
+    println("missing folder listed: {}", outcome.is_ok())?;
+    return Status::Ok;
+}

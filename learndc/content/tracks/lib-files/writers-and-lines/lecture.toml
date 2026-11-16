@@ -1,0 +1,120 @@
+schema = 1
+id = "lib-files/writers-and-lines"
+revision = 1
+title = "Writers and lines"
+summary = "Write formatted output to files and buffers through the same code as print, measure it first, and read a file line by line."
+kind = "lecture"
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = ["Writer", "FileWriter", "BufferWriter", "CountingWriter", "format", "split", "lines"]
+tags = ["lecture", "library", "files"]
+objectives = [
+    "Write one function that formats to any writer: console, file or buffer",
+    "Measure output with a CountingWriter and bound it with a BufferWriter",
+    "Split a file's text into lines and handle blank and trailing pieces",
+]
+prerequisites = ["lib-files/copy-a-file"]
+
+[[examples]]
+name = "row_everywhere"
+expect_stdout = """
+pens    |  12
+paper   |   3
+buffer holds 28 bytes
+file holds 28 bytes
+"""
+
+[[examples]]
+name = "measure_first"
+expect_stdout = """
+needs 28 bytes
+first row fits: true
+second row fits: false
+"""
+
+[[examples]]
+name = "read_lines"
+expect_stdout = """
+1: [alpha]
+2: [beta]
+3: []
+4: [gamma]
+5: []
+"""
+
+[[questions]]
+id = "line-count"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+import std::slice;
+
+public Status(Error) main() {
+    []const char text = "a\\nb\\n";
+    std::slice::Split(char) lines = std::slice::split(text, '\\n' as char);
+    usize count = 0;
+    while true {
+        Optional([]const char) next = std::slice::next(&lines);
+        if next.is_none() {
+            break;
+        }
+        count += 1;
+    }
+    println("{}", count)?;
+    return Status::Ok;
+}
+"""
+expect = """
+3
+"""
+explanation = "Splitting on newline gives a piece before each newline and one after the last: a, b and an empty piece. A text that ends with a newline always has one more piece than it has lines."
+
+[[questions]]
+id = "failed-write"
+type = "choice"
+prompt = "A BufferWriter has room for 10 bytes. You format a 14-byte row into it and the write fails. What does the buffer hold?"
+choices = [
+    "Nothing: a failed write is rolled back",
+    "The part that fit before the failure",
+    "Garbage: the buffer is invalid after an error",
+    "All 14 bytes, because the buffer grows",
+]
+answer = 2
+why = [
+    "Writers do not roll back. The formatter writes pieces as it goes.",
+    "",
+    "The buffer holds the bytes written before the error and stays usable.",
+    "A BufferWriter never grows; it reports an error instead.",
+]
+explanation = "The formatter writes in pieces and the writer reports failure at the piece that does not fit. Bytes already written stay. If an incomplete line is a problem, measure with a CountingWriter first."
+
+[[questions]]
+id = "who-closes"
+type = "multi"
+prompt = "A function opens a file, wraps it in a FileWriter and writes a report. Select the true statements."
+choices = [
+    "The FileWriter closes the file when it goes out of scope",
+    "The code that opened the file closes it, with defer",
+    "The same report function can write to stdout without change",
+    "FileWriter::new copies the file's contents",
+]
+answers = [2, 3]
+why = [
+    "FileWriter is only a thin wrapper around the handle and has no cleanup of its own.",
+    "",
+    "",
+    "It only wraps the handle; nothing is copied.",
+]
+explanation = "A writer is a view on a destination. Whoever created the resource releases it, and any function taking a writer works with all of them."
+
+[[cards]]
+id = "writer-generic"
+front = "How do you write output code that works for stdout, a file and a buffer?"
+back = "Make it generic over the writer: `Status(Error) f(W)(W* out) if std::fmt::Writer(W)` and call `std::fmt::format(out, ...)`. Wrap files with FileWriter::new(file)."
+
+[[cards]]
+id = "split-lines"
+front = "What does std::slice::split(text, '\\n' as char) give for \"a\\nb\\n\"?"
+back = "Three pieces: a, b and an empty piece after the last newline. Strip a trailing '\\r' yourself for Windows files."

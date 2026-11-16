@@ -1,0 +1,53 @@
+module main;
+
+import std::utf8;
+
+usize char_count([]const char text) {
+    return std::utf8::count_codepoints(text);
+}
+
+Optional(usize) first_bad_byte([]const char text) {
+    return std::utf8::validate(text);
+}
+
+[]const char cut_chars([]const char text, usize max_chars) {
+    usize offset = 0;
+    usize taken = 0;
+    while offset < text.len && taken < max_chars {
+        offset += std::utf8::decode_lossy(text[offset..text.len]).width;
+        taken++;
+    }
+    return text[0..offset];
+}
+
+Status(Error) describe(usize number, []const char text) {
+    print("#{}: {} bytes, {} chars, ", number, text.len, char_count(text))?;
+    match first_bad_byte(text) {
+        Optional::Some(at) => println("invalid at byte {}", at)?,
+        Optional::None => println("valid")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const []const char samples = {
+        "naive",
+        "na\xc3\xafve",
+        "\xe2\x82\xac100",
+        "ab\xffcd",
+        "ok\xe2\x82",
+    };
+    usize number = 1;
+    for sample in samples {
+        describe(number, sample)?;
+        number++;
+    }
+
+    []const char price = "\xe2\x82\xac100";
+    println("first 2 chars of #3: {} bytes", cut_chars(price, 2).len)?;
+    println("first 9 chars of #3: {} bytes", cut_chars(price, 9).len)?;
+    println("first 0 chars of #3: {} bytes", cut_chars(price, 0).len)?;
+    []const char accent = "na\xc3\xafve";
+    println("first 3 chars of #2: {} bytes", cut_chars(accent, 3).len)?;
+    return Status::Ok;
+}

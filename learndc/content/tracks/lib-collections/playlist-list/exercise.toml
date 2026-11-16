@@ -1,0 +1,50 @@
+schema = 1
+id = "lib-collections/playlist-list"
+revision = 1
+title = "A playlist as a linked list"
+summary = "Build a queue of songs with std::list: nodes from an allocator, push at both ends, pop and free the front node, and walk the list with an iterator."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["List", "Node", "push_back_alloc", "push_front_alloc", "pop_front", "destroy_node", "iterate", "reverse"]
+tags = ["collections", "list"]
+objectives = [
+    "Explain what an intrusive list node is and who frees it",
+    "Add and remove nodes at both ends with an allocator",
+    "Walk a list with an iterator and release it with deinit",
+]
+entry_file = "src/main.dc"
+product = "playlist"
+prerequisites = ["lib-collections/sorting-with-comparisons"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The playlist plays from the front"
+expect_stdout = """
+queue: 4 songs, 650 seconds
+  1. Intro (30s)
+  2. Morning (180s)
+  3. Noon (200s)
+  4. Evening (240s)
+reversed:
+  1. Evening (240s)
+  2. Noon (200s)
+  3. Morning (180s)
+  4. Intro (30s)
+playing Evening
+playing Noon
+left: 2 songs, 210 seconds
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Start with add_last: the other numbers in the output only come out right once the songs are in the list."

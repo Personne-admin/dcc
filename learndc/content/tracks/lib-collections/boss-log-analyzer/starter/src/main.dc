@@ -1,0 +1,21 @@
+module main;
+
+import analyzer;
+import log_data;
+
+Status(Error) say_problem(analyzer::Problem problem) {
+    print("  line {}: ", problem.line)?;
+    match problem.error {
+        analyzer::LineError::MissingField => println("missing field")?,
+        analyzer::LineError::BadLevel => println("unknown level")?,
+        analyzer::LineError::BadNumber => println("bad duration")?,
+        analyzer::LineError::BadText => println("text is not valid UTF-8")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    // Stage 6: read log_data::TEXT and print the report described in the README.
+    println("0 entries, 0 malformed")?;
+    return Status::Ok;
+}

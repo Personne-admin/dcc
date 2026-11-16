@@ -1,0 +1,86 @@
+module analyzer;
+
+import std::slice;
+import std::sort;
+import std::parse;
+import std::utf8;
+import std::map;
+import std::sha;
+import std::os::heap;
+
+public enum Level : u8 {
+    Info,
+    Warn,
+    Failure,
+}
+
+public enum LineError : u8 {
+    MissingField,
+    BadLevel,
+    BadNumber,
+    BadText,
+}
+
+public struct Entry {
+    Level level;
+    []const char source;
+    u32 millis;
+}
+
+public struct Problem {
+    usize line;
+    LineError error;
+}
+
+public struct SourceCount {
+    []const char source;
+    u32 count;
+}
+
+public struct Bucket {
+    u32 start;
+    u32 count;
+}
+
+// Returns the next space-separated field of line starting at *cursor and moves
+// *cursor past the space that ends it. At the end of the line it returns an empty
+// field and *cursor stays at line.len.
+public []const char take_field([]const char line, usize* cursor) {
+    usize start = *cursor;
+    usize end = start;
+    while end < line.len && line[end] != ' ' as char {
+        end++;
+    }
+    *cursor = if end < line.len { end + 1 } else { end };
+    return line[start..end];
+}
+
+// Stage 2: LEVEL source millis [message]
+public Result(Entry, LineError) parse_line([]const char line) {
+    return LineError::MissingField;
+}
+
+// Stage 3: split text into lines, number them from 1, skip empty lines
+public Status(AllocError) read_log([]const char text, Array(Entry)* entries, Array(Problem)* problems) {
+    return Status::Ok;
+}
+
+// Stage 4: how many entries have this level
+public u32 count_level([]const Entry entries, Level level) {
+    return 0;
+}
+
+// Stage 4: the limit busiest sources, most entries first, ties in order of first appearance, appended to out
+public Status(AllocError) top_sources([]const Entry entries, usize limit, Array(SourceCount)* out) {
+    return Status::Ok;
+}
+
+// Stage 5: entries per 100 ms bucket (start = millis / 100 * 100), ascending by start, appended to out
+public Status(AllocError) latency_buckets([]const Entry entries, Array(Bucket)* out) {
+    return Status::Ok;
+}
+
+// Bonus stage: the first 12 hex characters of the SHA-256 of text, written into out
+public []const char fingerprint([]const char text, [] char out) {
+    return out[0..0];
+}

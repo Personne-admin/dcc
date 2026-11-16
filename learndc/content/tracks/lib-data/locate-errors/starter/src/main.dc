@@ -1,0 +1,35 @@
+module main;
+
+import std::json;
+import std::parse;
+
+using std::json::{Event, JsonError, Scanner};
+using std::parse::{Located, Position};
+
+Optional(Position) first_error([]const char text) {
+    return Optional::None;
+}
+
+Status(Error) print_context([]const char text, Position at) {
+    return Status::Ok;
+}
+
+Status(Error) check(u32 number, []const char text) {
+    Optional(Position) found = first_error(text);
+    if found.is_none() {
+        println("text {}: valid", number)?;
+        return Status::Ok;
+    }
+    Position at = found.unwrap_some();
+    println("text {}: line {}, column {}", number, at.line, at.column)?;
+    print_context(text, at)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    check(1, "{\"name\": \"Ada\", \"age\": 36}")?;
+    check(2, "{\n  \"name\": \"Ada\",\n  \"age\": ,\n}")?;
+    check(3, "[1, 2")?;
+    check(4, "{\"a\": 1}\n{\"b\": 2}")?;
+    return Status::Ok;
+}

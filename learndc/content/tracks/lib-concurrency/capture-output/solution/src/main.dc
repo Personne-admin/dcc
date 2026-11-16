@@ -1,0 +1,70 @@
+module main;
+
+import std::process;
+import std::os::pipe;
+
+struct Captured {
+    usize len;
+    i32 code;
+}
+
+Result(Captured, Error) capture([]const char program, []const []const char arguments, [] u8 buffer) {
+    std::process::Command command = std::process::Command::new(program)?;
+    defer command.deinit();
+    for argument in arguments {
+        command.arg(argument)?;
+    }
+    std::os::pipe::Pipe pipe = std::os::pipe::create()?;
+    defer pipe.reader.close();
+    defer pipe.writer.close();
+    command.stdout(pipe.writer.handle);
+    std::process::Child child = command.spawn()?;
+    pipe.writer.close();
+    usize len = pipe.reader.read_all(buffer)?;
+    std::process::ExitStatus status = child.wait()?;
+    return Result::Ok(Captured { len = len, code = status.code });
+}
+
+usize count_lines([]const u8 output) {
+    usize lines = 0;
+    for byte in output {
+        if byte == '\n' as u8 {
+            lines++;
+        }
+    }
+    return lines;
+}
+
+[]const char first_line([]const u8 output) {
+    usize end = 0;
+    while end < output.len && output[end] != '\n' as u8 {
+        end++;
+    }
+    return output[0..end] as []const char;
+}
+
+Status(Error) run([]const char title, []const char program, []const []const char arguments) {
+    u8[256] buffer = {};
+    Result(Captured, Error) result = capture(program, arguments, buffer[0..256]);
+    if result.is_err() {
+        println("{}: could not start", title)?;
+        return Status::Ok;
+    }
+    Captured got = result.unwrap();
+    println("{}: {} bytes, {} lines, exit {}", title, got.len, count_lines(buffer[0..got.len]), got.code)?;
+    println("  first line: {}", first_line(buffer[0..got.len]))?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const []const char words = { "alpha", "beta", "gamma" };
+    []const []const char sorted = { "-c", "printf 'pear\\napple\\nfig\\n' | sort" };
+    []const []const char partial = { "-c", "echo partial; exit 4" };
+    []const []const char nothing = {};
+    run("echo", "echo", words)?;
+    run("sort", "sh", sorted)?;
+    run("failing", "sh", partial)?;
+    run("silent", "true", nothing)?;
+    run("missing", "no-such-program-x1", nothing)?;
+    return Status::Ok;
+}

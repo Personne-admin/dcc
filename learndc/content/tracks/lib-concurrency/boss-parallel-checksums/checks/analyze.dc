@@ -1,0 +1,64 @@
+module analyze;
+
+import scanner;
+import std::hash;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+
+scanner::Job job([]const char text) {
+    return scanner::Job { name = "x", text = text, summary = {} };
+}
+
+bool matches(scanner::Job* j, u32 words, u32 lines) {
+    return j.summary.words == words && j.summary.lines == lines && j.summary.checksum == std::hash::fnv1a_64(j.text as []const u8);
+}
+
+public i32 main() {
+    i32 failures = 0;
+    scanner::Job[5] jobs = {
+        job("a b c"),
+        job("one\ntwo\n"),
+        job(""),
+        job("x y\nz w\nq"),
+        job("lonely"),
+    };
+    scanner::Progress progress = {};
+    expect(scanner::analyze_all(jobs[0..5], 3, &progress).is_ok(), "analyze_all succeeds", &failures);
+    expect(matches(&jobs[0], 3, 1), "job 0", &failures);
+    expect(matches(&jobs[1], 2, 2), "job 1", &failures);
+    expect(matches(&jobs[2], 0, 0), "job 2", &failures);
+    expect(matches(&jobs[3], 5, 3), "job 3", &failures);
+    expect(matches(&jobs[4], 1, 1), "job 4", &failures);
+    expect(scanner::finished_count(&progress) == 5, "every job was marked finished", &failures);
+
+    scanner::Job[5] again = {
+        job("a b c"),
+        job("one\ntwo\n"),
+        job(""),
+        job("x y\nz w\nq"),
+        job("lonely"),
+    };
+    scanner::Progress progress_two = {};
+    expect(scanner::analyze_all(again[0..5], 1, &progress_two).is_ok(), "one worker succeeds", &failures);
+    bool same = true;
+    for usize i = 0; i < 5; i++ {
+        if again[i].summary.words != jobs[i].summary.words || again[i].summary.checksum != jobs[i].summary.checksum {
+            same = false;
+        }
+    }
+    expect(same && scanner::finished_count(&progress_two) == 5, "the pool size does not change the result", &failures);
+
+    scanner::Progress idle = {};
+    expect(scanner::analyze_all(jobs[0..0], 2, &idle).is_ok() && scanner::finished_count(&idle) == 0, "no jobs, nothing to do", &failures);
+    scanner::Progress none = {};
+    expect(!scanner::analyze_all(jobs[0..2], 0, &none).is_ok(), "zero workers is an error", &failures);
+    return failures;
+}

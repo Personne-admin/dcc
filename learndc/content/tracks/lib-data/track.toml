@@ -1,0 +1,6 @@
+schema = 1
+id = "lib-data"
+title = "Structured Data: JSON and TOML"
+summary = "Parse, read, check and write JSON and TOML with the standard library, and know who owns every value."
+goal = "Load a JSON or TOML document, read it with explicit defaults and errors, and write JSON back out."
+exercises = ["json-documents", "read-settings", "walk-orders", "json-errors", "locate-errors", "json-output", "write-report", "toml-documents", "toml-settings", "structured-data-drill", "toml-to-json"]

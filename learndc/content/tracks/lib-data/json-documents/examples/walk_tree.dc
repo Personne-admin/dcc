@@ -1,0 +1,35 @@
+module main;
+
+import std::json;
+
+using std::json::{Document, Value};
+
+Status(Error) show(const Value* value, []const char label) {
+    match *value {
+        Value::Null => println("{}: null", label)?,
+        Value::Bool(b) => println("{}: bool {}", label, b)?,
+        Value::Integer(n) => println("{}: integer {}", label, n)?,
+        Value::Float(x) => println("{}: float {:.1}", label, x)?,
+        Value::String(s) => println("{}: string {}", label, s)?,
+        Value::Array(items) => {
+            println("{}: array of {}", label, items.len)?;
+            for item in items {
+                show(&item, "  item")?;
+            }
+        },
+        Value::Object(members) => {
+            println("{}: object of {}", label, members.len)?;
+            for member in members {
+                show(&member.value, member.key)?;
+            }
+        },
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Document() doc = std::json::parse("{\"a\": [1, 2.5, \"x\"], \"b\": {\"c\": null, \"d\": false}}")?;
+    defer doc.deinit();
+    show(&doc.root, "root")?;
+    return Status::Ok;
+}

@@ -1,0 +1,68 @@
+module main;
+
+import std::slice;
+
+Status(AllocError) open_queue(Array(u32)* queue, usize expected) {
+    queue.reserve(expected)?;
+    return Status::Ok;
+}
+
+Status(AllocError) take_ticket(Array(u32)* queue, u32 number) {
+    queue.push(number)?;
+    return Status::Ok;
+}
+
+Status(AllocError) vip(Array(u32)* queue, u32 number) {
+    queue.insert(0, number)?;
+    return Status::Ok;
+}
+
+bool cancel(Array(u32)* queue, u32 number) {
+    Optional(usize) at = std::slice::index_of(queue.items(), number);
+    if at.is_none() {
+        return false;
+    }
+    queue.remove(at.unwrap_some());
+    return true;
+}
+
+Optional(u32) serve(Array(u32)* queue) {
+    return queue.remove(0);
+}
+
+usize spare(const Array(u32)* queue) {
+    return queue.capacity() - queue.len();
+}
+
+Status(Error) show(const Array(u32)* queue) {
+    print("queue:")?;
+    for ticket in queue.items() {
+        print(" {}", ticket)?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Array(u32) queue = {};
+    defer queue.deinit();
+    open_queue(&queue, 20)?;
+    println("capacity {}, spare {}", queue.capacity(), spare(&queue))?;
+    for u32 number in 101..=105 {
+        take_ticket(&queue, number)?;
+    }
+    show(&queue)?;
+    vip(&queue, 99)?;
+    show(&queue)?;
+    println("cancel 103: {}", cancel(&queue, 103))?;
+    println("cancel 500: {}", cancel(&queue, 500))?;
+    show(&queue)?;
+    for usize round in 0..7 {
+        match serve(&queue) {
+            Optional::Some(number) => println("serving {}", number)?,
+            Optional::None => println("nobody is waiting")?,
+        }
+    }
+    println("spare room: {}", spare(&queue))?;
+    return Status::Ok;
+}

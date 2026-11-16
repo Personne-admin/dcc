@@ -1,0 +1,39 @@
+module main;
+
+import std::os::file;
+import std::slice;
+
+using std::os::file::File;
+using std::slice::Split;
+
+Status(Error) number_lines([]const char text) {
+    Split(char) lines = std::slice::split(text, '\n' as char);
+    usize number = 0;
+    while true {
+        Optional([]const char) next = std::slice::next(&lines);
+        if next.is_none() {
+            break;
+        }
+        []const char line = next.unwrap_some();
+        number += 1;
+        println("{}: [{}]", number, line)?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    File f = std::os::file::create("lines.txt")?;
+    f.write_all("alpha\nbeta\n\ngamma\n" as []const u8)?;
+    f.close();
+
+    File g = std::os::file::open("lines.txt", std::os::file::read_only())?;
+    defer g.close();
+    Array(char) text = {};
+    defer text.deinit();
+    text.resize(g.size()? as usize)?;
+    g.read_all(text.items() as []u8)?;
+
+    number_lines(text.items() as []const char)?;
+    std::os::file::delete_file("lines.txt")?;
+    return Status::Ok;
+}

@@ -1,0 +1,49 @@
+schema = 1
+id = "lib-collections/digests-and-hashes"
+revision = 1
+title = "Fingerprints and shards"
+summary = "Hash text two ways: a SHA-256 digest as a hex fingerprint, fed in one piece or in parts, and a fast FNV-1a hash that assigns names to shards."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["sha256", "Sha256", "update", "finish", "hex_encode", "fnv1a_32", "hash"]
+tags = ["collections", "hashing"]
+objectives = [
+    "Compute a SHA-256 digest in one call and incrementally and show they agree",
+    "Render a digest as hex and compare digests as bytes",
+    "Pick between a cryptographic digest and a fast non-cryptographic hash",
+]
+entry_file = "src/main.dc"
+product = "fingerprints"
+prerequisites = ["lib-collections/numbers-from-text"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Fingerprints and shards"
+expect_stdout = """
+empty: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+abc:   ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+parts: b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9
+whole: b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9
+same: true
+same: false
+   alpha -> shard 3
+    beta -> shard 3
+   gamma -> shard 2
+   delta -> shard 1
+ epsilon -> shard 1
+    zeta -> shard 3
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The two digests of hello world must be identical: feeding the parts one after the other is the same as feeding the whole text."

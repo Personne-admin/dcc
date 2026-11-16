@@ -1,0 +1,90 @@
+module main;
+
+import std::list;
+import std::os::heap;
+
+using Heap = std::os::heap::Heap;
+
+struct Song {
+    []const char title;
+    u32 seconds;
+}
+
+using Playlist = std::list::List(Song);
+using SongNode = std::list::Node(Song);
+
+Status(AllocError) add_last(Playlist* list, Heap* heap, Song song) {
+    list.push_back_alloc(heap, song)?;
+    return Status::Ok;
+}
+
+Status(AllocError) add_next(Playlist* list, Heap* heap, Song song) {
+    list.push_front_alloc(heap, song)?;
+    return Status::Ok;
+}
+
+Optional(Song) play_next(Playlist* list, Heap* heap) {
+    Optional(SongNode*) node = list.pop_front();
+    if node.is_none() {
+        return Optional::None;
+    }
+    SongNode* n = node.unwrap_some();
+    Song song = n.value;
+    std::list::destroy_node(heap, n);
+    return Optional::Some(song);
+}
+
+u32 total_seconds(const Playlist* list) {
+    u32 total = 0;
+    std::list::Iterator(Song) it = list.iterate();
+    bool more = true;
+    while more {
+        match it.next() {
+            Optional::Some(node) => total += node.value.seconds,
+            Optional::None => more = false,
+        }
+    }
+    return total;
+}
+
+Status(Error) show(const Playlist* list) {
+    std::list::Iterator(Song) it = list.iterate();
+    bool more = true;
+    usize place = 1;
+    while more {
+        match it.next() {
+            Optional::Some(node) => {
+                println("  {}. {} ({}s)", place, node.value.title, node.value.seconds)?;
+                place++;
+            },
+            Optional::None => more = false,
+        }
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Heap heap = {};
+    Playlist list = std::list::new_list();
+    defer list.deinit(&heap);
+
+    add_last(&list, &heap, Song { title = "Morning", seconds = 180 })?;
+    add_last(&list, &heap, Song { title = "Noon", seconds = 200 })?;
+    add_last(&list, &heap, Song { title = "Evening", seconds = 240 })?;
+    add_next(&list, &heap, Song { title = "Intro", seconds = 30 })?;
+    println("queue: {} songs, {} seconds", list.len(), total_seconds(&list))?;
+    show(&list)?;
+
+    list.reverse();
+    println("reversed:")?;
+    show(&list)?;
+
+    for usize round in 0..2 {
+        match play_next(&list, &heap) {
+            Optional::Some(song) => println("playing {}", song.title)?,
+            Optional::None => println("queue is empty")?,
+        }
+    }
+    println("left: {} songs, {} seconds", list.len(), total_seconds(&list))?;
+    return Status::Ok;
+}

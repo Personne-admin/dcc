@@ -1,0 +1,65 @@
+module scanner;
+
+import std::hash;
+public import std::os::thread;
+import std::os::thread_pool;
+import std::os::pipe;
+import std::process;
+import std::parse;
+
+public struct Summary {
+    u32 words;
+    u32 lines;
+    u64 checksum;
+}
+
+public struct Job {
+    []const char name;
+    []const char text;
+    Summary summary;
+}
+
+public struct Progress {
+    std::os::thread::Mutex lock;
+    u32 finished;
+}
+
+struct Task {
+    Job* job;
+    Progress* progress;
+}
+
+
+// Stage 2: words are runs of characters other than space, newline and tab; lines counts newline
+// characters plus one more when the text ends in the middle of a line; checksum is std::hash::fnv1a_64
+public Summary summarize([]const char text) {
+    return Summary {};
+}
+
+// Stage 3: add 1 to progress.finished under the lock
+public void mark_finished(Progress* progress) {
+}
+
+// Stage 3: read progress.finished under the lock
+public u32 finished_count(Progress* progress) {
+    return 0;
+}
+
+// Stage 4: a task for the thread pool; context points to a Task
+void analyze_task(void* context) {
+}
+
+// Stage 4: analyse every job on a pool of that many workers, then wait for all of them
+public Status(Error) analyze_all([] Job jobs, usize workers, Progress* progress) {
+    return Status::Ok;
+}
+
+// Stage 5: the index of the job with the most words; the first one wins a tie; None for no jobs
+public Optional(usize) busiest([]const Job jobs) {
+    return Optional::None;
+}
+
+// Bonus stage: how many newline characters `wc -l` counts in text, with text sent to its standard input
+public Result(u32, Error) newlines_by_wc([]const char text) {
+    return Result::Ok(0 as u32);
+}

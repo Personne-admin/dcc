@@ -1,0 +1,23 @@
+module manager;
+
+import fileio;
+public import settings;
+import std::fmt;
+import std::os::error;
+import std::os::file;
+
+using fileio::read_file;
+using settings::{LoadError, Settings, apply_toml, default_settings, host_text};
+using std::os::file::{File, FileWriter};
+
+public Status(LoadError) load_layers(Settings* s, []const char defaults_path, []const char override_path) {
+    return Status::Ok;
+}
+
+public Status(Error) save_settings(const Settings* s, []const char path) {
+    return Status::Ok;
+}
+
+public Status(Error) save_settings_atomic(const Settings* s, []const char path) {
+    return Status::Ok;
+}

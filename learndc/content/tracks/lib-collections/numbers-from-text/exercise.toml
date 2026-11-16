@@ -1,0 +1,51 @@
+schema = 1
+id = "lib-collections/numbers-from-text"
+revision = 1
+title = "Numbers from text"
+summary = "Turn text into an i64 with std::parse, map the library's errors to your own enum and sum a line of numbers."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["std::parse", "accumulate_digits", "signed_from_magnitude", "Result", "error mapping", "split"]
+tags = ["collections", "text", "errors"]
+objectives = [
+    "Parse an optional sign and digits with std::parse::accumulate_digits",
+    "Map library errors into a domain error enum and reject trailing characters",
+    "Propagate the first failure out of a loop with ?",
+]
+entry_file = "src/main.dc"
+product = "parse_numbers"
+prerequisites = ["lib-collections/utf8-text"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Parsing results and line sums"
+expect_stdout = """
+                    42 -> 42
+                   -17 -> -17
+                    +8 -> 8
+                       -> empty
+                     - -> not a number
+                  12ab -> not a number
+  99999999999999999999 -> too big
+   9223372036854775807 -> 9223372036854775807
+  -9223372036854775808 -> -9223372036854775808
+  -9223372036854775809 -> too big
+sum of '3 4 5' is 12
+sum of '10 -4  1' is 7
+'7 x 2' has a bad number
+'1 99999999999999999999' has a bad number
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The text must be consumed completely: after accumulate_digits, the cursor has to be at the end of the text, or the input was something like 12ab."

@@ -1,0 +1,76 @@
+module main;
+
+import std::list;
+import std::os::heap;
+
+using Heap = std::os::heap::Heap;
+
+struct Song {
+    []const char title;
+    u32 seconds;
+}
+
+using Playlist = std::list::List(Song);
+using SongNode = std::list::Node(Song);
+
+Status(AllocError) add_last(Playlist* list, Heap* heap, Song song) {
+    // TODO: append a node holding song at the back
+    return Status::Ok;
+}
+
+Status(AllocError) add_next(Playlist* list, Heap* heap, Song song) {
+    // TODO: put a node holding song at the front
+    return Status::Ok;
+}
+
+Optional(Song) play_next(Playlist* list, Heap* heap) {
+    // TODO: unlink the front node, copy its song, free the node, return the song
+    return Optional::None;
+}
+
+u32 total_seconds(const Playlist* list) {
+    // TODO: add up the seconds of every song with an iterator
+    return 0;
+}
+
+Status(Error) show(const Playlist* list) {
+    std::list::Iterator(Song) it = list.iterate();
+    bool more = true;
+    usize place = 1;
+    while more {
+        match it.next() {
+            Optional::Some(node) => {
+                println("  {}. {} ({}s)", place, node.value.title, node.value.seconds)?;
+                place++;
+            },
+            Optional::None => more = false,
+        }
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Heap heap = {};
+    Playlist list = std::list::new_list();
+    defer list.deinit(&heap);
+
+    add_last(&list, &heap, Song { title = "Morning", seconds = 180 })?;
+    add_last(&list, &heap, Song { title = "Noon", seconds = 200 })?;
+    add_last(&list, &heap, Song { title = "Evening", seconds = 240 })?;
+    add_next(&list, &heap, Song { title = "Intro", seconds = 30 })?;
+    println("queue: {} songs, {} seconds", list.len(), total_seconds(&list))?;
+    show(&list)?;
+
+    list.reverse();
+    println("reversed:")?;
+    show(&list)?;
+
+    for usize round in 0..2 {
+        match play_next(&list, &heap) {
+            Optional::Some(song) => println("playing {}", song.title)?,
+            Optional::None => println("queue is empty")?,
+        }
+    }
+    println("left: {} songs, {} seconds", list.len(), total_seconds(&list))?;
+    return Status::Ok;
+}

@@ -1,0 +1,46 @@
+module main;
+
+import std::json;
+
+using std::json::{Document, Value};
+
+Optional(f64) item_total(const Value* item) {
+    return Optional::None;
+}
+
+f64 order_total(const Value* order, usize* skipped) {
+    return 0.0;
+}
+
+public Status(Error) main() {
+    []const char text =
+        \\{"orders": [
+        \\  {"id": 101, "customer": "ann", "items": [
+        \\    {"sku": "pen", "qty": 3, "price": 2.5},
+        \\    {"sku": "ink", "qty": 1, "price": 7.0}]},
+        \\  {"id": 102, "customer": "bob", "items": []},
+        \\  {"id": 103, "customer": "cy", "items": [
+        \\    {"sku": "pad", "qty": "two", "price": 4.0}]},
+        \\  {"id": 104, "items": [
+        \\    {"sku": "pen", "qty": 2, "price": 2}]}
+        \\]}
+    ;
+
+    Document() doc = std::json::parse(text)?;
+    defer doc.deinit();
+
+    Value orders = doc.root.get("orders").some_or(Value::Null);
+    usize skipped = 0;
+    f64 grand = 0.0;
+    for usize i = 0; i < orders.len(); i++ {
+        Value order = orders.at(i).some_or(Value::Null);
+        i64 id = order.get("id").some_or(Value::Null).as_integer().some_or(0);
+        []const char who = order.get("customer").some_or(Value::Null).as_string().some_or("unknown");
+        f64 total = order_total(&order, &skipped);
+        grand += total;
+        println("order {} {}: {:.2}", id, who, total)?;
+    }
+    println("grand total: {:.2}", grand)?;
+    println("skipped items: {}", skipped)?;
+    return Status::Ok;
+}

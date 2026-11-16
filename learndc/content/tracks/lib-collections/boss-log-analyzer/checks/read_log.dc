@@ -1,0 +1,40 @@
+module read_log;
+
+import analyzer;
+import std::slice;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+
+public i32 main() {
+    i32 failures = 0;
+    Array(analyzer::Entry) entries = {};
+    defer entries.deinit();
+    Array(analyzer::Problem) problems = {};
+    defer problems.deinit();
+    Status(AllocError) st = analyzer::read_log("INFO a 1 x\n\nBAD a 1\nINFO b 2 y\nINFO b\n", &entries, &problems);
+    expect(st.is_ok(), "read_log succeeds", &failures);
+    expect(entries.len() == 2, "two entries", &failures);
+    expect(problems.len() == 2, "two problems", &failures);
+    if entries.len() == 2 {
+        expect(std::slice::eq(entries.items()[1].source, "b") && entries.items()[1].millis == 2, "entries keep their order", &failures);
+    }
+    if problems.len() == 2 {
+        expect(problems.items()[0].line == 3 && problems.items()[0].error == analyzer::LineError::BadLevel, "line 3 is an unknown level (blank line 2 counts)", &failures);
+        expect(problems.items()[1].line == 5 && problems.items()[1].error == analyzer::LineError::MissingField, "line 5 misses a field", &failures);
+    }
+    Array(analyzer::Entry) none = {};
+    defer none.deinit();
+    Array(analyzer::Problem) no_problems = {};
+    defer no_problems.deinit();
+    analyzer::read_log("", &none, &no_problems);
+    expect(none.len() == 0 && no_problems.len() == 0, "empty text gives nothing", &failures);
+    return failures;
+}

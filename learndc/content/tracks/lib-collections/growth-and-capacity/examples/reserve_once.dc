@@ -1,0 +1,18 @@
+module main;
+
+public Status(Error) main() {
+    Array(i32) values = {};
+    defer values.deinit();
+    values.reserve(100)?;
+    println("reserved: len {}, capacity {}", values.len(), values.capacity())?;
+    for i32 n in 1..=100 {
+        values.push(n)?;
+    }
+    println("filled: len {}, capacity {}", values.len(), values.capacity())?;
+    values.clear();
+    println("cleared: len {}, capacity {}", values.len(), values.capacity())?;
+    values.push(7)?;
+    values.shrink_to_fit()?;
+    println("trimmed: len {}, capacity {}", values.len(), values.capacity())?;
+    return Status::Ok;
+}

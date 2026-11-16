@@ -1,0 +1,46 @@
+schema = 1
+id = "lib-data/locate-errors"
+revision = 1
+title = "Point at the syntax error"
+summary = "Use the JSON Scanner to find where a text goes wrong and print the offending line with a caret."
+kind = "libdcext"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["json", "Scanner", "Position", "error reporting", "slices"]
+tags = ["library", "json", "errors"]
+objectives = [
+    "Drive a Scanner event by event until it fails or reaches End",
+    "Use line, column and offset of a Position to cut out the offending line",
+    "Report the error as line and column with a caret under the byte",
+]
+entry_file = "src/main.dc"
+product = "locator"
+prerequisites = ["lib-data/json-errors"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Errors are located with a caret"
+expect_stdout = """
+text 1: valid
+text 2: line 3, column 10
+      "age": ,
+             ^
+text 3: line 1, column 6
+    [1, 2
+         ^
+text 4: line 2, column 1
+    {"b": 2}
+    ^
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "The caret goes under the column the scanner stopped at. Text 3 ends early, so its caret is one past the last character; text 4 has a second document on line 2."

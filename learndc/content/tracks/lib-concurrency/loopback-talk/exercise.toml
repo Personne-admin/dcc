@@ -1,0 +1,41 @@
+schema = 1
+id = "lib-concurrency/loopback-talk"
+revision = 1
+title = "A conversation over loopback"
+summary = "Run a TCP server on a thread and a client in main on 127.0.0.1: bind, accept, connect, line-based reads and writes, and every handle closed."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 35
+concepts = ["TcpListener", "TcpStream", "bind", "accept", "connect", "read_all", "write_all", "loopback"]
+tags = ["network", "threads", "linux"]
+objectives = [
+    "Bind a listener to an OS-chosen port on 127.0.0.1 and find out the port",
+    "Accept and connect, send and receive a line, and close both ends",
+    "Explain why the server runs on its own thread",
+]
+entry_file = "src/main.dc"
+product = "loopback"
+prerequisites = ["lib-concurrency/pool-checksums"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Three conversations on the loopback interface"
+expect_stdout = """
+sent  5 bytes, got back: [HELLO]
+sent 14 bytes, got back: [DC ON LOOPBACK]
+sent  0 bytes, got back: []
+server handled 3 connections
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "A hang means one side waits for data the other never sends: check that the client writes its newline and the server writes its reply with a newline."

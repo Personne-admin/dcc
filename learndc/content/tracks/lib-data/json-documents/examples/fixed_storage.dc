@@ -1,0 +1,20 @@
+module main;
+
+import std::json;
+import std::mem;
+
+using std::json::{Document, Value};
+using std::mem::{FixedBuffer, FixedHandle};
+
+public Status(Error) main() {
+    u8[4096] storage = {};
+    FixedBuffer fixed = FixedBuffer::new(storage[0..4096]);
+
+    Document(FixedHandle) doc = std::json::parse(std::mem::borrow(&fixed), "{\"tags\": [\"x\", \"y\"]}")?;
+    defer doc.deinit();
+
+    Value tags = doc.root.get("tags").some_or(Value::Null);
+    println("tags: {}", tags.len())?;
+    println("second: {}", tags.at(1).some_or(Value::Null).as_string().some_or("?"))?;
+    return Status::Ok;
+}

@@ -1,0 +1,40 @@
+module latency;
+
+import analyzer;
+import std::slice;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+
+analyzer::Entry timed(u32 millis) {
+    return analyzer::Entry { level = analyzer::Level::Info, source = "x", millis = millis };
+}
+
+public i32 main() {
+    i32 failures = 0;
+    []const analyzer::Entry entries = {
+        timed(250), timed(5), timed(1000), timed(99), timed(100), timed(3),
+    };
+    Array(analyzer::Bucket) buckets = {};
+    defer buckets.deinit();
+    expect(analyzer::latency_buckets(entries, &buckets).is_ok(), "latency_buckets succeeds", &failures);
+    expect(buckets.len() == 4, "four buckets", &failures);
+    if buckets.len() == 4 {
+        expect(buckets.items()[0].start == 0 && buckets.items()[0].count == 3, "0-99 holds three", &failures);
+        expect(buckets.items()[1].start == 100 && buckets.items()[1].count == 1, "100-199 holds one", &failures);
+        expect(buckets.items()[2].start == 200 && buckets.items()[2].count == 1, "200-299 holds one", &failures);
+        expect(buckets.items()[3].start == 1000 && buckets.items()[3].count == 1, "1000-1099 holds one", &failures);
+    }
+    Array(analyzer::Bucket) none = {};
+    defer none.deinit();
+    analyzer::latency_buckets(entries[0..0], &none);
+    expect(none.len() == 0, "no entries, no buckets", &failures);
+    return failures;
+}

@@ -1,0 +1,42 @@
+module main;
+
+import std::os::thread;
+
+struct Job {
+    []const char text;
+    u32 words;
+}
+
+u32 count_words([]const char text) {
+    // TODO: the number of words: runs of characters other than space, newline and tab
+    return 0;
+}
+
+void count_job(Job* job) {
+    // TODO: store the word count of job.text in job.words
+}
+
+Status(Error) count_in_threads([] Job jobs) {
+    // TODO: one thread per job running count_job, then join every thread
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Job[5] jobs = {
+        { "the quick brown fox", 0 },
+        { "jumps over  the lazy dog", 0 },
+        { "", 0 },
+        { "one", 0 },
+        { "alpha beta\ngamma\tdelta  epsilon\n", 0 },
+    };
+    count_in_threads(jobs[0..5])?;
+    u32 total = 0;
+    usize number = 1;
+    for job in jobs {
+        println("text {}: {} words", number, job.words)?;
+        total += job.words;
+        number++;
+    }
+    println("total: {} words", total)?;
+    return Status::Ok;
+}

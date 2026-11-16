@@ -1,0 +1,9 @@
+module fileio;
+
+import std::os::file;
+
+using std::os::file::File;
+
+public Status(Error) read_file([]const char path, Array(char)* out) {
+    return Status::Ok;
+}

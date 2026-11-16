@@ -1,0 +1,60 @@
+module layers_stage;
+
+import manager;
+import settings;
+import std::os::file;
+
+using manager::load_layers;
+using settings::{LoadError, Settings, host_text};
+using std::os::file::File;
+
+void write_file([]const char name, []const char text) {
+    File f = std::os::file::create(name).unwrap();
+    f.write_all(text as []const u8).unwrap();
+    f.close();
+}
+
+void show([]const char label, const Settings* s) {
+    println("{}: host={} port={} workers={} debug={}", label, host_text(s), s.port, s.workers, s.debug);
+}
+
+void outcome([]const char label, Status(LoadError) result) {
+    if result.is_ok() {
+        println("{}: ok", label);
+        return;
+    }
+    match result.unwrap_err() {
+        LoadError::Unreadable => println("{}: unreadable", label),
+        LoadError::PortNotNumber => println("{}: port-not-number", label),
+        _ => println("{}: other error", label),
+    }
+}
+
+public i32 main() {
+    write_file("layers-defaults.toml", "host = \"0.0.0.0\"\nport = 8080\nworkers = 2\n");
+    write_file("layers-override.toml", "port = 9090\ndebug = true\n");
+    write_file("layers-sparse.toml", "workers = 6\n");
+    write_file("layers-typo.toml", "port = \"high\"\n");
+
+    Settings s = {};
+    s.port = 5;
+    s.workers = 5;
+
+    outcome("both layers", load_layers(&s, "layers-defaults.toml", "layers-override.toml"));
+    show("merged", &s);
+
+    outcome("no override file", load_layers(&s, "layers-defaults.toml", "layers-none.toml"));
+    show("defaults only", &s);
+
+    outcome("sparse file", load_layers(&s, "layers-sparse.toml", "layers-none.toml"));
+    show("built-ins fill the gaps", &s);
+
+    outcome("no defaults file", load_layers(&s, "layers-gone.toml", "layers-override.toml"));
+    outcome("bad override", load_layers(&s, "layers-defaults.toml", "layers-typo.toml"));
+
+    std::os::file::delete_file("layers-defaults.toml");
+    std::os::file::delete_file("layers-override.toml");
+    std::os::file::delete_file("layers-sparse.toml");
+    std::os::file::delete_file("layers-typo.toml");
+    return 0;
+}

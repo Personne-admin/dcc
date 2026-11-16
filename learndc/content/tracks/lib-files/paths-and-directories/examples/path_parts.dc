@@ -1,0 +1,24 @@
+module main;
+
+import std::os::path;
+
+public Status(Error) main() {
+    []const char name = "data/logs/app.2026.log";
+    println("basename:  {}", std::os::path::basename(name))?;
+    println("dirname:   {}", std::os::path::dirname(name))?;
+    println("extension: {}", std::os::path::extension(name))?;
+    println("stem:      {}", std::os::path::stem(name))?;
+    println("absolute:  {} {}", std::os::path::is_absolute(name), std::os::path::is_absolute("/etc/hosts"))?;
+
+    char[128] storage = {};
+    []const char joined = std::os::path::join("data/logs", "today.log", storage[0..128])?;
+    println("joined:    {}", joined)?;
+
+    char[128] other = {};
+    []const char clean = std::os::path::normalize("data/./logs/../cache//x.txt", other[0..128])?;
+    println("normalized: {}", clean)?;
+
+    println("no dir:    [{}]", std::os::path::dirname("file.txt"))?;
+    println("no ext:    [{}]", std::os::path::extension("Makefile"))?;
+    return Status::Ok;
+}

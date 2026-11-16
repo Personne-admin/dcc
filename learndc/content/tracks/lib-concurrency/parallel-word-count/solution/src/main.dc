@@ -1,0 +1,59 @@
+module main;
+
+import std::os::thread;
+
+struct Job {
+    []const char text;
+    u32 words;
+}
+
+u32 count_words([]const char text) {
+    u32 words = 0;
+    bool inside = false;
+    for byte in text {
+        bool space = byte == ' ' as char || byte == '\n' as char || byte == '\t' as char;
+        if space {
+            inside = false;
+        } else if !inside {
+            inside = true;
+            words++;
+        }
+    }
+    return words;
+}
+
+void count_job(Job* job) {
+    job.words = count_words(job.text);
+}
+
+Status(Error) count_in_threads([] Job jobs) {
+    Array(std::os::thread::Thread) running = {};
+    defer running.deinit();
+    for usize i = 0; i < jobs.len; i++ {
+        running.push(std::os::thread::spawn(count_job, &jobs[i])?)?;
+    }
+    for usize i = 0; i < running.len(); i++ {
+        running.items()[i].join()?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Job[5] jobs = {
+        { "the quick brown fox", 0 },
+        { "jumps over  the lazy dog", 0 },
+        { "", 0 },
+        { "one", 0 },
+        { "alpha beta\ngamma\tdelta  epsilon\n", 0 },
+    };
+    count_in_threads(jobs[0..5])?;
+    u32 total = 0;
+    usize number = 1;
+    for job in jobs {
+        println("text {}: {} words", number, job.words)?;
+        total += job.words;
+        number++;
+    }
+    println("total: {} words", total)?;
+    return Status::Ok;
+}

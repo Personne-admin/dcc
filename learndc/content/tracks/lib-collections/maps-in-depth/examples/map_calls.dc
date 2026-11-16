@@ -1,0 +1,27 @@
+module main;
+
+import std::map;
+
+using Visits = std::map::Map(u32, u32);
+
+public Status(Error) main() {
+    Visits visits = {};
+    defer visits.deinit();
+
+    Result(Optional(u32), AllocError) first = visits.put(7, 1);
+    println("first put had a previous value: {}", first.unwrap().is_some())?;
+    Result(Optional(u32), AllocError) second = visits.put(7, 2);
+    println("second put replaced {}", second.unwrap().unwrap_some())?;
+
+    u32* counter = visits.get_or_put(42, 0)?;
+    *counter += 1;
+    counter = visits.get_or_put(42, 0)?;
+    *counter += 1;
+    println("42 -> {}", visits.get(42).some_or(0))?;
+    println("contains 7: {}, contains 8: {}", visits.contains(7), visits.contains(8))?;
+
+    Optional(u32) gone = visits.remove(7);
+    println("removed {}, len now {}", gone.unwrap_some(), visits.len())?;
+    println("7 -> {}", visits.get(7).some_or(0))?;
+    return Status::Ok;
+}

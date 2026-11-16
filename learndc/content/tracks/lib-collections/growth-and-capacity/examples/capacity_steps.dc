@@ -1,0 +1,16 @@
+module main;
+
+public Status(Error) main() {
+    Array(i32) values = {};
+    defer values.deinit();
+    println("start: len {}, capacity {}", values.len(), values.capacity())?;
+    for i32 n in 1..=20 {
+        usize before = values.capacity();
+        values.push(n)?;
+        if values.capacity() != before {
+            println("push {:>2}: capacity {} -> {}", n, before, values.capacity())?;
+        }
+    }
+    println("end: len {}, capacity {}", values.len(), values.capacity())?;
+    return Status::Ok;
+}

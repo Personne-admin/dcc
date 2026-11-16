@@ -1,0 +1,45 @@
+module main;
+
+import std::json;
+
+using std::json::{Document, Value};
+
+[]const char text_or(const Value* root, []const char key, []const char fallback) {
+    Value found = root.get(key).some_or(Value::Null);
+    return found.as_string().some_or(fallback);
+}
+
+i64 int_or(const Value* root, []const char key, i64 fallback) {
+    Value found = root.get(key).some_or(Value::Null);
+    return found.as_integer().some_or(fallback);
+}
+
+bool bool_or(const Value* root, []const char key, bool fallback) {
+    Value found = root.get(key).some_or(Value::Null);
+    return found.as_bool().some_or(fallback);
+}
+
+public Status(Error) main() {
+    []const char text =
+        \\{
+        \\  "name": "Night Market",
+        \\  "port": 8080,
+        \\  "max_players": "many",
+        \\  "debug": true,
+        \\  "motd": null
+        \\}
+    ;
+
+    Document() doc = std::json::parse(text)?;
+    defer doc.deinit();
+
+    println("name: {}", text_or(&doc.root, "name", "unnamed"))?;
+    println("port: {}", int_or(&doc.root, "port", 80))?;
+    println("max_players: {}", int_or(&doc.root, "max_players", 16))?;
+    println("timeout: {}", int_or(&doc.root, "timeout", 30))?;
+    println("debug: {}", bool_or(&doc.root, "debug", false))?;
+    println("verbose: {}", bool_or(&doc.root, "verbose", false))?;
+    println("motd: {}", text_or(&doc.root, "motd", "(none)"))?;
+    println("region: {}", text_or(&doc.root, "region", "unset"))?;
+    return Status::Ok;
+}

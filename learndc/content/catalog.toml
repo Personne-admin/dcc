@@ -18,6 +18,10 @@ tracks = [
     "adv-generics",
     "adv-structures",
     "adv-design",
+    "lib-data",
+    "lib-files",
+    "lib-collections",
+    "lib-concurrency",
     "lab",
     "clinic",
     "reading",
@@ -38,6 +42,13 @@ title = "Advanced DC"
 summary = "Memory layout, allocators, C interop and native linking, generics and compile-time programming, data structures and robust design."
 kind = "specialization"
 tracks = ["adv-memory", "adv-interop", "adv-generics", "adv-structures", "adv-design"]
+
+[[paths]]
+id = "libdcext"
+title = "The standard library"
+summary = "Real-world libdcext: JSON and TOML, files and paths, collections, text and hashing, processes, threads and networking."
+kind = "specialization"
+tracks = ["lib-data", "lib-files", "lib-collections", "lib-concurrency"]
 
 [[paths]]
 id = "practice"

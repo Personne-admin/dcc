@@ -1,0 +1,34 @@
+module main;
+
+import std::map;
+import std::sort;
+import std::os::heap;
+
+using Visits = std::map::Map(u32, u32);
+using VisitIter = std::map::Iterator(u32, u32, std::os::heap::Heap);
+
+public Status(Error) main() {
+    Visits visits = {};
+    defer visits.deinit();
+    []const u32 pages = { 30, 10, 20, 10, 30, 10, 40 };
+    for page in pages {
+        u32* count = visits.get_or_put(page, 0)?;
+        *count += 1;
+    }
+
+    Array(u32) keys = {};
+    defer keys.deinit();
+    VisitIter it = visits.iterate();
+    bool more = true;
+    while more {
+        match it.next() {
+            Optional::Some(entry) => keys.push(*entry.key)?,
+            Optional::None => more = false,
+        }
+    }
+    std::sort::sort(keys.items());
+    for key in keys.items() {
+        println("page {}: {} visits", key, visits.get(key).some_or(0))?;
+    }
+    return Status::Ok;
+}

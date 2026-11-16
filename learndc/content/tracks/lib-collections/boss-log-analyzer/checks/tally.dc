@@ -1,0 +1,55 @@
+module tally;
+
+import analyzer;
+import std::slice;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+
+analyzer::Entry entry(analyzer::Level level, []const char source) {
+    return analyzer::Entry { level = level, source = source, millis = 1 };
+}
+
+public i32 main() {
+    i32 failures = 0;
+    []const analyzer::Entry entries = {
+        entry(analyzer::Level::Info, "a"),
+        entry(analyzer::Level::Warn, "b"),
+        entry(analyzer::Level::Info, "a"),
+        entry(analyzer::Level::Failure, "c"),
+        entry(analyzer::Level::Info, "b"),
+        entry(analyzer::Level::Info, "d"),
+    };
+    expect(analyzer::count_level(entries, analyzer::Level::Info) == 4, "four INFO entries", &failures);
+    expect(analyzer::count_level(entries, analyzer::Level::Warn) == 1, "one WARN entry", &failures);
+    expect(analyzer::count_level(entries, analyzer::Level::Failure) == 1, "one ERROR entry", &failures);
+
+    Array(analyzer::SourceCount) two = {};
+    defer two.deinit();
+    expect(analyzer::top_sources(entries, 2, &two).is_ok(), "top_sources succeeds", &failures);
+    expect(two.len() == 2, "limit 2 keeps two sources", &failures);
+    if two.len() == 2 {
+        expect(std::slice::eq(two.items()[0].source, "a") && two.items()[0].count == 2, "a is first with 2", &failures);
+        expect(std::slice::eq(two.items()[1].source, "b") && two.items()[1].count == 2, "b ties with a and comes second", &failures);
+    }
+    Array(analyzer::SourceCount) all = {};
+    defer all.deinit();
+    analyzer::top_sources(entries, 10, &all);
+    expect(all.len() == 4, "a large limit returns every source", &failures);
+    if all.len() == 4 {
+        expect(std::slice::eq(all.items()[2].source, "c") && std::slice::eq(all.items()[3].source, "d"), "single entries keep first-seen order", &failures);
+    }
+    Array(analyzer::SourceCount) nothing = {};
+    defer nothing.deinit();
+    []const analyzer::Entry empty = entries[0..0];
+    analyzer::top_sources(empty, 3, &nothing);
+    expect(nothing.len() == 0, "no entries, no sources", &failures);
+    return failures;
+}

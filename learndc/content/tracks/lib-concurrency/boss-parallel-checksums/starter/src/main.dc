@@ -1,0 +1,10 @@
+module main;
+
+import corpus;
+import scanner;
+
+public Status(Error) main() {
+    // Stage 6: analyse corpus::DOCUMENTS on 3 workers and print the report described in the README.
+    println("0 documents, 0 analysed")?;
+    return Status::Ok;
+}

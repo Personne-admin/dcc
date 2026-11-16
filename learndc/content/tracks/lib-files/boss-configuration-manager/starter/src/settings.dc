@@ -1,0 +1,64 @@
+module settings;
+
+import std::fmt;
+import std::mem;
+import std::toml;
+
+using std::toml::{Document, TomlError, Value};
+
+public enum LoadError : u8 {
+    Syntax,
+    HostNotText,
+    HostInvalid,
+    PortNotNumber,
+    WorkersNotNumber,
+    DebugNotBool,
+    Unreadable,
+}
+
+public struct Settings {
+    char[64] host;
+    usize host_len;
+    i64 port;
+    i64 workers;
+    bool debug;
+}
+
+public bool set_host(Settings* s, []const char text) {
+    if text.len == 0 || text.len > 63 {
+        return false;
+    }
+    for ch in text {
+        if ch == ('"' as char) || ch == ('\\' as char) || (ch as u8) < 32 {
+            return false;
+        }
+    }
+    std::mem::copy(s.host[0..text.len], text);
+    s.host_len = text.len;
+    return true;
+}
+
+public []const char host_text(const Settings* s) {
+    return s.host[0..s.host_len] as []const char;
+}
+
+public Settings default_settings() {
+    Settings s = {};
+    set_host(&s, "127.0.0.1");
+    s.port = 8080;
+    s.workers = 4;
+    s.debug = false;
+    return s;
+}
+
+public Status(LoadError) apply_toml(Settings* s, []const char text) {
+    return Status::Ok;
+}
+
+public Status(Error) print_load_error(LoadError failure) {
+    return Status::Ok;
+}
+
+public Result(usize, Error) check_settings(const Settings* s) {
+    return Result::Ok(0 as usize);
+}

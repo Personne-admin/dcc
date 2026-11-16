@@ -1,0 +1,44 @@
+schema = 1
+id = "lib-concurrency/pool-checksums"
+revision = 1
+title = "Checksums on a thread pool"
+summary = "Submit tasks to a fixed pool of worker threads, wait for all of them and print results in job order whatever the schedule."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["ThreadPool", "create", "submit", "wait_all", "destroy", "void pointer", "FNV-1a"]
+tags = ["threads", "pool", "linux"]
+objectives = [
+    "Create a thread pool, submit tasks with a context pointer and wait for idle",
+    "Cast a void pointer back to the job type in a task function",
+    "Explain why results are the same for any number of workers",
+]
+entry_file = "src/main.dc"
+product = "pool_checksums"
+prerequisites = ["lib-concurrency/shared-tally"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Checksums are the same for every pool size"
+expect_stdout = """
+empty    cbf29ce484222325
+letter   af63dc4c8601ec8c
+greeting 779a65e7023cd2e7
+numbers  50c0aafd8b4330b2
+sentence 7404cea13ff89bb0
+repeat   d63946adcbe9c9c5
+same sums with one worker: true
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "run_pool is called twice, with 3 workers and with 1. The program only prints true when both runs filled every job's checksum."

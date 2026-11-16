@@ -1,0 +1,51 @@
+module main;
+
+import std::fmt;
+import std::os::file;
+import std::slice;
+
+using std::os::file::{File, FileWriter, OpenFlags};
+using std::slice::Split;
+
+Status(Error) read_text([]const char path, Array(char)* out) {
+    File f = std::os::file::open(path, std::os::file::read_only())?;
+    defer f.close();
+    out.resize(f.size()? as usize)?;
+    usize got = f.read_all(out.items() as []u8)?;
+    out.resize(got)?;
+    return Status::Ok;
+}
+
+Status(Error) log_line([]const char path, []const char level, []const char message) {
+    return Status::Ok;
+}
+
+Status(Error) print_numbered([]const char path) {
+    return Status::Ok;
+}
+
+Result(usize, Error) count_level([]const char path, []const char level) {
+    return Result::Ok(0 as usize);
+}
+
+public Status(Error) main() {
+    if std::os::file::exists("app.log") {
+        std::os::file::delete_file("app.log")?;
+    }
+
+    log_line("app.log", "INFO", "server started")?;
+    log_line("app.log", "WARN", "disk at 91 percent")?;
+    log_line("app.log", "ERROR", "write failed")?;
+    log_line("app.log", "INFO", "retrying")?;
+    log_line("app.log", "ERROR", "write failed again")?;
+
+    print_numbered("app.log")?;
+    println("errors: {}", count_level("app.log", "ERROR")?)?;
+
+    log_line("app.log", "INFO", "second session")?;
+    log_line("app.log", "INFO", "shutting down")?;
+    println("after second session: {} lines", count_level("app.log", "INFO")? + count_level("app.log", "WARN")? + count_level("app.log", "ERROR")?)?;
+
+    std::os::file::delete_file("app.log")?;
+    return Status::Ok;
+}

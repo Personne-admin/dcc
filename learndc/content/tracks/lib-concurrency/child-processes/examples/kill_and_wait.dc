@@ -1,0 +1,19 @@
+module main;
+
+import std::process;
+using std::process::{Command, ExitStatus};
+
+public Status(Error) main() {
+    Command command = Command::new("sleep")?;
+    defer command.deinit();
+    command.arg("30")?;
+    std::process::Child child = command.spawn()?;
+    Optional(ExitStatus) early = child.try_wait()?;
+    println("still running: {}", early.is_none())?;
+    child.kill(9)?;
+    ExitStatus status = child.wait()?;
+    println("signal {}, code {}", status.signal, status.code)?;
+    println("success: {}", status.success())?;
+    println("second wait failed: {}", child.wait().is_err())?;
+    return Status::Ok;
+}

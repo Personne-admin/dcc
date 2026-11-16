@@ -1,0 +1,198 @@
+schema = 1
+id = "lib-data/structured-data-drill"
+revision = 1
+title = "Drill: structured data"
+summary = "Mixed questions on reading, erroring, writing and releasing JSON and TOML documents."
+kind = "drill"
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = ["json", "toml", "Optional", "Emitter", "ownership", "errors"]
+tags = ["drill", "library"]
+objectives = [
+    "Predict what lookups and conversions return for missing and mismatched values",
+    "Spot the off-by-one and the formatting mistakes that the library does not catch for you",
+    "Order the steps of a read-and-release program",
+]
+prerequisites = ["lib-data/toml-settings"]
+
+[[questions]]
+id = "sum-array"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+import std::json;
+
+using std::json::{Document, Value};
+
+public Status(Error) main() {
+    Document() doc = std::json::parse("{\\"n\\": [4, 5.5, \\"6\\", 7]}")?;
+    defer doc.deinit();
+    Value list = doc.root.get("n").some_or(Value::Null);
+    f64 sum = 0.0;
+    for usize i = 0; i < list.len(); i++ {
+        Value item = list.at(i).some_or(Value::Null);
+        sum += item.as_float().some_or(0.0);
+    }
+    println("{:.1} of {}", sum, list.len())?;
+    return Status::Ok;
+}
+"""
+expect = """
+16.5 of 4
+"""
+explanation = "as_float accepts the integers 4 and 7 and the float 5.5, but not the string \"6\", which falls back to 0.0. So the sum is 4 + 5.5 + 0 + 7 = 16.5, and len() still counts all four items."
+
+[[questions]]
+id = "member-count"
+type = "trace"
+prompt = "What number does `doc.root.entries.len` print for this TOML text? (Answer with a digit.)"
+code = """
+module main;
+
+import std::toml;
+
+public Status(Error) main() {
+    []const char text =
+        \\\\a = 1
+        \\\\b.c = 2
+        \\\\b.d = 3
+        \\\\[e]
+        \\\\f = 4
+    ;
+    std::toml::Document() doc = std::toml::parse(text)?;
+    defer doc.deinit();
+    println("{}", doc.root.entries.len)?;
+    return Status::Ok;
+}
+"""
+accept = ["3"]
+expect = """
+3
+"""
+explanation = "The top-level entries are a, b and e. The dotted keys b.c and b.d both go into one table named b, and f lives inside e."
+
+[[questions]]
+id = "off-by-one"
+type = "bug"
+prompt = "Which line crashes the program?"
+code = """
+module main;
+
+import std::json;
+
+using std::json::{Document, Value};
+
+public Status(Error) main() {
+    Document() doc = std::json::parse("[10, 20, 30]")?;
+    defer doc.deinit();
+    i64 total = 0;
+    for usize i = 0; i <= doc.root.len(); i++ {
+        total += doc.root.at(i).unwrap_some().as_integer().some_or(0);
+    }
+    println("{}", total)?;
+    return Status::Ok;
+}
+"""
+lines = [12]
+fixed = """
+module main;
+
+import std::json;
+
+using std::json::{Document, Value};
+
+public Status(Error) main() {
+    Document() doc = std::json::parse("[10, 20, 30]")?;
+    defer doc.deinit();
+    i64 total = 0;
+    for usize i = 0; i < doc.root.len(); i++ {
+        total += doc.root.at(i).some_or(Value::Null).as_integer().some_or(0);
+    }
+    println("{}", total)?;
+    return Status::Ok;
+}
+"""
+expect = """
+60
+"""
+explanation = "With `<=` the loop asks for index 3, which does not exist; at returns an empty Optional and unwrap_some stops the program. Loop with `<`, and prefer some_or to unwrap_some for data you did not write yourself."
+
+[[questions]]
+id = "print-enum"
+type = "error"
+prompt = "Why does this program not compile?"
+code = """
+module main;
+
+import std::json;
+
+using std::json::JsonError;
+
+public Status(Error) main() {
+    JsonError problem = JsonError::InvalidNumber;
+    println("failed: {}", problem)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "not formattable"
+choices = [
+    "JsonError is private to std::json",
+    "An enum has no text form; the formatter needs a format hook, so match on it and print your own message",
+    "println cannot print enums declared with a size",
+    "InvalidNumber is not a variant of JsonError",
+]
+answer = 2
+why = [
+    "It is public, and the program names it.",
+    "",
+    "The size has nothing to do with it.",
+    "It is a variant; the spelling is right.",
+]
+explanation = "Enums do not format themselves. Write a match that prints a message per variant, or a function that does."
+
+[[questions]]
+id = "read-steps"
+type = "order"
+prompt = "Put the lines of this body in the order that parses a text, reads the name and releases the document."
+code = """
+Document() doc = std::json::parse(text)?;
+defer doc.deinit();
+Value name = doc.root.get("name").some_or(Value::Null);
+println("{}", name.as_string().some_or("?"))?;
+"""
+explanation = "The document must exist before the defer that releases it, and the defer comes right after the parse so that every later exit is covered. The lookup needs the document, and printing needs the lookup."
+
+[[questions]]
+id = "true-statements"
+type = "multi"
+prompt = "Select every true statement."
+choices = [
+    "A TOML Document and a JSON Document are both released with deinit",
+    "std::toml has an Emitter like std::json",
+    "get_path can read `server.ports` from a TOML table",
+    "The JSON Scanner needs a Document to run",
+    "The strings read from a document stay valid after deinit",
+]
+answers = [1, 3]
+why = [
+    "",
+    "Only std::json can write; TOML has no writer in the library.",
+    "",
+    "The Scanner reads text directly and allocates nothing.",
+    "deinit frees them. Copy what you need before it runs.",
+]
+explanation = "Both document types own their strings and free them in deinit. get_path walks nested tables. Writing is JSON only, and the Scanner works on text without any document."
+
+[[questions]]
+id = "move-out"
+type = "short"
+prompt = "Which Document method moves the tree out and leaves the original document empty?"
+accept = ["take", "take()"]
+explanation = "take returns a document holding the tree and sets the original's root to Null, so each can be released safely. clone makes an independent copy instead."
+
+[[cards]]
+id = "drill-lookup"
+front = "get/at returned an empty Optional. Why can that mean two different things?"
+back = "The key may be missing, or the index out of range; either way the Optional is empty. An as_* conversion is empty for a present value of the wrong kind."

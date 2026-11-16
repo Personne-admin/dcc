@@ -1,0 +1,37 @@
+module main;
+
+import std::fmt;
+import std::os::file;
+
+using std::fmt::BufferWriter;
+using std::os::file::{File, FileWriter, stdout};
+
+Status(Error) write_row(W)(W* out, []const char name, i32 qty) if std::fmt::Writer(W) {
+    std::fmt::format(out, "{:<8}|{:>4}\n", name, qty)?;
+    return Status::Ok;
+}
+
+Status(Error) write_table(W)(W* out) if std::fmt::Writer(W) {
+    write_row(out, "pens", 12)?;
+    write_row(out, "paper", 3)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    FileWriter console = FileWriter::new(stdout());
+    write_table(&console)?;
+
+    File f = std::os::file::create("table.txt")?;
+    defer f.close();
+    FileWriter disk = FileWriter::new(f);
+    write_table(&disk)?;
+
+    char[64] storage = {};
+    BufferWriter buffer = BufferWriter::new(storage[0..64]);
+    write_table(&buffer)?;
+    println("buffer holds {} bytes", std::fmt::written_slice(&buffer).len)?;
+    println("file holds {} bytes", std::os::file::metadata("table.txt")?.size)?;
+
+    std::os::file::delete_file("table.txt")?;
+    return Status::Ok;
+}

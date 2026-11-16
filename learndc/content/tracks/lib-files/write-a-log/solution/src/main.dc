@@ -1,0 +1,95 @@
+module main;
+
+import std::fmt;
+import std::os::file;
+import std::slice;
+
+using std::os::file::{File, FileWriter, OpenFlags};
+using std::slice::Split;
+
+Status(Error) read_text([]const char path, Array(char)* out) {
+    File f = std::os::file::open(path, std::os::file::read_only())?;
+    defer f.close();
+    out.resize(f.size()? as usize)?;
+    usize got = f.read_all(out.items() as []u8)?;
+    out.resize(got)?;
+    return Status::Ok;
+}
+
+Status(Error) log_line([]const char path, []const char level, []const char message) {
+    OpenFlags flags = std::os::file::write_only();
+    flags.truncate = false;
+    flags.append = true;
+    File f = std::os::file::open(path, flags)?;
+    defer f.close();
+
+    FileWriter out = FileWriter::new(f);
+    std::fmt::format(&out, "[{}] {}\n", level, message)?;
+    return Status::Ok;
+}
+
+Status(Error) print_numbered([]const char path) {
+    Array(char) text = {};
+    defer text.deinit();
+    read_text(path, &text)?;
+
+    Split(char) lines = std::slice::split(text.items() as []const char, '\n' as char);
+    usize number = 0;
+    while true {
+        Optional([]const char) next = std::slice::next(&lines);
+        if next.is_none() {
+            break;
+        }
+        []const char line = next.unwrap_some();
+        if line.len == 0 {
+            continue;
+        }
+        number += 1;
+        println("{} {}", number, line)?;
+    }
+    return Status::Ok;
+}
+
+Result(usize, Error) count_level([]const char path, []const char level) {
+    Array(char) text = {};
+    defer text.deinit();
+    read_text(path, &text)?;
+
+    char[16] tag = {};
+    []const char wanted = std::fmt::format_buf(tag[0..16], "[{}]", level)?;
+
+    Split(char) lines = std::slice::split(text.items() as []const char, '\n' as char);
+    usize count = 0;
+    while true {
+        Optional([]const char) next = std::slice::next(&lines);
+        if next.is_none() {
+            break;
+        }
+        if std::slice::starts_with(next.unwrap_some(), wanted) {
+            count += 1;
+        }
+    }
+    return Result::Ok(count);
+}
+
+public Status(Error) main() {
+    if std::os::file::exists("app.log") {
+        std::os::file::delete_file("app.log")?;
+    }
+
+    log_line("app.log", "INFO", "server started")?;
+    log_line("app.log", "WARN", "disk at 91 percent")?;
+    log_line("app.log", "ERROR", "write failed")?;
+    log_line("app.log", "INFO", "retrying")?;
+    log_line("app.log", "ERROR", "write failed again")?;
+
+    print_numbered("app.log")?;
+    println("errors: {}", count_level("app.log", "ERROR")?)?;
+
+    log_line("app.log", "INFO", "second session")?;
+    log_line("app.log", "INFO", "shutting down")?;
+    println("after second session: {} lines", count_level("app.log", "INFO")? + count_level("app.log", "WARN")? + count_level("app.log", "ERROR")?)?;
+
+    std::os::file::delete_file("app.log")?;
+    return Status::Ok;
+}

@@ -1,0 +1,199 @@
+schema = 1
+id = "lib-collections/collections-drill"
+revision = 1
+kind = "drill"
+title = "Collections drills"
+summary = "Predict, debug and order code that grows arrays, sorts with comparisons, walks maps and lists and handles text."
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["Array", "Map", "sort", "list", "utf8", "hashing", "iteration order"]
+tags = ["drill", "collections"]
+objectives = [
+    "Predict the result of array edits and stable sorts",
+    "Spot byte-versus-character and stale-slice bugs",
+    "Read compiler errors about comparison functions and list indexing",
+]
+prerequisites = ["lib-collections/custom-format"]
+
+[[questions]]
+id = "edit-sequence"
+type = "predict"
+prompt = "What does this program print? Type every line."
+code = """
+module main;
+
+Status(Error) show([]const i32 items) {
+    for item in items {
+        print("{} ", item)?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Array(i32) a = {};
+    defer a.deinit();
+    for i32 n in 1..=5 {
+        a.push(n)?;
+    }
+    a.swap_remove(1);
+    show(a.items())?;
+    a.remove(0);
+    show(a.items())?;
+    a.insert(1, 9)?;
+    show(a.items())?;
+    println("{}", a.len())?;
+    return Status::Ok;
+}
+"""
+expect = """
+1 5 3 4 
+5 3 4 
+5 9 3 4 
+4
+"""
+explanation = "swap_remove(1) moves the last element (5) into index 1: 1 5 3 4. remove(0) drops the 1 and shifts the rest left: 5 3 4. insert(1, 9) puts 9 at index 1 and shifts 3 and 4 right: 5 9 3 4, four elements."
+
+[[questions]]
+id = "stable-ties"
+type = "choice"
+prompt = "Players are Ana 70, Bo 85, Cy 70, Dara 85 in that order. They are sorted with `sort_stable_by` and a comparison that puts the higher score first. Which order comes out?"
+choices = [
+    "Bo, Dara, Ana, Cy",
+    "Dara, Bo, Cy, Ana",
+    "Bo, Dara, Cy, Ana",
+    "The order of ties is undefined",
+]
+answer = 1
+why = [
+    "",
+    "A stable sort never reverses equal elements; Bo came before Dara in the input.",
+    "Cy has the same score as Ana and came after her in the input, so Ana stays first.",
+    "That is true of sort_by, the unstable sort, not of sort_stable_by.",
+]
+explanation = "Both 85s keep their input order (Bo, Dara) and so do both 70s (Ana, Cy). Stability only promises that ties are not reordered; the comparison decides everything else."
+
+[[questions]]
+id = "byte-cut"
+type = "bug"
+prompt = "`shorten` should return at most `n` characters of a UTF-8 text. It sometimes leaves half a character at the end. Which line is the bug?"
+code = """
+[]const char shorten([]const char text, usize n) {
+    if text.len <= n {
+        return text;
+    }
+    return text[0..n];
+}
+"""
+lines = [5]
+explanation = "`text[0..n]` cuts after n bytes, and a character can take up to 4. Walk the text with std::utf8::decode_lossy and add each character's width until n characters were taken. The length check on line 2 has the same flaw: bytes are not characters."
+
+[[questions]]
+id = "no-indexing-list"
+type = "error"
+prompt = "Why does the compiler reject this program?"
+code = """
+module main;
+
+import std::list;
+
+public Status(Error) main() {
+    std::list::List(i32) numbers = std::list::new_list();
+    println("{}", numbers[0])?;
+    return Status::Ok;
+}
+"""
+diagnostic = "indexing non-indexable type"
+choices = [
+    "A list is empty, so index 0 does not exist",
+    "A List is made of linked nodes and has no index operator; walk it with an iterator",
+    "println cannot print an i32 from a list",
+    "std::list needs an allocator argument",
+]
+answer = 2
+why = [
+    "The error is about the type, not the contents; the program would not compile even for a full list.",
+    "",
+    "println prints any i32.",
+    "An allocator is only needed for push_back_alloc and friends.",
+]
+explanation = "Elements of a list live in separate nodes, so there is no cheap way to find the n-th one. Use iterate() and next(), or keep the data in an Array if you need indexing."
+
+[[questions]]
+id = "wrong-comparator"
+type = "error"
+prompt = "`players` is an `Array(Player)`. Why is this call rejected?"
+code = """
+module main;
+
+import std::sort;
+
+struct Player { u32 score; }
+
+i32 by_score(Player* a, Player* b) {
+    return 0;
+}
+
+public Status(Error) main() {
+    Array(Player) players = {};
+    defer players.deinit();
+    std::sort::sort_by(players.items(), by_score);
+    return Status::Ok;
+}
+"""
+diagnostic = "no matching call for `std::sort::sort_by`"
+choices = [
+    "sort_by needs the scratch array too",
+    "The comparison function has to take `const Player*` parameters, but this one takes `Player*`",
+    "An Array cannot be sorted; only a slice of numbers can",
+    "by_score must return bool",
+]
+answer = 2
+why = [
+    "That is sort_stable_by, the stable variant.",
+    "",
+    "players.items() is exactly the slice sort_by wants, of any element type.",
+    "The result is an i32: negative, zero or positive.",
+]
+explanation = "sort_by expects `i32(*)(const T*, const T*)`. A function taking `Player*` has a different type, so no overload matches. The comparison promises not to change the elements by taking const pointers."
+
+[[questions]]
+id = "map-order"
+type = "order"
+prompt = "Put these lines in order so the program prints a `Map(u32, u32)` sorted by key."
+code = """
+Array(u32) keys = {};
+defer keys.deinit();
+collect_keys(&map, &keys)?;
+std::sort::sort(keys.items());
+for key in keys.items() {
+println("{}: {}", key, map.get(key).some_or(0))?;
+}
+"""
+explanation = "The array of keys has to exist (and be released with defer) before it is filled; it is filled by walking the map; only then is it sorted; the loop prints through the sorted keys, looking each value up."
+
+[[questions]]
+id = "sha-or-fnv"
+type = "multi"
+prompt = "Which jobs belong to SHA-256 rather than FNV-1a?"
+choices = [
+    "Deciding whether two files have the same content",
+    "Spreading names over 8 worker queues",
+    "Recording a fingerprint of a downloaded file to check it later",
+    "Computing a hash for every key of a hash table",
+]
+answers = [1, 3]
+why = [
+    "",
+    "A 32-bit hash modulo 8 is exactly right for balancing; SHA would be needlessly slow.",
+    "",
+    "Hash tables want a very fast hash; collisions are handled by the table.",
+]
+explanation = "Identity and integrity need a hash where equal digests really mean equal content. Balancing and tables only need a fast, well spread number."
+
+[[questions]]
+id = "digest-length"
+type = "short"
+prompt = "How many bytes long is a SHA-256 digest? Answer with the number."
+accept = ["32"]
+explanation = "SHA-256 produces 256 bits, which is 32 bytes. Written as hex that is 64 characters, which is why the lesson's buffers were u8[32] and char[64]."

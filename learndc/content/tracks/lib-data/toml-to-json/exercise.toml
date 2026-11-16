@@ -1,0 +1,64 @@
+schema = 1
+id = "lib-data/toml-to-json"
+revision = 1
+title = "Convert TOML to JSON"
+summary = "Walk a parsed TOML tree recursively and emit it as JSON, then parse the result to prove it is valid."
+kind = "libdcext"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["toml", "json", "Emitter", "recursion", "match", "round trip"]
+tags = ["library", "toml", "json"]
+objectives = [
+    "Match on every kind of TOML Value and emit the matching JSON token",
+    "Recurse through arrays and nested tables with two mutually recursive functions",
+    "Check the output by parsing it again with std::json",
+]
+entry_file = "src/main.dc"
+product = "tomljson"
+prerequisites = ["lib-data/structured-data-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "TOML converted to JSON"
+expect_stdout = """
+{
+  "title": "Demo \\"quoted\\"",
+  "count": 3,
+  "ratio": 2.500000,
+  "debug": true,
+  "released": "2026-11-16",
+  "server": {
+    "host": "localhost",
+    "ports": [
+      80,
+      443
+    ]
+  },
+  "user": [
+    {
+      "name": "ann",
+      "roles": [
+        "admin",
+        "dev"
+      ]
+    },
+    {
+      "name": "bob",
+      "roles": []
+    }
+  ]
+}
+round trip: 7 members, 2 users
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Tables become objects (key, then value, for every entry in order), arrays become arrays, and the date is written by emit_date as a string. Floats print with six decimals."

@@ -1,0 +1,141 @@
+schema = 1
+id = "lib-data/json-output"
+revision = 1
+title = "Writing JSON: Emitter and writers"
+summary = "Emit JSON with the Emitter into a file or a buffer, and render a parsed Value back out."
+kind = "lecture"
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = ["Emitter", "Writer", "FileWriter", "BufferWriter", "json::write", "escaping"]
+tags = ["lecture", "library", "json"]
+objectives = [
+    "Emit an object with nested arrays through an Emitter and a writer",
+    "Pick a writer for the destination and handle a buffer that is too small",
+    "Render a parsed Value back out with write and an indent",
+]
+prerequisites = ["lib-data/locate-errors"]
+
+[[examples]]
+name = "emit_object"
+expect_stdout = """
+{
+  "name": "Ada \\"the first\\"",
+  "visits": 3,
+  "tags": [
+    "a",
+    "b"
+  ],
+  "nickname": null
+}
+"""
+
+[[examples]]
+name = "buffer_output"
+expect_stdout = """
+[1,true,"x"]
+12 bytes
+"""
+
+[[examples]]
+name = "rewrite"
+expect_stdout = """
+{"b":[1,2.500000,{"c":null}],"a":"x"}
+{
+  "b": [
+    1,
+    2.500000,
+    {
+      "c": null
+    }
+  ],
+  "a": "x"
+}
+"""
+
+[[questions]]
+id = "compact"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+import std::json;
+import std::fmt;
+
+using std::json::Emitter;
+using std::fmt::BufferWriter;
+
+public Status(Error) main() {
+    char[64] storage = {};
+    BufferWriter buffer = BufferWriter::new(storage[0..64]);
+    Emitter(BufferWriter) json = Emitter(BufferWriter)::new(&buffer, 0);
+    json.begin_object()?;
+    json.key("a")?;
+    json.integer(1)?;
+    json.key("b")?;
+    json.begin_array()?;
+    json.boolean(false)?;
+    json.null_value()?;
+    json.end_array()?;
+    json.end_object()?;
+    println("{}", std::fmt::written_slice(&buffer))?;
+    return Status::Ok;
+}
+"""
+expect = """
+{"a":1,"b":[false,null]}
+"""
+explanation = "With an indent of 0 the emitter writes no spaces or newlines. It inserts the comma between items and the colon after a key on its own."
+
+[[questions]]
+id = "unchecked"
+type = "choice"
+prompt = "Your code calls `begin_array`, writes two integers and then calls `end_object` by mistake. What happens?"
+choices = [
+    "The emitter returns an error at end_object",
+    "The program stops with a panic",
+    "A `}` is written and the output is invalid JSON; nothing is reported",
+    "The emitter repairs it by writing `]`",
+]
+answer = 3
+why = [
+    "The emitter does not track what is open, so it has nothing to compare with.",
+    "No check exists that could panic.",
+    "",
+    "It writes what you asked for.",
+]
+explanation = "The Emitter is a thin formatter. Balancing begin and end calls is your job, so keep them in the same function when you can."
+
+[[questions]]
+id = "no-println"
+type = "choice"
+prompt = "Why use `Emitter.string(name)` instead of `println(\"\\\"{}\\\"\", name)` to write a string value?"
+choices = [
+    "println cannot print quotes",
+    "string escapes quotes, backslashes and control characters, so any text gives valid JSON",
+    "string is faster",
+    "println cannot write to a file",
+]
+answer = 2
+why = [
+    "It can; the problem is what happens when the text itself holds a quote.",
+    "",
+    "Speed is not the reason.",
+    "It can write through any writer; the issue is escaping.",
+]
+explanation = "A name like Ada \"the first\" would break the JSON written by hand. The emitter escapes it."
+
+[[cards]]
+id = "emitter-calls"
+front = "How do you write an object member with the Emitter?"
+back = "`key(name)` followed by exactly one value call (string, integer, float, boolean, null_value, begin_object/begin_array or value(&v)). You pair begin/end yourself."
+
+[[cards]]
+id = "json-write"
+front = "How do you print a parsed Value as JSON again?"
+back = "`std::json::write(&writer, &doc.root, indent)`; indent 0 is compact. Order is kept; spacing and number spelling of the input are not."
+
+[[cards]]
+id = "writer-kinds"
+front = "Name three writers the Emitter works with."
+back = "FileWriter (a file or stdout), BufferWriter (a fixed buffer; read it with fmt::written_slice) and CountingWriter (only counts bytes)."

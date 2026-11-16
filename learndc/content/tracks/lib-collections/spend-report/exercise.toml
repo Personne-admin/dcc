@@ -1,0 +1,43 @@
+schema = 1
+id = "lib-collections/spend-report"
+revision = 1
+title = "A spending report in customer order"
+summary = "Total orders per customer in a Map, collect and sort the keys and print a report that never depends on hash order."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["Map", "get_or_put", "iterate", "sort", "Array"]
+tags = ["collections", "maps"]
+objectives = [
+    "Count and sum values per key with get_or_put",
+    "Collect map keys with iterate and sort them",
+    "Print a map in a reproducible order and pick a maximum with a defined tie rule",
+]
+entry_file = "src/main.dc"
+product = "spend_report"
+prerequisites = ["lib-collections/maps-in-depth"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The report lists customers by id"
+expect_stdout = """
+4 customers
+customer  7:   15.50
+customer 12:   15.50
+customer 31:   15.50
+customer 40:    0.99
+top spender: 7
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "add_up fills the map, sorted_ids lists its keys in ascending order, best_customer walks that list. Fix them in that order."

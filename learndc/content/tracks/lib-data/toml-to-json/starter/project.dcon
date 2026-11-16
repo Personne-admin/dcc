@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "tomljson",
+    version = "0.1.0",
+    products = {
+        { name = "tomljson", entry = "src/main.dc" },
+    },
+}

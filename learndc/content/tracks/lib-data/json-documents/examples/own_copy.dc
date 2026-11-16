@@ -1,0 +1,21 @@
+module main;
+
+import std::json;
+
+using std::json::{Document, Value};
+
+public Status(Error) main() {
+    Document() original = std::json::parse("{\"n\": 1, \"list\": [true, false]}")?;
+    defer original.deinit();
+
+    Document() copy = original.clone()?;
+    defer copy.deinit();
+
+    Document() moved = original.take();
+    defer moved.deinit();
+
+    println("original members: {}", original.root.len())?;
+    println("moved members: {}", moved.root.len())?;
+    println("copy members: {}", copy.root.len())?;
+    return Status::Ok;
+}

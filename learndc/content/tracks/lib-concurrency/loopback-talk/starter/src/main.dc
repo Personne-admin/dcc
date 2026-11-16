@@ -1,0 +1,78 @@
+module main;
+
+import std::os::net;
+import std::os::thread;
+import std::os::error;
+
+struct Server {
+    std::os::net::TcpListener listener;
+    u32 connections;
+    u32 handled;
+}
+
+bool read_line(std::os::net::TcpStream* stream, [] u8 line, usize* length) {
+    usize used = 0;
+    u8[1] one = {};
+    while used < line.len {
+        Result(usize, std::os::error::Error) got = stream.read_all(one[0..1]);
+        if got.is_err() || got.unwrap() != 1 {
+            return false;
+        }
+        if one[0] == '\n' as u8 {
+            *length = used;
+            return true;
+        }
+        line[used] = one[0];
+        used++;
+    }
+    return false;
+}
+
+void uppercase([] u8 bytes) {
+    for usize i = 0; i < bytes.len; i++ {
+        if bytes[i] >= 'a' as u8 && bytes[i] <= 'z' as u8 {
+            bytes[i] -= 32;
+        }
+    }
+}
+
+bool serve_connection(Server* server) {
+    // TODO: accept one client, read one line, uppercase it, write it back with a newline, close the connection
+    return false;
+}
+
+void serve(Server* server) {
+    for u32 i = 0; i < server.connections; i++ {
+        if serve_connection(server) {
+            server.handled += 1;
+        }
+    }
+}
+
+Result(usize, Error) ask(std::os::net::SocketAddrV4 address, []const char text, [] u8 reply) {
+    // TODO: connect, send text and a newline, read one line into reply and return its length
+    return Result::Ok(0 as usize);
+}
+
+public Status(Error) main() {
+    std::os::net::SocketAddrV4 any = {};
+    any.ip = std::os::net::IPV4_LOOPBACK;
+    any.port = 0;
+    Server server = {};
+    server.listener = std::os::net::bind(any)?;
+    defer server.listener.close();
+    std::os::net::SocketAddrV4 address = server.listener.local_addr()?;
+    server.connections = 3;
+
+    std::os::thread::Thread worker = std::os::thread::spawn(serve, &server)?;
+
+    []const []const char messages = { "hello", "dc on loopback", "" };
+    for message in messages {
+        u8[256] reply = {};
+        usize got = ask(address, message, reply[0..255])?;
+        println("sent {:>2} bytes, got back: [{}]", message.len, reply[0..got] as []const char)?;
+    }
+    worker.join()?;
+    println("server handled {} connections", server.handled)?;
+    return Status::Ok;
+}

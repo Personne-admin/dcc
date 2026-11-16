@@ -1,0 +1,38 @@
+module main;
+
+import std::json;
+import std::os::file;
+
+using std::json::Emitter;
+using std::os::file::{FileWriter, stdout};
+
+using Out = Emitter(FileWriter);
+
+struct Item {
+    []const char name;
+    i64 qty;
+    i64 price_cents;
+    []const char note;
+}
+
+Status(Error) write_item(Out* json, const Item* item) {
+    return Status::Ok;
+}
+
+Status(Error) write_report(Out* json, []const char shop, []const Item items) {
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Item[3] items = {
+        {name = "Pen", qty = 3, price_cents = 250, note = ""},
+        {name = "Ink \"blue\"", qty = 0, price_cents = 700, note = ""},
+        {name = "Pad", qty = 8, price_cents = 399, note = "A5, ruled"},
+    };
+
+    FileWriter out = FileWriter::new(stdout());
+    Out json = Emitter(FileWriter)::new(&out, 2);
+    write_report(&json, "Night Market", items[0..3])?;
+    out.write_all("\n")?;
+    return Status::Ok;
+}

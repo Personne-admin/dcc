@@ -1,0 +1,30 @@
+module main;
+
+import corpus;
+import scanner;
+
+public Status(Error) main() {
+    usize count = corpus::DOCUMENTS.len;
+    Array(scanner::Job) jobs = {};
+    defer jobs.deinit();
+    for document in corpus::DOCUMENTS {
+        jobs.push(scanner::Job { name = document.name, text = document.text, summary = {} })?;
+    }
+    scanner::Progress progress = {};
+    scanner::analyze_all(jobs.items(), 3, &progress)?;
+    println("{} documents, {} analysed", count, scanner::finished_count(&progress))?;
+
+    u32 total_words = 0;
+    u32 total_lines = 0;
+    for job in jobs.items() {
+        println("{:<8}{:>3} words{:>3} lines  {:016x}", job.name, job.summary.words, job.summary.lines, job.summary.checksum)?;
+        total_words += job.summary.words;
+        total_lines += job.summary.lines;
+    }
+    println("total: {} words, {} lines", total_words, total_lines)?;
+    match scanner::busiest(jobs.items()) {
+        Optional::Some(index) => println("busiest: {}", jobs.items()[index].name)?,
+        Optional::None => println("busiest: none")?,
+    }
+    return Status::Ok;
+}

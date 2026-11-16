@@ -1,0 +1,25 @@
+module wc;
+
+import scanner;
+import std::hash;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+
+public i32 main() {
+    i32 failures = 0;
+    Result(u32, Error) three = scanner::newlines_by_wc("a\nb\nc\n");
+    expect(three.is_ok() && three.unwrap() == 3, "three newlines", &failures);
+    Result(u32, Error) none = scanner::newlines_by_wc("no newline at all");
+    expect(none.is_ok() && none.unwrap() == 0, "text without a newline", &failures);
+    Result(u32, Error) empty = scanner::newlines_by_wc("");
+    expect(empty.is_ok() && empty.unwrap() == 0, "empty text", &failures);
+    return failures;
+}

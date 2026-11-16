@@ -1,0 +1,195 @@
+schema = 1
+id = "lib-concurrency/boss-parallel-checksums"
+revision = 1
+title = "The Parallel Checksummer"
+summary = "Analyse a corpus of documents on a thread pool: pure per-document summaries, a lock-protected progress counter, deterministic collection and an optional cross-check with a child program."
+kind = "challenge"
+difficulty = "advanced"
+estimated_minutes = 90
+concepts = ["ThreadPool", "Mutex", "spawn", "fnv1a_64", "result slots", "determinism", "Command", "pipe"]
+tags = ["boss", "threads", "pool", "process", "linux"]
+objectives = [
+    "Write a pure summary function and run it for every document on a pool",
+    "Share a progress counter safely and collect results by slot",
+    "Print one report whose order and numbers do not depend on scheduling",
+]
+entry_file = "src/main.dc"
+product = "parallel_checksums"
+prerequisites = ["lib-concurrency/concurrency-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[boss]
+rating = 4
+story = """
+The documentation team keeps seven files and a nervous habit: before every
+release they re-check that nothing changed. Their old script did it one file
+at a time and printed whatever finished first, so no two runs ever matched.
+You are replacing it with a tool that uses every core and still prints the
+same report every time.
+"""
+
+[[stages]]
+id = "old-script"
+title = "Read the old script"
+summary = "Find the two defects in the previous tool before you build the new one."
+questions = ["old-tally", "old-wait"]
+hints = ["One defect is about shared data, the other about when the results are read."]
+
+[[stages]]
+id = "summarize"
+title = "One document, one summary"
+summary = "summarize returns words, lines and an FNV-1a 64-bit checksum of one text."
+hints = [
+    "A word is a run of characters other than space, newline and tab: track whether you are inside one. Count a line for every newline.",
+    "A last line without a newline still counts: remember whether any character came after the last newline, and add one line at the end if so.",
+    "checksum = std::hash::fnv1a_64(text as []const u8). Return the Summary you filled in.",
+]
+
+[[stages]]
+id = "progress"
+title = "A progress counter"
+summary = "mark_finished and finished_count share one counter between threads under a Mutex."
+hints = [
+    "Both functions take progress.lock first. Put defer progress.lock.unlock(); on the next line.",
+    "mark_finished is progress.finished += 1 inside the lock; finished_count returns progress.finished from inside the lock.",
+]
+
+[[stages]]
+id = "analyze-all"
+title = "Analyse everything on a pool"
+summary = "analyze_all submits one task per job to a pool of the given size, waits for all of them and leaves a summary and a progress mark for every job."
+hints = [
+    "A task gets one void pointer. Pack the job and the progress counter into the Task struct and cast the context back to Task* inside analyze_task.",
+    "The pool keeps pointers to the tasks until they run, so the Task values must not move: create an Array(Task), resize it to jobs.len first, and only then take addresses of its items.",
+    "create the pool with defer destroy, fill and submit every task (&tasks.items()[i] as void*), then pool.wait_all(). With no jobs there is nothing to do.",
+]
+
+[[stages]]
+id = "busiest"
+title = "The busiest document"
+summary = "busiest returns the index of the job with the most words, the first one when several tie."
+hints = [
+    "Keep the best index as an Optional(usize) and its word count next to it. Replace it only when a job has strictly more words.",
+]
+
+[[stages]]
+id = "report"
+title = "The release report"
+summary = "main analyses the corpus on 3 workers and prints the per-document lines, the totals and the busiest document."
+hints = [
+    "Copy every Document into a Job (summary = {}) in an Array(scanner::Job) that main owns, then call analyze_all(jobs.items(), 3, &progress)?.",
+    "Print the jobs in array order with {:<8}, {:>3} words{:>3} lines, two spaces and {:016x} for the checksum. The totals add the per-document numbers.",
+]
+
+[[stages]]
+id = "wc-check"
+title = "Bonus: ask wc"
+summary = "newlines_by_wc starts `wc -l`, sends the text to its standard input and returns the number it prints."
+optional = true
+hints = [
+    "You need two pipes: one for the child's standard input and one for its output. The child's ends must be closed in your program as soon as it is spawned.",
+    "Order: spawn, close your copies of the child's ends, write the text and close the writer, read the answer, wait. Parse the digits with std::parse::accumulate_digits after skipping leading spaces.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "summarize counts words, lines and checksum"
+stage = "summarize"
+harness = "checks/summarize.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "the progress counter loses no update"
+stage = "progress"
+harness = "checks/progress.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "analyze_all gives every job its summary"
+stage = "analyze-all"
+harness = "checks/analyze.dc"
+expect_exit = 0
+max_seconds = 20
+
+[[checks]]
+kind = "harness"
+name = "busiest breaks ties by position"
+stage = "busiest"
+harness = "checks/busiest.dc"
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "run"
+name = "The release report"
+stage = "report"
+expect_stdout = """
+7 documents, 7 analysed
+readme   11 words  2 lines  f2fcd8456eb8d1fa
+notes    14 words  5 lines  fbca995ffaf35517
+empty     0 words  0 lines  cbf29ce484222325
+haiku    13 words  3 lines  3011af2dc5e7ce0d
+single    1 words  1 lines  1a08aa1921ca5caf
+spaces    5 words  3 lines  f482e58d1a397146
+poem     18 words  4 lines  127ee44af3cc1af1
+total: 62 words, 18 lines
+busiest: poem
+"""
+expect_exit = 0
+max_seconds = 20
+hint = "The report is printed after analyze_all returned, in document order. Name column {:<8}, then {:>3} words{:>3} lines, two spaces, 16 hex digits."
+
+[[checks]]
+kind = "harness"
+name = "wc agrees about the newlines"
+stage = "wc-check"
+harness = "checks/wc.dc"
+expect_exit = 0
+max_seconds = 20
+
+[[questions]]
+id = "old-tally"
+type = "bug"
+prompt = "The old tool's workers all update one shared count. On a busy machine the final number is sometimes too small. Which line is the bug?"
+code = """
+void worker(Totals* totals, u32 words) {
+    totals.lock.lock();
+    totals.words_seen += words;
+    totals.lock.unlock();
+    totals.documents_seen += 1;
+}
+"""
+lines = [5]
+explanation = "documents_seen is shared data like words_seen, but it is updated after the unlock, so two threads can read the same old value and one increment disappears. Every access to shared data holds the same lock: move the line above the unlock, or better use `defer` right after the lock."
+
+[[questions]]
+id = "old-wait"
+type = "choice"
+prompt = "The old tool submits every document to the pool and then immediately prints `results[i]` for every document. Some lines show zeros. What is missing?"
+choices = [
+    "More workers",
+    "A wait for the pool to finish all tasks (wait_all) before the results are read",
+    "A bigger results array",
+    "A sleep of one second before printing",
+]
+answer = 2
+why = [
+    "More workers make the race more likely to be lost, not less.",
+    "",
+    "The array size is not the problem: the values were not written yet.",
+    "A sleep might work on a fast machine today and fail tomorrow; it is a guess, not a guarantee.",
+]
+explanation = "submit only queues a task. Until wait_all returns, any task may still be waiting or running, so the slots may be unwritten. wait_all (or destroying the pool) is the guarantee that every result exists."

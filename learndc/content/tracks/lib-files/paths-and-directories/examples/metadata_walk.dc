@@ -1,0 +1,43 @@
+module main;
+
+import std::os::dir;
+import std::os::error;
+import std::os::file;
+
+using std::os::file::File;
+
+Status(Error) make_file([]const char name, []const char text) {
+    File f = std::os::file::create(name)?;
+    defer f.close();
+    f.write_all(text as []const u8)?;
+    return Status::Ok;
+}
+
+Status(Error) describe([]const char path) {
+    Result(std::os::dir::Metadata, std::os::error::Error) found = std::os::file::metadata(path);
+    if found.is_err() {
+        println("{}: does not exist", path)?;
+        return Status::Ok;
+    }
+    std::os::dir::Metadata info = found.unwrap();
+    if info.kind == std::os::dir::EntryKind::Directory {
+        println("{}: directory", path)?;
+    } else {
+        println("{}: file of {} bytes", path, info.size)?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    std::os::file::make_directory_all("probe/sub")?;
+    make_file("probe/sub/a.txt", "12345")?;
+
+    describe("probe/sub")?;
+    describe("probe/sub/a.txt")?;
+    describe("probe/sub/none.txt")?;
+
+    std::os::file::delete_file("probe/sub/a.txt")?;
+    std::os::file::remove_directory("probe/sub")?;
+    std::os::file::remove_directory("probe")?;
+    return Status::Ok;
+}

@@ -1,0 +1,6 @@
+schema = 1
+id = "lib-files"
+title = "Files, Directories and Paths"
+summary = "Read, write, list and organize files with handles that are closed on every path."
+goal = "Read and write files, list directories deterministically, work with paths and fail clearly when a file is missing."
+exercises = ["files-and-handles", "copy-a-file", "writers-and-lines", "write-a-log", "paths-and-directories", "list-a-tree", "files-drill", "boss-configuration-manager"]

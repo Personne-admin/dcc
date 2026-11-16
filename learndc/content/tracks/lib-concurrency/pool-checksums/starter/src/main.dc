@@ -1,0 +1,46 @@
+module main;
+
+import std::hash;
+import std::os::thread_pool;
+
+struct Job {
+    []const char name;
+    []const char text;
+    u64 checksum;
+}
+
+void checksum_task(void* context) {
+    // TODO: turn context back into a Job* and store the FNV-1a 64-bit hash of its text
+}
+
+Status(Error) run_pool([] Job jobs, usize workers) {
+    // TODO: create a pool of that many workers, submit one task per job, wait for all of them, destroy the pool
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Job[6] jobs = {
+        { "empty", "", 0 },
+        { "letter", "a", 0 },
+        { "greeting", "hello world", 0 },
+        { "numbers", "0123456789", 0 },
+        { "sentence", "the quick brown fox jumps over the lazy dog", 0 },
+        { "repeat", "abcabcabcabc", 0 },
+    };
+    run_pool(jobs[0..6], 3)?;
+    u64[6] first = {};
+    for usize i = 0; i < 6; i++ {
+        first[i] = jobs[i].checksum;
+        println("{:<9}{:016x}", jobs[i].name, jobs[i].checksum)?;
+        jobs[i].checksum = 0;
+    }
+    run_pool(jobs[0..6], 1)?;
+    bool same = true;
+    for usize i = 0; i < 6; i++ {
+        if jobs[i].checksum != first[i] {
+            same = false;
+        }
+    }
+    println("same sums with one worker: {}", same)?;
+    return Status::Ok;
+}

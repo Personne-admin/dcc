@@ -1,0 +1,29 @@
+module main;
+
+Status(Error) show([]const i32 items) {
+    for item in items {
+        print("{} ", item)?;
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Array(i32) a = {};
+    defer a.deinit();
+    for i32 n in 1..=5 { a.push(n * 10)?; }
+    show(a.items())?;
+    a.insert(1, 15)?;
+    show(a.items())?;
+    Optional(i32) gone = a.remove(0);
+    println("removed {}", gone.unwrap_some())?;
+    show(a.items())?;
+    Optional(i32) quick = a.swap_remove(0);
+    println("swap_removed {}", quick.unwrap_some())?;
+    show(a.items())?;
+    Optional(i32) top = a.pop();
+    println("popped {}, left {}", top.unwrap_some(), a.len())?;
+    Optional(i32) none = a.remove(99);
+    println("remove(99) is none: {}", none.is_none())?;
+    return Status::Ok;
+}

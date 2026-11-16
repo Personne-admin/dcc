@@ -1,0 +1,78 @@
+module main;
+
+import std::sort;
+
+struct Player {
+    []const char name;
+    u32 score;
+}
+
+i32 compare_text([]const char a, []const char b) {
+    usize shared = if a.len < b.len { a.len } else { b.len };
+    for usize i = 0; i < shared; i++ {
+        if a[i] != b[i] {
+            return if a[i] < b[i] { -1 } else { 1 };
+        }
+    }
+    if a.len == b.len {
+        return 0;
+    }
+    return if a.len < b.len { -1 } else { 1 };
+}
+
+i32 by_score_desc(const Player* a, const Player* b) {
+    // TODO: negative when a must come first (higher score first), positive when b must, else 0
+    return 0;
+}
+
+i32 by_name(const Player* a, const Player* b) {
+    // TODO: compare the names with compare_text
+    return 0;
+}
+
+Status(AllocError) rank(Array(Player)* players) {
+    // TODO: stable sort by by_score_desc; the stable sort needs scratch room of the same length
+    return Status::Ok;
+}
+
+Optional(usize) find_by_name([]const Player sorted, []const char name) {
+    // TODO: binary search in an array sorted by name
+    return Optional::None;
+}
+
+public Status(Error) main() {
+    Array(Player) players = {};
+    defer players.deinit();
+    []const Player roster = {
+        { "Ana", 70 },
+        { "Bo", 85 },
+        { "Cy", 70 },
+        { "Dara", 90 },
+        { "Eli", 85 },
+    };
+    players.append_slice(roster)?;
+
+    rank(&players)?;
+    println("ranking:")?;
+    usize place = 1;
+    for p in players.items() {
+        println("{}. {} {}", place, p.name, p.score)?;
+        place++;
+    }
+
+    std::sort::sort_by(players.items(), by_name);
+    print("alphabetical:")?;
+    for p in players.items() {
+        print(" {}", p.name)?;
+    }
+    println("")?;
+
+    []const []const char wanted = { "Eli", "Zed" };
+    for name in wanted {
+        match find_by_name(players.items(), name) {
+            Optional::Some(i) => println("{} is at index {}", name, i)?,
+            Optional::None => println("{} not found", name)?,
+        }
+    }
+    return Status::Ok;
+}

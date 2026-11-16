@@ -1,0 +1,40 @@
+schema = 1
+id = "lib-files/copy-a-file"
+revision = 1
+title = "Copy a file without leaking handles"
+summary = "Copy a file in chunks and count its lines, closing every handle on every path and leaving nothing behind when the source is missing."
+kind = "libdcext"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = ["File", "open", "create", "read", "write_all", "defer close", "chunked I/O", "error paths"]
+tags = ["library", "files"]
+objectives = [
+    "Read a file in fixed-size chunks until read returns 0",
+    "Close both handles on every path with defer",
+    "Open the source first so a failed copy does not create the destination",
+]
+entry_file = "src/main.dc"
+product = "copier"
+prerequisites = ["lib-files/files-and-handles"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Copy, count and a missing source"
+expect_stdout = """
+copied 68 bytes
+lines: 4
+copy of missing file failed: not found
+destination created: false
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "read returns 0 at the end of the file. A missing source must be detected before the destination is created."

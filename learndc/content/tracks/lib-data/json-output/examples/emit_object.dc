@@ -1,0 +1,29 @@
+module main;
+
+import std::json;
+import std::os::file;
+
+using std::json::Emitter;
+using std::os::file::{FileWriter, stdout};
+
+public Status(Error) main() {
+    FileWriter out = FileWriter::new(stdout());
+    Emitter(FileWriter) json = Emitter(FileWriter)::new(&out, 2);
+
+    json.begin_object()?;
+    json.key("name")?;
+    json.string("Ada \"the first\"")?;
+    json.key("visits")?;
+    json.integer(3)?;
+    json.key("tags")?;
+    json.begin_array()?;
+    json.string("a")?;
+    json.string("b")?;
+    json.end_array()?;
+    json.key("nickname")?;
+    json.null_value()?;
+    json.end_object()?;
+
+    out.write_all("\n")?;
+    return Status::Ok;
+}

@@ -1,0 +1,24 @@
+module digest;
+
+import analyzer;
+import std::slice;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+
+public i32 main() {
+    i32 failures = 0;
+    char[64] buffer = {};
+    []const char abc = analyzer::fingerprint("abc", buffer[0..64]);
+    expect(std::slice::eq(abc, "ba7816bf8f01"), "abc starts with ba7816bf8f01", &failures);
+    []const char empty = analyzer::fingerprint("", buffer[0..64]);
+    expect(std::slice::eq(empty, "e3b0c44298fc"), "empty text starts with e3b0c44298fc", &failures);
+    return failures;
+}

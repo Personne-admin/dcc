@@ -1,0 +1,98 @@
+module main;
+
+import std::os::thread;
+
+struct Tally {
+    std::os::thread::Mutex lock;
+    u32 words;
+    u32 documents;
+    u32 limit;
+}
+
+struct Work {
+    Tally* tally;
+    []const char text;
+}
+
+u32 count_words([]const char text) {
+    u32 words = 0;
+    bool inside = false;
+    for byte in text {
+        bool space = byte == ' ' as char || byte == '\n' as char;
+        if space {
+            inside = false;
+        } else if !inside {
+            inside = true;
+            words++;
+        }
+    }
+    return words;
+}
+
+void add_word(Tally* tally) {
+    tally.lock.lock();
+    defer tally.lock.unlock();
+    tally.words += 1;
+}
+
+bool try_add(Tally* tally, u32 amount) {
+    tally.lock.lock();
+    defer tally.lock.unlock();
+    if tally.words + amount > tally.limit {
+        return false;
+    }
+    tally.words += amount;
+    return true;
+}
+
+u32 words_so_far(Tally* tally) {
+    tally.lock.lock();
+    defer tally.lock.unlock();
+    return tally.words;
+}
+
+void worker(Work* work) {
+    u32 words = count_words(work.text);
+    for u32 round = 0; round < 20000; round++ {
+        for u32 i = 0; i < words; i++ {
+            add_word(work.tally);
+        }
+    }
+    work.tally.lock.lock();
+    work.tally.documents += 1;
+    work.tally.lock.unlock();
+}
+
+Status(Error) run_all(Tally* tally, []const []const char texts) {
+    Work[8] work = {};
+    std::os::thread::Thread[8] running;
+    usize count = texts.len;
+    for usize i = 0; i < count; i++ {
+        work[i].tally = tally;
+        work[i].text = texts[i];
+        running[i] = std::os::thread::spawn(worker, &work[i])?;
+    }
+    for usize i = 0; i < count; i++ {
+        running[i].join()?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    Tally tally = {};
+    tally.limit = 300003;
+    []const []const char texts = {
+        "the quick brown fox",
+        "jumps over the lazy dog",
+        "",
+        "one",
+        "alpha beta\ngamma delta epsilon\n",
+    };
+    run_all(&tally, texts)?;
+    println("after the workers: {} words, {} documents", words_so_far(&tally), tally.documents)?;
+    println("add 2: {}", try_add(&tally, 2))?;
+    println("add 2 again: {}", try_add(&tally, 2))?;
+    println("add 1: {}", try_add(&tally, 1))?;
+    println("final: {} words", words_so_far(&tally))?;
+    return Status::Ok;
+}

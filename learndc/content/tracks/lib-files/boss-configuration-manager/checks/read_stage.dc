@@ -1,0 +1,82 @@
+module read_stage;
+
+import fileio;
+import std::mem;
+import std::os::error;
+import std::os::file;
+
+using std::os::file::File;
+using FsError = std::os::error::Error;
+
+bool same([]const char a, []const char b) {
+    return std::mem::equal(a, b);
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    File f = std::os::file::create("read-stage.txt").unwrap();
+    f.write_all("alpha\nbeta\n").unwrap();
+    f.close();
+    File e = std::os::file::create("read-stage-empty.txt").unwrap();
+    e.close();
+
+    Array(char) text = {};
+    defer text.deinit();
+    Status(Error) first = fileio::read_file("read-stage.txt", &text);
+    if first.is_ok() && same(text.items() as []const char, "alpha\nbeta\n") {
+        println("ok: reads the whole file");
+    } else {
+        println("FAIL: read_file did not return the file content");
+        failures += 1;
+    }
+
+    Status(Error) second = fileio::read_file("read-stage.txt", &text);
+    if second.is_ok() && text.len() == 11 {
+        println("ok: reading again replaces the content");
+    } else {
+        println("FAIL: a second read must leave exactly the 11 bytes of the file");
+        failures += 1;
+    }
+
+    Status(Error) empty = fileio::read_file("read-stage-empty.txt", &text);
+    if empty.is_ok() && text.len() == 0 {
+        println("ok: an empty file gives an empty array");
+    } else {
+        println("FAIL: an empty file must give length 0");
+        failures += 1;
+    }
+
+    Status(Error) missing = fileio::read_file("read-stage-missing.txt", &text);
+    bool not_found = false;
+    if !missing.is_ok() {
+        match missing.unwrap_err() {
+            Error::Io(cause) => not_found = cause == FsError::NotFound,
+            _ => {},
+        }
+    }
+    if not_found {
+        println("ok: a missing file reports NotFound");
+    } else {
+        println("FAIL: a missing file must return the NotFound error");
+        failures += 1;
+    }
+
+    i32 bad = 0;
+    for i32 round = 0; round < 3000; round++ {
+        Status(Error) again = fileio::read_file("read-stage.txt", &text);
+        if !again.is_ok() {
+            bad += 1;
+        }
+    }
+    if bad == 0 {
+        println("ok: 3000 reads without running out of handles");
+    } else {
+        println("FAIL: handles are leaking, reads failed after the limit was reached");
+        failures += 1;
+    }
+
+    std::os::file::delete_file("read-stage.txt");
+    std::os::file::delete_file("read-stage-empty.txt");
+    return failures;
+}

@@ -1,0 +1,43 @@
+schema = 1
+id = "lib-files/write-a-log"
+revision = 1
+title = "A log file you can append to"
+summary = "Append formatted lines to a log with a FileWriter, then read the log back, numbering and counting its lines."
+kind = "libdcext"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["append", "FileWriter", "format", "split", "starts_with", "defer close"]
+tags = ["library", "files"]
+objectives = [
+    "Open a file for appending and write one formatted line through a FileWriter",
+    "Read the whole file and visit its non-empty lines",
+    "Count lines by a prefix, with the buffer for the prefix built by format_buf",
+]
+entry_file = "src/main.dc"
+product = "logbook"
+prerequisites = ["lib-files/writers-and-lines"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Log lines are appended and read back"
+expect_stdout = """
+1 [INFO] server started
+2 [WARN] disk at 91 percent
+3 [ERROR] write failed
+4 [INFO] retrying
+5 [ERROR] write failed again
+errors: 2
+after second session: 7 lines
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Each log_line call opens the file again. If an earlier line is missing after the next call, the file was opened with create instead of append."

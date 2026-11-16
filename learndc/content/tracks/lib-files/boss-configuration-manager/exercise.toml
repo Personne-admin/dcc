@@ -1,0 +1,278 @@
+schema = 1
+id = "lib-files/boss-configuration-manager"
+revision = 1
+title = "The Configuration Manager"
+summary = "Load layered TOML configuration files, merge them over built-in defaults, validate with clear messages and write a normalized result, closing every handle on every path."
+kind = "challenge"
+difficulty = "intermediate"
+estimated_minutes = 90
+concepts = ["File", "defer close", "Array", "toml", "Optional", "custom errors", "validation", "FileWriter", "rename", "error paths"]
+tags = ["boss", "library", "files", "toml"]
+objectives = [
+    "Read a whole file into an owning Array and close the handle on every path",
+    "Apply a TOML text over typed settings, reporting wrong kinds with a custom error",
+    "Merge layered files in order and treat a missing optional layer differently from a missing required one",
+    "Write a normalized TOML file, and optionally replace it atomically",
+]
+entry_file = "src/main.dc"
+product = "confman"
+prerequisites = ["lib-files/files-drill"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[boss]
+rating = 4
+story = """
+The market's servers are configured by three different people, and every
+Monday something is wrong: a port typed as text, a worker count of zero, a
+file half written when the power went. The owner wants one tool that reads
+the shared defaults, lays the local override on top, refuses nonsense in
+plain words and writes a clean file that the servers can trust.
+"""
+
+[[stages]]
+id = "legacy"
+title = "Read the legacy saver"
+summary = "Find the line of the old saver that can destroy a good config file."
+questions = ["legacy-save"]
+hints = ["Ask what is on disk after the function returns early because the settings are invalid."]
+
+[[stages]]
+id = "read-file"
+title = "Read a file whole"
+summary = "fileio::read_file loads a whole file into an Array(char), replaces earlier content and closes its handle on every path."
+hints = [
+    "Open with std::os::file::open(path, std::os::file::read_only())? and put defer f.close(); on the next line.",
+    "f.size()? tells you how long the file is. Resize the array to that size, read_all into out.items() as []u8, then resize to the number of bytes read.",
+]
+
+[[stages]]
+id = "apply-layer"
+title = "Apply a TOML layer"
+summary = "settings::apply_toml parses a TOML text and overwrites only the keys it contains, with a LoadError for every wrong kind."
+hints = [
+    "std::toml::parse(text) gives a Result(Document(), TomlError). Return LoadError::Syntax when it is an error, and put defer doc.deinit(); after the success check.",
+    "For each key: doc.root.get(\"port\") is an Optional. When it is Some, convert with as_integer, return the key's LoadError when that is empty and store the number otherwise. Keys that are absent leave the field alone.",
+    "For host use set_host(s, text): it returns false for text that is empty, longer than 63 bytes or holds a quote or backslash; that is LoadError::HostInvalid.",
+]
+
+[[stages]]
+id = "explain"
+title = "Say it clearly"
+summary = "settings::print_load_error prints one plain sentence per error and check_settings prints and counts the invalid values."
+hints = [
+    "Match on the LoadError and print inside each arm; the exact sentences are in the table of the README.",
+    "check_settings counts with a usize that starts at 0; print each problem line as it is found and return Result::Ok(problems).",
+]
+
+[[stages]]
+id = "merge-layers"
+title = "Merge the layers"
+summary = "manager::load_layers starts from the built-in defaults, applies the required defaults file, then the optional override file."
+hints = [
+    "Start with *s = default_settings(); so every call begins from the same state.",
+    "Write a helper that reads a file into an Array(char) and applies it; map a failed read to LoadError::Unreadable, since the harness only distinguishes that from the parse errors.",
+    "Check std::os::file::exists(override_path) before the second layer: a missing override is fine, a missing defaults file is Unreadable.",
+]
+
+[[stages]]
+id = "save-normalized"
+title = "Write the normalized file"
+summary = "manager::save_settings writes host, port, workers and debug in that fixed order, with exactly the formatting of the README."
+hints = [
+    "create the file, defer the close, wrap the File in std::os::file::FileWriter::new(f) and write each line with std::fmt::format(&out, ...)?.",
+    "The host is written in double quotes: format(&out, \"host = \\\"{}\\\"\\n\", host_text(s)). Numbers and booleans are written bare.",
+]
+
+[[stages]]
+id = "scenarios"
+title = "Run the scenarios"
+summary = "main::run_scenario ties the pieces together: load, explain errors, validate, save, show the saved file and delete it."
+hints = [
+    "Print the heading first. A load error prints \"error: \" without a newline and then the message from print_load_error.",
+    "check_settings returns the number of problems; when it is above 0 print not saved: N problem(s) and return before saving.",
+    "After save_settings, read the file back with read_file and print the text, then delete it with std::os::file::delete_file.",
+]
+
+[[stages]]
+id = "atomic-save"
+title = "Bonus: replace the file atomically"
+summary = "manager::save_settings_atomic writes <path>.tmp first and renames it over the target, leaving no temporary file after a failure."
+optional = true
+hints = [
+    "Build the temporary name with std::fmt::format_buf into a char[256]: \"{}.tmp\".",
+    "Call save_settings on the temporary name; if that fails delete the temporary file and return the error. Then std::os::file::rename(temp, path); delete the temporary file if the rename fails.",
+]
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "harness"
+name = "read_file reads whole files and does not leak handles"
+stage = "read-file"
+harness = "checks/read_stage.dc"
+expect_stdout = """
+ok: reads the whole file
+ok: reading again replaces the content
+ok: an empty file gives an empty array
+ok: a missing file reports NotFound
+ok: 3000 reads without running out of handles
+"""
+expect_exit = 0
+max_seconds = 20
+
+[[checks]]
+kind = "harness"
+name = "apply_toml overlays keys and rejects wrong kinds"
+stage = "apply-layer"
+harness = "checks/apply_stage.dc"
+expect_stdout = """
+defaults: host=127.0.0.1 port=8080 workers=4 debug=false
+port and debug: host=127.0.0.1 port=9000 workers=4 debug=true
+host and workers: host=example.org port=9000 workers=8 debug=true
+empty text: host=example.org port=9000 workers=8 debug=true
+broken syntax: syntax
+port as text: port-not-number
+workers as float: workers-not-number
+debug as number: debug-not-bool
+host as number: host-not-text
+host with quote: host-invalid
+host too long: host-invalid
+good text: ok
+"""
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "error messages and validation"
+stage = "explain"
+harness = "checks/report_stage.dc"
+expect_stdout = """
+config is not valid TOML
+host must be a string
+host must be 1 to 63 characters without quotes or backslashes
+port must be a whole number
+workers must be a whole number
+debug must be true or false
+config file could not be read
+ok: default settings have no problems
+problem: port 70000 is outside 1..65535
+problem: workers 0 is outside 1..64
+ok: two problems counted
+problem: host is empty
+ok: an empty host is one problem
+ok: the limits themselves are allowed
+"""
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "layers merge over the built-in defaults"
+stage = "merge-layers"
+harness = "checks/layers_stage.dc"
+expect_stdout = """
+both layers: ok
+merged: host=0.0.0.0 port=9090 workers=2 debug=true
+no override file: ok
+defaults only: host=0.0.0.0 port=8080 workers=2 debug=false
+sparse file: ok
+built-ins fill the gaps: host=127.0.0.1 port=8080 workers=6 debug=false
+no defaults file: unreadable
+bad override: port-not-number
+"""
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "save_settings writes the normalized file"
+stage = "save-normalized"
+harness = "checks/save_stage.dc"
+expect_stdout = """
+ok: saved
+host = "example.org"
+port = 8443
+workers = 3
+debug = true
+ok: saved over the old file
+host = "127.0.0.1"
+port = 8080
+workers = 4
+debug = false
+ok: a missing folder is an error
+ok: 3000 saves without running out of handles
+"""
+expect_exit = 0
+max_seconds = 20
+
+[[checks]]
+kind = "run"
+name = "The five scenarios"
+stage = "scenarios"
+expect_stdout = """
+== merged
+host = "0.0.0.0"
+port = 9090
+workers = 2
+debug = true
+== defaults only
+host = "0.0.0.0"
+port = 8080
+workers = 2
+debug = false
+== out of range
+problem: port 70000 is outside 1..65535
+problem: workers 0 is outside 1..64
+not saved: 2 problem(s)
+== wrong type
+error: port must be a whole number
+== no defaults
+error: config file could not be read
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Scenario 3 prints two problem lines and then not saved; scenario 4 prints the error text of the wrong port; scenario 5 reports that the defaults file could not be read."
+
+[[checks]]
+kind = "harness"
+name = "save_settings_atomic replaces the file and leaves nothing behind"
+stage = "atomic-save"
+harness = "checks/atomic_stage.dc"
+expect_stdout = """
+ok: replaced the old file
+host = "127.0.0.1"
+port = 8080
+workers = 4
+debug = false
+ok: no temporary file after success
+ok: a missing folder is an error
+ok: a failed save leaves nothing behind
+"""
+expect_exit = 0
+max_seconds = 10
+
+[[questions]]
+id = "legacy-save"
+type = "bug"
+prompt = "The old saver below is called with invalid settings, and the good config file on disk is gone afterwards. Which line destroys it?"
+code = """
+Status(Error) save_if_valid(const Settings* s, []const char path) {
+    File f = std::os::file::create(path)?;
+    defer f.close();
+    if s.port < 1 || s.port > 65535 {
+        return Status::Ok;
+    }
+    FileWriter out = FileWriter::new(f);
+    std::fmt::format(&out, "port = {}\n", s.port)?;
+    return Status::Ok;
+}
+"""
+lines = [2]
+explanation = "create truncates the file the moment it runs, before the settings are checked. A refused save must not touch the file. Validate first and create afterwards; the bonus stage goes further and writes a temporary file that is renamed over the target only when it is complete."

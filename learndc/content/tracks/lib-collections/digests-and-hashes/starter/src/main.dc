@@ -1,0 +1,40 @@
+module main;
+
+import std::sha;
+import std::hash;
+import std::mem;
+
+[]const char fingerprint([]const char text, [] char out) {
+    // TODO: SHA-256 of text, written as 64 hex characters into out; return out[0..64]
+    return out[0..0];
+}
+
+[]const char fingerprint_parts([]const char first, []const char second, [] char out) {
+    // TODO: the same digest, fed in two update calls with a Sha256 value
+    return out[0..0];
+}
+
+bool same_content([]const char a, []const char b) {
+    // TODO: true when both texts have the same SHA-256 digest
+    return false;
+}
+
+u32 shard_of([]const char name, u32 shards) {
+    // TODO: the 32-bit FNV-1a hash of the name's bytes, modulo shards
+    return 0;
+}
+
+public Status(Error) main() {
+    char[64] buffer = {};
+    println("empty: {}", fingerprint("", buffer[0..64]))?;
+    println("abc:   {}", fingerprint("abc", buffer[0..64]))?;
+    println("parts: {}", fingerprint_parts("hello ", "world", buffer[0..64]))?;
+    println("whole: {}", fingerprint("hello world", buffer[0..64]))?;
+    println("same: {}", same_content("report v1", "report v1"))?;
+    println("same: {}", same_content("report v1", "report v2"))?;
+    []const []const char names = { "alpha", "beta", "gamma", "delta", "epsilon", "zeta" };
+    for name in names {
+        println("{:>8} -> shard {}", name, shard_of(name, 4))?;
+    }
+    return Status::Ok;
+}

@@ -1,0 +1,118 @@
+schema = 1
+id = "lib-data/json-errors"
+revision = 1
+title = "JSON errors: what failed, and where"
+summary = "Handle the JsonError values of a failed parse and locate a syntax error with the Scanner."
+kind = "lecture"
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = ["JsonError", "Result", "Scanner", "Position", "error handling", "TypeMismatch"]
+tags = ["lecture", "library", "json"]
+objectives = [
+    "Tell the main JsonError values apart and react to them with a match",
+    "Propagate a parse error with ? and know what the caller then sees",
+    "Find the line and column of a syntax error with the Scanner",
+]
+prerequisites = ["lib-data/walk-orders"]
+
+[[examples]]
+name = "handle_errors"
+expect_stdout = """
+port 8080
+valid JSON, but port is not a number
+not valid JSON: unexpected character
+not valid JSON: text ends too early
+could not read the settings
+"""
+
+[[examples]]
+name = "locate"
+expect_stdout = """
+valid
+error at line 2, column 13 (byte 21)
+error at line 1, column 11 (byte 10)
+"""
+
+[[questions]]
+id = "which-error"
+type = "choice"
+prompt = "Which JsonError does `std::json::parse(\"[1, 2\")` report?"
+choices = [
+    "UnexpectedByte",
+    "UnexpectedEnd",
+    "TrailingBytes",
+    "InvalidNumber",
+]
+answer = 2
+why = [
+    "Every byte that is there is valid; the problem is what is missing.",
+    "",
+    "TrailingBytes means a complete value followed by extra text. Here the value never completes.",
+    "1 and 2 are well-formed numbers.",
+]
+explanation = "The array is never closed, so the text ends in the middle of a value."
+
+[[questions]]
+id = "scan-position"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+import std::json;
+import std::parse;
+
+using std::json::{Event, JsonError, Scanner};
+using std::parse::Located;
+
+public Status(Error) main() {
+    Scanner scanner = std::json::scan("[1, 2,, 3]");
+    bool going = true;
+    while going {
+        Result(Located(Event), JsonError) step = std::json::next(&scanner);
+        if step.is_err() {
+            println("{}:{}", scanner.at.line, scanner.at.column)?;
+            going = false;
+        } else {
+            match step.unwrap().event {
+                Event::End => going = false,
+                _ => {},
+            }
+        }
+    }
+    return Status::Ok;
+}
+"""
+expect = """
+1:7
+"""
+explanation = "Counting from 1: `[` is column 1, `1` column 2, `,` 3, a space 4, `2` 5, the first comma 6 and the second comma 7. The scanner stops on the byte that cannot appear there."
+
+[[questions]]
+id = "mismatch-meaning"
+type = "multi"
+prompt = "Select every true statement about `JsonError::TypeMismatch`."
+choices = [
+    "The parser returns it when a string appears where a number was expected",
+    "Your own code can return it to say the JSON was valid but the shape was wrong",
+    "It lives in the same enum as the syntax errors, so one Result type covers both",
+    "It tells you the line and column",
+]
+answers = [2, 3]
+why = [
+    "The parser does not know what shape you expect; it only checks syntax.",
+    "",
+    "",
+    "No error value carries a position. Only the Scanner knows where it stopped.",
+]
+explanation = "The parser checks syntax only. Using TypeMismatch for shape errors lets a function return one error type for both kinds of failure."
+
+[[cards]]
+id = "json-where"
+front = "How do you get the line and column of a JSON syntax error?"
+back = "parse returns only the JsonError variant. Rescan the text with std::json::scan and std::json::next; scanner.at holds the line, column and offset where it stopped."
+
+[[cards]]
+id = "json-strict"
+front = "Which things does std::json::parse reject?"
+back = "Anything outside strict JSON: comments, trailing commas, single quotes, leading zeros, raw control characters in strings, and nesting deeper than 64 levels."

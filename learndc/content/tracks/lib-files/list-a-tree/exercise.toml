@@ -1,0 +1,51 @@
+schema = 1
+id = "lib-files/list-a-tree"
+revision = 1
+title = "List a directory tree"
+summary = "Walk a directory recursively in sorted order, printing an indented listing with file sizes and totals."
+kind = "libdcext"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["directories", "recursion", "path::join", "metadata", "sorting", "entry kind"]
+tags = ["library", "files", "directories"]
+objectives = [
+    "Recurse into subdirectories with a path built by join",
+    "Print entries in sorted order, with indentation by depth",
+    "Accumulate file, folder and byte totals through a pointer",
+]
+entry_file = "src/main.dc"
+product = "treelist"
+prerequisites = ["lib-files/paths-and-directories"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Sorted tree with totals"
+expect_stdout = """
+tree/
+  alpha.txt (6 bytes)
+  docs/
+    guide.txt (21 bytes)
+  readme.txt (22 bytes)
+  src/
+    deep/
+      notes.txt (31 bytes)
+    main.txt (8 bytes)
+    util.txt (8 bytes)
+  zeta.txt (15 bytes)
+files: 7
+folders: 3
+bytes: 111
+missing folder listed: false
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Entries of one folder are sorted together (files and folders by name). A folder prints its name with a trailing slash and is listed one level deeper right after it."

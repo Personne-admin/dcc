@@ -1,0 +1,51 @@
+schema = 1
+id = "lib-collections/ticket-queue"
+revision = 1
+title = "Run the ticket queue"
+summary = "Reserve room for a queue, add tickets at the end and the front, cancel one and serve the rest in order."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = ["Array", "reserve", "capacity", "insert", "remove", "index_of"]
+tags = ["collections", "arrays"]
+objectives = [
+    "Reserve capacity once and read len, capacity and spare room",
+    "Insert at the front and remove from the middle while keeping the order",
+    "Report an unknown ticket with an Optional or a bool instead of crashing",
+]
+entry_file = "src/main.dc"
+product = "ticket_queue"
+prerequisites = ["lib-collections/growth-and-capacity"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The queue is served in order"
+expect_stdout = """
+capacity 20, spare 20
+queue: 101 102 103 104 105
+queue: 99 101 102 103 104 105
+cancel 103: true
+cancel 500: false
+queue: 99 101 102 104 105
+serving 99
+serving 101
+serving 102
+serving 104
+serving 105
+nobody is waiting
+nobody is waiting
+spare room: 20
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Each helper is one or two lines. Check the capacity line first: it only comes out right when open_queue reserves."

@@ -1,0 +1,43 @@
+schema = 1
+id = "lib-collections/custom-format"
+revision = 1
+title = "Teach println your own types"
+summary = "Write format hooks for a struct and an enum, honour width and alignment with write_padded and format into a fixed buffer."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 35
+concepts = ["format", "Writer", "Options", "write_padded", "BufferWriter", "FormatError"]
+tags = ["collections", "fmt"]
+objectives = [
+    "Write a format hook that makes println understand your type",
+    "Honour the width and alignment of a placeholder with write_padded",
+    "Format into a fixed buffer and detect that it was too small",
+]
+entry_file = "src/main.dc"
+product = "custom_format"
+prerequisites = ["lib-collections/digests-and-hashes"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "println uses the hooks"
+expect_stdout = """
+price: $12.34
+refund: -$0.05
+[INFO] [WARN  ] [  FAIL] [ INFO ]
+spans: 3..9 and -2..2
+[ WARN] total $2500.00
+buffer too small
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Each hook is a function named format with the signature shown in the file. Start with Span: one call to std::fmt::format."

@@ -1,0 +1,38 @@
+module main;
+
+import std::toml;
+
+using std::toml::{Document, Value, Table};
+
+public Status(Error) main() {
+    []const char text =
+        \\ports = [80, 443, 8080]
+        \\
+        \\[[user]]
+        \\name = "ann"
+        \\admin = true
+        \\
+        \\[[user]]
+        \\name = "bob"
+    ;
+
+    Document() doc = std::toml::parse(text)?;
+    defer doc.deinit();
+
+    Value ports = doc.root.get("ports").some_or(Value::Bool(false));
+    []const Value port_list = ports.as_array().some_or({});
+    i64 sum = 0;
+    for port in port_list {
+        sum += port.as_integer().some_or(0);
+    }
+    println("{} ports, sum {}", port_list.len, sum)?;
+
+    Value users = doc.root.get("user").some_or(Value::Bool(false));
+    for user in users.as_array().some_or({}) {
+        Table fields = user.as_table().some_or({});
+        []const char name = fields.get("name").some_or(Value::Bool(false)).as_string().some_or("?");
+        bool admin = fields.get("admin").some_or(Value::Bool(false)).as_bool().some_or(false);
+        println("{}: admin={}", name, admin)?;
+    }
+    return Status::Ok;
+}

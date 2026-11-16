@@ -1,0 +1,72 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+
+using std::os::file::File;
+using FsError = std::os::error::Error;
+
+Result(u64, Error) copy_file([]const char from, []const char to) {
+    File src = std::os::file::open(from, std::os::file::read_only())?;
+    defer src.close();
+    File dst = std::os::file::create(to)?;
+    defer dst.close();
+
+    u8[16] chunk = {};
+    u64 total = 0;
+    while true {
+        usize n = src.read(chunk[0..16])?;
+        if n == 0 {
+            break;
+        }
+        dst.write_all(chunk[0..n])?;
+        total += n as u64;
+    }
+    return Result::Ok(total);
+}
+
+Result(usize, Error) count_lines([]const char path) {
+    File f = std::os::file::open(path, std::os::file::read_only())?;
+    defer f.close();
+
+    u8[16] chunk = {};
+    usize lines = 0;
+    while true {
+        usize n = f.read(chunk[0..16])?;
+        if n == 0 {
+            break;
+        }
+        for usize i = 0; i < n; i++ {
+            if chunk[i] == ('\n' as u8) {
+                lines += 1;
+            }
+        }
+    }
+    return Result::Ok(lines);
+}
+
+Status(Error) explain(Error failure) {
+    match failure {
+        Error::Io(cause) => match cause {
+            FsError::NotFound => println("copy of missing file failed: not found")?,
+            _ => println("copy failed: other error")?,
+        },
+        _ => println("copy failed: not a file error")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    u64 copied = copy_file("data/poem.txt", "poem-copy.txt")?;
+    println("copied {} bytes", copied)?;
+    println("lines: {}", count_lines("poem-copy.txt")?)?;
+
+    Result(u64, Error) missing = copy_file("data/none.txt", "none-copy.txt");
+    if missing.is_err() {
+        explain(missing.unwrap_err())?;
+    }
+    println("destination created: {}", std::os::file::exists("none-copy.txt"))?;
+
+    std::os::file::delete_file("poem-copy.txt")?;
+    return Status::Ok;
+}

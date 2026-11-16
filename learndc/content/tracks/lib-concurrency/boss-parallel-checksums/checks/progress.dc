@@ -1,0 +1,46 @@
+module progress;
+
+import scanner;
+import std::hash;
+import std::os::thread;
+import std::os::error;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+
+void hammer(scanner::Progress* progress) {
+    for u32 i = 0; i < 5000; i++ {
+        scanner::mark_finished(progress);
+    }
+}
+
+public i32 main() {
+    i32 failures = 0;
+    scanner::Progress progress = {};
+    expect(scanner::finished_count(&progress) == 0, "starts at zero", &failures);
+    std::os::thread::Thread[4] threads;
+    bool started = true;
+    for usize i = 0; i < 4; i++ {
+        Result(std::os::thread::Thread, std::os::error::Error) t = std::os::thread::spawn(hammer, &progress);
+        if t.is_err() {
+            started = false;
+        } else {
+            threads[i] = t.unwrap();
+        }
+    }
+    expect(started, "four threads started", &failures);
+    if started {
+        for usize i = 0; i < 4; i++ {
+            threads[i].join();
+        }
+    }
+    expect(scanner::finished_count(&progress) == 20000, "no update is lost", &failures);
+    return failures;
+}

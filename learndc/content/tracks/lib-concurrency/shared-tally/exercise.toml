@@ -1,0 +1,42 @@
+schema = 1
+id = "lib-concurrency/shared-tally"
+revision = 1
+title = "A tally shared by many threads"
+summary = "Protect a shared counter with a Mutex, unlock on every path with defer and refuse an update without leaving the lock held."
+kind = "implement-function"
+difficulty = "intermediate"
+estimated_minutes = 30
+concepts = ["Mutex", "lock", "unlock", "defer", "data race", "early return"]
+tags = ["threads", "mutex", "linux"]
+objectives = [
+    "Guard every access to shared data with the same Mutex",
+    "Pair lock with defer unlock so early returns cannot leave it locked",
+    "Explain why an unlocked version loses updates",
+]
+entry_file = "src/main.dc"
+product = "shared_tally"
+prerequisites = ["lib-concurrency/parallel-word-count"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Five workers update one tally"
+expect_stdout = """
+after the workers: 300000 words, 5 documents
+add 2: true
+add 2 again: false
+add 1: true
+final: 300003 words
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "Every function that touches tally.words takes the lock first. A function that hangs forgot to unlock on one of its return paths."

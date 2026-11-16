@@ -1,0 +1,41 @@
+module main;
+
+import std::os::thread;
+
+struct Chunk {
+    u32 first;
+    u32 last;
+    u64 sum;
+}
+
+void add_up(Chunk* chunk) {
+    u64 total = 0;
+    for u32 n = chunk.first; n <= chunk.last; n++ {
+        total += n as u64;
+    }
+    chunk.sum = total;
+}
+
+public Status(Error) main() {
+    Chunk[4] chunks = {
+        { 1, 25, 0 },
+        { 26, 50, 0 },
+        { 51, 75, 0 },
+        { 76, 100, 0 },
+    };
+    std::os::thread::Thread[4] workers;
+    for usize i = 0; i < 4; i++ {
+        workers[i] = std::os::thread::spawn(add_up, &chunks[i])?;
+    }
+    for usize i = 0; i < 4; i++ {
+        workers[i].join()?;
+    }
+    u64 total = 0;
+    for chunk in chunks {
+        println("{}..{}: {}", chunk.first, chunk.last, chunk.sum)?;
+        total += chunk.sum;
+    }
+    println("total: {}", total)?;
+    println("join twice fails: {}", !workers[0].join().is_ok())?;
+    return Status::Ok;
+}

@@ -1,0 +1,41 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+
+using std::os::file::File;
+using FsError = std::os::error::Error;
+
+Result(u64, Error) copy_file([]const char from, []const char to) {
+    return Result::Ok(0 as u64);
+}
+
+Result(usize, Error) count_lines([]const char path) {
+    return Result::Ok(0 as usize);
+}
+
+Status(Error) explain(Error failure) {
+    match failure {
+        Error::Io(cause) => match cause {
+            FsError::NotFound => println("copy of missing file failed: not found")?,
+            _ => println("copy failed: other error")?,
+        },
+        _ => println("copy failed: not a file error")?,
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    u64 copied = copy_file("data/poem.txt", "poem-copy.txt")?;
+    println("copied {} bytes", copied)?;
+    println("lines: {}", count_lines("poem-copy.txt")?)?;
+
+    Result(u64, Error) missing = copy_file("data/none.txt", "none-copy.txt");
+    if missing.is_err() {
+        explain(missing.unwrap_err())?;
+    }
+    println("destination created: {}", std::os::file::exists("none-copy.txt"))?;
+
+    std::os::file::delete_file("poem-copy.txt")?;
+    return Status::Ok;
+}

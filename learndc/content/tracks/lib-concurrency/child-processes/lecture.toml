@@ -1,0 +1,108 @@
+schema = 1
+id = "lib-concurrency/child-processes"
+revision = 1
+title = "Starting child programs"
+summary = "The std::process Command builder: arguments, exit status, launch failures versus failing programs, spawn, wait and kill."
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["Command", "spawn", "status", "ExitStatus", "Child", "wait", "kill", "deinit"]
+tags = ["lecture", "process", "linux"]
+objectives = [
+    "Build a command, run it and read its exit status",
+    "Tell a program that failed from a program that could not start",
+    "Spawn a child, check on it, kill it and wait for it exactly once"
+]
+prerequisites = ["lib-collections/boss-log-analyzer"]
+
+[[examples]]
+name = "exit_codes"
+expect_stdout = """
+true exited with 0
+false exited with 1
+sh exited with 3
+could not start it
+"""
+
+[[examples]]
+name = "kill_and_wait"
+expect_stdout = """
+still running: true
+signal 9, code 137
+success: false
+second wait failed: true
+"""
+
+[[questions]]
+id = "failed-vs-missing"
+type = "choice"
+prompt = "`Command::new(\"ls\")` ... `command.status()` returns `Ok` with `code` 2. What does that mean?"
+choices = [
+    "The program could not be started",
+    "The program ran and exited with code 2; starting it worked",
+    "The library failed to allocate memory",
+    "The child is still running",
+]
+answer = 2
+why = [
+    "A launch failure is an Err, not an Ok with a code.",
+    "",
+    "Allocation failures are Err values too.",
+    "status() waits for the child to finish.",
+]
+explanation = "The result has two layers. Err means the library could not run the program (no such program, no permission, out of memory). Ok(status) means it ran, and status.code says how it ended; deciding what a nonzero code means is up to the caller."
+
+[[questions]]
+id = "no-shell"
+type = "choice"
+prompt = "`command.arg(\"a b; rm x\")` is called on a command for `echo`. What does the child receive?"
+choices = [
+    "Three arguments: a, b; and rm and x",
+    "One argument whose text is `a b; rm x`",
+    "The shell runs `rm x` after echo",
+    "The call fails because of the semicolon",
+]
+answer = 2
+why = [
+    "Arguments are never split.",
+    "",
+    "There is no shell involved, so there is nothing to interpret the semicolon.",
+    "Any text without a NUL byte is a valid argument.",
+]
+explanation = "Each arg call adds exactly one argument string, copied as it is. There is no implicit shell, so spaces and metacharacters have no special meaning. Run `sh` with `-c` explicitly only when you really want shell syntax."
+
+[[questions]]
+id = "wait-once"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+import std::process;
+
+public Status(Error) main() {
+    std::process::Command command = std::process::Command::new("true")?;
+    defer command.deinit();
+    std::process::Child child = command.spawn()?;
+    println("first wait ok: {}", child.wait().is_ok())?;
+    println("second wait ok: {}", child.wait().is_ok())?;
+    return Status::Ok;
+}
+"""
+expect = """
+first wait ok: true
+second wait ok: false
+"""
+explanation = "wait reaps the child and releases its resources, so a child can be waited for exactly once. A second wait reports BadHandle."
+
+[[cards]]
+id = "proc-two-layers"
+front = "How do you tell a failing program from a program that could not start?"
+back = "status() or wait() returning Err means the launch or the wait failed. Ok(ExitStatus) means the program ran; code != 0 means it reported failure."
+[[cards]]
+id = "proc-cleanup"
+front = "What must you do with a Command and a spawned Child?"
+back = "defer command.deinit() right after creating the Command; call child.wait() exactly once for every spawned Child (also after kill)."
+[[cards]]
+id = "proc-no-shell"
+front = "Does Command run your arguments through a shell?"
+back = "No. Every arg is one separate string. Use Command::new(\"sh\") with \"-c\" and a script only when you want shell syntax."

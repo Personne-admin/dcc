@@ -1,0 +1,44 @@
+schema = 1
+id = "lib-data/read-settings"
+revision = 1
+title = "Read settings with defaults"
+summary = "Look keys up in a parsed JSON object and fall back to a default when a key is missing or has the wrong kind."
+kind = "libdcext"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["json", "Optional", "some_or", "as_string", "as_integer", "as_bool", "defaults"]
+tags = ["library", "json"]
+objectives = [
+    "Read a member of a JSON object with get and an as_* conversion",
+    "Use some_or so a missing key and a wrong kind both give the default",
+    "Keep the Document alive while the strings read from it are in use",
+]
+entry_file = "src/main.dc"
+product = "settings"
+prerequisites = ["lib-data/json-documents"]
+requires = ["dcc", "dpm"]
+min_dcc = "0.6.0"
+platforms = ["linux", "windows"]
+backends = ["llvm", "custom"]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Settings with defaults"
+expect_stdout = """
+name: Night Market
+port: 8080
+max_players: 16
+timeout: 30
+debug: true
+verbose: false
+motd: (none)
+region: unset
+"""
+expect_exit = 0
+max_seconds = 10
+hint = "A key that is missing, and a key whose value has another kind (max_players is a string, motd is null), must both give the default."

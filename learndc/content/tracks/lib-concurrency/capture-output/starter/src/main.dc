@@ -1,0 +1,53 @@
+module main;
+
+import std::process;
+import std::os::pipe;
+
+struct Captured {
+    usize len;
+    i32 code;
+}
+
+Result(Captured, Error) capture([]const char program, []const []const char arguments, [] u8 buffer) {
+    // TODO: run program with arguments, read everything it writes to standard output into buffer
+    return Result::Ok(Captured { len = 0, code = 0 });
+}
+
+usize count_lines([]const u8 output) {
+    // TODO: the number of newline bytes in output
+    return 0;
+}
+
+[]const char first_line([]const u8 output) {
+    usize end = 0;
+    while end < output.len && output[end] != '\n' as u8 {
+        end++;
+    }
+    return output[0..end] as []const char;
+}
+
+Status(Error) run([]const char title, []const char program, []const []const char arguments) {
+    u8[256] buffer = {};
+    Result(Captured, Error) result = capture(program, arguments, buffer[0..256]);
+    if result.is_err() {
+        println("{}: could not start", title)?;
+        return Status::Ok;
+    }
+    Captured got = result.unwrap();
+    println("{}: {} bytes, {} lines, exit {}", title, got.len, count_lines(buffer[0..got.len]), got.code)?;
+    println("  first line: {}", first_line(buffer[0..got.len]))?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    []const []const char words = { "alpha", "beta", "gamma" };
+    []const []const char sorted = { "-c", "printf 'pear\\napple\\nfig\\n' | sort" };
+    []const []const char partial = { "-c", "echo partial; exit 4" };
+    []const []const char nothing = {};
+    run("echo", "echo", words)?;
+    run("sort", "sh", sorted)?;
+    run("failing", "sh", partial)?;
+    run("silent", "true", nothing)?;
+    run("missing", "no-such-program-x1", nothing)?;
+    return Status::Ok;
+}

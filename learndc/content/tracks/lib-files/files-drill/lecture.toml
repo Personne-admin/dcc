@@ -1,0 +1,189 @@
+schema = 1
+id = "lib-files/files-drill"
+revision = 1
+title = "Drill: files, writers and directories"
+summary = "Mixed questions on closing handles, create versus append, writers and sorted directory listings."
+kind = "drill"
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = ["File", "defer close", "append", "Writer", "directory", "sorting", "errors"]
+tags = ["drill", "library", "files"]
+objectives = [
+    "Spot the exit that leaves a handle open",
+    "Predict what create, append and read_all do to file content",
+    "Order the steps of a safe copy and reason about listings",
+]
+prerequisites = ["lib-files/list-a-tree"]
+
+[[questions]]
+id = "append-then-create"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+import std::os::file;
+
+using std::os::file::{File, OpenFlags};
+
+Status(Error) add([]const char text, bool keep) {
+    OpenFlags flags = std::os::file::write_only();
+    if keep {
+        flags.truncate = false;
+        flags.append = true;
+    }
+    File f = std::os::file::open("d.txt", flags)?;
+    defer f.close();
+    f.write_all(text as []const u8)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    add("one", true)?;
+    add("two", true)?;
+    println("{}", std::os::file::metadata("d.txt")?.size)?;
+    add("x", false)?;
+    println("{}", std::os::file::metadata("d.txt")?.size)?;
+    std::os::file::delete_file("d.txt")?;
+    return Status::Ok;
+}
+"""
+expect = """
+6
+1
+"""
+explanation = "The first two calls append, so the file holds onetwo (6 bytes). The call with keep set to false uses write_only() as it is, which truncates: only the single byte x is left."
+
+[[questions]]
+id = "open-handle"
+type = "bug"
+prompt = "Which line leaves the file open when the file turns out to be empty?"
+code = """
+module main;
+
+import std::os::file;
+
+using std::os::file::File;
+
+Status(Error) first_byte([]const char name, u8* out) {
+    File f = std::os::file::open(name, std::os::file::read_only())?;
+    u8[1] one = {};
+    usize n = f.read_all(one[0..1])?;
+    if n == 0 {
+        return Status::Ok;
+    }
+    *out = one[0];
+    f.close();
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    u8 b = 0;
+    first_byte("none.txt", &b)?;
+    return Status::Ok;
+}
+"""
+lines = [12]
+explanation = "Line 12 is a return that skips the close at line 15. The read_all on line 10 can also fail through ?, and it skips the close too. One `defer f.close();` after the open fixes all of them."
+
+[[questions]]
+id = "bytes-not-text"
+type = "error"
+prompt = "Why does this program not compile?"
+code = """
+module main;
+
+import std::os::file;
+
+public Status(Error) main() {
+    []const char text = "hello";
+    std::os::file::File f = std::os::file::create("out.txt")?;
+    defer f.close();
+    f.write_all(text)?;
+    return Status::Ok;
+}
+"""
+diagnostic = "no matching UFCS function for `write_all`"
+choices = [
+    "File has no write_all method",
+    "File.write_all takes bytes ([]const u8), and a []const char variable must be converted with `as []const u8`",
+    "write_all can only be called on a FileWriter",
+    "create returns a Result that must be unwrapped with unwrap()",
+]
+answer = 2
+why = [
+    "It has write_all, taking bytes.",
+    "",
+    "FileWriter takes text; File takes bytes.",
+    "The `?` already unwraps the Result.",
+]
+explanation = "A file stores bytes and says so in its types. A string literal converts by itself, a variable of text type needs an explicit `as []const u8`."
+
+[[questions]]
+id = "safe-copy-order"
+type = "order"
+prompt = "Put the lines in the order of a copy that never leaves an empty destination behind and never leaks a handle, with each defer right after its open."
+code = """
+File src = std::os::file::open(from, std::os::file::read_only())?;
+defer src.close();
+File dst = std::os::file::create(to)?;
+defer dst.close();
+usize n = src.read(chunk[0..16])?;
+dst.write_all(chunk[0..n])?;
+"""
+explanation = "Open the source first, so a missing source fails before create can truncate or create the destination. Each defer goes right after its open. The read comes before the write that uses its result."
+
+[[questions]]
+id = "sort-why"
+type = "multi"
+prompt = "A program prints a directory listing and the output differs between two machines. Which statements are true?"
+choices = [
+    "The entries are returned in an order the file system chooses, so the program has to sort",
+    "Copying each name before the next call to next() is required to sort them safely",
+    "Skipping `.` and `..` is part of the listing code, because they are reported as ordinary entries",
+    "The library sorts entries alphabetically by default",
+]
+answers = [1, 2, 3]
+why = [
+    "",
+    "",
+    "",
+    "It does not: the order is whatever the system returns.",
+]
+explanation = "The listing gives you borrowed names in an unspecified order, including the dot entries. Copy, filter and sort them to get reproducible output."
+
+[[questions]]
+id = "fixed-buffer"
+type = "trace"
+prompt = "A CountingWriter receives the format `\"{}-{}\\n\"` with the arguments 12 and 345. What number is its `count` afterwards? (Answer with digits.)"
+code = """
+module main;
+
+import std::fmt;
+
+using std::fmt::CountingWriter;
+
+public Status(Error) main() {
+    CountingWriter counter = CountingWriter::new();
+    std::fmt::format(&counter, "{}-{}\\n", 12, 345)?;
+    println("{}", counter.count)?;
+    return Status::Ok;
+}
+"""
+accept = ["7"]
+expect = """
+7
+"""
+explanation = "The output would be 12-345 followed by a newline: two digits, a dash, three digits and the newline make 7 bytes."
+
+[[questions]]
+id = "remove-dir"
+type = "short"
+prompt = "Which std::os::file function removes an empty directory? (the function name)"
+accept = ["remove_directory", "remove_directory()"]
+explanation = "remove_directory removes one empty directory. delete_file removes a file. A directory with content must be emptied first."
+
+[[cards]]
+id = "drill-create-append"
+front = "create(name) versus open with append?"
+back = "create empties an existing file. Append (write_only with truncate off and append on) keeps the content and adds at the end."

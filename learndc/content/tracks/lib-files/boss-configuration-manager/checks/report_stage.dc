@@ -1,0 +1,60 @@
+module report_stage;
+
+import settings;
+
+using settings::{LoadError, Settings, check_settings, default_settings, print_load_error};
+
+public i32 main() {
+    print_load_error(LoadError::Syntax);
+    print_load_error(LoadError::HostNotText);
+    print_load_error(LoadError::HostInvalid);
+    print_load_error(LoadError::PortNotNumber);
+    print_load_error(LoadError::WorkersNotNumber);
+    print_load_error(LoadError::DebugNotBool);
+    print_load_error(LoadError::Unreadable);
+
+    i32 failures = 0;
+
+    Settings good = default_settings();
+    Result(usize, Error) none = check_settings(&good);
+    if none.is_ok() && none.unwrap() == 0 {
+        println("ok: default settings have no problems");
+    } else {
+        println("FAIL: default settings must have no problems");
+        failures += 1;
+    }
+
+    Settings bad = default_settings();
+    bad.port = 70000;
+    bad.workers = 0;
+    Result(usize, Error) two = check_settings(&bad);
+    if two.is_ok() && two.unwrap() == 2 {
+        println("ok: two problems counted");
+    } else {
+        println("FAIL: port 70000 and workers 0 are two problems");
+        failures += 1;
+    }
+
+    Settings empty = {};
+    empty.port = 80;
+    empty.workers = 64;
+    Result(usize, Error) host = check_settings(&empty);
+    if host.is_ok() && host.unwrap() == 1 {
+        println("ok: an empty host is one problem");
+    } else {
+        println("FAIL: only the empty host is wrong here");
+        failures += 1;
+    }
+
+    Settings edge = default_settings();
+    edge.port = 65535;
+    edge.workers = 1;
+    Result(usize, Error) edges = check_settings(&edge);
+    if edges.is_ok() && edges.unwrap() == 0 {
+        println("ok: the limits themselves are allowed");
+    } else {
+        println("FAIL: port 65535 and workers 1 are valid");
+        failures += 1;
+    }
+    return failures;
+}

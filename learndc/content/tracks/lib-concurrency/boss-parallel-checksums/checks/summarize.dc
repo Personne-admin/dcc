@@ -1,0 +1,30 @@
+module summarize;
+
+import scanner;
+import std::hash;
+
+void expect(bool ok, []const char what, i32* failures) {
+    if ok {
+        println("ok    {}", what);
+    } else {
+        println("FAIL  {}", what);
+        *failures += 1;
+    }
+}
+
+
+bool is(scanner::Summary s, u32 words, u32 lines) {
+    return s.words == words && s.lines == lines;
+}
+
+public i32 main() {
+    i32 failures = 0;
+    expect(is(scanner::summarize("a b\nc"), 3, 2), "text without a final newline", &failures);
+    expect(is(scanner::summarize(""), 0, 0), "empty text", &failures);
+    expect(is(scanner::summarize("one two\n"), 2, 1), "one terminated line", &failures);
+    expect(is(scanner::summarize("  x \t y\n\n"), 2, 2), "blank lines count, separators are not words", &failures);
+    expect(is(scanner::summarize("\n\n\n"), 0, 3), "only newlines", &failures);
+    expect(scanner::summarize("a").checksum == 0xaf63dc4c8601ec8c, "checksum of a is FNV-1a 64", &failures);
+    expect(scanner::summarize("").checksum == 0xcbf29ce484222325, "checksum of empty text", &failures);
+    return failures;
+}

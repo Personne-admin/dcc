@@ -1,0 +1,6 @@
+schema = 1
+id = "lib-concurrency"
+title = "Processes and Threads"
+summary = "Start child programs, capture their output, run work on threads and a pool, and keep the output deterministic."
+goal = "Run work in parallel and in other programs, and still print results in a fixed order after cleaning up every handle."
+exercises = ["child-processes", "capture-output", "threads-and-join", "parallel-word-count", "shared-tally", "pool-checksums", "loopback-talk", "concurrency-drill", "boss-parallel-checksums"]

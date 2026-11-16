@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "spend_report",
+    version = "0.1.0",
+    products = {
+        { name = "spend_report", entry = "src/main.dc" },
+    },
+}

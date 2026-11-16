@@ -1,0 +1,59 @@
+module atomic_stage;
+
+import manager;
+import settings;
+import std::os::file;
+
+using manager::save_settings_atomic;
+using settings::{Settings, default_settings};
+using std::os::file::File;
+
+void dump([]const char path) {
+    File f = std::os::file::open(path, std::os::file::read_only()).unwrap();
+    u8[256] buffer = {};
+    usize n = f.read_all(buffer[0..256]).unwrap();
+    f.close();
+    print("{}", buffer[0..n] as []const char);
+}
+
+public i32 main() {
+    i32 failures = 0;
+
+    File old = std::os::file::create("atomic-stage.toml").unwrap();
+    old.write_all("old content\n" as []const u8).unwrap();
+    old.close();
+
+    Settings s = default_settings();
+    Status(Error) saved = save_settings_atomic(&s, "atomic-stage.toml");
+    if saved.is_ok() {
+        println("ok: replaced the old file");
+        dump("atomic-stage.toml");
+    } else {
+        println("FAIL: save_settings_atomic returned an error");
+        failures += 1;
+    }
+
+    if std::os::file::exists("atomic-stage.toml.tmp") {
+        println("FAIL: the temporary file was left behind after a successful save");
+        failures += 1;
+    } else {
+        println("ok: no temporary file after success");
+    }
+
+    Status(Error) nowhere = save_settings_atomic(&s, "atomic-stage-nodir/x.toml");
+    if nowhere.is_ok() {
+        println("FAIL: saving into a missing folder must fail");
+        failures += 1;
+    } else {
+        println("ok: a missing folder is an error");
+    }
+    if std::os::file::exists("atomic-stage-nodir/x.toml.tmp") || std::os::file::exists("atomic-stage-nodir/x.toml") {
+        println("FAIL: a failed save left a file behind");
+        failures += 1;
+    } else {
+        println("ok: a failed save leaves nothing behind");
+    }
+
+    std::os::file::delete_file("atomic-stage.toml");
+    return failures;
+}

@@ -1,0 +1,168 @@
+schema = 1
+id = "lib-data/json-documents"
+revision = 1
+title = "JSON documents: parse, read, release"
+summary = "Parse JSON into an owned Document, read values with Optional lookups and release the tree exactly once."
+kind = "lecture"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = ["json", "Document", "parse", "Value", "Optional", "deinit", "ownership"]
+tags = ["lecture", "library", "json"]
+objectives = [
+    "Parse a JSON text into a Document and release it with deinit",
+    "Read members and items with get, at, len and the as_* conversions, with defaults",
+    "Say who owns the strings of a parsed document and when they become invalid",
+]
+prerequisites = ["memory/boss-inventory-keeper"]
+
+[[examples]]
+name = "parse_read"
+expect_stdout = """
+name: Ada
+visits: 3
+email: (none)
+visits as text: (not text)
+members: 4
+"""
+
+[[examples]]
+name = "walk_tree"
+expect_stdout = """
+root: object of 2
+a: array of 3
+  item: integer 1
+  item: float 2.5
+  item: string x
+b: object of 2
+c: null
+d: bool false
+"""
+
+[[examples]]
+name = "own_copy"
+expect_stdout = """
+original members: 0
+moved members: 2
+copy members: 2
+"""
+
+[[examples]]
+name = "fixed_storage"
+expect_stdout = """
+tags: 2
+second: y
+"""
+
+[[questions]]
+id = "who-frees"
+type = "choice"
+prompt = "A program parses a document with `Document() doc = std::json::parse(text)?;`. Who releases the keys and strings inside it?"
+choices = [
+    "Nobody: parse borrows them from the text",
+    "Each string, one by one, with free",
+    "The document, when you call `doc.deinit()`, in one call",
+    "The text variable, when it goes out of scope",
+]
+answer = 3
+why = [
+    "That is parse_borrowed. Plain parse copies every string.",
+    "The tree has no per-string free for you to call; the whole tree goes at once.",
+    "",
+    "The text is only the source. The tree has its own copies.",
+]
+explanation = "parse copies every key and string into the document's allocator, so a single deinit gives back the whole tree."
+
+[[questions]]
+id = "wrong-kind"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+import std::json;
+
+using std::json::{Document, Value};
+
+public Status(Error) main() {
+    Document() doc = std::json::parse("{\\"n\\": 3.0, \\"m\\": 4}")?;
+    defer doc.deinit();
+    Value n = doc.root.get("n").some_or(Value::Null);
+    Value m = doc.root.get("m").some_or(Value::Null);
+    println("{}", n.as_integer().some_or(-1))?;
+    println("{}", m.as_integer().some_or(-1))?;
+    println("{}", m.as_float().some_or(-1.0))?;
+    return Status::Ok;
+}
+"""
+expect = """
+-1
+4
+4.000000
+"""
+explanation = "3.0 has a fraction part, so it is a Float and as_integer is empty. 4 is an Integer; as_float widens an Integer, so it reads as 4.000000."
+
+[[questions]]
+id = "take-effect"
+type = "predict"
+prompt = "What does this program print?"
+code = """
+module main;
+
+import std::json;
+
+using std::json::Document;
+
+public Status(Error) main() {
+    Document() a = std::json::parse("[1, 2, 3]")?;
+    defer a.deinit();
+    Document() b = a.take();
+    defer b.deinit();
+    println("{} {}", a.root.len(), b.root.len())?;
+    return Status::Ok;
+}
+"""
+expect = """
+0 3
+"""
+explanation = "take moves the tree into b and leaves a with a Null root, whose len is 0. Both deinit calls are safe: the empty one has nothing to free."
+
+[[questions]]
+id = "bug-after-deinit"
+type = "bug"
+prompt = "Which line makes the program read freed memory?"
+code = """
+module main;
+
+import std::json;
+
+using std::json::{Document, Value};
+
+[]const char first_name([]const char text) {
+    Document() doc = std::json::parse(text).unwrap();
+    defer doc.deinit();
+    Value name = doc.root.get("name").some_or(Value::Null);
+    return name.as_string().some_or("?");
+}
+
+public Status(Error) main() {
+    println("{}", first_name("{\\"name\\": \\"Ada\\"}"))?;
+    return Status::Ok;
+}
+"""
+lines = [11]
+explanation = "The returned slice points into the document's own copy of the string. The deferred deinit frees that copy before the caller can read it. Copy the bytes out, or keep the document alive in the caller."
+
+[[cards]]
+id = "json-optional"
+front = "What do `get`, `at` and the `as_*` conversions return, and how do you give a default?"
+back = "An Optional: empty for a missing key, a bad index or a value of another kind. `some_or(default)` supplies the fallback."
+
+[[cards]]
+id = "json-deinit"
+front = "How is a parsed JSON Document released?"
+back = "`defer doc.deinit();` right after the successful parse. It frees the whole tree, keys and strings, once; clone gives an independent copy, take moves the tree out."
+
+[[cards]]
+id = "json-int-float"
+front = "When is a JSON number an Integer and when a Float?"
+back = "Whole numbers without fraction or exponent are Integer (i64); anything else is Float. as_float widens an Integer, as_integer never narrows a Float."

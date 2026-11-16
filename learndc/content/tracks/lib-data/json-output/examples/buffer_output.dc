@@ -1,0 +1,23 @@
+module main;
+
+import std::json;
+import std::fmt;
+
+using std::json::Emitter;
+using std::fmt::BufferWriter;
+
+public Status(Error) main() {
+    char[64] storage = {};
+    BufferWriter buffer = BufferWriter::new(storage[0..64]);
+
+    Emitter(BufferWriter) json = Emitter(BufferWriter)::new(&buffer, 0);
+    json.begin_array()?;
+    json.integer(1)?;
+    json.boolean(true)?;
+    json.string("x")?;
+    json.end_array()?;
+
+    println("{}", std::fmt::written_slice(&buffer))?;
+    println("{} bytes", std::fmt::written_slice(&buffer).len)?;
+    return Status::Ok;
+}

@@ -1,0 +1,6 @@
+schema = 1
+id = "lib-collections"
+title = "Collections, Text and Hashing"
+summary = "Go deeper with Array, Map and list, sorting, number parsing, UTF-8, digests and your own format hooks."
+goal = "Build a small data-processing program from the standard library's collections, text, hashing and formatting tools."
+exercises = ["growth-and-capacity", "ticket-queue", "maps-in-depth", "spend-report", "sorting-with-comparisons", "playlist-list", "utf8-text", "numbers-from-text", "digests-and-hashes", "custom-format", "collections-drill", "boss-log-analyzer"]
