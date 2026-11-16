@@ -1,0 +1,29 @@
+=== FILE: test.dc ===
+module test;
+
+f32 speed = -300.0;
+f64 wide = -2.5;
+f32 zero = 0.0;
+
+i32 checks() {
+    if !(speed <= -299.99) { return 1; }
+    if !(speed >= -315.01) { return 2; }
+    if speed == -3.0 { return 3; }
+    if !(-3.0 >= speed) { return 4; }
+    if !(speed < -1.5 * 2.0) { return 5; }
+    if !((speed + -1.0) < -300.5) { return 6; }
+    if !(zero > -0.5 && zero < 0.5) { return 7; }
+    if !(wide <= -2.5) { return 8; }
+    if speed != -300.0 { return 9; }
+    return 0;
+}
+
+@nomangle
+public i32 dcc_main() {
+    return checks();
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0

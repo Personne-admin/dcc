@@ -7420,6 +7420,26 @@ export namespace dcc::sema
             return false;
         }
 
+        [[nodiscard]] static bool float_literal_only(ast::Expr const& e) noexcept
+        {
+            if (e.kind == ast::ExprKind::FloatLiteral)
+                return true;
+            if (e.kind == ast::ExprKind::Unary)
+            {
+                auto const& u = static_cast<ast::UnaryExpr const&>(e);
+                return (u.op == lex::TokenKind::Minus || u.op == lex::TokenKind::Plus) && u.operand && float_literal_only(*u.operand);
+            }
+            if (e.kind == ast::ExprKind::Binary)
+            {
+                auto const& b = static_cast<ast::BinaryExpr const&>(e);
+                bool const arithmetic =
+                    b.op == lex::TokenKind::Plus || b.op == lex::TokenKind::Minus || b.op == lex::TokenKind::Star || b.op == lex::TokenKind::Slash;
+                return arithmetic && b.lhs && b.rhs && (float_literal_only(*b.lhs) || literal_only(*b.lhs)) &&
+                       (float_literal_only(*b.rhs) || literal_only(*b.rhs)) && (float_literal_only(*b.lhs) || float_literal_only(*b.rhs));
+            }
+            return false;
+        }
+
         [[nodiscard]] static bool untyped_literal_operand(ast::Expr const& e) noexcept
         {
             if (e.kind == ast::ExprKind::IntLiteral)
@@ -12505,12 +12525,16 @@ export namespace dcc::sema
             }
             if (comparison)
                 expected_type = nullptr;
-            bool const lhs_literal = adopts_operand_type && b.lhs && literal_only(*b.lhs);
-            bool const rhs_literal = adopts_operand_type && b.rhs && literal_only(*b.rhs);
-            auto literal_context = [&](types::TypePtr other) -> types::TypePtr {
+            bool const lhs_float_literal = adopts_operand_type && b.lhs && float_literal_only(*b.lhs);
+            bool const rhs_float_literal = adopts_operand_type && b.rhs && float_literal_only(*b.rhs);
+            bool const lhs_literal = (adopts_operand_type && b.lhs && literal_only(*b.lhs)) || lhs_float_literal;
+            bool const rhs_literal = (adopts_operand_type && b.rhs && literal_only(*b.rhs)) || rhs_float_literal;
+            auto literal_context = [&](types::TypePtr other, bool float_literal) -> types::TypePtr {
                 if (!other || has_error(other))
                     return nullptr;
                 auto const candidate = comparison ? other : erase_refinement(other);
+                if (float_literal)
+                    return types::type_cast<types::FloatType>(candidate) ? candidate : nullptr;
                 if (types::type_cast<types::IntType>(candidate) || (comparison && types::type_cast<types::RestrictedType>(unwrap_nominal(candidate))))
                     return candidate;
                 return nullptr;
@@ -12519,7 +12543,7 @@ export namespace dcc::sema
             if (lhs_literal && !rhs_literal)
             {
                 auto rhs_first = analyze_expr_or_error(mod, fn, scope, b.rhs, loop_depth, next_off, expected_type, const_env);
-                auto const context = literal_context(rhs_first.type);
+                auto const context = literal_context(rhs_first.type, lhs_float_literal);
                 auto lhs_first = analyze_expr_or_error(mod, fn, scope, b.lhs, loop_depth, next_off, context ? context : expected_type, const_env);
                 return finish_binary(mod, fn, scope, b, loop_depth, next_off, const_env, std::move(lhs_first), std::move(rhs_first));
             }
@@ -12528,7 +12552,7 @@ export namespace dcc::sema
 
             types::TypePtr rhs_expected = expected_type;
             if (rhs_literal && !lhs_literal)
-                if (auto const context = literal_context(lhs.type))
+                if (auto const context = literal_context(lhs.type, rhs_float_literal))
                     rhs_expected = context;
             switch (b.op)
             {
