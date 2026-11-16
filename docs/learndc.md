@@ -13,6 +13,7 @@ Status of this release:
 ## Contents
 
 - [Quickstart](#quickstart)
+- [Learning paths](#learning-paths)
 - [The terminal interface](#the-terminal-interface)
 - [Command reference](#command-reference)
 - [Exit codes](#exit-codes)
@@ -93,7 +94,11 @@ Check the setup, then do the first exercise entirely from the command line:
 
 `learndc hint` reveals one more hint each time (three per exercise) and remembers how many you have seen. `learndc solution --show` prints the reference solution with an explanation; looking at it is recorded in your progress and the exercise appears in `learndc review`.
 
-The bundled exercises are in five tracks: Fundamentals (8), Types and memory (5), Errors and results (4), Everyday libdcext (3) and DPM projects (3). `learndc list` shows them all.
+## Learning paths
+
+Chapters belong to learning paths. The core curriculum is the beginner journey, chapter by chapter; specializations (advanced DC, the standard library, DPM, game development with SDL3) and the practice path (projects, debugging, code reading and challenges) are optional and can be explored in any order once their entry lessons are done. Each lesson still names its own prerequisites, so a specialization asks only for the core chapters it builds on, not for the whole curriculum or for other specializations.
+
+`learndc paths` lists the paths with their progress, `learndc list` shows the core curriculum and `learndc list --path ID` (or `--path all`) any other path. In the terminal interface, Home lists the paths below the core chapters (Enter shows a path's lessons), Learn switches paths with `Left` and `Right`, and the recommendation stays in the path you are working in: finishing the core curriculum never starts a specialization by itself.
 
 ## The terminal interface
 
@@ -115,7 +120,8 @@ Each screen follows two rules. The bottom bar is a short recap of the keys that 
 | `n` | Home, Exercise | open the recommended or next exercise |
 | `/` | Learn | search; type to filter live, `Enter` keeps the search, `Esc` clears it |
 | `f` `d` `t` `y` | Learn | cycle the status, difficulty, chapter and kind filters (kind `lecture` lists every lecture and drill) |
-| `0` | Learn | clear every filter |
+| `Left` `Right` | Learn | show another learning path (`p` and `P` work too) |
+| `0` | Learn | clear every filter and show the core curriculum |
 | `b` | Learn, Bookmarks, Exercise | bookmark or remove the bookmark |
 | `Tab` | Exercise | move between Instructions, Files and Results |
 | `Enter` | Exercise | create the files (first time) or edit the chosen file |
@@ -179,7 +185,8 @@ Commands that take an optional `id` use the exercise of the current directory's 
 
 | Command | What it does |
 |---|---|
-| `learndc list [--track ID] [--status STATUS] [--difficulty LEVEL] [--kind KIND] [--json]` | List the lessons grouped by chapter, with their type (lecture, drill, practice, challenge, quest or BOSS). `--track` takes a chapter id. Status is `not-started`, `in-progress`, `completed` or `unfinished`; difficulty is `beginner`, `intermediate` or `advanced`. |
+| `learndc list [--path ID\|all] [--track ID] [--status STATUS] [--difficulty LEVEL] [--kind KIND] [--json]` | List the lessons grouped by chapter, with their type (lecture, drill, practice, challenge, quest or BOSS). Without `--path` or `--track` it lists the core curriculum. `--track` takes a chapter id. Status is `not-started`, `in-progress`, `completed` or `unfinished`; difficulty is `beginner`, `intermediate` or `advanced`. |
+| `learndc paths [--json]` | List the learning paths (core curriculum, specializations, practice) with their chapters, lessons, bonus lessons and bosses. |
 | `learndc search WORDS... [--json]` | Search ids, titles, summaries, concepts and tags; ranked. |
 | `learndc show ID [--json]` | Instructions, checks and your status. |
 | `learndc start ID [--dir PATH]` | Create the workspace, or resume it. Never overwrites: a directory that is not this exercise's workspace is refused (exit 6). Makes the exercise active. |

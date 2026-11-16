@@ -118,11 +118,15 @@ export namespace learndc::cli
                 v.push_back(CommandSpec{std::move(name), std::move(usage), std::move(summary), std::move(options), lo, hi, rest, std::move(details)});
             };
             auto const unlimited = std::numeric_limits<std::size_t>::max();
-            add("list", "list [--track ID] [--status STATUS] [--difficulty LEVEL] [--kind KIND] [--json]", "List the chapters and their lessons",
-                {value_option("track", "ID", "only this chapter"), value_option("status", "STATUS", "not-started, in-progress, completed or unfinished"),
+            add("list", "list [--path ID|all] [--track ID] [--status STATUS] [--difficulty LEVEL] [--kind KIND] [--json]",
+                "List the chapters and their lessons",
+                {value_option("path", "ID", "only this learning path, or all (default: the core curriculum)"), value_option("track", "ID", "only this chapter"),
+                 value_option("status", "STATUS", "not-started, in-progress, completed or unfinished"),
                  value_option("difficulty", "LEVEL", "beginner, intermediate or advanced"), value_option("kind", "KIND", "exercise kind"),
                  flag_option("json", "print JSON")},
                 0, 0);
+            add("paths", "paths [--json]", "List the learning paths: the core curriculum, specializations and practice", {flag_option("json", "print JSON")}, 0,
+                0);
             add("search", "search <words...> [--json]", "Search exercises by words", {flag_option("json", "print JSON")}, 1, unlimited);
             add("show", "show <id> [--json]", "Show an exercise: instructions, checks and your status", {flag_option("json", "print JSON")}, 1, 1);
             add("start", "start <id> [--dir PATH]", "Create (or resume) the workspace of an exercise",
@@ -430,6 +434,8 @@ export namespace learndc::cli
             auto j = json::Json::make_object();
             j.set("id", json::Json(ex.id));
             j.set("track", json::Json(ex.track));
+            if (auto const* path = ctx.catalog.path_of(ex))
+                j.set("path", json::Json(path->id));
             j.set("name", json::Json(ex.name));
             j.set("title", json::Json(ex.title));
             j.set("summary", json::Json(ex.summary));
@@ -489,13 +495,27 @@ export namespace learndc::cli
                 id_w = std::max(id_w, text::display_width(e->id));
             std::print(s.out(), "{}  {}  {}  {}  {}  {}\n", pad("ID", id_w), pad("STATUS", 11), pad("TYPE", 9), pad("LEVEL", 12), pad("MIN", 3), "TITLE");
             std::string chapter;
+            std::string path;
+            bool const several_paths = std::ranges::any_of(items, [&](auto const* e) {
+                auto const* a = s.ctx.catalog.path_of(*e);
+                auto const* b = s.ctx.catalog.path_of(*items.front());
+                return a != b;
+            });
             for (auto const* e : items)
             {
                 if (grouped && e->track != chapter)
                 {
                     chapter = e->track;
                     if (auto const* t = s.ctx.catalog.find_track(e->track))
+                    {
+                        if (several_paths && t->path != path)
+                        {
+                            path = t->path;
+                            if (auto const* pth = s.ctx.catalog.find_path(path))
+                                std::print(s.out(), "{}\n", paint(s, "1;36", pth->title));
+                        }
                         std::print(s.out(), "{}\n", paint(s, "1", std::format("Chapter {}: {}", t->number, t->title)));
+                    }
                 }
                 auto const status = status_name(p, e->id);
                 std::string_view const code = status == "completed" ? "32" : status == "in-progress" ? "33" : "2";
@@ -523,6 +543,23 @@ export namespace learndc::cli
                 return report_failure(s, *f);
             auto const& p = *s.loaded;
             catalog::Filter filter;
+            auto const& paths = s.ctx.catalog.paths();
+            if (auto path = s.args.value("path"))
+            {
+                if (*path != "all")
+                {
+                    if (!s.ctx.catalog.find_path(*path))
+                        return usage_error(s, std::format("unknown path '{}' (see learndc paths)", text::sanitize(*path)));
+                    filter.path = *path;
+                }
+            }
+            else if (paths.size() > 1 && !s.args.value("track"))
+                for (auto const& pth : paths)
+                    if (pth.kind == catalog::PathKind::Core)
+                    {
+                        filter.path = pth.id;
+                        break;
+                    }
             if (auto track = s.args.value("track"))
             {
                 if (!s.ctx.catalog.find_track(*track))
@@ -567,6 +604,59 @@ export namespace learndc::cli
                 return app::exit_ok;
             }
             print_exercise_table(s, items, p, true);
+            return app::exit_ok;
+        }
+
+        inline int cmd_paths(Session& s)
+        {
+            if (auto f = prepare(s))
+                return report_failure(s, *f);
+            auto const summary = app::summarize(s.ctx, *s.loaded);
+            if (s.json())
+            {
+                auto root = json::Json::make_object();
+                auto arr = json::Json::make_array();
+                for (auto const& ps : summary.paths)
+                {
+                    auto j = json::Json::make_object();
+                    j.set("id", json::Json(ps.id));
+                    j.set("title", json::Json(ps.title));
+                    j.set("summary", json::Json(ps.summary));
+                    j.set("kind", json::Json(std::string(catalog::to_string(ps.kind))));
+                    j.set("chapters", json::Json(ps.chapters));
+                    j.set("lessons", json::Json(ps.total));
+                    j.set("completed", json::Json(ps.completed));
+                    j.set("bonus", json::Json(ps.bonus_total));
+                    j.set("bonus_completed", json::Json(ps.bonus_completed));
+                    j.set("bosses", json::Json(ps.bosses_total));
+                    j.set("bosses_defeated", json::Json(ps.bosses_defeated));
+                    auto tracks = json::Json::make_array();
+                    for (auto const& t : summary.tracks)
+                        if (t.path == ps.id)
+                            tracks.push(json::Json(t.id));
+                    j.set("tracks", std::move(tracks));
+                    arr.push(std::move(j));
+                }
+                root.set("paths", std::move(arr));
+                emit_json(s, root);
+                return app::exit_ok;
+            }
+            std::size_t id_w = 2;
+            for (auto const& ps : summary.paths)
+                id_w = std::max(id_w, text::display_width(ps.id));
+            for (auto const& ps : summary.paths)
+            {
+                std::string counts = std::format("{} of {} lessons", ps.completed, ps.total);
+                if (ps.bonus_total > 0)
+                    counts += std::format(", {} of {} bonus", ps.bonus_completed, ps.bonus_total);
+                if (ps.bosses_total > 0)
+                    counts += std::format(", {} of {} bosses", ps.bosses_defeated, ps.bosses_total);
+                std::print(s.out(), "{}  {}  ({} chapter{}; {})\n", pad(ps.id, id_w), paint(s, "1", ps.title), ps.chapters, ps.chapters == 1 ? "" : "s",
+                           counts);
+                if (!ps.summary.empty())
+                    std::print(s.out(), "{}  {}\n", pad("", id_w), ps.summary);
+            }
+            s.out() << "\nList the lessons of a path with: learndc list --path ID\n";
             return app::exit_ok;
         }
 
@@ -2123,12 +2213,13 @@ export namespace learndc::cli
         detail::Session session{*ctx, *parsed, io, style, std::nullopt};
         using Handler = int (*)(detail::Session&);
         static std::map<std::string, Handler, std::less<>> const handlers = {
-            {"list", detail::cmd_list},         {"search", detail::cmd_search}, {"show", detail::cmd_show},         {"start", detail::cmd_start},
-            {"next", detail::cmd_next},         {"edit", detail::cmd_edit},     {"run", detail::cmd_run},           {"check", detail::cmd_check},
-            {"watch", detail::cmd_watch},       {"hint", detail::cmd_hint},     {"solution", detail::cmd_solution}, {"reset", detail::cmd_reset},
-            {"progress", detail::cmd_progress}, {"review", detail::cmd_review}, {"bookmark", detail::cmd_bookmark}, {"config", detail::cmd_config},
-            {"doctor", detail::cmd_doctor},     {"export", detail::cmd_export}, {"import", detail::cmd_import},     {"dev", detail::cmd_dev},
-            {"answer", detail::cmd_answer}, {"cards", detail::cmd_cards}, {"card", detail::cmd_card},
+            {"list", detail::cmd_list},     {"paths", detail::cmd_paths},       {"search", detail::cmd_search}, {"show", detail::cmd_show},
+            {"start", detail::cmd_start},   {"next", detail::cmd_next},         {"edit", detail::cmd_edit},     {"run", detail::cmd_run},
+            {"check", detail::cmd_check},   {"watch", detail::cmd_watch},       {"hint", detail::cmd_hint},     {"solution", detail::cmd_solution},
+            {"reset", detail::cmd_reset},   {"progress", detail::cmd_progress}, {"review", detail::cmd_review}, {"bookmark", detail::cmd_bookmark},
+            {"config", detail::cmd_config}, {"doctor", detail::cmd_doctor},   {"export", detail::cmd_export},
+            {"import", detail::cmd_import}, {"dev", detail::cmd_dev},           {"answer", detail::cmd_answer}, {"cards", detail::cmd_cards},
+            {"card", detail::cmd_card},
         };
         auto it = handlers.find(parsed->command);
         if (it == handlers.end())

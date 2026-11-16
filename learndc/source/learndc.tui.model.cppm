@@ -190,12 +190,13 @@ export namespace learndc::tui::model
 
     struct Filters
     {
+        std::size_t path = 0;
         std::size_t track = 0;
         StatusFilter status = StatusFilter::All;
         std::size_t difficulty = 0;
         std::size_t kind = 0;
 
-        [[nodiscard]] bool any() const { return track != 0 || status != StatusFilter::All || difficulty != 0 || kind != 0; }
+        [[nodiscard]] bool any() const { return path != 0 || track != 0 || status != StatusFilter::All || difficulty != 0 || kind != 0; }
     };
 
     struct Key
@@ -478,6 +479,7 @@ export namespace learndc::tui::model
         Continue,
         Next,
         Recent,
+        Path,
     };
 
     struct HomeItem
@@ -590,15 +592,16 @@ export namespace learndc::tui::model
         switch (context)
         {
             case Screen::Home:
-                here.lines = {"Up Down       choose Continue, Recommended or a recent exercise", "Enter         open the chosen exercise",
-                              "n             open the recommended exercise"};
+                here.lines = {"Up Down       choose Continue, Recommended, a recent exercise or a learning path",
+                              "Enter         open the chosen exercise, or show the lessons of the chosen path", "n             open the recommended exercise"};
                 break;
             case Screen::Learn:
                 here.lines = {"Up Down       move through the exercises",
                               "Enter         open the exercise",
                               "/             search; type to filter live, Enter keeps it, Esc clears it",
                               "f d t y       cycle the status, difficulty, chapter and kind filters",
-                              "0             clear every filter",
+                              "Left Right    show another learning path (p and P work too)",
+                              "0             clear every filter and show the core curriculum",
                               "b             bookmark the exercise"};
                 break;
             case Screen::Exercise:
@@ -732,12 +735,32 @@ export namespace learndc::tui::model
 
         [[nodiscard]] bool bookmarked(std::string_view id) const { return progress::is_bookmarked(prog, id); }
 
+        [[nodiscard]] catalog::Path const* learn_path() const
+        {
+            auto const& paths = ctx->catalog.paths();
+            if (paths.size() < 2 || filters.path >= paths.size())
+                return nullptr;
+            return &paths[filters.path];
+        }
+
+        [[nodiscard]] std::vector<catalog::Track const*> learn_tracks() const
+        {
+            std::vector<catalog::Track const*> out;
+            auto const* path = learn_path();
+            for (auto const& t : ctx->catalog.tracks())
+                if (!path || t.path == path->id)
+                    out.push_back(&t);
+            return out;
+        }
+
         [[nodiscard]] std::vector<catalog::Exercise const*> learn_list() const
         {
             catalog::Filter f;
-            auto const& tracks = ctx->catalog.tracks();
+            if (auto const* path = learn_path())
+                f.path = path->id;
+            auto const tracks = learn_tracks();
             if (filters.track > 0 && filters.track <= tracks.size())
-                f.track = tracks[filters.track - 1].id;
+                f.track = tracks[filters.track - 1]->id;
             if (filters.difficulty > 0 && filters.difficulty <= all_difficulties.size())
                 f.difficulty = all_difficulties[filters.difficulty - 1];
             if (filters.kind > 0 && filters.kind <= all_kinds.size())
@@ -794,7 +817,35 @@ export namespace learndc::tui::model
                 if (items.size() >= 6)
                     break;
             }
+            if (ctx->catalog.paths().size() > 1)
+                for (auto const& path : ctx->catalog.paths())
+                    items.push_back({HomeKind::Path, path.id});
             return items;
+        }
+
+        void open_path(std::string_view id)
+        {
+            auto const& paths = ctx->catalog.paths();
+            for (std::size_t i = 0; i < paths.size(); ++i)
+                if (paths[i].id == id)
+                {
+                    filters = Filters{};
+                    filters.path = i;
+                    query.clear();
+                    normalize_learn();
+                    jump(Screen::Learn);
+                    return;
+                }
+        }
+
+        void cycle_path(int delta)
+        {
+            auto const n = ctx->catalog.paths().size() + 1;
+            if (n <= 2)
+                return;
+            filters.path = delta > 0 ? (filters.path + 1) % n : (filters.path + n - 1) % n;
+            filters.track = 0;
+            normalize_learn();
         }
 
         [[nodiscard]] std::vector<catalog::Exercise const*> bookmark_list() const
@@ -1018,7 +1069,10 @@ export namespace learndc::tui::model
                     k = {{"Enter", "open"}, {"Up Down", "move"}, {"n", "next"}, {"2", "learn"}};
                     break;
                 case Screen::Learn:
-                    k = {{"Enter", "open"}, {"/", "search"}, {"f d t y", "filter"}, {"b", "bookmark"}};
+                    if (ctx->catalog.paths().size() > 1)
+                        k = {{"Enter", "open"}, {"Left Right", "path"}, {"/", "search"}, {"f d t y", "filter"}, {"b", "bookmark"}};
+                    else
+                        k = {{"Enter", "open"}, {"/", "search"}, {"f d t y", "filter"}, {"b", "bookmark"}};
                     break;
                 case Screen::Exercise:
                     if (activity_typing())
@@ -1725,7 +1779,13 @@ export namespace learndc::tui::model
             else if (detail::is_up(k) && home_sel > 0)
                 --home_sel;
             else if (k == "Enter" && !items.empty())
-                open_exercise(items[std::min(home_sel, items.size() - 1)].id);
+            {
+                auto const& item = items[std::min(home_sel, items.size() - 1)];
+                if (item.kind == HomeKind::Path)
+                    open_path(item.id);
+                else
+                    open_exercise(item.id);
+            }
             else if (k == "n")
             {
                 for (auto const& item : items)
@@ -1786,7 +1846,7 @@ export namespace learndc::tui::model
 
         void learn_key(std::string const& k)
         {
-            auto const tracks = ctx->catalog.tracks().size();
+            auto const tracks = learn_tracks().size();
             if (detail::is_down(k))
                 learn_move(1);
             else if (detail::is_up(k))
@@ -1828,6 +1888,10 @@ export namespace learndc::tui::model
                 filters.kind = (filters.kind + 1) % (all_kinds.size() + 1);
                 normalize_learn();
             }
+            else if (k == "p" || k == "Right")
+                cycle_path(1);
+            else if (k == "P" || k == "Left")
+                cycle_path(-1);
             else if (k == "0")
             {
                 filters = Filters{};

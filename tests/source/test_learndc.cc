@@ -5331,11 +5331,12 @@ expect_stdout = "Total: 40\n"
         std::filesystem::path content;
         std::unique_ptr<learndc::app::Context> ctx;
 
-        explicit TuiWorld(bool with_progress = true, std::function<void(settings::Settings&)> const& tweak = {}, platform::Env env_in = {})
+        explicit TuiWorld(bool with_progress = true, std::function<void(settings::Settings&)> const& tweak = {}, platform::Env env_in = {},
+                          std::optional<catalog::ContentSource> source = std::nullopt)
         {
             home = temp.path / "home";
             content = temp.path / "content";
-            write_source(tui_source(), content);
+            write_source(source ? *source : tui_source(), content);
             std::filesystem::create_directories(home);
             settings::Settings st;
             st.onboarding_done = true;
@@ -9126,4 +9127,203 @@ TEST_CASE("check output renders the diff in color, without color and in the tui"
     CHECK(learndc::tui::render_snapshot(m, 100, 30).find("Your output:") != std::string::npos);
     press(m, "v");
     CHECK(m.exercise.result_view == tm::ResultView::Diff);
+}
+
+SECTION("learning paths");
+
+namespace
+{
+    catalog::ContentSource paths_source()
+    {
+        auto s = base_source();
+        s.files["catalog.toml"] = "schema = 1\ntitle = \"Test\"\ntracks = [\"basics\", \"more\", \"extra\"]\n\n"
+                                  "[[paths]]\nid = \"core\"\ntitle = \"Core curriculum\"\nsummary = \"The beginner journey.\"\nkind = \"core\"\n"
+                                  "tracks = [\"basics\", \"more\"]\n\n"
+                                  "[[paths]]\nid = \"games\"\ntitle = \"Game development\"\nsummary = \"Build games.\"\nkind = \"specialization\"\n"
+                                  "tracks = [\"extra\"]\n";
+        s.add("tracks/extra/track.toml", "schema = 1\nid = \"extra\"\ntitle = \"Extra\"\nsummary = \"Beyond\"\nexercises = [\"four\", \"five\"]\n");
+        add_exercise(s, "extra", "four", "[\"basics/one\"]");
+        add_exercise(s, "extra", "five", "[\"extra/four\"]");
+        return s;
+    }
+
+    catalog::ContentSource tui_paths_source()
+    {
+        auto s = tui_source();
+        s.files["catalog.toml"] = "schema = 1\ntitle = \"Learn DC\"\ntracks = [\"fundamentals\", \"types\", \"graphics\", \"lab\"]\n\n"
+                                  "[[paths]]\nid = \"core\"\ntitle = \"Core curriculum\"\nsummary = \"The beginner journey.\"\nkind = \"core\"\n"
+                                  "tracks = [\"fundamentals\", \"types\"]\n\n"
+                                  "[[paths]]\nid = \"games\"\ntitle = \"Game development\"\nsummary = \"Windows, sprites and a Pong game with SDL3.\"\n"
+                                  "kind = \"specialization\"\ntracks = [\"graphics\"]\n\n"
+                                  "[[paths]]\nid = \"practice\"\ntitle = \"Projects and challenges\"\nsummary = \"Self-contained projects.\"\n"
+                                  "kind = \"practice\"\ntracks = [\"lab\"]\n";
+        s.add("tracks/graphics/track.toml", "schema = 1\nid = \"graphics\"\ntitle = \"Drawing\"\nsummary = \"Shapes\"\nexercises = [\"shapes\"]\n");
+        s.add("tracks/lab/track.toml", "schema = 1\nid = \"lab\"\ntitle = \"Project Lab\"\nsummary = \"Projects\"\nexercises = [\"ledger\"]\n");
+        add_tui_exercise(s, "graphics", "shapes", "Drawing shapes", "Fill rectangles with the renderer.", "intermediate", "implement-function", 15,
+                         "[\"fundamentals/hello-world\"]");
+        add_tui_exercise(s, "lab", "ledger", "A bank ledger", "Validate and apply transactions.", "intermediate", "challenge", 40,
+                         "[\"fundamentals/variables\"]");
+        return s;
+    }
+} // namespace
+
+TEST_CASE("paths group chapters, number them per path and filter lessons")
+{
+    auto loaded = catalog::Catalog::load(paths_source());
+    if (!loaded)
+        dump_errors(loaded.error());
+    REQUIRE(loaded.has_value());
+    auto const& cat = *loaded;
+    REQUIRE(cat.paths().size() == 2);
+    CHECK_EQ(cat.paths()[0].id, "core");
+    CHECK(cat.paths()[1].kind == catalog::PathKind::Specialization);
+    CHECK_EQ(cat.find_track("extra")->path, "games");
+    CHECK_EQ(cat.find_track("more")->number, 2);
+    CHECK_EQ(cat.find_track("extra")->number, 1);
+    CHECK_EQ(cat.find("extra/five")->chapter_number, 1);
+    CHECK(cat.in_core(*cat.find("basics/two")));
+    CHECK(!cat.in_core(*cat.find("extra/four")));
+    catalog::Filter f;
+    f.path = "games";
+    auto const games = cat.filter(f);
+    REQUIRE(games.size() == 2);
+    CHECK_EQ(games[0]->id, "extra/four");
+}
+
+TEST_CASE("content without paths has one implicit core path")
+{
+    auto loaded = catalog::Catalog::load(base_source());
+    REQUIRE(loaded.has_value());
+    REQUIRE(loaded->paths().size() == 1);
+    CHECK(loaded->paths()[0].kind == catalog::PathKind::Core);
+    CHECK_EQ(loaded->paths()[0].tracks.size(), 2u);
+    CHECK_EQ(loaded->find_track("more")->number, 2);
+}
+
+TEST_CASE("paths are validated")
+{
+    {
+        auto s = paths_source();
+        edit(s, "catalog.toml", "tracks = [\"extra\"]", "tracks = [\"extra\", \"more\"]");
+        CHECK(has_error(errors_of(s), "track 'more' is in path 'core' and in path 'games'", "catalog.toml"));
+    }
+    {
+        auto s = paths_source();
+        edit(s, "catalog.toml", "tracks = [\"extra\"]", "tracks = [\"nope\"]");
+        auto const errors = errors_of(s);
+        CHECK(has_error(errors, "path 'games' names track 'nope', which is not in tracks"));
+        CHECK(has_error(errors, "track 'extra' is not in any path"));
+    }
+    {
+        auto s = paths_source();
+        edit(s, "catalog.toml", "kind = \"core\"", "kind = \"practice\"");
+        CHECK(has_error(errors_of(s), "one path must have kind = \"core\""));
+    }
+    {
+        auto s = paths_source();
+        edit(s, "catalog.toml", "kind = \"specialization\"", "kind = \"bonus\"");
+        CHECK(has_error(errors_of(s), "path kind 'bonus' must be core, specialization or practice"));
+    }
+}
+
+TEST_CASE("the recommendation stays in the current path and never starts a specialization by itself")
+{
+    auto loaded = catalog::Catalog::load(paths_source());
+    REQUIRE(loaded.has_value());
+    auto const& cat = *loaded;
+    std::set<std::string> done;
+    auto const completed = [&](std::string_view id) { return done.contains(std::string(id)); };
+    done = {"basics/one"};
+    auto const* next = cat.next_recommended(completed, "basics/one");
+    REQUIRE(next != nullptr);
+    CHECK_EQ(next->id, "basics/two");
+    done = {"basics/one", "extra/four"};
+    next = cat.next_recommended(completed, "extra/four");
+    REQUIRE(next != nullptr);
+    CHECK_EQ(next->id, "extra/five");
+    done = {"basics/one", "basics/two", "more/three"};
+    CHECK(cat.next_recommended(completed, "more/three") == nullptr);
+    done = {"basics/one", "basics/two", "more/three", "extra/four", "extra/five"};
+    CHECK(cat.next_recommended(completed, "extra/five") == nullptr);
+}
+
+TEST_CASE("cli lists the core curriculum by default and other paths on request")
+{
+    CliFixture f;
+    write_source(paths_source(), f.content);
+    auto r = f.run({"list"});
+    CHECK_EQ(r.code, 0);
+    CHECK(r.out.find("basics/one") != std::string::npos);
+    CHECK(r.out.find("extra/four") == std::string::npos);
+    r = f.run({"list", "--path", "games"});
+    CHECK_EQ(r.code, 0);
+    CHECK(r.out.find("Chapter 1: Extra") != std::string::npos);
+    CHECK(r.out.find("basics/one") == std::string::npos);
+    r = f.run({"list", "--path", "all"});
+    CHECK(r.out.find("Core curriculum") != std::string::npos);
+    CHECK(r.out.find("Game development") != std::string::npos);
+    CHECK(r.out.find("extra/five") != std::string::npos);
+    r = f.run({"list", "--path", "nope"});
+    CHECK_EQ(r.code, 2);
+    CHECK(r.err.find("unknown path 'nope' (see learndc paths)") != std::string::npos);
+    r = f.run({"paths"});
+    CHECK_EQ(r.code, 0);
+    CHECK(r.out.find("core   Core curriculum  (2 chapters; 0 of 3 lessons)") != std::string::npos);
+    CHECK(r.out.find("games  Game development  (1 chapter; 0 of 2 lessons)") != std::string::npos);
+    CHECK(r.out.find("learndc list --path ID") != std::string::npos);
+    r = f.run({"paths", "--json"});
+    auto const j = json::parse(r.out);
+    REQUIRE(j.has_value());
+    auto const* arr = j->find("paths")->as_array();
+    REQUIRE(arr != nullptr);
+    REQUIRE(arr->size() == 2);
+    CHECK((*arr)[1].find("kind")->as_string() == std::optional<std::string_view>("specialization"));
+    CHECK((*arr)[1].find("lessons")->as_int() == std::optional<std::int64_t>(2));
+    r = f.run({"show", "extra/four", "--json"});
+    CHECK(r.out.find("\"path\": \"games\"") != std::string::npos);
+}
+
+TEST_CASE("tui shows learning paths on home and switches paths in learn")
+{
+    TuiWorld w(true, {}, {}, tui_paths_source());
+    tm::Model m(*w.ctx, {100, 30});
+    snap(m, "home-paths", {{100, 30}, {60, 20}});
+    m.handle(tm::Resize{100, 30});
+    auto const items = m.home_items();
+    std::size_t games = items.size();
+    for (std::size_t i = 0; i < items.size(); ++i)
+        if (items[i].kind == tm::HomeKind::Path && items[i].id == "games")
+            games = i;
+    REQUIRE(games < items.size());
+    while (m.home_sel < games)
+        press(m, "Down");
+    press(m, "Enter");
+    CHECK(m.screen == tm::Screen::Learn);
+    REQUIRE(m.learn_path() != nullptr);
+    CHECK_EQ(m.learn_path()->id, "games");
+    auto list = m.learn_list();
+    REQUIRE(list.size() == 1);
+    CHECK_EQ(list[0]->id, "graphics/shapes");
+    snap(m, "learn-paths", {{100, 30}, {60, 20}});
+    press(m, "Right");
+    REQUIRE(m.learn_path() != nullptr);
+    CHECK_EQ(m.learn_path()->id, "practice");
+    press(m, "Right");
+    CHECK(m.learn_path() == nullptr);
+    CHECK_EQ(m.learn_list().size(), 8u);
+    snap(m, "learn-paths-all", {{100, 30}});
+    press(m, "Right");
+    CHECK_EQ(m.learn_path()->id, "core");
+    CHECK_EQ(m.learn_list().size(), 6u);
+    press(m, "t");
+    CHECK_EQ(m.learn_list().size(), 4u);
+    press(m, "t");
+    press(m, "t");
+    CHECK_EQ(m.learn_list().size(), 6u);
+    press(m, "Left");
+    CHECK(m.learn_path() == nullptr);
+    press(m, "0");
+    CHECK_EQ(m.learn_path()->id, "core");
+    press(m, "4");
+    snap(m, "progress-paths", {{100, 30}});
 }

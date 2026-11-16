@@ -33,6 +33,26 @@ Every TOML and Markdown file in a content directory must be ASCII only. Em dashe
 
 `schema` must be 1 (`unsupported schema N (this learndc supports 1)` otherwise). `tracks` is the order of the tracks; each must have a directory under `tracks/`.
 
+### Learning paths
+
+Optional `[[paths]]` tables group the tracks (chapters) into learning paths:
+
+    [[paths]]
+    id = "core"
+    title = "Core curriculum"
+    summary = "The beginner journey, one concept at a time."
+    kind = "core"
+    tracks = ["first-steps", "values"]
+
+    [[paths]]
+    id = "games"
+    title = "Game development (SDL3)"
+    summary = "Windows, drawing, input, sprites and complete games."
+    kind = "specialization"
+    tracks = ["game-setup"]
+
+`kind` is `core`, `specialization` or `practice`, and one path must be `core`. Every track of `tracks` belongs to exactly one path, and a path names only listed tracks. Chapters are numbered within their path. Without `[[paths]]`, all tracks form one core path. Paths are a view: lesson ids, prerequisites and progress do not depend on them, so a specialization's first lesson lists the core lesson it builds on (any lesson id may be a prerequisite, across paths). The recommended next lesson stays in the path of the lesson the learner finished and otherwise comes from the core path.
+
 ## track.toml
 
     schema = 1

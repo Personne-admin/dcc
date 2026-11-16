@@ -1,0 +1,30 @@
+ Learn DC · Home                                                      1 of 6 completed ██░░░░░░░░░░
+╭─ Menu ───────────────╮╭──────────────────────────────────────────────────────────────────────────╮
+│ › 1 Home             ││ Continue where you left off                                              │
+│   2 Learn            ││ › ◐ Variables and mutation                     beginner     in progress  │
+│   3 Lesson           ││     fundamentals/variables · fix behavior · last check 2 of 3 passed     │
+│   4 Progress         ││                                                                          │
+│   5 Bookmarks        ││ Recommended next                                                         │
+│   6 Doctor           ││   ○ Grouping data in structs                   intermediate not started  │
+│   7 Settings         ││     types/structs · complete program · about 20 min                      │
+│   8 Review           ││                                                                          │
+│                      ││ Core curriculum                                                          │
+│   ? Help             ││    1 Fundamentals    ████░░░░░░░░░░░░░░  1 of 4                          │
+│                      ││    2 Types and data  ░░░░░░░░░░░░░░░░░░  0 of 2                          │
+│                      ││                                                                          │
+│                      ││ Recent                                                                   │
+│                      ││   ✓ Your first DC program                      beginner     completed    │
+│                      ││                                                                          │
+│                      ││ Learning paths                                                           │
+│                      ││   Core curriculum          ███░░░░░░░░░░░░░░░  1 of 6 · 2 chapters       │
+│                      ││   Game development         ░░░░░░░░░░░░░░░░░░  0 of 1 · 1 chapter        │
+│                      ││   Projects and challenges  ░░░░░░░░░░░░░░░░░░  0 of 1 · 1 chapter        │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+
+ Enter open  Up Down move  n next  2 learn  ? help  q quit

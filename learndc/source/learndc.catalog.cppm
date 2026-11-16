@@ -476,12 +476,44 @@ export namespace learndc::catalog
         std::string summary;
         std::string goal;
         int number = 0;
+        std::string path;
         std::vector<std::string> exercise_names;
         std::vector<std::string> exercise_ids;
     };
 
+    enum class PathKind
+    {
+        Core,
+        Specialization,
+        Practice,
+    };
+
+    [[nodiscard]] constexpr std::string_view to_string(PathKind k) noexcept
+    {
+        switch (k)
+        {
+            case PathKind::Core:
+                return "core";
+            case PathKind::Specialization:
+                return "specialization";
+            case PathKind::Practice:
+                return "practice";
+        }
+        return "core";
+    }
+
+    struct Path
+    {
+        std::string id;
+        std::string title;
+        std::string summary;
+        PathKind kind = PathKind::Core;
+        std::vector<std::string> tracks;
+    };
+
     struct Filter
     {
+        std::string path;
         std::string track;
         std::optional<Difficulty> difficulty;
         std::optional<ExerciseKind> kind;
@@ -1663,12 +1695,49 @@ export namespace learndc::catalog
             std::vector<std::string> track_names;
             std::vector<toml::Position> track_positions;
             std::vector<std::tuple<std::string, std::string, toml::Position>> renames;
+            std::vector<std::pair<Path, toml::Position>> paths;
             if (detail::read_schema(r))
             {
                 if (auto t = r.string("title"))
                     catalog.m_title = *t;
                 if (auto names = r.strings("tracks", true, false, &track_positions))
                     track_names = std::move(*names);
+                if (auto const* ps = r.get("paths"))
+                {
+                    if (!ps->is_table_array())
+                        r.wrong_type("paths", *ps, "an array of tables ([[paths]])");
+                    else
+                        for (auto const& table : ps->items)
+                        {
+                            detail::Reader pr(table, "catalog.toml", errors);
+                            Path path;
+                            if (auto v = pr.string("id"))
+                            {
+                                path.id = *v;
+                                if (!is_slug(*v))
+                                    pr.report(pr.pos_of("id"), std::format("path id '{}' must use lowercase letters, digits and hyphens", *v));
+                            }
+                            if (auto v = pr.string("title"))
+                                path.title = *v;
+                            if (auto v = pr.string("summary"))
+                                path.summary = *v;
+                            if (auto v = pr.string("kind"))
+                            {
+                                if (*v == "core")
+                                    path.kind = PathKind::Core;
+                                else if (*v == "specialization")
+                                    path.kind = PathKind::Specialization;
+                                else if (*v == "practice")
+                                    path.kind = PathKind::Practice;
+                                else
+                                    pr.report(pr.pos_of("kind"), std::format("path kind '{}' must be core, specialization or practice", *v));
+                            }
+                            if (auto v = pr.strings("tracks", true, false))
+                                path.tracks = std::move(*v);
+                            pr.reject_unknown();
+                            paths.push_back({std::move(path), table.pos});
+                        }
+                }
                 if (auto const* rn = r.get("renamed"))
                 {
                     if (!rn->is_table())
@@ -1712,6 +1781,45 @@ export namespace learndc::catalog
             for (auto const& dir : directories)
                 if (!seen_tracks.contains(dir))
                     errors.push_back({"catalog.toml", 1, 1, std::format("track directory 'tracks/{}' is not listed in catalog.toml", dir)});
+
+            std::map<std::string, std::string> path_of_track;
+            if (paths.empty())
+            {
+                Path core;
+                core.id = "core";
+                core.title = catalog.m_title;
+                core.kind = PathKind::Core;
+                core.tracks = track_names;
+                for (auto const& t : track_names)
+                    path_of_track[t] = core.id;
+                catalog.m_paths.push_back(std::move(core));
+            }
+            else
+            {
+                std::set<std::string> path_ids;
+                for (auto const& [path, pos] : paths)
+                {
+                    if (!path_ids.insert(path.id).second)
+                        errors.push_back({"catalog.toml", pos.line, pos.column, std::format("path '{}' is listed more than once", path.id)});
+                    for (auto const& t : path.tracks)
+                    {
+                        if (!seen_tracks.contains(t))
+                            errors.push_back(
+                                {"catalog.toml", pos.line, pos.column, std::format("path '{}' names track '{}', which is not in tracks", path.id, t)});
+                        else if (auto [it, inserted] = path_of_track.emplace(t, path.id); !inserted)
+                            errors.push_back(
+                                {"catalog.toml", pos.line, pos.column, std::format("track '{}' is in path '{}' and in path '{}'", t, it->second, path.id)});
+                    }
+                }
+                for (std::size_t i = 0; i < track_names.size(); ++i)
+                    if (seen_tracks.contains(track_names[i]) && !path_of_track.contains(track_names[i]))
+                        errors.push_back(
+                            {"catalog.toml", track_positions[i].line, track_positions[i].column, std::format("track '{}' is not in any path", track_names[i])});
+                if (std::ranges::none_of(paths, [](auto const& p) { return p.first.kind == PathKind::Core; }))
+                    errors.push_back({"catalog.toml", paths.front().second.line, paths.front().second.column, "one path must have kind = \"core\""});
+                for (auto& [path, pos] : paths)
+                    catalog.m_paths.push_back(std::move(path));
+            }
 
             std::vector<detail::PendingExercise> pending;
             for (std::size_t i = 0; i < track_names.size(); ++i)
@@ -1763,8 +1871,21 @@ export namespace learndc::catalog
 
             if (!errors.empty())
                 return std::unexpected(std::move(errors));
+            std::map<std::string, int> numbers;
+            std::map<std::string, int> track_numbers;
+            for (auto& t : catalog.m_tracks)
+            {
+                if (auto it = path_of_track.find(t.id); it != path_of_track.end())
+                    t.path = it->second;
+                t.number = ++numbers[t.path];
+                track_numbers[t.id] = t.number;
+            }
             for (auto& p : pending)
+            {
+                if (auto it = track_numbers.find(p.exercise.track); it != track_numbers.end())
+                    p.exercise.chapter_number = it->second;
                 catalog.m_exercises.push_back(std::move(p.exercise));
+            }
             for (std::size_t i = 0; i < catalog.m_exercises.size(); ++i)
                 catalog.m_index[catalog.m_exercises[i].id] = i;
             return catalog;
@@ -1772,6 +1893,27 @@ export namespace learndc::catalog
 
         [[nodiscard]] std::string const& title() const { return m_title; }
         [[nodiscard]] std::vector<Track> const& tracks() const { return m_tracks; }
+        [[nodiscard]] std::vector<Path> const& paths() const { return m_paths; }
+
+        [[nodiscard]] Path const* find_path(std::string_view id) const
+        {
+            for (auto const& p : m_paths)
+                if (p.id == id)
+                    return &p;
+            return nullptr;
+        }
+
+        [[nodiscard]] Path const* path_of(Exercise const& e) const
+        {
+            auto const* t = find_track(e.track);
+            return t ? find_path(t->path) : nullptr;
+        }
+
+        [[nodiscard]] bool in_core(Exercise const& e) const
+        {
+            auto const* p = path_of(e);
+            return !p || p->kind == PathKind::Core;
+        }
         [[nodiscard]] std::vector<Exercise> const& exercises() const { return m_exercises; }
 
         [[nodiscard]] Exercise const* find(std::string_view id) const
@@ -1846,6 +1988,9 @@ export namespace learndc::catalog
             {
                 if (!filter.track.empty() && e->track != filter.track)
                     continue;
+                if (!filter.path.empty())
+                    if (auto const* path = path_of(*e); !path || path->id != filter.path)
+                        continue;
                 if (filter.difficulty && e->difficulty != *filter.difficulty)
                     continue;
                 if (filter.kind && e->kind != *filter.kind)
@@ -1898,18 +2043,34 @@ export namespace learndc::catalog
                         start = i + 1;
                         break;
                     }
-            for (std::size_t step = 0; step < order.size(); ++step)
-            {
-                auto const* e = order[(start + step) % order.size()];
-                if (!e->optional && !completed(e->id) && prerequisites_met(*e, completed))
+            std::string const current_path = [&] {
+                if (auto const* e = after.empty() ? nullptr : find(after))
+                    if (auto const* path = path_of(*e))
+                        return path->id;
+                return std::string{};
+            }();
+            auto const pick = [&](auto const& wanted) -> Exercise const* {
+                for (std::size_t step = 0; step < order.size(); ++step)
+                {
+                    auto const* e = order[(start + step) % order.size()];
+                    if (wanted(*e) && !e->optional && !completed(e->id) && prerequisites_met(*e, completed))
+                        return e;
+                }
+                return nullptr;
+            };
+            if (!current_path.empty())
+                if (auto const* e = pick([&](Exercise const& e) {
+                        auto const* path = path_of(e);
+                        return path && path->id == current_path;
+                    }))
                     return e;
-            }
-            return nullptr;
+            return pick([&](Exercise const& e) { return in_core(e); });
         }
 
     private:
         std::string m_title;
         std::vector<Track> m_tracks;
+        std::vector<Path> m_paths;
         std::vector<Exercise> m_exercises;
         std::map<std::string, std::size_t> m_index;
         std::map<std::string, std::string> m_renamed;

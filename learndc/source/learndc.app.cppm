@@ -1080,6 +1080,7 @@ export namespace learndc::app
     struct TrackSummary
     {
         std::string id;
+        std::string path;
         std::string title;
         int total = 0;
         int completed = 0;
@@ -1094,6 +1095,24 @@ export namespace learndc::app
         bool done = false;
     };
 
+    struct PathSummary
+    {
+        std::string id;
+        std::string title;
+        std::string summary;
+        catalog::PathKind kind = catalog::PathKind::Core;
+        int chapters = 0;
+        int chapters_done = 0;
+        int total = 0;
+        int completed = 0;
+        int in_progress = 0;
+        int bonus_total = 0;
+        int bonus_completed = 0;
+        int bosses_total = 0;
+        int bosses_defeated = 0;
+        bool started = false;
+    };
+
     struct Summary
     {
         int total = 0;
@@ -1102,6 +1121,7 @@ export namespace learndc::app
         int not_started = 0;
         int needs_revisit = 0;
         std::vector<TrackSummary> tracks;
+        std::vector<PathSummary> paths;
         std::string active;
         std::vector<std::string> recent;
         std::vector<std::string> bookmarks;
@@ -1117,6 +1137,7 @@ export namespace learndc::app
         {
             TrackSummary t;
             t.id = track.id;
+            t.path = track.path;
             t.title = track.title;
             t.number = track.number;
             t.goal = track.goal;
@@ -1158,6 +1179,33 @@ export namespace learndc::app
                 ++s.bosses_defeated;
             if (t.done)
                 ++s.chapters_done;
+        }
+        for (auto const& path : ctx.catalog.paths())
+        {
+            PathSummary ps;
+            ps.id = path.id;
+            ps.title = path.title;
+            ps.summary = path.summary;
+            ps.kind = path.kind;
+            for (auto const& t : s.tracks)
+            {
+                if (t.path != path.id)
+                    continue;
+                ++ps.chapters;
+                if (t.done)
+                    ++ps.chapters_done;
+                ps.total += t.total;
+                ps.completed += t.completed;
+                ps.in_progress += t.in_progress;
+                ps.bonus_total += t.bonus_total;
+                ps.bonus_completed += t.bonus_completed;
+                if (!t.boss_id.empty())
+                    ++ps.bosses_total;
+                if (t.boss_defeated)
+                    ++ps.bosses_defeated;
+            }
+            ps.started = ps.completed + ps.in_progress + ps.bonus_completed > 0;
+            s.paths.push_back(std::move(ps));
         }
         for (auto const& ex : ctx.catalog.exercises())
             if (auto it = p.exercises.find(ex.id); it != p.exercises.end() && progress::needs_revisit(it->second, ex.revision))

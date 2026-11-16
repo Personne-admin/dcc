@@ -1,0 +1,30 @@
+ Learn DC · Learn                                                     0 of 1 completed ░░░░░░░░░░░░
+╭─ Menu ───────────────╮╭─────────────────────────────────────────────────────────────── 1 lesson ─╮
+│   1 Home             ││ path Game development  2 of 4                                            │
+│ › 2 Learn            ││ status any  level any  chapter all  kind any                             │
+│   3 Lesson           ││ search none                                                              │
+│   4 Progress         ││──────────────────────────────────────────────────────────────────────────│
+│   5 Bookmarks        ││ Chapter 1  Drawing  0 of 1 completed                                     │
+│   6 Doctor           ││ › ○ Drawing shapes                             intermediate not started  │
+│   7 Settings         ││                                                                          │
+│   8 Review           ││                                                                          │
+│                      ││                                                                          │
+│   ? Help             ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││──────────────────────────────────────────────────────────────────────────│
+│                      ││ Fill rectangles with the renderer.                                       │
+│                      ││ implement function · 15 min · shapes, output                             │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+
+ Enter open  Left Right path  / search  f d t y filter  b bookmark  ? help  q quit

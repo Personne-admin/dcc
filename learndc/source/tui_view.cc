@@ -2180,15 +2180,25 @@ namespace learndc::tui
             }
             if (!lines.empty())
                 lines.push_back({});
-            lines.push_back(text_line("Chapters", plain(Role::Accent, true)));
+            bool const multi_path = m.summary.paths.size() > 1;
+            auto const core_path = [&]() -> std::string {
+                for (auto const& p : m.summary.paths)
+                    if (p.kind == catalog::PathKind::Core)
+                        return p.id;
+                return {};
+            }();
+            lines.push_back(text_line(multi_path ? "Core curriculum" : "Chapters", plain(Role::Accent, true)));
             int name_w = 8;
             for (auto const& t : m.summary.tracks)
-                name_w = std::max(name_w, width_of(clean_line(t.title)) + 4);
+                if (!multi_path || t.path == core_path)
+                    name_w = std::max(name_w, width_of(clean_line(t.title)) + 4);
             name_w = std::min(name_w, std::max(8, inner.w / 3));
             bool const roomy = inner.w >= 64;
             int const bar_w = std::clamp(inner.w - name_w - (roomy ? 36 : 16), 6, 20);
             for (auto const& t : m.summary.tracks)
             {
+                if (multi_path && t.path != core_path)
+                    continue;
                 Line l;
                 l.push_back({"  " + pad_right(fit(ui, std::format("{:>2} {}", t.number, clean_line(t.title)), name_w), name_w) + " ", plain(Role::Text, t.done)});
                 append(l, bar_spans(ui, bar_w, t.completed, t.total));
@@ -2198,6 +2208,36 @@ namespace learndc::tui
                 lines.push_back(std::move(l));
             }
             section(model::HomeKind::Recent, "Recent");
+            if (multi_path)
+            {
+                lines.push_back({});
+                lines.push_back(text_line("Learning paths", plain(Role::Accent, true)));
+                int path_w = 8;
+                for (auto const& p : m.summary.paths)
+                    path_w = std::max(path_w, width_of(clean_line(p.title)) + 2);
+                path_w = std::min(path_w, std::max(8, inner.w / 3));
+                for (std::size_t i = 0; i < items.size(); ++i)
+                {
+                    if (items[i].kind != model::HomeKind::Path)
+                        continue;
+                    auto const it = std::ranges::find_if(m.summary.paths, [&](auto const& p) { return p.id == items[i].id; });
+                    if (it == m.summary.paths.end())
+                        continue;
+                    bool const selected = i == std::min(m.home_sel, items.size() - 1);
+                    item_line[i] = to_int(lines.size());
+                    is_selected[i] = selected;
+                    Line row;
+                    row.push_back({selected ? std::format("{} ", ui.gl.sel) : std::string("  "), plain(Role::Accent, true)});
+                    row.push_back({pad_right(fit(ui, clean_line(it->title), path_w), path_w) + " ", plain(Role::Text, selected)});
+                    append(row, bar_spans(ui, bar_w, it->completed, it->total));
+                    row.push_back({std::format("  {} of {}", it->completed, it->total), plain(Role::Muted)});
+                    if (roomy)
+                        row.push_back({std::format("{}{} chapter{}", ui.sep(), it->chapters, it->chapters == 1 ? "" : "s"), plain(Role::Muted)});
+                    lines.push_back(std::move(row));
+                    if (selected && !it->summary.empty())
+                        lines.push_back(text_line("    " + fit(ui, clean_line(it->summary), std::max(1, inner.w - 4)), plain(Role::Muted)));
+                }
+            }
             int focus = 0;
             for (std::size_t i = 0; i < items.size(); ++i)
                 if (is_selected[i] && item_line[i] >= 0)
@@ -2224,7 +2264,7 @@ namespace learndc::tui
             auto const inner = draw_box(ui, main, "", false, std::format("{} {}", list.size(), list.size() == 1 ? "lesson" : "lessons"));
             if (inner.empty())
                 return;
-            auto const& tracks = m.ctx->catalog.tracks();
+            auto const tracks = m.learn_tracks();
             auto const filter_text = [&](std::string_view label, std::string_view value, bool active) {
                 Line l;
                 l.push_back({std::format("{} ", label), plain(Role::Muted)});
@@ -2237,11 +2277,37 @@ namespace learndc::tui
             append(f, filter_text("level", m.filters.difficulty ? difficulty_word(model::all_difficulties[m.filters.difficulty - 1]) : "any",
                                   m.filters.difficulty != 0));
             f.push_back({"  ", plain(Role::Text)});
-            append(f, filter_text("chapter", m.filters.track && m.filters.track <= tracks.size() ? clean_line(tracks[m.filters.track - 1].title) : "all",
+            append(f, filter_text("chapter", m.filters.track && m.filters.track <= tracks.size() ? clean_line(tracks[m.filters.track - 1]->title) : "all",
                                   m.filters.track != 0));
             f.push_back({"  ", plain(Role::Text)});
             append(f, filter_text("kind", m.filters.kind ? kebab_words(catalog::to_string(model::all_kinds[m.filters.kind - 1])) : "any", m.filters.kind != 0));
             int y = inner.y;
+            auto const& paths = m.ctx->catalog.paths();
+            if (paths.size() > 1)
+            {
+                auto const* current = m.learn_path();
+                Line tabs;
+                tabs.push_back({"path ", plain(Role::Muted)});
+                int used = 5;
+                bool compact = false;
+                for (std::size_t i = 0; i <= paths.size(); ++i)
+                    used += width_of(i < paths.size() ? clean_line(paths[i].title) : std::string("All")) + 3;
+                compact = used > inner.w;
+                if (compact)
+                {
+                    tabs.push_back({current ? clean_line(current->title) : std::string("All"), plain(Role::Accent, true)});
+                    tabs.push_back({std::format("  {} of {}", std::min(m.filters.path, paths.size()) + 1, paths.size() + 1), plain(Role::Muted)});
+                }
+                else
+                    for (std::size_t i = 0; i <= paths.size(); ++i)
+                    {
+                        bool const on = i < paths.size() ? current == &paths[i] : current == nullptr;
+                        auto const title = i < paths.size() ? clean_line(paths[i].title) : std::string("All");
+                        tabs.push_back({on ? std::format("[{}]", title) : std::format(" {} ", title), plain(on ? Role::Accent : Role::Text, on)});
+                        tabs.push_back({" ", plain(Role::Text)});
+                    }
+                draw_line(ui, inner, y++, tabs);
+            }
             draw_line(ui, inner, y++, f);
             Line search;
             search.push_back({"search ", plain(Role::Muted)});
@@ -2263,6 +2329,7 @@ namespace learndc::tui
             std::vector<bool> selectable;
             int focus = 0;
             std::string current_track;
+            std::string current_path;
             auto const idx = m.learn_index(list);
             for (std::size_t i = 0; i < list.size(); ++i)
             {
@@ -2283,6 +2350,13 @@ namespace learndc::tui
                     if (!rows.empty())
                     {
                         rows.push_back({});
+                        selectable.push_back(false);
+                    }
+                    if (t && m.ctx->catalog.paths().size() > 1 && !m.learn_path() && t->path != current_path)
+                    {
+                        current_path = t->path;
+                        auto const* path = m.ctx->catalog.find_path(t->path);
+                        rows.push_back(text_line(path ? clean_line(path->title) : t->path, plain(Role::Accent, true)));
                         selectable.push_back(false);
                     }
                     Line head;
@@ -2382,8 +2456,7 @@ namespace learndc::tui
             name_w = std::min(name_w, std::max(8, inner.w / 3));
             bool const roomy = inner.w >= 64;
             int const bar_w = std::clamp(inner.w - name_w - (roomy ? 36 : 16), 6, 20);
-            for (auto const& t : s.tracks)
-            {
+            auto const chapter_line = [&](app::TrackSummary const& t) {
                 Line l;
                 l.push_back({"  " + pad_right(fit(ui, std::format("{:>2} {}", t.number, clean_line(t.title)), name_w), name_w) + " ", plain(Role::Text, t.done)});
                 append(l, bar_spans(ui, bar_w, t.completed, t.total));
@@ -2391,7 +2464,27 @@ namespace learndc::tui
                 if (roomy)
                     append(l, boss_marker(ui, m, t));
                 lines.push_back(std::move(l));
-            }
+            };
+            if (s.paths.size() > 1)
+                for (auto const& ps : s.paths)
+                {
+                    Line head;
+                    head.push_back({" " + clean_line(ps.title), plain(Role::Text, true)});
+                    head.push_back({std::format("  {} of {} chapters", ps.chapters_done, ps.chapters), plain(Role::Muted)});
+                    if (ps.bosses_total > 0)
+                        head.push_back({std::format("{}{} of {} bosses", ui.sep(), ps.bosses_defeated, ps.bosses_total), plain(Role::Muted)});
+                    bool const show = ps.kind == catalog::PathKind::Core || ps.started;
+                    if (!show)
+                        head.push_back({std::format("{}not started", ui.sep()), plain(Role::Muted)});
+                    lines.push_back(std::move(head));
+                    if (show)
+                        for (auto const& t : s.tracks)
+                            if (t.path == ps.id)
+                                chapter_line(t);
+                }
+            else
+                for (auto const& t : s.tracks)
+                    chapter_line(t);
             auto const earned = app::achievements(*m.ctx, m.prog);
             lines.push_back({});
             lines.push_back(text_line("Achievements", plain(Role::Accent, true)));
@@ -2792,7 +2885,26 @@ namespace learndc::tui
                 l.push_back({std::format(" {} WATCHING ", ui.gl.watch), Style{Role::Watch, true, true, false}});
             }
             draw_line(ui, row, row.y, l);
-            std::string const done = std::format("{} of {} completed ", m.summary.completed, m.summary.total);
+            int shown_completed = m.summary.completed;
+            int shown_total = m.summary.total;
+            if (m.summary.paths.size() > 1)
+            {
+                std::string path_id;
+                if (m.screen == model::Screen::Learn && m.learn_path())
+                    path_id = m.learn_path()->id;
+                else if (m.screen == model::Screen::Exercise && m.exercise.ex)
+                    if (auto const* p = m.ctx->catalog.path_of(*m.exercise.ex))
+                        path_id = p->id;
+                if (!(m.screen == model::Screen::Learn && !m.learn_path()))
+                    for (auto const& ps : m.summary.paths)
+                        if (path_id.empty() ? ps.kind == catalog::PathKind::Core : ps.id == path_id)
+                        {
+                            shown_completed = ps.completed;
+                            shown_total = ps.total;
+                            break;
+                        }
+            }
+            std::string const done = std::format("{} of {} completed ", shown_completed, shown_total);
             int const bar_w = row.w >= 70 ? 12 : 0;
             int const total_w = width_of(done) + (bar_w > 0 ? bar_w + 1 : 0);
             if (row.w > total_w + line_width(l) + 2)
@@ -2801,7 +2913,7 @@ namespace learndc::tui
                 r.push_back({done, plain(Role::Muted)});
                 if (bar_w > 0)
                 {
-                    append(r, bar_spans(ui, bar_w, m.summary.completed, m.summary.total));
+                    append(r, bar_spans(ui, bar_w, shown_completed, shown_total));
                     r.push_back({" ", plain(Role::Text)});
                 }
                 draw_line(ui, Rect{row.right() - total_w, row.y, total_w, 1}, row.y, r);

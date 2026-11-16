@@ -1,0 +1,30 @@
+ Learn DC · Learn                                                     1 of 8 completed █░░░░░░░░░░░
+╭─ Menu ───────────────╮╭────────────────────────────────────────────────────────────── 8 lessons ─╮
+│   1 Home             ││ path All  4 of 4                                                         │
+│ › 2 Learn            ││ status any  level any  chapter all  kind any                             │
+│   3 Lesson           ││ search none                                                              │
+│   4 Progress         ││──────────────────────────────────────────────────────────────────────────│
+│   5 Bookmarks        ││ Core curriculum                                                          │
+│   6 Doctor           ││ Chapter 1  Fundamentals  1 of 4 completed                                │
+│   7 Settings         ││   ✓ Your first DC program                      beginner     completed    │
+│   8 Review           ││   ◐ Variables and mutation                     beginner     in progress  │
+│                      ││   ○ Making decisions with if                   beginner     not started  │
+│   ? Help             ││   ○ Repeating work with loops                  intermediate not started  │
+│                      ││                                                                          │
+│                      ││ Chapter 2  Types and data  0 of 2 completed                              │
+│                      ││   ○ Grouping data in structs                   intermediate not started  │
+│                      ││   ○ Choosing with enums                        advanced     not started  │
+│                      ││                                                                          │
+│                      ││ Game development                                                         │
+│                      ││ Chapter 1  Drawing  0 of 1 completed                                     │
+│                      ││   ○ Drawing shapes                             intermediate not started  │
+│                      ││                                                                          │
+│                      ││ Projects and challenges                                                  │
+│                      ││ Chapter 1  Project Lab  0 of 1 completed                                 │
+│                      ││ › ○ A bank ledger                              intermediate not started  │
+│                      ││──────────────────────────────────────────────────────────────────────────│
+│                      ││ Validate and apply transactions.                                         │
+│                      ││ Comes after: Variables and mutation                                      │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+
+ Enter open  Left Right path  / search  f d t y filter  b bookmark  ? help  q quit

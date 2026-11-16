@@ -1,0 +1,20 @@
+  1 Home  2  3  4  5  6  7  8
+╭──────────────────────────────────────────────────────────╮
+│ Continue where you left off                              ┃
+│ › ◐ Variables and mutation     beginner     in progress  ┃
+│     fundamentals/variables · fix behavior · last check … ┃
+│                                                          ┃
+│ Recommended next                                         ┃
+│   ○ Grouping data in structs   intermediate not started  ┃
+│     types/structs · complete program · about 20 min      ┃
+│                                                          ┃
+│ Core curriculum                                          ┃
+│    1 Fundamentals    █████░░░░░░░░░░░░░░░  1 of 4        ┃
+│    2 Types and data  ░░░░░░░░░░░░░░░░░░░░  0 of 2        ┃
+│                                                          ┃
+│ Recent                                                   ┃
+│   ✓ Your first DC program      beginner     completed    │
+│                                                          │
+│ Learning paths                                           │
+╰──────────────────────────────────────────────────────────╯
+ Enter open  Up Down move  n next  2 learn  ? help  q quit

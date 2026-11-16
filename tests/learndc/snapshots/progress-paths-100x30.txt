@@ -1,0 +1,30 @@
+ Learn DC · Progress                                                  1 of 6 completed ██░░░░░░░░░░
+╭─ Menu ───────────────╮╭──────────────────────────────────────────────────────────────────────────╮
+│   1 Home             ││ Overall  ███░░░░░░░░░░░░░░░░░░░░░░░░░░░                                  │
+│   2 Learn            ││ 1 completed · 1 in progress · 6 not started                              │
+│   3 Lesson           ││                                                                          │
+│ › 4 Progress         ││ Journey  0 of 4 chapters complete                                        │
+│   5 Bookmarks        ││  Core curriculum  0 of 2 chapters                                        │
+│   6 Doctor           ││    1 Fundamentals    ████░░░░░░░░░░░░░░  1 of 4                          │
+│   7 Settings         ││    2 Types and data  ░░░░░░░░░░░░░░░░░░  0 of 2                          │
+│   8 Review           ││  Game development  0 of 1 chapters · not started                         │
+│                      ││  Projects and challenges  0 of 1 chapters · not started                  │
+│   ? Help             ││                                                                          │
+│                      ││ Achievements                                                             │
+│                      ││   Complete a chapter or defeat a boss to earn the first one.             │
+│                      ││                                                                          │
+│                      ││ Worth another look                                                       │
+│                      ││ › Variables and mutation  last check passed 2 of 3                       │
+│                      ││                                                                          │
+│                      ││ Bookmarks (1)                                                            │
+│                      ││   Grouping data in structs                                               │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+│                      ││                                                                          │
+╰──────────────────────╯╰──────────────────────────────────────────────────────────────────────────╯
+
+ Enter open  Up Down move  ? help  q quit
