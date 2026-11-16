@@ -1,0 +1,8 @@
+dpm::v1::Project {
+    name = "probe",
+    version = "0.1.0",
+    link = { ":libm.so.6" },
+    products = {
+        { name = "probe", link_mode = LinkMode::Dynamic },
+    },
+}

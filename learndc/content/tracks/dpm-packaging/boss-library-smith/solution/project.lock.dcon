@@ -1,0 +1,11 @@
+dpm::v1::Lock {
+    manifest = "sha256:e36187e0f19b686f44207ce8502077df18ed45d56eb854ccf696fe80a496bb4d",
+    packages = {
+        {
+            location = "path:libs/tabulate",
+            version = "0.1.1",
+            source = "path:libs/tabulate",
+            hash = "",
+        },
+    },
+}

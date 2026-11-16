@@ -1,0 +1,20 @@
+module ships_checks;
+
+import harbor::ships;
+
+public i32 main() {
+    i32 failures = 0;
+    if harbor::ships::total_tons() != 445 {
+        println("FAIL total_tons: got {}, want 445", harbor::ships::total_tons());
+        failures += 1;
+    } else {
+        println("ok total_tons");
+    }
+    if harbor::ships::lightest_tons() != 45 {
+        println("FAIL lightest_tons: got {}, want 45", harbor::ships::lightest_tons());
+        failures += 1;
+    } else {
+        println("ok lightest_tons");
+    }
+    return failures;
+}

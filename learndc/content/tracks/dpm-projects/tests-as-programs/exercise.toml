@@ -1,0 +1,63 @@
+schema = 1
+id = "dpm-projects/tests-as-programs"
+revision = 1
+title = "Test programs and dpm test"
+summary = "Run the project's test program, fix the bug it reports and add the function its second test expects."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = [
+    "dpm test",
+    "tests directory",
+    "exit code",
+    "test first",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Run dpm test and read the output of a failing test",
+    "Fix a bug the test pins down",
+    "Implement a function a test already calls",
+]
+entry_file = "src/main.dc"
+product = "harbor"
+prerequisites = [
+    "dpm-projects/module-layout",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The total is printed"
+expect_stdout = '''
+total 445 t
+'''
+expect_exit = 0
+max_seconds = 10
+
+[[checks]]
+kind = "harness"
+name = "total_tons and lightest_tons are right"
+harness = "checks/ships_checks.dc"
+expect_stdout = '''
+ok total_tons
+ok lightest_tons
+'''
+expect_exit = 0

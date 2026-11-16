@@ -1,0 +1,25 @@
+module stats::summary;
+
+public f64 mean([]const i32 values) {
+    if values.len == 0 {
+        return 0.0;
+    }
+    i64 sum = 0;
+    for v in values {
+        sum += v as i64;
+    }
+    return (sum as f64) / (values.len as f64);
+}
+
+public i32 max([]const i32 values) {
+    if values.len == 0 {
+        return 0;
+    }
+    i32 best = values[0];
+    for v in values {
+        if v > best {
+            best = v;
+        }
+    }
+    return best;
+}

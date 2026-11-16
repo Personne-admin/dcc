@@ -1,0 +1,18 @@
+module main;
+
+i32 failures = 0;
+
+void check(bool ok, []const char what) {
+    if !ok {
+        println("FAIL {}", what);
+        failures += 1;
+    }
+}
+
+public i32 main() {
+    check(10 / 3 == 3, "division");
+    check(10 % 3 == 2, "remainder");
+    check(-7 / 2 == -3, "negative division");
+    println("failures: {}", failures);
+    return 0;
+}

@@ -1,0 +1,10 @@
+module fleet;
+
+import harbor::ships;
+
+public Status(Error) main() {
+    for ship in harbor::ships::FLEET {
+        println("{} {}", ship.name, ship.tons)?;
+    }
+    return Status::Ok;
+}

@@ -1,0 +1,11 @@
+module main;
+
+import elf;
+
+@nomangle extern f64 sqrt(f64 x);
+
+public Status(Error) main() {
+    println("dynamic: {}", elf::is_dynamic())?;
+    println("sqrt(2) = {:.4}", sqrt(2.0))?;
+    return Status::Ok;
+}

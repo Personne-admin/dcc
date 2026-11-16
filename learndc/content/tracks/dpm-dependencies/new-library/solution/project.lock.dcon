@@ -1,0 +1,11 @@
+dpm::v1::Lock {
+    manifest = "sha256:f844d035815a4847e5ecd33bbc42b2986c36fabd9f0a952e9df1be92104a1e6e",
+    packages = {
+        {
+            location = "path:libs/ports",
+            version = "0.1.0",
+            source = "path:libs/ports",
+            hash = "",
+        },
+    },
+}

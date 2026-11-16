@@ -1,0 +1,54 @@
+schema = 1
+id = "dpm-native/library-owns-the-link"
+revision = 1
+title = "A library that carries its own link"
+summary = "Move a native requirement into the library package that needs it, so the application never mentions it."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = [
+    "link",
+    "library package",
+    "propagation",
+    "dependencies",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Tell whose requirement a native library is",
+    "Declare link in a library package",
+    "Check the dcc command with -v",
+]
+entry_file = "src/main.dc"
+product = "harbor"
+prerequisites = [
+    "dpm-native/link-libm",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Results through the wrappers"
+expect_stdout = '''
+root of 2 = 1.4142
+cosine of 0 = 1.0000
+'''
+expect_exit = 0
+max_seconds = 10

@@ -1,0 +1,6 @@
+schema = 1
+id = "dpm-dependencies"
+title = "Dependencies, Locks and the Cache"
+summary = "Local path dependencies, library packages, the lock file, the cache and how to read dependency problems."
+goal = "Split a project into local library packages and diagnose dependency and lock problems from dpm's messages."
+exercises = ["dependencies-and-locks", "add-a-dependency", "nested-library", "fix-the-library", "new-library", "dependencies-drill"]

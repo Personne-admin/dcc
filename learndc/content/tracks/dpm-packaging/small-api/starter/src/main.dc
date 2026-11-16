@@ -1,0 +1,16 @@
+module main;
+
+import audit;
+import stats::summary;
+
+public i32 main() {
+    i32[3] a = { 3, 9, 4 };
+    audit::Text t;
+    audit::expect(audit::load(&t, "libs/stats/src/stats/summary.dc"), "the module file is readable");
+    audit::expect(audit::count(&t, "public") == 2, "summary.dc has exactly two public declarations");
+    audit::expect(audit::has(&t, "publicf64mean("), "mean is public");
+    audit::expect(audit::has(&t, "publici32max("), "max is public");
+    audit::expect(stats::summary::max(a[0..3]) == 9, "max still works for users");
+    audit::expect(stats::summary::mean(a[0..3]) > 5.3 && stats::summary::mean(a[0..3]) < 5.4, "mean still works for users");
+    return audit::finish();
+}

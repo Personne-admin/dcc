@@ -1,0 +1,56 @@
+schema = 1
+id = "dpm-dependencies/add-a-dependency"
+revision = 1
+title = "Depend on a local library"
+summary = "Use a library package from the same workspace by adding it to the dependencies of project.dcon."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = [
+    "dependencies",
+    "path dependency",
+    "dpm add",
+    "lock file",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Declare a path dependency in project.dcon",
+    "Find out what a missing dependency looks like in compiler output",
+    "Read the lock file dpm writes",
+]
+entry_file = "src/main.dc"
+product = "harbor"
+prerequisites = [
+    "dpm-dependencies/dependencies-and-locks",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The table in kilograms"
+expect_stdout = '''
+Aurora 120 t = 120000 kg
+Brisa 80 t = 80000 kg
+Corvo 200 t = 200000 kg
+Delta 45 t = 45000 kg
+'''
+expect_exit = 0
+max_seconds = 10

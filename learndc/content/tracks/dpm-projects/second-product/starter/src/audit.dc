@@ -1,0 +1,61 @@
+module audit;
+
+import std::os::file;
+import std::os::error;
+import std::slice;
+
+using std::os::{ file, error };
+
+public struct Text {
+    u8[16384] bytes;
+    usize len;
+}
+
+i32 failed = 0;
+i32 total = 0;
+
+public bool load(Text* t, []const char path) {
+    t.len = 0;
+    u8[16384] raw;
+    Result(file::File, error::Error) opened = file::open(path, file::read_only());
+    if !opened.is_ok() {
+        return false;
+    }
+    file::File f = opened.unwrap();
+    usize n = f.read_all(raw[0..16384]).unwrap();
+    f.close();
+    usize out = 0;
+    for usize i = 0; i < n; i++ {
+        u8 c = raw[i];
+        if c != 32 && c != 10 && c != 13 && c != 9 {
+            t.bytes[out] = c;
+            out += 1;
+        }
+    }
+    t.len = out;
+    return true;
+}
+
+public bool has(Text* t, []const u8 needle) {
+    []const u8 hay = t.bytes[0..t.len];
+    return std::slice::find(hay, needle).is_some();
+}
+
+public bool exists([]const char path) {
+    return file::exists(path);
+}
+
+public void expect(bool ok, []const char what) {
+    total += 1;
+    if ok {
+        println("ok   {}", what);
+    } else {
+        failed += 1;
+        println("FAIL {}", what);
+    }
+}
+
+public i32 finish() {
+    println("{} checks, {} failed", total, failed);
+    return failed;
+}

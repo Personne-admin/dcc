@@ -1,0 +1,134 @@
+module main;
+
+import audit;
+import tabulate::cell;
+import tabulate::table;
+import tabulate::stats;
+import std::os::file;
+import std::mem;
+
+using std::os::file;
+
+const ([]const char)[3] HEADERS = { "ship", "tons", "crew" };
+const ([]const char)[12] ROWS = { "Aurora", "120", "14", "Brisa", "80", "9", "Corvo", "200", "22", "Delta", "45", "6" };
+const i32[4] TONS = { 120, 80, 200, 45 };
+
+usize read_command(u8[64]* out) {
+    file::File in = file::stdin();
+    u8[256] buf;
+    usize n = in.read(buf[0..256]).unwrap();
+    usize len = 0;
+    while len < n && len < 64 && buf[len] != 10 {
+        out[0][len] = buf[len];
+        len += 1;
+    }
+    return len;
+}
+
+Status(Error) show_cells() {
+    print("[")?;
+    tabulate::cell::print_left("ab", 5)?;
+    println("]")?;
+    print("[")?;
+    tabulate::cell::print_right("ab", 5)?;
+    println("]")?;
+    println("{}", tabulate::cell::display_width("harbor"))?;
+    return Status::Ok;
+}
+
+Status(Error) show_table() {
+    []const ([]const char) headers = HEADERS[0..3];
+    []const ([]const char) rows = ROWS[0..12];
+    tabulate::table::print_table(headers, rows)?;
+    println("widths: {} {} {}", tabulate::table::column_width(headers, rows, 0), tabulate::table::column_width(headers, rows, 1), tabulate::table::column_width(headers, rows, 2))?;
+    return Status::Ok;
+}
+
+Status(Error) show_stats() {
+    []const i32 tons = TONS[0..4];
+    println("total: {}", tabulate::stats::total(tons))?;
+    println("min: {}", tabulate::stats::min(tons))?;
+    println("max: {}", tabulate::stats::max(tons))?;
+    println("mean: {:.2}", tabulate::stats::mean(tons))?;
+    println("empty mean: {:.2}", tabulate::stats::mean(TONS[0..0]))?;
+    return Status::Ok;
+}
+
+Status(Error) show_range() {
+    println("range: {}", tabulate::stats::range(TONS[0..4]))?;
+    return Status::Ok;
+}
+
+void show_seal() {
+    audit::Text cell;
+    audit::Text table;
+    audit::Text stats;
+    audit::expect(audit::load(&cell, "libs/tabulate/src/tabulate/cell.dc"), "cell.dc is readable");
+    audit::expect(audit::load(&table, "libs/tabulate/src/tabulate/table.dc"), "table.dc is readable");
+    audit::expect(audit::load(&stats, "libs/tabulate/src/tabulate/stats.dc"), "stats.dc is readable");
+    audit::expect(audit::count(&cell, "public") == 3, "cell.dc has 3 public declarations");
+    audit::expect(audit::count(&table, "public") == 2, "table.dc has 2 public declarations");
+    audit::expect(audit::count(&stats, "public") == 5, "stats.dc has 5 public declarations");
+    audit::finish();
+}
+
+void show_package() {
+    audit::Text manifest;
+    audit::Text readme;
+    audit::expect(audit::load(&manifest, "libs/tabulate/project.dcon"), "libs/tabulate/project.dcon is readable");
+    audit::expect(audit::has(&manifest, "name=\"tabulate\""), "the package is called tabulate");
+    audit::expect(audit::has(&manifest, "version=\"0."), "the version is below 1.0");
+    audit::expect(audit::has(&manifest, "description=\""), "there is a description");
+    audit::expect(audit::has(&manifest, "license=\""), "there is a license");
+    audit::expect(!audit::has(&manifest, "products="), "the library declares no products");
+    audit::expect(audit::load(&readme, "libs/tabulate/README.md"), "libs/tabulate/README.md exists");
+    audit::expect(audit::has(&readme, "#tabulate") && audit::has(&readme, "##Usage") && audit::has(&readme, "##API"), "the README has a title, a Usage and an API section");
+    audit::finish();
+}
+
+void show_tests() {
+    audit::Text t;
+    audit::expect(audit::load(&t, "libs/tabulate/tests/tabulate_test.dc"), "libs/tabulate/tests/tabulate_test.dc exists");
+    audit::expect(audit::has(&t, "publici32main()"), "the test program has a main returning i32");
+    audit::expect(audit::has(&t, "cell::"), "it uses tabulate::cell");
+    audit::expect(audit::has(&t, "table::column_width("), "it uses tabulate::table");
+    audit::expect(audit::has(&t, "stats::"), "it uses tabulate::stats");
+    audit::expect(audit::count(&t, "tabulate::") >= 9, "it calls the library at least six times");
+    audit::expect(audit::has(&t, "return"), "it returns a verdict");
+    audit::finish();
+}
+
+void show_release() {
+    audit::Text manifest;
+    audit::Text log;
+    audit::expect(audit::load(&manifest, "libs/tabulate/project.dcon"), "libs/tabulate/project.dcon is readable");
+    audit::expect(audit::has(&manifest, "version=\"0.1.1\""), "the version is 0.1.1");
+    audit::expect(audit::load(&log, "libs/tabulate/CHANGELOG.md"), "libs/tabulate/CHANGELOG.md exists");
+    audit::expect(audit::has(&log, "##0.1.1") && audit::has(&log, "range"), "the changelog has a 0.1.1 section naming range");
+    audit::finish();
+}
+
+public Status(Error) main() {
+    u8[64] cmd;
+    usize n = read_command(&cmd);
+    if std::mem::equal(cmd[0..n], "cells") {
+        show_cells()?;
+    } else if std::mem::equal(cmd[0..n], "table") {
+        show_table()?;
+    } else if std::mem::equal(cmd[0..n], "stats") {
+        show_stats()?;
+    } else if std::mem::equal(cmd[0..n], "range") {
+        show_range()?;
+    } else if std::mem::equal(cmd[0..n], "seal") {
+        show_seal();
+    } else if std::mem::equal(cmd[0..n], "package") {
+        show_package();
+    } else if std::mem::equal(cmd[0..n], "tests") {
+        show_tests();
+    } else if std::mem::equal(cmd[0..n], "release") {
+        show_release();
+    } else {
+        println("commands: cells table stats range seal package tests release")?;
+    }
+    return Status::Ok;
+}

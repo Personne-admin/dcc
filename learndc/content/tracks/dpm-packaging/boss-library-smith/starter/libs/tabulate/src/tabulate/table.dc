@@ -1,0 +1,19 @@
+module tabulate::table;
+
+import tabulate::cell;
+
+public usize column_width([]const []const char headers, []const []const char cells, usize column) {
+    return 0;
+}
+
+public Status(Error) print_rule([]const []const char headers, []const []const char cells) {
+    return Status::Ok;
+}
+
+public Status(Error) print_row([]const []const char row, []const []const char headers, []const []const char cells) {
+    return Status::Ok;
+}
+
+public Status(Error) print_table([]const []const char headers, []const []const char cells) {
+    return Status::Ok;
+}

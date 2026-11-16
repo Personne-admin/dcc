@@ -1,0 +1,59 @@
+schema = 1
+id = "dpm-builds/custom-profile"
+revision = 1
+title = "Define a custom profile"
+summary = "Add a profile that keeps release optimization but turns bounds checking on."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = [
+    "profiles",
+    "inherits",
+    "bounds_check",
+    "settings",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Write a custom profile with inherits and settings",
+    "Select it with --profile and read the dcc command",
+    "Know which built-in names are reserved",
+]
+entry_file = "src/main.dc"
+product = "audit"
+prerequisites = [
+    "dpm-builds/profiles-and-settings",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The audit passes"
+expect_stdout = '''
+ok   project.dcon can be read
+ok   the project declares profiles
+ok   a profile named checked exists
+ok   checked starts from the release profile
+ok   checked turns bounds checking on
+5 checks, 0 failed
+'''
+expect_exit = 0
+max_seconds = 10
+hint = "Run dpm run audit and read the FAIL lines."

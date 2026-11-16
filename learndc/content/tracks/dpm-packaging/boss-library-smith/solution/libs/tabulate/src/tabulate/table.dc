@@ -1,0 +1,53 @@
+module tabulate::table;
+
+import tabulate::cell;
+
+public usize column_width([]const []const char headers, []const []const char cells, usize column) {
+    usize best = cell::display_width(headers[column]);
+    for usize at = column; at < cells.len; at += headers.len {
+        usize w = cell::display_width(cells[at]);
+        if w > best {
+            best = w;
+        }
+    }
+    return best;
+}
+
+Status(Error) print_rule([]const []const char headers, []const []const char cells) {
+    for usize col = 0; col < headers.len; col++ {
+        if col > 0 {
+            print(" ")?;
+        }
+        usize w = column_width(headers, cells, col);
+        for usize k = 0; k < w; k++ {
+            print("-")?;
+        }
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+Status(Error) print_row([]const []const char row, []const []const char headers, []const []const char cells) {
+    for usize col = 0; col < row.len; col++ {
+        if col > 0 {
+            print(" ")?;
+        }
+        usize w = column_width(headers, cells, col);
+        if col == 0 {
+            cell::print_left(row[col], w)?;
+        } else {
+            cell::print_right(row[col], w)?;
+        }
+    }
+    println("")?;
+    return Status::Ok;
+}
+
+public Status(Error) print_table([]const []const char headers, []const []const char cells) {
+    print_row(headers, headers, cells)?;
+    print_rule(headers, cells)?;
+    for usize start = 0; start < cells.len; start += headers.len {
+        print_row(cells[start..start + headers.len], headers, cells)?;
+    }
+    return Status::Ok;
+}

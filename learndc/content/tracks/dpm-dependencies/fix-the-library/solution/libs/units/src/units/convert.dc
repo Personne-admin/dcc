@@ -1,0 +1,5 @@
+module units::convert;
+
+public i32 tons_to_kg(i32 tons) {
+    return tons * 1000;
+}

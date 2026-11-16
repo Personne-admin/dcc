@@ -1,0 +1,116 @@
+schema = 1
+id = "dpm-projects/project-anatomy"
+revision = 1
+title = "Anatomy of a dpm project"
+summary = "What project.dcon declares, how products and modules map to files, where the build output goes and why dpm exists next to dcc."
+difficulty = "intermediate"
+estimated_minutes = 14
+concepts = [
+    "dpm",
+    "project.dcon",
+    "products",
+    "modules",
+    "source root",
+    "build output",
+]
+tags = [
+    "dpm",
+    "lecture",
+]
+objectives = [
+    "Read a project.dcon and say which files and commands it produces",
+    "Explain how a module path maps to a file under the source root",
+    "Find the build output of a product and name the commands that build, run and test it",
+]
+prerequisites = [
+    "projects/boss-text-tools",
+]
+
+[[examples]]
+name = "exit_status"
+expect_stdout = '''
+ok   addition
+ok   integer division
+'''
+
+[[questions]]
+id = "where-output"
+type = "choice"
+prompt = "A debug build of the product `tonnage` finishes. Where is the executable?"
+choices = [
+    "tonnage in the project root",
+    ".dpm/out/debug/host/tonnage",
+    "src/tonnage",
+    "build/tonnage.exe",
+]
+answer = 2
+why = [
+    "dpm never writes build output into the source tree or the project root.",
+    "",
+    "src holds sources only.",
+    "There is no build directory and no exe suffix on Linux.",
+]
+explanation = "Output goes to .dpm/out/<profile>/<target>/<product>. For a default build that is debug and host."
+
+[[questions]]
+id = "several-products"
+type = "choice"
+prompt = "A project declares two products and you type `dpm run`. What happens?"
+choices = [
+    "The first product runs",
+    "Both products run one after the other",
+    "dpm stops: several products, name one of them",
+    "dpm builds but runs nothing",
+]
+answer = 3
+why = [
+    "dpm does not guess.",
+    "dpm runs at most one program per command.",
+    "",
+    "It stops before building.",
+]
+explanation = "dpm run starts exactly one program, so with more than one product you pick it: dpm run tonnage."
+
+[[questions]]
+id = "module-file"
+type = "choice"
+prompt = "Which file must hold `module harbor::ships;` in a project with the default source root?"
+choices = [
+    "src/ships.dc",
+    "src/harbor.dc",
+    "src/harbor/ships.dc",
+    "harbor/ships.dc",
+]
+answer = 3
+why = [
+    "That file would declare `module ships;`.",
+    "That file would declare `module harbor;`.",
+    "",
+    "The path is relative to the source root, which is src by default.",
+]
+explanation = "The module path is the file path below the source root: harbor::ships is src/harbor/ships.dc."
+
+[[questions]]
+id = "test-pass"
+type = "short"
+prompt = "What exit code makes `dpm test` count a test program as passed? Type the number."
+accept = [
+    "0",
+    "zero",
+]
+explanation = "A test is a program. Exit code 0 means it passed; any other value is a failure, so print the details first and then return the failure count."
+
+[[cards]]
+id = "manifest"
+front = "Which file declares a dpm project, and what is its top-level type?"
+back = "project.dcon, a dpm::v1::Project struct literal with at least name and version."
+
+[[cards]]
+id = "output-dir"
+front = "Where does `dpm build` put the executable of product P?"
+back = ".dpm/out/<profile>/<target>/P, for a default build .dpm/out/debug/host/P."
+
+[[cards]]
+id = "run-name"
+front = "How do you start one of several products with arguments?"
+back = "dpm run NAME -- ARGS. Arguments after -- go to the program."

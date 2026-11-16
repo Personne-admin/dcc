@@ -1,0 +1,117 @@
+schema = 1
+id = "dpm-builds/profiles-and-settings"
+revision = 1
+title = "Profiles and settings"
+summary = "How dpm turns settings into dcc flags, what debug and release change, how a custom profile and a per-product override work."
+difficulty = "intermediate"
+estimated_minutes = 16
+concepts = [
+    "profiles",
+    "settings",
+    "debug",
+    "release",
+    "optimize",
+    "backend",
+    "target",
+    "extra_flags",
+    "compile-commands",
+]
+tags = [
+    "dpm",
+    "lecture",
+]
+objectives = [
+    "Name what the debug and release profiles pass to dcc",
+    "Order the layers of settings from lowest to highest priority",
+    "Write a custom profile and a per-product override",
+    "Print the dcc command dpm would run without building",
+]
+prerequisites = [
+    "dpm-dependencies/dependencies-drill",
+]
+
+[[questions]]
+id = "debug-flags"
+type = "multi"
+prompt = "Which flags does the default `dpm build` (profile debug) pass to dcc for a hosted product?"
+choices = [
+    "-O0",
+    "-O2",
+    "-g",
+    "-fbounds-check",
+    "-flibdcext",
+]
+answers = [1, 3, 4, 5]
+why = [
+    "",
+    "That is release.",
+    "",
+    "",
+    "",
+]
+explanation = "The debug profile compiles without optimization, with debug information and bounds checks. A hosted product also gets -flibdcext and -fwhole-program in both profiles."
+
+[[questions]]
+id = "layer-order"
+type = "choice"
+prompt = "A project sets `settings = { optimize = Optimize::O1 }` and a product in it sets `optimize = Optimize::O2`. You run `dpm build --profile release`. Which level does that product get?"
+choices = [
+    "-O1, the project setting",
+    "-O2, the product setting",
+    "-O2, because release says so",
+    "An error: the setting is duplicated",
+]
+answer = 2
+why = [
+    "Project settings are a lower layer than product settings.",
+    "",
+    "The release default is a lower layer than the product setting; the result is the same number here but for the wrong reason.",
+    "Layers exist so that each can override the one below.",
+]
+explanation = "Product settings sit above project settings and above the profile. Only command-line options such as -O rank higher."
+
+[[questions]]
+id = "reserved-name"
+type = "choice"
+prompt = '''
+You write `profiles = { { name = "release", settings = { optimize = Optimize::O1 } } }`. What does dpm say?
+'''
+choices = [
+    "It overrides the built-in release profile",
+    "It ignores the entry",
+    "It reports that release is built in and cannot be declared",
+    "It creates .dpm/out/release2",
+]
+answer = 3
+why = [
+    "Built-in profiles cannot be redefined.",
+    "dpm never ignores part of a manifest.",
+    "",
+    "Nothing is renamed automatically.",
+]
+explanation = "The message is: profile 'release' is built in and cannot be declared; use another name and set inherits."
+
+[[questions]]
+id = "tri-default"
+type = "short"
+prompt = "Which value of a `Tri` setting leaves the choice to dpm and passes nothing to dcc?"
+accept = [
+    "default",
+    "tri::default",
+]
+explanation = "Tri::Default means unset. On and Off force the switch; Default does not override a lower layer."
+
+[[cards]]
+id = "layers"
+front = "Order the setting layers from lowest to highest."
+back = "profile defaults, project settings, selected profile settings, product settings, command-line options."
+
+[[cards]]
+id = "release-flags"
+front = "What does the release profile pass to dcc?"
+back = "-O2 (plus -fwhole-program and -flibdcext for a hosted product); no -g and no -fbounds-check."
+
+[[cards]]
+id = "compile-commands"
+front = "How do you see the dcc commands of every product without building?"
+back = "dpm compile-commands [--profile NAME]"

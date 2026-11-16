@@ -1,0 +1,13 @@
+module main;
+
+import audit;
+
+public i32 main() {
+    audit::Text m;
+    audit::expect(audit::load(&m, "project.dcon"), "project.dcon can be read");
+    audit::expect(audit::has(&m, "name=\"crunch\""), "the product crunch is declared");
+    audit::expect(audit::has_after(&m, "name=\"crunch\"", "optimize=Optimize::O2"), "crunch asks for -O2");
+    audit::expect(!audit::has_after(&m, "name=\"fleet\"", "optimize="), "fleet and the rest keep the profile's level");
+    audit::expect(!audit::has(&m, "profiles={"), "no profile is needed for this");
+    return audit::finish();
+}

@@ -1,0 +1,4 @@
+dpm::v1::Project {
+    name = "tabulate",
+    version = "1.0.0",
+}

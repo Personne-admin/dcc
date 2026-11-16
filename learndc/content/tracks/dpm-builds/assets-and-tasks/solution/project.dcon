@@ -1,0 +1,21 @@
+dpm::v1::Project {
+    name = "harbor",
+    version = "0.1.0",
+    products = {
+        { name = "audit" },
+        { name = "fleet", entry = "src/fleet.dc" },
+    },
+    assets = {
+        { name = "ships", location = "path:data" },
+    },
+    tasks = {
+        {
+            name = "count-ships",
+            description = "Count the ships in the data file",
+            command = { "sh", "-c", "wc -l < \"$$1\" > \"$$2\"; cat \"$$2\"", "sh", "${asset:ships}/ships.txt", "${task_dir}/count.txt" },
+            tools = { "sh", "wc" },
+            inputs = { "${asset:ships}/ships.txt" },
+            outputs = { "${task_dir}/count.txt" },
+        },
+    },
+}

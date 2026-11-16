@@ -1,0 +1,6 @@
+schema = 1
+id = "dpm-packaging"
+title = "Packaging a Reusable Library"
+summary = "Design a library package with a small public surface, tests, honest versions and a consuming application."
+goal = "Design, test, version and package a reusable DC library and consume it from an application in the same workspace."
+exercises = ["library-design", "library-with-tests", "small-api", "release-a-version", "packaging-drill", "boss-library-smith"]

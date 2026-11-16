@@ -1,0 +1,15 @@
+dpm::v1::Project {
+    name = "harbor",
+    version = "0.1.0",
+    products = {
+        { name = "audit" },
+        { name = "fleet", entry = "src/fleet.dc" },
+    },
+    profiles = {
+        {
+            name = "checked",
+            inherits = ProfileBase::Release,
+            settings = { bounds_check = Tri::On },
+        },
+    },
+}

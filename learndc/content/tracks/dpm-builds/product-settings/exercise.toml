@@ -1,0 +1,57 @@
+schema = 1
+id = "dpm-builds/product-settings"
+revision = 1
+title = "Settings for one product"
+summary = "Make one product always optimized while the others follow the profile."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = [
+    "settings layers",
+    "optimize",
+    "product settings",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Put a setting on a single product",
+    "Explain why it wins over the debug profile",
+    "Check the result with dpm -v",
+]
+entry_file = "src/main.dc"
+product = "audit"
+prerequisites = [
+    "dpm-builds/custom-profile",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The audit passes"
+expect_stdout = '''
+ok   project.dcon can be read
+ok   the product crunch is declared
+ok   crunch asks for -O2
+ok   fleet and the rest keep the profile's level
+ok   no profile is needed for this
+5 checks, 0 failed
+'''
+expect_exit = 0
+max_seconds = 10

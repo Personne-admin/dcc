@@ -1,0 +1,137 @@
+schema = 1
+id = "dpm-dependencies/dependencies-drill"
+revision = 1
+kind = "drill"
+title = "Dependency drills"
+summary = "Diagnose dependency problems from manifests and messages."
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = [
+    "dependencies",
+    "lock file",
+    "cache",
+    "diagnostics",
+]
+tags = [
+    "dpm",
+    "drill",
+]
+objectives = [
+    "Find the wrong line in a dependency manifest",
+    "Pick the right dpm command for a dependency question",
+    "Predict what dpm does offline",
+]
+prerequisites = [
+    "dpm-dependencies/new-library",
+]
+
+[[questions]]
+id = "version-on-path"
+type = "bug"
+prompt = "dpm stops with `project.dcon:5:63: path dependencies take no version`. Which line is wrong?"
+code = '''
+dpm::v1::Project {
+    name = "harbor",
+    version = "0.1.0",
+    dependencies = {
+        { location = "path:libs/units", version = "1.0.0" },
+    },
+    products = { { name = "harbor" } },
+}
+'''
+lines = [5]
+explanation = "A path: package has no release history to choose from: the directory is the version. Remove the version field from the path entry."
+
+[[questions]]
+id = "wrong-relative"
+type = "bug"
+prompt = "dpm reports `cannot resolve path:libs/report/libs/units`. This is libs/report/project.dcon. Which line is wrong?"
+code = '''
+dpm::v1::Project {
+    name = "report",
+    version = "0.2.0",
+    dependencies = {
+        { location = "path:libs/units" },
+    },
+}
+'''
+lines = [5]
+explanation = "The path is relative to libs/report, the manifest's own directory. The neighbour is path:../units."
+
+[[questions]]
+id = "which-lock-command"
+type = "choice"
+prompt = "A colleague changed a dependency in project.dcon. Which command tells CI that the committed lock file is stale, without changing any file?"
+choices = [
+    "dpm lock",
+    "dpm lock --check",
+    "dpm fetch",
+    "dpm update",
+]
+answer = 2
+why = [
+    "It rewrites the lock instead of reporting.",
+    "",
+    "It downloads what the lock names; it does not compare.",
+    "It raises versions.",
+]
+explanation = "dpm lock --check exits with 4 and writes nothing when the lock would change."
+
+[[questions]]
+id = "private-fn"
+type = "choice"
+prompt = "The import of `units::convert` resolves, but the build reports `unknown path units::convert::tons_to_kg`. What is the most likely cause?"
+choices = [
+    "The dependency is missing from project.dcon",
+    "The function in the library is not public",
+    "The cache is empty",
+    "The lock file is stale",
+]
+answer = 2
+why = [
+    "Then the error would be `could not resolve module`.",
+    "",
+    "Path dependencies do not use the cache.",
+    "A stale lock produces a different message.",
+]
+explanation = "When the module is found but the function is not, visibility is the usual reason: declarations are private unless marked public."
+
+[[questions]]
+id = "series"
+type = "multi"
+prompt = "Which statements about versions of a remote dependency are true?"
+choices = [
+    "version in a dependency is a minimum",
+    "dpm build fetches newer releases automatically",
+    "dpm update raises minimums within the same series",
+    "The lock records the hash of the downloaded tree",
+    "Two packages needing different major versions of one dependency are resolved to the newest",
+]
+answers = [1, 3, 4]
+why = [
+    "",
+    "Builds never pick up new releases on their own.",
+    "",
+    "",
+    "That is a resolution error, not a silent choice.",
+]
+explanation = "The version is a minimum, resolution picks the lowest version in the series that satisfies everybody, dpm update moves forward on request and the lock pins the tree by hash."
+
+[[questions]]
+id = "tree-name"
+type = "short"
+prompt = "Which dpm command prints the resolved dependency graph as a tree? Type the full command."
+accept = [
+    "dpm tree",
+]
+explanation = "dpm tree prints the build list as a tree; dpm why LOCATION shows the requirement paths that led to one package."
+
+[[cards]]
+id = "module-vs-fn"
+front = "`could not resolve module` versus `unknown path` after an import: which means what?"
+back = "Could not resolve module: no package provides it (missing dependency or wrong namespace). Unknown path: the module is found but the name is private or misspelled."
+
+[[cards]]
+id = "lock-check-ci"
+front = "What do you run in CI to catch a forgotten lock update?"
+back = "dpm lock --check; it exits 4 when the lock would change."

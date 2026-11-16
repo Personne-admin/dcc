@@ -1,0 +1,6 @@
+schema = 1
+id = "dpm-builds"
+title = "Profiles, Backends, Tasks and Assets"
+summary = "Profiles and settings, per-product overrides, tasks that run only on request, assets and editor commands."
+goal = "Control how dpm builds a project and declare the extra work around it without surprising anybody."
+exercises = ["profiles-and-settings", "custom-profile", "product-settings", "tasks-and-assets", "first-task", "assets-and-tasks", "builds-drill"]

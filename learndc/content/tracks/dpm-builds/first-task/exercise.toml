@@ -1,0 +1,60 @@
+schema = 1
+id = "dpm-builds/first-task"
+revision = 1
+title = "Declare your first task"
+summary = "Add a task that builds the fleet program and runs it, and call it with dpm task."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = [
+    "tasks",
+    "argv",
+    "tokens",
+    "build",
+    "dpm task",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Write a task with a command list and a build dependency",
+    "Use the ${out:PRODUCT} token",
+    "Run a task and preview it with --dry-run",
+]
+entry_file = "src/main.dc"
+product = "audit"
+prerequisites = [
+    "dpm-builds/tasks-and-assets",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The audit passes"
+expect_stdout = '''
+ok   project.dcon can be read
+ok   the project declares tasks
+ok   a task named fleet-report exists
+ok   its command runs the fleet product with no shell
+ok   it builds fleet first
+ok   it has a description
+6 checks, 0 failed
+'''
+expect_exit = 0
+max_seconds = 10

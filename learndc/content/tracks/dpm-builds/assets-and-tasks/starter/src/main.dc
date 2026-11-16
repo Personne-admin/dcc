@@ -1,0 +1,17 @@
+module main;
+
+import audit;
+
+public i32 main() {
+    audit::Text m;
+    audit::expect(audit::load(&m, "project.dcon"), "project.dcon can be read");
+    audit::expect(audit::exists("data/ships.txt"), "data/ships.txt is in the workspace");
+    audit::expect(audit::has(&m, "assets={"), "the project declares assets");
+    audit::expect(audit::has_after(&m, "name=\"ships\"", "location=\"path:data\""), "the asset ships is the directory data");
+    audit::expect(audit::has(&m, "name=\"count-ships\""), "a task named count-ships exists");
+    audit::expect(audit::has_after(&m, "name=\"count-ships\"", "${asset:ships}/ships.txt"), "the task reads the asset through its token");
+    audit::expect(audit::has_after(&m, "name=\"count-ships\"", "tools={\"sh\",\"wc\"}"), "the task names the tools it needs");
+    audit::expect(audit::has_after(&m, "name=\"count-ships\"", "inputs={\"${asset:ships}/ships.txt\"}"), "the input file is listed");
+    audit::expect(audit::has_after(&m, "name=\"count-ships\"", "outputs={\"${task_dir}/count.txt\"}"), "the output file is listed");
+    return audit::finish();
+}

@@ -1,0 +1,146 @@
+schema = 1
+id = "dpm-projects/projects-drill"
+revision = 1
+kind = "drill"
+title = "Project drills"
+summary = "Spot manifest mistakes, predict what dpm prints and decide which command does what."
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = [
+    "project.dcon",
+    "products",
+    "dpm test",
+    "diagnostics",
+    "modules",
+]
+tags = [
+    "dpm",
+    "drill",
+]
+objectives = [
+    "Locate the line of a manifest mistake from dpm's diagnostic",
+    "Predict the verdict of a test program",
+    "Choose the right dpm command for a task",
+]
+prerequisites = [
+    "dpm-projects/tests-as-programs",
+]
+
+[[examples]]
+name = "verdict"
+expect_stdout = '''
+FAIL remainder
+failures: 1
+'''
+
+[[questions]]
+id = "missing-comma"
+type = "bug"
+prompt = "`dpm check` reports `project.dcon:4:5: expected '}' to close struct literal, found 'identifier'`. Which line holds the real mistake?"
+code = '''
+dpm::v1::Project {
+    name = "harbor",
+    version = "0.1.0"
+    products = {
+        { name = "harbor" },
+    },
+}
+'''
+lines = [3]
+explanation = '''
+The parser reads `version = "0.1.0"` and then expects a comma or the closing brace; it notices the problem when `products` starts on line 4. The missing comma is at the end of line 3.
+'''
+
+[[questions]]
+id = "unknown-field"
+type = "bug"
+prompt = "`dpm build` stops with `project.dcon:5:5: unknown field `product` in brace literal`. Which line is wrong?"
+code = '''
+dpm::v1::Project {
+    name = "harbor",
+    version = "0.1.0",
+    description = "Ships",
+    product = {
+        { name = "harbor" },
+    },
+}
+'''
+lines = [5]
+explanation = "The manifest struct is closed: it has a field `products` but none called `product`. dpm rejects unknown fields instead of ignoring them, so a typo cannot silently disable a setting."
+
+[[questions]]
+id = "which-command"
+type = "choice"
+prompt = "You changed project.dcon and only want to know whether dpm can load it, without compiling anything. Which command?"
+choices = [
+    "dpm build",
+    "dpm check",
+    "dpm run",
+    "dpm clean",
+]
+answer = 2
+why = [
+    "It would also compile every product.",
+    "",
+    "It would build and start a program.",
+    "It deletes build output; it does not read the manifest for you.",
+]
+explanation = "dpm check loads project.dcon (or any manifest file you name) and prints diagnostics. Add --tree to see every field with its default."
+
+[[questions]]
+id = "test-verdict"
+type = "predict"
+prompt = "This test program ends with `return 0;`. Type everything it prints, one line per line."
+example = "verdict"
+expect = '''
+FAIL remainder
+failures: 1
+'''
+explanation = "In integer division DC truncates toward zero, so -7 / 2 is -3 and that check passes. 10 / 3 is 3 and 10 % 3 is 1, not 2: the remainder check fails and prints FAIL remainder first. But look at the last line of main: it returns 0 whatever happened, so dpm test would report this broken test as passed. A test program must return its failure count."
+
+[[questions]]
+id = "run-products"
+type = "multi"
+prompt = "A project declares products `audit` and `fleet`. Which commands start the fleet program?"
+choices = [
+    "dpm run fleet",
+    "dpm run",
+    "dpm build fleet && .dpm/out/debug/host/fleet",
+    "dpm run fleet -- --verbose",
+    "dpm test fleet",
+]
+answers = [1, 3, 4]
+why = [
+    "",
+    "With two products dpm refuses: several products; name one of them.",
+    "",
+    "",
+    "dpm test builds and runs the programs in tests/, not products.",
+]
+explanation = "dpm run NAME builds and starts a product, and arguments after -- go to the program. The built file can also be started by hand from .dpm/out/<profile>/<target>/. Without a name dpm will not guess between products."
+
+[[questions]]
+id = "tree-flag"
+type = "short"
+prompt = "Which flag makes `dpm check` print every field of the manifest, defaults included? Type the flag."
+accept = [
+    "--tree",
+]
+explanation = '''
+dpm check --tree prints the decoded tree, which is the quickest way to see what a default such as `source = "src"` is.
+'''
+
+[[cards]]
+id = "check-tree"
+front = "How do you see every manifest field, with defaults, without building?"
+back = "dpm check --tree"
+
+[[cards]]
+id = "unknown-field"
+front = "What does dpm do with a misspelled field in project.dcon?"
+back = "It reports unknown field with the line and column; the manifest struct is closed, nothing is ignored."
+
+[[cards]]
+id = "parent-strip"
+front = "Inside module harbor::report, how is the module harbor::ships reached after `import harbor::ships;`?"
+back = "As ships:: (the shared harbor:: prefix is stripped)."

@@ -1,0 +1,63 @@
+schema = 1
+id = "dpm-packaging/library-with-tests"
+revision = 1
+title = "Tests inside a library"
+summary = "Write the test program of a library package and fix the bug it exposes."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = [
+    "tests",
+    "test_dir",
+    "dpm test",
+    "library package",
+    "bug fixing",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Place a test program in the library's tests directory",
+    "Run dpm test inside a package",
+    "Let a failing test lead to the bug",
+]
+entry_file = "src/main.dc"
+product = "audit"
+prerequisites = [
+    "dpm-packaging/library-design",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The audit passes"
+expect_stdout = '''
+ok   max of 3, 9, 4 is 9
+ok   max of -5, -2, -9 is -2
+ok   max of nothing is 0
+ok   mean of 2, 4, 9 is 5
+ok   libs/stats/tests/summary_test.dc exists
+ok   the test program has a main returning i32
+ok   the tests call mean and max
+ok   there are at least four checks
+ok   the program returns a verdict
+9 checks, 0 failed
+'''
+expect_exit = 0
+max_seconds = 10

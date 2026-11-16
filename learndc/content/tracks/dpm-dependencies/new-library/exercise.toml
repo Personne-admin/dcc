@@ -1,0 +1,55 @@
+schema = 1
+id = "dpm-dependencies/new-library"
+revision = 1
+title = "Create a library package"
+summary = "Write a new library package with its own project.dcon and one module, then depend on it."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 25
+concepts = [
+    "library package",
+    "project.dcon",
+    "module layout",
+    "path dependency",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Write the manifest of a package without products",
+    "Place modules under the package name in its source root",
+    "Wire the library into the application",
+]
+entry_file = "src/main.dc"
+product = "harbor"
+prerequisites = [
+    "dpm-dependencies/fix-the-library",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Three distances"
+expect_stdout = '''
+port 0 to port 3: 140 nm
+port 2 to port 1: 45 nm
+port 3 to port 3: 0 nm
+'''
+expect_exit = 0
+max_seconds = 10

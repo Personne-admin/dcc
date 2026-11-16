@@ -1,0 +1,4 @@
+dpm::v1::Project {
+    name = "stats",
+    version = "0.1.0",
+}

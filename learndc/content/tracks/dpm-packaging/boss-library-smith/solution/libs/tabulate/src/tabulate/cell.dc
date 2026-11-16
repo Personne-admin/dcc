@@ -1,0 +1,28 @@
+module tabulate::cell;
+
+public usize display_width([]const char text) {
+    return text.len;
+}
+
+Status(Error) spaces(usize count) {
+    for usize i = 0; i < count; i++ {
+        print(" ")?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) print_left([]const char text, usize width) {
+    print("{}", text)?;
+    if width > text.len {
+        spaces(width - text.len)?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) print_right([]const char text, usize width) {
+    if width > text.len {
+        spaces(width - text.len)?;
+    }
+    print("{}", text)?;
+    return Status::Ok;
+}

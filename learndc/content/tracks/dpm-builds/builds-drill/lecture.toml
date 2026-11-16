@@ -1,0 +1,139 @@
+schema = 1
+id = "dpm-builds/builds-drill"
+revision = 1
+kind = "drill"
+title = "Build configuration drills"
+summary = "Settings layers, profiles, tasks and compile commands in short questions."
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = [
+    "profiles",
+    "settings layers",
+    "tasks",
+    "compile-commands",
+    "assets",
+]
+tags = [
+    "dpm",
+    "drill",
+]
+objectives = [
+    "Resolve which setting wins",
+    "Spot a task that cannot work",
+    "Choose the right command for a build question",
+]
+prerequisites = [
+    "dpm-builds/assets-and-tasks",
+]
+
+[[questions]]
+id = "override-cli"
+type = "short"
+prompt = "A product sets `optimize = Optimize::O2`. You run `dpm build -O 1 --profile release`. Which number follows the -O in the dcc command for that product?"
+accept = [
+    "1",
+]
+explanation = "Command-line options are the highest layer, above product settings, so -O 1 wins. The product setting and the release default both lose."
+
+[[questions]]
+id = "reserved-debug"
+type = "bug"
+prompt = "`dpm check` reports `profile 'debug' is built in and cannot be declared`. Which line is wrong?"
+code = '''
+dpm::v1::Project {
+    name = "harbor",
+    version = "0.1.0",
+    profiles = {
+        { name = "debug", settings = { optimize = Optimize::O1 } },
+    },
+}
+'''
+lines = [5]
+explanation = "debug and release always exist. Declare a profile with another name, for example `quick`, and choose its starting point with inherits."
+
+[[questions]]
+id = "pipe-task"
+type = "bug"
+prompt = "`dpm task count` fails with `cannot find cat ships.txt | wc -l`. Which line is wrong?"
+code = '''
+dpm::v1::Project {
+    name = "harbor",
+    version = "0.1.0",
+    tasks = {
+        { name = "count", command = { "cat ships.txt | wc -l" } },
+    },
+}
+'''
+lines = [5]
+explanation = '''
+command is an argument list handed straight to the program; the whole text became a program name. Use { "sh", "-c", "cat ships.txt | wc -l" } to ask for a shell.
+'''
+
+[[questions]]
+id = "build-runs-task"
+type = "choice"
+prompt = "A project declares a task `fmt` that reformats the sources. You run `dpm build`. Does `fmt` run?"
+choices = [
+    "Yes, tasks run before every build",
+    "Yes, but only in the release profile",
+    "No, tasks run only for dpm task NAME or dpm run with a run field",
+    "Only if the task is listed in build",
+]
+answer = 3
+why = [
+    "That would let a downloaded project run code just by being built.",
+    "Profiles do not change when tasks run.",
+    "",
+    "The build field of a task runs products before a task, not the other way round.",
+]
+explanation = "Building never runs tasks. That rule is what makes it safe to build a project you did not write."
+
+[[questions]]
+id = "backend-field"
+type = "choice"
+prompt = "`settings = { backend = Backend::Custom }` on a product changes what in the dcc command?"
+choices = [
+    "It adds -fbackend=custom",
+    "It adds -O2",
+    "It switches to the release profile",
+    "It changes the output directory to .dpm/out/custom",
+]
+answer = 1
+why = [
+    "",
+    "Optimization comes from the optimize setting.",
+    "Profiles are selected with --profile.",
+    "The output directory depends on profile and target.",
+]
+explanation = "Backend maps to -fbackend. Llvm and Custom are the two code generators; Default passes nothing and lets dcc choose."
+
+[[questions]]
+id = "compile-commands-purpose"
+type = "multi"
+prompt = "Which statements about `dpm compile-commands` are true?"
+choices = [
+    "It builds every product",
+    "It prints the dcc command of every product as JSON entries",
+    "Editors use it to analyse files with the right import roots",
+    "It runs the tasks",
+    "It writes nothing and fetches nothing",
+]
+answers = [2, 3, 5]
+why = [
+    "It never builds.",
+    "",
+    "",
+    "No dpm command other than task and run starts a task.",
+    "",
+]
+explanation = "compile-commands only reads the manifest, the lock and the cache and prints the commands, so editors and the language server see the same flags as a real build."
+
+[[cards]]
+id = "cli-wins"
+front = "Which layer wins in dpm settings?"
+back = "Command-line options such as -O and --target."
+
+[[cards]]
+id = "reserved-profiles"
+front = "Which profile names can you not declare?"
+back = "debug and release; use another name and set inherits."

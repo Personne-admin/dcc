@@ -1,0 +1,62 @@
+schema = 1
+id = "dpm-projects/second-product"
+revision = 1
+title = "Add a second product"
+summary = "Give the harbor project a second executable that reuses its ships module, and declare it in project.dcon."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = [
+    "products",
+    "entry",
+    "project.dcon",
+    "dpm run",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Declare a second product with its own entry file",
+    "Reuse a module from two entry files",
+    "Build and run a product by name",
+]
+entry_file = "src/main.dc"
+product = "audit"
+prerequisites = [
+    "dpm-projects/project-anatomy",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The audit passes"
+expect_stdout = '''
+ok   project.dcon can be read
+ok   product fleet is declared
+ok   product tonnage is declared
+ok   tonnage has the entry src/tonnage.dc
+ok   src/tonnage.dc exists
+ok   src/tonnage.dc declares module tonnage
+ok   tonnage reuses the ships module
+ok   the fleet data is not copied into tonnage
+8 checks, 0 failed
+'''
+expect_exit = 0
+max_seconds = 10
+hint = "Run dpm run audit and read the FAIL lines."

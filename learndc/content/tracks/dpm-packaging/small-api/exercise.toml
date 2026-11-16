@@ -1,0 +1,59 @@
+schema = 1
+id = "dpm-packaging/small-api"
+revision = 1
+title = "Shrink the public surface"
+summary = "Make the helpers of a library private without breaking its users."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = [
+    "public",
+    "private",
+    "API design",
+    "promises",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Tell an API from its implementation",
+    "Make declarations private",
+    "Keep behaviour while the surface shrinks",
+]
+entry_file = "src/main.dc"
+product = "audit"
+prerequisites = [
+    "dpm-packaging/library-with-tests",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The audit passes"
+expect_stdout = '''
+ok   the module file is readable
+ok   summary.dc has exactly two public declarations
+ok   mean is public
+ok   max is public
+ok   max still works for users
+ok   mean still works for users
+6 checks, 0 failed
+'''
+expect_exit = 0
+max_seconds = 10

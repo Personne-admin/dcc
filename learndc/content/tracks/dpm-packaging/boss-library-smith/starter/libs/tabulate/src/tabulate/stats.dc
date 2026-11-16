@@ -1,0 +1,21 @@
+module tabulate::stats;
+
+public i64 total([]const i32 values) {
+    return 0;
+}
+
+public i32 min([]const i32 values) {
+    return 0;
+}
+
+public i32 max([]const i32 values) {
+    return 0;
+}
+
+public f64 mean([]const i32 values) {
+    return 0.0;
+}
+
+public i32 range([]const i32 values) {
+    return 0;
+}

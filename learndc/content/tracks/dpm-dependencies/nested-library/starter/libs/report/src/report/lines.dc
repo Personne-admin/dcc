@@ -1,0 +1,8 @@
+module report::lines;
+
+import units::convert;
+
+public Status(Error) kg_line([]const char name, i32 tons) {
+    println("{}: {} kg", name, units::convert::tons_to_kg(tons))?;
+    return Status::Ok;
+}

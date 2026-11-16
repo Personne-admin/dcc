@@ -1,0 +1,20 @@
+module ships_test;
+
+import harbor::ships;
+
+i32 failures = 0;
+
+void check_equal(i32 got, i32 want, []const char what) {
+    if got == want {
+        println("ok   {}", what);
+    } else {
+        println("FAIL {}: got {}, want {}", what, got, want);
+        failures += 1;
+    }
+}
+
+public i32 main() {
+    check_equal(harbor::ships::total_tons(), 445, "total tons");
+    check_equal(harbor::ships::lightest_tons(), 45, "lightest tons");
+    return failures;
+}

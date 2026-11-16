@@ -1,0 +1,6 @@
+schema = 1
+id = "dpm-projects"
+title = "Projects, Products and Modules"
+summary = "Several products in one project, module layout, test programs and the output of a build."
+goal = "Run a multi-product dpm project: declare products, lay out modules, write tests and read dpm's diagnostics."
+exercises = ["project-anatomy", "second-product", "module-layout", "tests-as-programs", "projects-drill"]

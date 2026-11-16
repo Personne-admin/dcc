@@ -1,0 +1,17 @@
+module main;
+
+import audit;
+
+public i32 main() {
+    audit::Text manifest;
+    audit::expect(audit::load(&manifest, "project.dcon"), "project.dcon can be read");
+    audit::expect(audit::has(&manifest, "name=\"fleet\""), "product fleet is declared");
+    audit::expect(audit::has(&manifest, "name=\"tonnage\""), "product tonnage is declared");
+    audit::expect(audit::has(&manifest, "entry=\"src/tonnage.dc\""), "tonnage has the entry src/tonnage.dc");
+    audit::Text entry;
+    audit::expect(audit::load(&entry, "src/tonnage.dc"), "src/tonnage.dc exists");
+    audit::expect(audit::has(&entry, "moduletonnage;"), "src/tonnage.dc declares module tonnage");
+    audit::expect(audit::has(&entry, "harbor::ships::total_tons"), "tonnage reuses the ships module");
+    audit::expect(!audit::has(&entry, "Aurora"), "the fleet data is not copied into tonnage");
+    return audit::finish();
+}

@@ -1,0 +1,25 @@
+module ports::lookup;
+
+public i32 position(i32 port) {
+    if port == 0 {
+        return 0;
+    }
+    if port == 1 {
+        return 35;
+    }
+    if port == 2 {
+        return 80;
+    }
+    if port == 3 {
+        return 140;
+    }
+    return 0;
+}
+
+public i32 distance(i32 a, i32 b) {
+    i32 d = position(a) - position(b);
+    if d < 0 {
+        d = -d;
+    }
+    return d;
+}

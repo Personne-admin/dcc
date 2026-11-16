@@ -1,0 +1,126 @@
+schema = 1
+id = "dpm-packaging/packaging-drill"
+revision = 1
+kind = "drill"
+title = "Packaging drills"
+summary = "Versions, public surfaces, layouts and tests of a library in short questions."
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = [
+    "versioning",
+    "public API",
+    "library layout",
+    "tests",
+]
+tags = [
+    "dpm",
+    "drill",
+]
+objectives = [
+    "Choose the right version for a change",
+    "Spot an API that leaks its internals",
+    "Place the files of a library package",
+]
+prerequisites = [
+    "dpm-packaging/release-a-version",
+]
+
+[[questions]]
+id = "leaky-api"
+type = "bug"
+prompt = "This module is meant to expose only `print_table` and `column_width`. Which line leaks an implementation detail?"
+code = '''
+module tabulate::table;
+
+public usize column_width([]const []const char headers, []const []const char cells, usize column) {
+    return 0;
+}
+
+public Status(Error) print_rule([]const []const char headers, []const []const char cells) {
+    return Status::Ok;
+}
+
+public Status(Error) print_table([]const []const char headers, []const []const char cells) {
+    return Status::Ok;
+}
+'''
+lines = [7]
+explanation = "print_rule is a step of print_table. Once it is public, users may call it and the author can no longer change or remove it. Drop the public keyword."
+
+[[questions]]
+id = "which-bump"
+type = "choice"
+prompt = "stats is at 1.2.0 (stable). You change the signature of `mean` so old calls no longer compile. Which version?"
+choices = [
+    "1.2.1",
+    "1.3.0",
+    "2.0.0",
+    "1.2.0",
+]
+answer = 3
+why = [
+    "A patch is for fixes that break nothing.",
+    "A minor release adds compatible features.",
+    "",
+    "The number must change.",
+]
+explanation = "From 1.0 on, the major number is the series: an incompatible change needs 2.0.0 so that dependents on the 1.x series are not moved without asking."
+
+[[questions]]
+id = "readme-parts"
+type = "multi"
+prompt = "Which parts make a library README useful to a stranger?"
+choices = [
+    "What the package does in one sentence",
+    "A complete usage example",
+    "The list of public functions",
+    "The author's editor settings",
+    "The version history in a separate CHANGELOG.md",
+]
+answers = [1, 2, 3, 5]
+why = [
+    "",
+    "",
+    "",
+    "Nobody depending on the package needs them.",
+    "",
+]
+explanation = "A stranger needs to know what the package is for, see one working example, find the API list and find what changed between versions."
+
+[[questions]]
+id = "where-tests"
+type = "choice"
+prompt = "Where does the test program of the package `tabulate` live in the layout used in this chapter?"
+choices = [
+    "src/tabulate/tests.dc",
+    "libs/tabulate/tests/tabulate_test.dc",
+    "libs/tabulate/src/tabulate_test.dc",
+    "the application's src/main.dc",
+]
+answer = 2
+why = [
+    "Tests are not modules of the package's namespace.",
+    "",
+    "The source root is for modules that dependents import.",
+    "The application tests the application, not the library.",
+]
+explanation = "Tests belong to the package: its tests directory (test_dir). From inside the package, dpm test builds and runs every file there."
+
+[[questions]]
+id = "run-tests-cmd"
+type = "short"
+prompt = "Which dpm command builds and runs the test programs of the package you are in? Type the full command."
+accept = [
+    "dpm test",
+]
+explanation = "dpm test builds every program in the test directory with the package's dependencies and runs it; an exit code of 0 is a pass."
+
+[[cards]]
+id = "small-surface"
+front = "Why start with few public declarations?"
+back = "A public name is a promise. Adding one later is free; removing one breaks every user."
+
+[[cards]]
+id = "bump-rule"
+front = "Which number starts a new series?"
+back = "Before 1.0 the minor number; from 1.0 on the major number."

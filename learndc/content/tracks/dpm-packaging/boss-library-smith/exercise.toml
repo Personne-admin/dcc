@@ -1,0 +1,338 @@
+schema = 1
+id = "dpm-packaging/boss-library-smith"
+revision = 1
+title = "The Library Smith"
+summary = "Turn stubs into a reusable text-table library package: implement it, keep its public surface small, package it with a README, test it and use it from the smith application."
+kind = "multi-module"
+difficulty = "advanced"
+estimated_minutes = 75
+concepts = [
+    "library package",
+    "public API",
+    "versioning",
+    "tests",
+    "path dependency",
+    "README",
+    "changelog",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Implement a library behind a small public surface",
+    "Package a library with honest metadata, a README and tests",
+    "Consume it from an application in the same workspace through a path dependency",
+]
+entry_file = "src/main.dc"
+product = "smith"
+prerequisites = [
+    "dpm-packaging/packaging-drill",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-checks"
+
+[boss]
+rating = 4
+story = '''
+The shipwrights' guild has three yards and three copies of the same table
+printer, each with its own bug. The master smith has had enough: one library,
+forged once, small enough to understand in an afternoon and honest enough that
+another yard can trust its version number. The apprentices left the old tools
+on the bench and an application that is waiting for the real thing.
+'''
+
+[[stages]]
+id = "review"
+title = "Review the legacy library"
+summary = "Find what makes the old tableutil package hard to depend on, before you build its replacement."
+hints = [
+    "Read the legacy manifest line by line; dpm quotes the exact text of the problem.",
+    "A design problem is something that forces every user to change when the author changes an internal step.",
+]
+questions = [
+    "legacy-version",
+    "legacy-surface",
+    "legacy-bump",
+]
+
+[[stages]]
+id = "cells"
+title = "Cells"
+summary = "display_width, print_left and print_right in tabulate::cell, with a private spaces helper."
+hints = [
+    "print_left prints the text and then pads with spaces up to the width; print_right pads first. Text longer than the width is printed whole, with no padding.",
+    '''
+Write the padding loop once, in a helper called spaces, and call it from both functions: `for usize i = 0; i < count; i++ { print(" ")?; }`.
+''',
+    '''
+display_width is `return text.len;`. print_left: `print("{}", text)?; if width > text.len { spaces(width - text.len)?; }`. print_right does the padding before the text.
+''',
+]
+
+[[stages]]
+id = "table"
+title = "The table"
+summary = "column_width and print_table in tabulate::table: header, a dashed rule, then the rows; the first column left-aligned, the others right-aligned, one space between columns."
+hints = [
+    "The cells are one flat slice in row-major order: with 3 headers, cell `i` belongs to column `i % 3`. The width of a column is the largest display_width among its header and its cells.",
+    "column_width starts from the header's width and walks `for usize at = column; at < cells.len; at += headers.len`. print_row prints each cell with print_left for column 0 and print_right otherwise, a space between columns, and a newline at the end.",
+    "print_table prints the header row, then a rule of dashes with the same column widths, then each row `cells[start..start + headers.len]`. Remember that inside the module namespace tabulate the import of tabulate::cell is reached as cell::.",
+]
+
+[[stages]]
+id = "stats"
+title = "Statistics"
+summary = "total, min, max and mean in tabulate::stats, with sensible results for an empty slice (0 and 0.0)."
+hints = [
+    "Each function is one loop over the slice. Decide the empty case first: there is no first element to start min and max from.",
+    "total accumulates in an i64 (`sum += v as i64;`), min and max start from `values[0]`, mean divides the total by the length after converting both with `as f64`.",
+    "mean: `if values.len == 0 { return 0.0; } return (total(values) as f64) / (values.len as f64);`",
+]
+
+[[stages]]
+id = "seal"
+title = "Seal the helpers"
+summary = "Only the promised functions are public: 3 in cell, 2 in table, 5 in stats."
+hints = [
+    "Count the `public` keywords in each module file. Which functions would a user of the library call?",
+    "spaces, print_row and print_rule are steps of other functions in the same module; private functions can be called from there.",
+    "Remove `public` from spaces (cell.dc) and from print_row and print_rule (table.dc). The audit counts 3, 2 and 5 public declarations.",
+]
+
+[[stages]]
+id = "package"
+title = "Package it"
+summary = "A manifest with name, a pre-1.0 version, description and license and no products, and a README with a title, a Usage and an API section."
+hints = [
+    "A library manifest has no products. Description and license are optional fields that make the package findable. The legacy version number said 1.0.0 before the API had ever been used.",
+    '''
+Set `version = "0.1.0"` and add `description = "..."` and `license = "MIT"` to libs/tabulate/project.dcon. Create libs/tabulate/README.md.
+''',
+    "The README needs the headings `# tabulate`, `## Usage` and `## API`, with a usage example and the list of public functions.",
+]
+
+[[stages]]
+id = "tests"
+title = "Tests"
+summary = "A test program in libs/tabulate/tests/tabulate_test.dc that calls each module of the library at least six times and returns the number of failures."
+hints = [
+    "Model it on the test programs of this chapter: module name, imports, a check function that prints ok or FAIL, a public i32 main that returns the failure count.",
+    "Pure functions are easy to test: display_width, column_width, total, min, max, range, mean. Printing functions are checked by the smith program.",
+    "Run it with `cd libs/tabulate && dpm test`. The audit needs `public i32 main()`, uses of tabulate::cell, tabulate::table::column_width and tabulate::stats, and at least nine occurrences of `tabulate::` (three imports plus six calls).",
+]
+
+[[stages]]
+id = "bonus"
+title = "Bonus: release 0.1.1"
+summary = "Implement range (the spread between max and min), bump the version to 0.1.1 and add a changelog section."
+optional = true
+hints = [
+    "range is max minus min and shares its empty-slice behaviour. Adding a compatible function before 1.0 is a patch release.",
+    '''
+Set version = "0.1.1" in libs/tabulate/project.dcon and create libs/tabulate/CHANGELOG.md with a `## 0.1.1` section that names range.
+''',
+    "`public i32 range([]const i32 values) { return max(values) - min(values); }` and a changelog line `- Added range to tabulate::stats.`",
+]
+
+[[questions]]
+id = "legacy-version"
+type = "bug"
+prompt = "The legacy tableutil package no longer loads: `dpm check` says `project.dcon:3:15: '1.0' is not a valid version`. Which line is wrong?"
+code = '''
+dpm::v1::Project {
+    name = "tableutil",
+    version = "1.0",
+    description = "Tables",
+    products = { { name = "tableutil_demo" } },
+}
+'''
+lines = [3]
+explanation = "A version has three numbers: major.minor.patch. The same manifest also puts a demo product into a library; a reusable package normally has no products, and its demo lives in an application that depends on it."
+
+[[questions]]
+id = "legacy-surface"
+type = "multi"
+prompt = "The legacy library's source has these characteristics. Which make it hard to depend on?"
+choices = [
+    "The padding helper `pad_n` is public",
+    "Its modules are called `util` and `table`, not `tableutil::...`",
+    "It has a README with a usage example",
+    "`print_table` measures and prints in one step, so users cannot compute widths without printing",
+    "It has a tests directory",
+]
+answers = [1, 2, 4]
+why = [
+    "",
+    "",
+    "A README is what a package should have.",
+    "",
+    "Tests are what a package should have.",
+]
+explanation = "A public helper is a promise you cannot easily take back. Generic module names collide with other packages. A function that only does both things at once forces users to copy its logic. Your replacement keeps the pure parts (display_width, column_width) public next to the printing ones."
+
+[[questions]]
+id = "legacy-bump"
+type = "choice"
+prompt = "Your tabulate is at 0.1.0 and you add one compatible function, `range`. Which version do you release?"
+choices = [
+    "0.1.1",
+    "0.2.0",
+    "1.0.0",
+    "0.1.0 again",
+]
+answer = 1
+why = [
+    "",
+    "That starts a new series; dependents on 0.1.x would not get the function.",
+    "That promises a stable API after one function.",
+    "Users could not tell the two builds apart.",
+]
+explanation = "A compatible addition before 1.0 is a patch release: dependents in the 0.1 series receive it. A removed or renamed function would be 0.2.0."
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "cells print padded text"
+stage = "cells"
+expect_stdout = '''
+[ab   ]
+[   ab]
+6
+'''
+stdin = "cells"
+expect_exit = 0
+max_seconds = 10
+hint = "Expected [ab   ], [   ab] and the width 6."
+
+[[checks]]
+kind = "run"
+name = "the table is aligned"
+stage = "table"
+expect_stdout = '''
+ship   tons crew
+------ ---- ----
+Aurora  120   14
+Brisa    80    9
+Corvo   200   22
+Delta    45    6
+widths: 6 4 4
+'''
+stdin = "table"
+expect_exit = 0
+max_seconds = 10
+hint = "The first column is left-aligned, the others right-aligned, columns are separated by one space."
+
+[[checks]]
+kind = "run"
+name = "the statistics are right"
+stage = "stats"
+expect_stdout = '''
+total: 445
+min: 45
+max: 200
+mean: 111.25
+empty mean: 0.00
+'''
+stdin = "stats"
+expect_exit = 0
+max_seconds = 10
+hint = "mean of an empty slice is 0.00."
+
+[[checks]]
+kind = "run"
+name = "only the promised names are public"
+stage = "seal"
+expect_stdout = '''
+ok   cell.dc is readable
+ok   table.dc is readable
+ok   stats.dc is readable
+ok   cell.dc has 3 public declarations
+ok   table.dc has 2 public declarations
+ok   stats.dc has 5 public declarations
+6 checks, 0 failed
+'''
+stdin = "seal"
+expect_exit = 0
+max_seconds = 10
+hint = "Count the public keywords in each module."
+
+[[checks]]
+kind = "run"
+name = "the package is described"
+stage = "package"
+expect_stdout = '''
+ok   libs/tabulate/project.dcon is readable
+ok   the package is called tabulate
+ok   the version is below 1.0
+ok   there is a description
+ok   there is a license
+ok   the library declares no products
+ok   libs/tabulate/README.md exists
+ok   the README has a title, a Usage and an API section
+8 checks, 0 failed
+'''
+stdin = "package"
+expect_exit = 0
+max_seconds = 10
+hint = "Read the FAIL lines of: echo package | dpm run smith"
+
+[[checks]]
+kind = "run"
+name = "the library has tests"
+stage = "tests"
+expect_stdout = '''
+ok   libs/tabulate/tests/tabulate_test.dc exists
+ok   the test program has a main returning i32
+ok   it uses tabulate::cell
+ok   it uses tabulate::table
+ok   it uses tabulate::stats
+ok   it calls the library at least six times
+ok   it returns a verdict
+7 checks, 0 failed
+'''
+stdin = "tests"
+expect_exit = 0
+max_seconds = 10
+hint = "Read the FAIL lines of: echo tests | dpm run smith"
+
+[[checks]]
+kind = "run"
+name = "range is the spread"
+stage = "bonus"
+expect_stdout = '''
+range: 155
+'''
+stdin = "range"
+expect_exit = 0
+max_seconds = 10
+hint = "range is max minus min."
+
+[[checks]]
+kind = "run"
+name = "the release is recorded"
+stage = "bonus"
+expect_stdout = '''
+ok   libs/tabulate/project.dcon is readable
+ok   the version is 0.1.1
+ok   libs/tabulate/CHANGELOG.md exists
+ok   the changelog has a 0.1.1 section naming range
+4 checks, 0 failed
+'''
+stdin = "release"
+expect_exit = 0
+max_seconds = 10
+hint = "Read the FAIL lines of: echo release | dpm run smith"

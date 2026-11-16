@@ -1,0 +1,11 @@
+dpm::v1::Lock {
+    manifest = "sha256:e56c929024199e032622db7d82e835fa31ebf5bbb584772737e1414997c65f02",
+    packages = {
+        {
+            location = "path:libs/mathx",
+            version = "0.1.0",
+            source = "path:libs/mathx",
+            hash = "",
+        },
+    },
+}

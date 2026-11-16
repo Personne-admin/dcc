@@ -1,0 +1,109 @@
+schema = 1
+id = "dpm-builds/tasks-and-assets"
+revision = 1
+title = "Tasks and assets"
+summary = "Declare work that is not compiling, run it only on request and read pinned data from assets."
+difficulty = "intermediate"
+estimated_minutes = 16
+concepts = [
+    "tasks",
+    "assets",
+    "argv",
+    "tokens",
+    "dpm task",
+    "dpm run",
+    "dry-run",
+    "freshness",
+]
+tags = [
+    "dpm",
+    "lecture",
+]
+objectives = [
+    "Declare a task with an argument list and tokens",
+    "State which commands can run a task and which never do",
+    "Declare a path asset and read it from a task",
+    "Preview a task with --dry-run",
+]
+prerequisites = [
+    "dpm-builds/product-settings",
+]
+
+[[questions]]
+id = "never-runs"
+type = "multi"
+prompt = "Which of these commands can start a task?"
+choices = [
+    "dpm task NAME",
+    "dpm build",
+    "dpm run on a product with a run field",
+    "dpm test",
+    "dpm lock",
+]
+answers = [1, 3]
+why = [
+    "",
+    "Building never runs tasks.",
+    "",
+    "Tests never run tasks.",
+    "Locking never runs tasks.",
+]
+explanation = "Tasks start only through dpm task NAME and through dpm run for a product that names a task in its run field. Every other command, including editor support, leaves them alone."
+
+[[questions]]
+id = "shell-text"
+type = "choice"
+prompt = '''
+`command = { "echo done | wc -c" }` fails with `cannot find echo done | wc -c`. Why?
+'''
+choices = [
+    "wc is not installed",
+    "The command is an argument list and is never given to a shell, so the whole text was taken as a program name",
+    "echo needs an absolute path",
+    "Pipes are only allowed in the build field",
+]
+answer = 2
+why = [
+    "",
+    "",
+    "dpm looks echo up on PATH like any program.",
+    "There is no such rule.",
+]
+explanation = '''
+Arguments go to the program as they are. For a pipe write { "sh", "-c", "echo done | wc -c" } and say explicitly that a shell runs.
+'''
+
+[[questions]]
+id = "dollar"
+type = "short"
+prompt = "How do you write one literal dollar sign inside a task's command text? Type the two characters."
+accept = [
+    "$$",
+]
+explanation = "A single $ must start a ${...} token, so dpm requires $$ for a literal dollar."
+
+[[questions]]
+id = "dry-run-flag"
+type = "short"
+prompt = "Which flag makes `dpm task NAME` print the expanded commands without running anything? Type the flag."
+accept = [
+    "--dry-run",
+]
+explanation = "dpm task NAME --dry-run builds nothing and runs nothing; it prints the working directory and the full argument list."
+
+[[cards]]
+id = "task-argv"
+front = "How does dpm run a task's command?"
+back = '''
+As an argument list, directly, never through a shell. Use { "sh", "-c", "..." } when you want a shell.
+'''
+
+[[cards]]
+id = "task-safety"
+front = "Which commands never run a task?"
+back = "build, test, lock, fetch, check, tree, clean, new and editor support. Only dpm task and dpm run (product with run) do."
+
+[[cards]]
+id = "asset-path"
+front = "How does a task read an asset?"
+back = "Through ${asset:NAME}, a read-only directory; a path: asset is read in place and not hashed."

@@ -1,0 +1,6 @@
+schema = 1
+id = "dpm-native"
+title = "Native Libraries and Linking"
+summary = "Calling C libraries, link requirements at project, product and package level, static and dynamic executables and linker errors."
+goal = "Link a DC program against native libraries and diagnose the errors that come from the linker and the loader."
+exercises = ["native-linking", "link-libm", "library-owns-the-link", "fix-the-linker-errors", "static-link-error", "native-drill"]

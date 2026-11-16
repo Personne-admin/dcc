@@ -1,0 +1,25 @@
+module summary_test;
+
+import stats::summary;
+
+i32 failures = 0;
+
+void check(bool ok, []const char what) {
+    if ok {
+        println("ok   {}", what);
+    } else {
+        println("FAIL {}", what);
+        failures += 1;
+    }
+}
+
+public i32 main() {
+    i32[3] a = { 3, 9, 4 };
+    i32[3] neg = { -5, -2, -9 };
+    i32[3] m = { 2, 4, 9 };
+    check(stats::summary::max(a[0..3]) == 9, "max of mixed numbers");
+    check(stats::summary::max(neg[0..3]) == -2, "max of negatives");
+    check(stats::summary::mean(m[0..3]) > 4.99, "mean is not too small");
+    check(stats::summary::mean(m[0..3]) < 5.01, "mean is not too large");
+    return failures;
+}

@@ -1,0 +1,13 @@
+module main;
+
+import audit;
+
+public i32 main() {
+    audit::Text m;
+    audit::expect(audit::load(&m, "project.dcon"), "project.dcon can be read");
+    audit::expect(audit::has(&m, "profiles={"), "the project declares profiles");
+    audit::expect(audit::has(&m, "name=\"checked\""), "a profile named checked exists");
+    audit::expect(audit::has_after(&m, "name=\"checked\"", "inherits=ProfileBase::Release"), "checked starts from the release profile");
+    audit::expect(audit::has_after(&m, "name=\"checked\"", "bounds_check=Tri::On"), "checked turns bounds checking on");
+    return audit::finish();
+}

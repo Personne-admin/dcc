@@ -1,0 +1,133 @@
+schema = 1
+id = "dpm-native/native-linking"
+revision = 1
+title = "Native libraries and linking"
+summary = "How a DC program calls a C library, how dpm passes -l, -L and -rpath, static versus dynamic executables and how to read linker errors."
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = [
+    "extern",
+    "link",
+    "library_paths",
+    "runtime_paths",
+    "link_mode",
+    "shared library",
+    "linker errors",
+]
+tags = [
+    "dpm",
+    "lecture",
+]
+objectives = [
+    "Declare a C function and link the library that defines it",
+    "Say where a link requirement belongs: project, product or library package",
+    "Explain static versus dynamic executables and when a program becomes dynamic",
+    "Read an undefined symbol and a missing library error",
+]
+prerequisites = [
+    "dpm-builds/builds-drill",
+]
+
+[[questions]]
+id = "where-link"
+type = "choice"
+prompt = '''
+A library package wraps libm for several programs. Where should `link = { "m" }` go so that the programs never mention it?
+'''
+choices = [
+    "In every program's product entry",
+    "In the library package's own project.dcon",
+    "In dcc's configuration",
+    "In a task",
+]
+answer = 2
+why = [
+    "That repeats the requirement in every program.",
+    "",
+    "dpm owns the link line; dcc has no persistent configuration for it.",
+    "Tasks never take part in builds.",
+]
+explanation = "A package-level link propagates to every project that depends on the package. The binding says what it needs once and its users only name the dependency."
+
+[[questions]]
+id = "signature-lie"
+type = "choice"
+prompt = "You declare `@nomangle extern f32 cos(f32 x);` but libm's cos takes and returns a double. What happens?"
+choices = [
+    "The compiler reports a type error",
+    "The linker reports a signature mismatch",
+    "It builds and runs, but the result is wrong",
+    "It builds but refuses to start",
+]
+answer = 3
+why = [
+    "The compiler cannot see the C definition.",
+    "The linker matches names only.",
+    "",
+    "Nothing checks the signature at load time either.",
+]
+explanation = "The declaration is a promise nobody checks. The call passes a float where the library reads a double, and the result is garbage. Copy signatures from the C header."
+
+[[questions]]
+id = "undefined-fix"
+type = "choice"
+prompt = "The link fails with `undefined symbol: cos`, and the declaration and the call are correct. What do you add?"
+choices = [
+    "`@nomangle` to the call",
+    '''
+`link = { "m" }` in project.dcon
+''',
+    "`import std::math;`",
+    "-fwhole-program",
+]
+answer = 2
+why = [
+    "The declaration already has it.",
+    "",
+    "The standard library does not provide the C symbol.",
+    "Whole-program mode is already on.",
+]
+explanation = '''
+The function is defined in libm, so the link line needs -lm: link = { "m" }.
+'''
+
+[[questions]]
+id = "loader-error"
+type = "choice"
+prompt = "A dynamic program builds fine and then prints `error while loading shared libraries: libshim.so: cannot open shared object file`. Which setting is missing?"
+choices = [
+    "library_paths",
+    "runtime_paths",
+    "link_mode = Static",
+    "extra_flags",
+]
+answer = 2
+why = [
+    "library_paths is only searched while building; it did, or the build would have failed.",
+    "",
+    "Static would not find a .so at all.",
+    "No extra flag is needed.",
+]
+explanation = "Build-time -L paths are not recorded in the executable. runtime_paths (for example $ORIGIN, the program's own directory) tells the loader where to look when the program starts."
+
+[[cards]]
+id = "extern-decl"
+front = "What does `@nomangle extern i32 abs(i32 x);` promise, and who checks it?"
+back = "That a C function abs with that signature exists. Nobody checks the signature: the linker matches names only."
+
+[[cards]]
+id = "link-three"
+front = "Where can `link` be written, and what does each place apply to?"
+back = "Project (all products, tests and dependents), product (that product only), library package (everything that depends on it)."
+
+[[cards]]
+id = "colon-name"
+front = '''
+What does link = { ":libm.so.6" } mean?
+'''
+back = "-l:libm.so.6, an exact file name; it works without the development symlink libm.so."
+
+[[cards]]
+id = "static-dynamic"
+front = "When does a dcc executable become dynamic?"
+back = "When a -l library resolves to a shared object (or -dynamic, -rpath or a .so input is given); otherwise it stays static."

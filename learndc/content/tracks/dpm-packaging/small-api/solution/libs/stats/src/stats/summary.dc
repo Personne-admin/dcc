@@ -1,0 +1,37 @@
+module stats::summary;
+
+i64 sum_of([]const i32 values) {
+    i64 sum = 0;
+    for v in values {
+        sum += v as i64;
+    }
+    return sum;
+}
+
+usize count_of([]const i32 values) {
+    return values.len;
+}
+
+bool is_empty_set([]const i32 values) {
+    return values.len == 0;
+}
+
+public f64 mean([]const i32 values) {
+    if is_empty_set(values) {
+        return 0.0;
+    }
+    return (sum_of(values) as f64) / (count_of(values) as f64);
+}
+
+public i32 max([]const i32 values) {
+    if is_empty_set(values) {
+        return 0;
+    }
+    i32 best = values[0];
+    for v in values {
+        if v > best {
+            best = v;
+        }
+    }
+    return best;
+}

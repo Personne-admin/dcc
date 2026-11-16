@@ -1,0 +1,18 @@
+module main;
+
+i32 failures = 0;
+
+void expect(bool ok, []const char what) {
+    if ok {
+        println("ok   {}", what);
+    } else {
+        println("FAIL {}", what);
+        failures += 1;
+    }
+}
+
+public i32 main() {
+    expect(2 + 2 == 4, "addition");
+    expect(7 / 2 == 3, "integer division");
+    return failures;
+}

@@ -1,0 +1,56 @@
+schema = 1
+id = "dpm-native/link-libm"
+revision = 1
+title = "Call the maths library"
+summary = "Declare a C function from libm, link the library and read the two errors in between."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = [
+    "extern",
+    "@nomangle",
+    "link",
+    "linker errors",
+    "libm",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Declare a C function with its exact signature",
+    "Add a project-level link",
+    "Tell a compiler error from a linker error",
+]
+entry_file = "src/main.dc"
+product = "geometry"
+prerequisites = [
+    "dpm-native/native-linking",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "Three results from libm"
+expect_stdout = '''
+cos(0) = 1.0000
+sqrt(2) = 1.4142
+hypot(3, 4) = 5.0000
+'''
+expect_exit = 0
+max_seconds = 10

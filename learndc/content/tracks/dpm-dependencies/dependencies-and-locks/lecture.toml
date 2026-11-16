@@ -1,0 +1,115 @@
+schema = 1
+id = "dpm-dependencies/dependencies-and-locks"
+revision = 1
+title = "Dependencies, the lock file and the cache"
+summary = "How a project names the packages it needs, what project.lock.dcon pins, where downloaded packages live and how to read dpm's dependency messages."
+difficulty = "intermediate"
+estimated_minutes = 18
+concepts = [
+    "dependencies",
+    "path dependency",
+    "lock file",
+    "cache",
+    "offline",
+    "version requirement",
+    "dpm tree",
+]
+tags = [
+    "dpm",
+    "lecture",
+]
+objectives = [
+    "Declare a local path dependency and say whose directory the path is relative to",
+    "Explain what the lock file pins and why it is committed",
+    "Use dpm tree, dpm why and dpm cache path to see what a build uses",
+    "Map a dependency message to its cause",
+]
+prerequisites = [
+    "dpm-projects/projects-drill",
+]
+
+[[questions]]
+id = "relative-path"
+type = "choice"
+prompt = "`libs/report/project.dcon` depends on the sibling package `libs/units`. Which location is right?"
+choices = [
+    "path:libs/units",
+    "path:../units",
+    "path:units",
+    "path:/libs/units",
+]
+answer = 2
+why = [
+    "That path is relative to the project root, but the declaring project is libs/report.",
+    "",
+    "dpm would look for libs/report/units.",
+    "An absolute path is not what you want; the workspace may be anywhere.",
+]
+explanation = "A path dependency is resolved from the directory of the manifest that declares it. From libs/report the sibling is ../units. The lock then records the canonical form path:libs/units."
+
+[[questions]]
+id = "lock-why"
+type = "choice"
+prompt = "Why is project.lock.dcon committed to version control?"
+choices = [
+    "So dpm can skip compiling",
+    "So every build of the project uses exactly the same source trees, checked by hash",
+    "Because dcc needs it as an input file",
+    "To record the author",
+]
+answer = 2
+why = [
+    "Build freshness is tracked under .dpm, not by the lock.",
+    "",
+    "dcc never reads it; dpm does.",
+    "The lock has no author field.",
+]
+explanation = "The lock pins commit and hash of every package. A different tree under the same version number is detected instead of silently built."
+
+[[questions]]
+id = "lock-check"
+type = "short"
+prompt = "Which exit code does `dpm lock --check` return when the lock would change?"
+accept = [
+    "4",
+]
+explanation = "Exit code 4 is the resolution and integrity code. dpm lock --check writes nothing and returns it when project.lock.dcon is out of date, which makes it a good CI step."
+
+[[questions]]
+id = "offline-missing"
+type = "choice"
+prompt = "You run `dpm build --offline` and a locked git package is not in the cache. What happens?"
+choices = [
+    "dpm clones it anyway",
+    "dpm builds without it",
+    "dpm stops with exit code 5",
+    "dpm deletes the lock",
+]
+answer = 3
+why = [
+    "--offline forbids the network.",
+    "The imports would fail; dpm does not guess.",
+    "",
+    "The lock is never deleted.",
+]
+explanation = "--offline never touches the network. A package that is missing from the cache is an error (exit code 5). Run dpm fetch once while online to fill the cache."
+
+[[cards]]
+id = "path-relative"
+front = "A path: dependency is relative to what?"
+back = "The directory of the manifest that declares it. libs/report writes path:../units for its neighbour."
+
+[[cards]]
+id = "lock-pins"
+front = "What does project.lock.dcon pin for a git package?"
+back = "The exact commit and the sha256 hash of the unpacked tree, so the same version always means the same source."
+
+[[cards]]
+id = "cache-offline"
+front = "What does --offline do when a package is not cached?"
+back = "It fails with exit code 5; nothing is downloaded."
+
+[[cards]]
+id = "tree-why"
+front = "Which commands show the resolved graph and who needs a package?"
+back = "dpm tree and dpm why LOCATION."

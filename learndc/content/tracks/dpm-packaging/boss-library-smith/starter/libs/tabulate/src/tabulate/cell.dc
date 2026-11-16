@@ -1,0 +1,17 @@
+module tabulate::cell;
+
+public usize display_width([]const char text) {
+    return 0;
+}
+
+public Status(Error) spaces(usize count) {
+    return Status::Ok;
+}
+
+public Status(Error) print_left([]const char text, usize width) {
+    return Status::Ok;
+}
+
+public Status(Error) print_right([]const char text, usize width) {
+    return Status::Ok;
+}

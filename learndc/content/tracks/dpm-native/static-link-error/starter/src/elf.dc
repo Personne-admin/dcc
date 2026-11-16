@@ -1,0 +1,41 @@
+module elf;
+
+import std::os::file;
+import std::os::error;
+
+using std::os::{ file, error };
+
+u32 le32(u8[8192]* b, usize at) {
+    return (b[0][at] as u32) | ((b[0][at + 1] as u32) << 8) | ((b[0][at + 2] as u32) << 16) | ((b[0][at + 3] as u32) << 24);
+}
+
+u32 le16(u8[8192]* b, usize at) {
+    return (b[0][at] as u32) | ((b[0][at + 1] as u32) << 8);
+}
+
+public bool is_dynamic() {
+    u8[8192] raw;
+    Result(file::File, error::Error) opened = file::open("/proc/self/exe", file::read_only());
+    if !opened.is_ok() {
+        return false;
+    }
+    file::File f = opened.unwrap();
+    usize n = f.read_all(raw[0..8192]).unwrap();
+    f.close();
+    if n < 64 {
+        return false;
+    }
+    usize phoff = le32(&raw, 32) as usize;
+    usize phentsize = le16(&raw, 54) as usize;
+    usize phnum = le16(&raw, 56) as usize;
+    for usize i = 0; i < phnum; i++ {
+        usize at = phoff + i * phentsize;
+        if at + 4 > n {
+            return false;
+        }
+        if le32(&raw, at) == 3 {
+            return true;
+        }
+    }
+    return false;
+}

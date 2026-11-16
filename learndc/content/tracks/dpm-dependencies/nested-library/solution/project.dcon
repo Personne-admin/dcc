@@ -1,0 +1,10 @@
+dpm::v1::Project {
+    name = "harbor",
+    version = "0.1.0",
+    dependencies = {
+        { location = "path:libs/report" },
+    },
+    products = {
+        { name = "harbor" },
+    },
+}

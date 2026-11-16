@@ -1,0 +1,7 @@
+dpm::v1::Project {
+    name = "report",
+    version = "0.2.0",
+    dependencies = {
+        { location = "path:../units" },
+    },
+}

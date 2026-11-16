@@ -1,0 +1,14 @@
+module main;
+
+import audit;
+
+public i32 main() {
+    audit::Text m;
+    audit::expect(audit::load(&m, "project.dcon"), "project.dcon can be read");
+    audit::expect(audit::has(&m, "tasks={"), "the project declares tasks");
+    audit::expect(audit::has(&m, "name=\"fleet-report\""), "a task named fleet-report exists");
+    audit::expect(audit::has_after(&m, "name=\"fleet-report\"", "command={\"${out:fleet}\"}"), "its command runs the fleet product with no shell");
+    audit::expect(audit::has_after(&m, "name=\"fleet-report\"", "build={\"fleet\"}"), "it builds fleet first");
+    audit::expect(audit::has_after(&m, "name=\"fleet-report\"", "description="), "it has a description");
+    return audit::finish();
+}

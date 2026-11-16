@@ -1,0 +1,6 @@
+dpm::v1::Project {
+    name = "tabulate",
+    version = "0.1.1",
+    description = "Text tables and simple statistics for terminal programs",
+    license = "MIT",
+}

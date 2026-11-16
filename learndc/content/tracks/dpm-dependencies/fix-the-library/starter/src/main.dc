@@ -1,0 +1,9 @@
+module main;
+
+import units::convert;
+
+public Status(Error) main() {
+    println("Aurora 120 t is {} kg", units::convert::tons_to_kg(120))?;
+    println("Delta 45 t is {} kg", units::convert::tons_to_kg(45))?;
+    return Status::Ok;
+}

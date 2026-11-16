@@ -1,0 +1,9 @@
+module main;
+
+import mathx::native;
+
+public Status(Error) main() {
+    println("root of 2 = {:.4}", mathx::native::root(2.0))?;
+    println("cosine of 0 = {:.4}", mathx::native::cosine(0.0))?;
+    return Status::Ok;
+}

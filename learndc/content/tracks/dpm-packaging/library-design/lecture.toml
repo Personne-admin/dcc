@@ -1,0 +1,122 @@
+schema = 1
+id = "dpm-packaging/library-design"
+revision = 1
+title = "Designing a reusable library"
+summary = "What makes a package safe for others to depend on: a small public surface, namespaced modules, honest versions, tests and a README."
+difficulty = "intermediate"
+estimated_minutes = 18
+concepts = [
+    "library package",
+    "public API",
+    "versioning",
+    "series",
+    "tests",
+    "README",
+    "dpm publish",
+]
+tags = [
+    "dpm",
+    "lecture",
+]
+objectives = [
+    "List what a reusable package must expose and what it must hide",
+    "Choose a version bump for a change",
+    "Lay out a library with tests and a consuming application",
+    "Say why a published package cannot use path dependencies",
+]
+prerequisites = [
+    "dpm-native/native-drill",
+]
+
+[[questions]]
+id = "api-surface"
+type = "multi"
+prompt = "Which of these belong on the public surface of a table-printing library?"
+choices = [
+    "print_table",
+    "the helper that prints n spaces",
+    "column_width, which users want to compute for themselves",
+    "the loop variable names",
+]
+answers = [1, 3]
+why = [
+    "",
+    "An implementation step; exposing it makes it a promise.",
+    "",
+    "Not a declaration.",
+]
+explanation = "Public means promised. Keep what users need (printing, measuring) and hide the steps. A helper can always be made public later; a public function can only be removed by breaking users."
+
+[[questions]]
+id = "bump-breaking"
+type = "choice"
+prompt = "stats 0.2.3 renames `mean` to `average`. Which version should the release carry?"
+choices = [
+    "0.2.4",
+    "0.3.0",
+    "1.0.0",
+    "0.2.3 (no change)",
+]
+answer = 2
+why = [
+    "Dependents in the 0.2 series would receive the rename and fail to build.",
+    "",
+    "1.0.0 promises stability; it is not a way to flag a break.",
+    "A changed API with the same number cannot be told apart.",
+]
+explanation = "Before 1.0 the minor number is the series. A breaking change starts a new series, so dependents who ask for 0.2.x are not moved to it automatically."
+
+[[questions]]
+id = "bump-fix"
+type = "choice"
+prompt = "A bug fix inside `max` changes no signature. stats is at 0.3.0. Which version?"
+choices = [
+    "0.3.1",
+    "0.4.0",
+    "1.0.0",
+    "0.3.0",
+]
+answer = 1
+why = [
+    "",
+    "That would start a new series for a compatible fix.",
+    "Nothing about stability changed.",
+    "Users could not tell the fixed build from the old one.",
+]
+explanation = "A compatible fix is a patch: dependents in the 0.3 series pick it up and nothing breaks."
+
+[[questions]]
+id = "publish-path"
+type = "choice"
+prompt = '''
+Why can a package with `dependencies = { { location = "path:../util" } }` not be published?
+'''
+choices = [
+    "Paths are too slow",
+    "Other people cannot see your directories",
+    "dpm forbids dependencies in libraries",
+    "Path packages have no version",
+]
+answer = 2
+why = [
+    "Speed is not the reason.",
+    "",
+    "Libraries depend on other packages all the time.",
+    "They do have a version in their own manifest.",
+]
+explanation = "A published package must be buildable from the network alone, so its dependencies must be registry or git packages. Path dependencies are for development in one workspace."
+
+[[cards]]
+id = "public-promise"
+front = "What does `public` promise in a library?"
+back = "That the name, signature and behaviour stay stable until the next incompatible version. Hide everything else."
+
+[[cards]]
+id = "series-rule"
+front = "What does a dependent get when it requires 0.2.0 of a package?"
+back = "Any 0.2.z release, never 0.3.0: before 1.0 the minor number is the series."
+
+[[cards]]
+id = "lib-layout"
+front = "Where do a library's tests and README go?"
+back = "Tests in the package's tests/ directory (run with dpm test inside it); README.md and CHANGELOG.md at the package root."

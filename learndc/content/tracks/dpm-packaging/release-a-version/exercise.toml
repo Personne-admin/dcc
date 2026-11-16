@@ -1,0 +1,60 @@
+schema = 1
+id = "dpm-packaging/release-a-version"
+revision = 1
+title = "Release a breaking change"
+summary = "Rename a public function, choose the version number and record the change in a changelog."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = [
+    "versioning",
+    "series",
+    "CHANGELOG",
+    "breaking change",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Pick the right bump for a rename before 1.0",
+    "Update the manifest and the changelog together",
+    "Keep the history of earlier versions",
+]
+entry_file = "src/main.dc"
+product = "audit"
+prerequisites = [
+    "dpm-packaging/small-api",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The audit passes"
+expect_stdout = '''
+ok   average of 2, 4, 9 is 5
+ok   the library manifest is readable
+ok   the version is 0.2.0
+ok   libs/stats/CHANGELOG.md exists
+ok   the changelog has a 0.2.0 section
+ok   the entry names the old and the new function
+ok   the 0.1.0 section is kept
+7 checks, 0 failed
+'''
+expect_exit = 0
+max_seconds = 10

@@ -1,0 +1,13 @@
+module harbor::ships;
+
+public struct Ship {
+    []const char name;
+    i32 tons;
+}
+
+public const Ship[4] FLEET = {
+    Ship { name = "Aurora", tons = 120 },
+    Ship { name = "Brisa", tons = 80 },
+    Ship { name = "Corvo", tons = 200 },
+    Ship { name = "Delta", tons = 45 },
+};

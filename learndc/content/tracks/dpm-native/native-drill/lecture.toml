@@ -1,0 +1,135 @@
+schema = 1
+id = "dpm-native/native-drill"
+revision = 1
+kind = "drill"
+title = "Native linking drills"
+summary = "Where a link requirement goes, which tool reports which error and how a program finds its libraries."
+difficulty = "intermediate"
+estimated_minutes = 12
+concepts = [
+    "link",
+    "link_mode",
+    "runtime_paths",
+    "extern",
+    "linker errors",
+]
+tags = [
+    "dpm",
+    "drill",
+]
+objectives = [
+    "Locate a link mistake from the message",
+    "Pick the field for a build-time and a run-time search path",
+    "Predict a program's behaviour from its declarations",
+]
+prerequisites = [
+    "dpm-native/static-link-error",
+]
+
+[[questions]]
+id = "which-tool"
+type = "multi"
+prompt = "Which of these are reported by the linker (ld.lld) and not by the DC compiler?"
+choices = [
+    "undefined symbol: cos",
+    "unknown name `hypot`",
+    "unable to find library -lmm",
+    "binary operator `+` type mismatch",
+    "error while loading shared libraries",
+]
+answers = [1, 3]
+why = [
+    "",
+    "That is a compiler error: no declaration.",
+    "",
+    "That is a compiler error.",
+    "That comes from the loader when the program starts, not from the linker.",
+]
+explanation = "The compiler reports names and types it can see. The linker reports symbols and libraries it cannot find. The loader reports libraries missing at start-up."
+
+[[questions]]
+id = "runtime-field"
+type = "choice"
+prompt = "Your dynamic program loads libplug.so from a lib directory next to the executable. Which product field records that directory in the executable?"
+choices = [
+    '''
+library_paths = { "lib" }
+''',
+    '''
+runtime_paths = { "$ORIGIN/lib" }
+''',
+    '''
+link = { "lib" }
+''',
+    "link_mode = LinkMode::Dynamic",
+]
+answer = 2
+why = [
+    "That is -L, used only while linking.",
+    "",
+    "link names a library, not a directory.",
+    "That chooses static or dynamic, not where to look.",
+]
+explanation = "runtime_paths becomes -rpath (DT_RUNPATH). $ORIGIN is the directory of the executable, so the program keeps working when the directory is copied."
+
+[[questions]]
+id = "product-only"
+type = "choice"
+prompt = "Which manifest makes -lm apply to the product `geometry` only?"
+choices = [
+    '''
+link = { "m" } at the top level of the project
+''',
+    '''
+link = { "m" } inside the product entry of geometry
+''',
+    '''
+link = { "m" } in every dependency
+''',
+    '''
+library_paths = { "m" } in the product
+''',
+]
+answer = 2
+why = [
+    "That applies to every product and every test of the project.",
+    "",
+    "That would link everything that depends on those packages.",
+    "library_paths takes directories, not library names.",
+]
+explanation = "Product-level link is local to that product. Use it when only one program needs the library; use the project level when all of them do."
+
+[[questions]]
+id = "wrong-type-bug"
+type = "bug"
+prompt = "This declaration is supposed to wrap `size_t strlen(const char *s)`. The program builds, links and prints garbage lengths. Which line is wrong?"
+code = '''
+module main;
+
+@nomangle extern i32 strlen(const char* s);
+
+public i32 main() {
+    return 0;
+}
+'''
+lines = [3]
+explanation = "size_t is a 64-bit unsigned value on x86-64, so the result should be declared usize. With i32 only the low half of the return register is read, and no tool warns about the mismatch."
+
+[[questions]]
+id = "shared-flags"
+type = "short"
+prompt = "Which two settings must be switched off before a product with kind = SharedLibrary can build in the default hosted configuration? Type the one that starts with whole."
+accept = [
+    "whole_program",
+]
+explanation = "Whole-program mode and libdcext cannot be combined with -shared: dcc says -fwhole-program with -flibdcext cannot link a shared library. Set whole_program = Tri::Off and libdcext = Libdcext::Off on that product."
+
+[[cards]]
+id = "size-t"
+front = "Which DC type matches C's size_t on x86-64?"
+back = "usize."
+
+[[cards]]
+id = "origin"
+front = "What does $ORIGIN mean in runtime_paths?"
+back = "The directory of the executable, so the library directory can travel with the program."

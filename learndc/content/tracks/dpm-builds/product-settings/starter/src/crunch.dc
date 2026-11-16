@@ -1,0 +1,10 @@
+module crunch;
+
+public Status(Error) main() {
+    i64 sum = 0;
+    for i64 n in 1..=1000 {
+        sum += n * n;
+    }
+    println("sum of squares: {}", sum)?;
+    return Status::Ok;
+}

@@ -1,0 +1,64 @@
+schema = 1
+id = "dpm-builds/assets-and-tasks"
+revision = 1
+title = "A task that reads an asset"
+summary = "Declare a local data asset and a task that counts its lines, with inputs and outputs so dpm can skip it when nothing changed."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 20
+concepts = [
+    "assets",
+    "tasks",
+    "inputs",
+    "outputs",
+    "tools",
+    "freshness",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Declare a path asset",
+    "Write a task with sh -c, tools, inputs and outputs",
+    "Observe a task being skipped as fresh",
+]
+entry_file = "src/main.dc"
+product = "audit"
+prerequisites = [
+    "dpm-builds/first-task",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-checks"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The audit passes"
+expect_stdout = '''
+ok   project.dcon can be read
+ok   data/ships.txt is in the workspace
+ok   the project declares assets
+ok   the asset ships is the directory data
+ok   a task named count-ships exists
+ok   the task reads the asset through its token
+ok   the task names the tools it needs
+ok   the input file is listed
+ok   the output file is listed
+9 checks, 0 failed
+'''
+expect_exit = 0
+max_seconds = 10

@@ -1,0 +1,10 @@
+module main;
+
+import ports::lookup;
+
+public Status(Error) main() {
+    println("port 0 to port 3: {} nm", ports::lookup::distance(0, 3))?;
+    println("port 2 to port 1: {} nm", ports::lookup::distance(2, 1))?;
+    println("port 3 to port 3: {} nm", ports::lookup::distance(3, 3))?;
+    return Status::Ok;
+}

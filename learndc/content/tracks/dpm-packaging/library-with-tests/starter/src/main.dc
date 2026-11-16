@@ -1,0 +1,22 @@
+module main;
+
+import audit;
+import stats::summary;
+
+public i32 main() {
+    i32[3] a = { 3, 9, 4 };
+    i32[3] neg = { -5, -2, -9 };
+    i32[3] m = { 2, 4, 9 };
+    i32[1] none = { 0 };
+    audit::expect(stats::summary::max(a[0..3]) == 9, "max of 3, 9, 4 is 9");
+    audit::expect(stats::summary::max(neg[0..3]) == -2, "max of -5, -2, -9 is -2");
+    audit::expect(stats::summary::max(none[0..0]) == 0, "max of nothing is 0");
+    audit::expect(stats::summary::mean(m[0..3]) > 4.99 && stats::summary::mean(m[0..3]) < 5.01, "mean of 2, 4, 9 is 5");
+    audit::Text t;
+    audit::expect(audit::load(&t, "libs/stats/tests/summary_test.dc"), "libs/stats/tests/summary_test.dc exists");
+    audit::expect(audit::has(&t, "publici32main()"), "the test program has a main returning i32");
+    audit::expect(audit::has(&t, "summary::mean(") && audit::has(&t, "summary::max("), "the tests call mean and max");
+    audit::expect(audit::count(&t, "summary::") >= 4, "there are at least four checks");
+    audit::expect(audit::has(&t, "return"), "the program returns a verdict");
+    return audit::finish();
+}

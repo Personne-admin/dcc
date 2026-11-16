@@ -1,0 +1,56 @@
+schema = 1
+id = "dpm-dependencies/nested-library"
+revision = 1
+title = "A library that depends on a library"
+summary = "Depend on a library that has dependencies of its own, and see what dpm adds to the build."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = [
+    "transitive dependencies",
+    "path dependency",
+    "dpm tree",
+    "dpm why",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Declare only the direct dependency",
+    "Read a path written from a library's own directory",
+    "Use dpm tree and dpm why to see transitive packages",
+]
+entry_file = "src/main.dc"
+product = "harbor"
+prerequisites = [
+    "dpm-dependencies/add-a-dependency",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The report library prints kilograms"
+expect_stdout = '''
+Aurora: 120000 kg
+Brisa: 80000 kg
+Corvo: 200000 kg
+Delta: 45000 kg
+'''
+expect_exit = 0
+max_seconds = 10

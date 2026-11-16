@@ -1,0 +1,8 @@
+module main;
+
+import harbor::ships;
+
+public Status(Error) main() {
+    println("total {} t", harbor::ships::total_tons())?;
+    return Status::Ok;
+}

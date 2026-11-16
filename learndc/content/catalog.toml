@@ -22,6 +22,11 @@ tracks = [
     "lib-files",
     "lib-collections",
     "lib-concurrency",
+    "dpm-projects",
+    "dpm-dependencies",
+    "dpm-builds",
+    "dpm-native",
+    "dpm-packaging",
     "lab",
     "clinic",
     "reading",
@@ -49,6 +54,13 @@ title = "The standard library"
 summary = "Real-world libdcext: JSON and TOML, files and paths, collections, text and hashing, processes, threads and networking."
 kind = "specialization"
 tracks = ["lib-data", "lib-files", "lib-collections", "lib-concurrency"]
+
+[[paths]]
+id = "dpm"
+title = "DPM mastery"
+summary = "Projects and products, dependencies and locks, profiles, tasks and assets, native libraries, and packaging a reusable library."
+kind = "specialization"
+tracks = ["dpm-projects", "dpm-dependencies", "dpm-builds", "dpm-native", "dpm-packaging"]
 
 [[paths]]
 id = "practice"

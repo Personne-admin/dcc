@@ -1,0 +1,11 @@
+module main;
+
+import harbor::ships;
+import units::convert;
+
+public Status(Error) main() {
+    for ship in harbor::ships::FLEET {
+        println("{} {} t = {} kg", ship.name, ship.tons, units::convert::tons_to_kg(ship.tons))?;
+    }
+    return Status::Ok;
+}

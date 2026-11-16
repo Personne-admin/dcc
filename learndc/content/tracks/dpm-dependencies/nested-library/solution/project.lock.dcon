@@ -1,0 +1,20 @@
+dpm::v1::Lock {
+    manifest = "sha256:63ced5925743a7a25ee528fe837d9c8777b18b6255a0a59966c98116c45645ab",
+    packages = {
+        {
+            location = "path:libs/report",
+            version = "0.2.0",
+            source = "path:libs/report",
+            hash = "",
+            dependencies = {
+                "path:libs/units",
+            },
+        },
+        {
+            location = "path:libs/units",
+            version = "1.0.0",
+            source = "path:libs/units",
+            hash = "",
+        },
+    },
+}

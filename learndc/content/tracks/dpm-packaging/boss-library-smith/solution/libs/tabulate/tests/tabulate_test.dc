@@ -1,0 +1,31 @@
+module tabulate_test;
+
+import tabulate::cell;
+import tabulate::table;
+import tabulate::stats;
+
+const ([]const char)[3] HEADERS = { "ship", "tons", "crew" };
+const ([]const char)[6] CELLS = { "Aurora", "120", "14", "Brisa", "80", "9" };
+
+i32 failures = 0;
+
+void check(bool ok, []const char what) {
+    if ok {
+        println("ok   {}", what);
+    } else {
+        println("FAIL {}", what);
+        failures += 1;
+    }
+}
+
+public i32 main() {
+    i32[4] tons = { 120, 80, 200, 45 };
+    check(tabulate::cell::display_width("harbor") == 6, "display_width counts characters");
+    check(tabulate::table::column_width(HEADERS[0..3], CELLS[0..6], 0) == 6, "column 0 is as wide as Aurora");
+    check(tabulate::table::column_width(HEADERS[0..3], CELLS[0..6], 1) == 4, "column 1 is as wide as its header");
+    check(tabulate::stats::total(tons[0..4]) == 445, "total");
+    check(tabulate::stats::min(tons[0..4]) == 45 && tabulate::stats::max(tons[0..4]) == 200, "min and max");
+    check(tabulate::stats::range(tons[0..4]) == 155, "range");
+    check(tabulate::stats::mean(tons[0..0]) < 0.01, "mean of nothing is 0");
+    return failures;
+}

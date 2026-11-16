@@ -1,0 +1,46 @@
+module tabulate::stats;
+
+public i64 total([]const i32 values) {
+    i64 sum = 0;
+    for v in values {
+        sum += v as i64;
+    }
+    return sum;
+}
+
+public i32 min([]const i32 values) {
+    if values.len == 0 {
+        return 0;
+    }
+    i32 best = values[0];
+    for v in values {
+        if v < best {
+            best = v;
+        }
+    }
+    return best;
+}
+
+public i32 max([]const i32 values) {
+    if values.len == 0 {
+        return 0;
+    }
+    i32 best = values[0];
+    for v in values {
+        if v > best {
+            best = v;
+        }
+    }
+    return best;
+}
+
+public f64 mean([]const i32 values) {
+    if values.len == 0 {
+        return 0.0;
+    }
+    return (total(values) as f64) / (values.len as f64);
+}
+
+public i32 range([]const i32 values) {
+    return max(values) - min(values);
+}

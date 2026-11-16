@@ -1,0 +1,12 @@
+module mathx::native;
+
+@nomangle extern f64 sqrt(f64 x);
+@nomangle extern f64 cos(f64 x);
+
+public f64 root(f64 x) {
+    return sqrt(x);
+}
+
+public f64 cosine(f64 x) {
+    return cos(x);
+}

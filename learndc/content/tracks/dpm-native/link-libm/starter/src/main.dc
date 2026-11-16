@@ -1,0 +1,11 @@
+module main;
+
+@nomangle extern f64 cos(f64 x);
+@nomangle extern f64 sqrt(f64 x);
+
+public Status(Error) main() {
+    println("cos(0) = {:.4}", cos(0.0))?;
+    println("sqrt(2) = {:.4}", sqrt(2.0))?;
+    println("hypot(3, 4) = {:.4}", hypot(3.0, 4.0))?;
+    return Status::Ok;
+}

@@ -1,0 +1,11 @@
+dpm::v1::Lock {
+    manifest = "sha256:666d214a2033b29f01d71b76ca7873f0350cd18791e3ae18bf58ffcb4683bd3c",
+    packages = {
+        {
+            location = "path:libs/units",
+            version = "1.0.0",
+            source = "path:libs/units",
+            hash = "",
+        },
+    },
+}

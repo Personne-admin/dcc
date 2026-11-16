@@ -1,0 +1,11 @@
+module main;
+
+import harbor::ships;
+import report::lines;
+
+public Status(Error) main() {
+    for ship in harbor::ships::FLEET {
+        report::lines::kg_line(ship.name, ship.tons)?;
+    }
+    return Status::Ok;
+}

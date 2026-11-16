@@ -1,0 +1,55 @@
+schema = 1
+id = "dpm-native/static-link-error"
+revision = 1
+title = "Static or dynamic?"
+summary = "Read why a static link cannot use a shared library, and make the program a dynamic executable."
+kind = "multi-module"
+difficulty = "intermediate"
+estimated_minutes = 15
+concepts = [
+    "link_mode",
+    "static",
+    "dynamic",
+    "libm.so.6",
+    "linker errors",
+]
+tags = [
+    "dpm",
+]
+objectives = [
+    "Explain why link_mode Static cannot link a .so",
+    "Choose a link_mode that suits a shared library",
+    "Check the executable kind from the program itself",
+]
+entry_file = "src/main.dc"
+product = "probe"
+prerequisites = [
+    "dpm-native/fix-the-linker-errors",
+]
+requires = [
+    "dcc",
+    "dpm",
+]
+min_dcc = "0.6.0"
+platforms = [
+    "linux",
+]
+backends = [
+    "llvm",
+    "custom",
+]
+starter_state = "fails-build"
+
+[[checks]]
+kind = "build"
+name = "Compiles"
+
+[[checks]]
+kind = "run"
+name = "The probe sees a dynamic executable"
+expect_stdout = '''
+dynamic: true
+sqrt(2) = 1.4142
+'''
+expect_exit = 0
+max_seconds = 10
