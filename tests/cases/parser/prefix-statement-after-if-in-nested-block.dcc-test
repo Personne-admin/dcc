@@ -1,0 +1,76 @@
+=== FILE: main.dc ===
+module m;
+
+void test(i32* p, i32 a) {
+    {
+        if a < 1 {
+            a = 1;
+        }
+        *p -= a;
+    }
+    match a {
+        _ => {
+            if *p < a {
+                a = 2;
+            }
+            *p = a;
+        },
+    }
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Func name=test
+    Return
+      Primitive void
+    Params
+      Param name=p
+        Pointer
+          Primitive i32
+      Param name=a
+        Primitive i32
+    Body
+      ExprStmt
+        Block
+          ExprStmt
+            If
+              Cond
+                Binary op=<
+                  Ident a
+                  IntLiteral 1
+              Then
+                ExprStmt
+                  Binary op==
+                    Ident a
+                    IntLiteral 1
+          ExprStmt
+            Binary op=-=
+              Unary op=*
+                Ident p
+              Ident a
+      Tail
+        Match
+          Operand
+            Ident a
+          Arm
+            WildcardPattern
+            Body
+              Block
+                ExprStmt
+                  If
+                    Cond
+                      Binary op=<
+                        Unary op=*
+                          Ident p
+                        Ident a
+                    Then
+                      ExprStmt
+                        Binary op==
+                          Ident a
+                          IntLiteral 2
+                ExprStmt
+                  Binary op==
+                    Unary op=*
+                      Ident p
+                    Ident a

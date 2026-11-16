@@ -4863,7 +4863,8 @@ export namespace dcc::parser
             }
 
             auto first_start = loc();
-            auto* first = parse_expr();
+            bool const block_like_start = check(TK::KwIf) || check(TK::KwMatch) || check(TK::LBrace);
+            auto* first = parse_expr(0, false, block_like_start);
             if (!first)
             {
                 expect(TK::RBrace, "to close brace expression");

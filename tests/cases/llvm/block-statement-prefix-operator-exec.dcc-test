@@ -1,0 +1,82 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module test;
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+enum Choice {
+    Take,
+    Keep,
+}
+
+i32 take(u32* slot, u32 qty, Choice c) {
+    match c {
+        Choice::Take => {
+            if *slot < qty {
+                return 1;
+            }
+            *slot -= qty;
+        },
+        Choice::Keep => {
+            if *slot >= qty {
+                *slot = *slot * 2;
+            }
+            *slot += 1;
+        },
+    }
+    return 0;
+}
+
+i32 nested(i32* p, i32 a, bool flag, i32* q) {
+    {
+        if -a < 0 {
+            *p = 10;
+        }
+        *p += 1;
+    }
+    {
+        if !flag {
+            *p += 100;
+        }
+        *p += 1000;
+    }
+    {
+        if p == q {
+            *p += 10000;
+        }
+        *p = *p * 2;
+    }
+    {
+        if a * a > 8 {
+            *p += 1;
+        }
+        -a;
+    }
+    return 0;
+}
+
+i32 checks() {
+    u32 stock = 5;
+    if take(&stock, 9, Choice::Take) != 1 { return 1; }
+    if stock != 5 { return 2; }
+    if take(&stock, 2, Choice::Take) != 0 { return 3; }
+    if stock != 3 { return 4; }
+    if take(&stock, 3, Choice::Keep) != 0 { return 5; }
+    if stock != 7 { return 6; }
+    i32 v = 0;
+    i32 other = 0;
+    nested(&v, 3, false, &other);
+    if v != 2223 { return 7; }
+    return 0;
+}
+
+@nomangle
+public i32 dcc_main() {
+    return checks();
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-EXECUTABLE ===
+RUN-EXIT: 0
