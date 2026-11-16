@@ -935,6 +935,18 @@ export namespace learndc::runner
         {
             if (!spec.dpm)
                 return std::unexpected(std::string("dpm was not found; it is needed to plan the build of a project with dependencies"));
+            std::error_code ec;
+            if (!std::filesystem::exists(spec.project_dir / "project.lock.dcon", ec))
+            {
+                dcc::host::process::Command lock;
+                lock.argv = {platform::path_to_utf8(*spec.dpm), "lock", "--offline"};
+                lock.cwd = spec.project_dir;
+                lock.inherit_env = true;
+                lock.timeout = std::chrono::seconds(60);
+                auto const locked = dcc::host::process::run(lock);
+                if (!locked.started || locked.exit_code != 0)
+                    return std::unexpected(std::format("dpm lock --offline failed: {}", locked.started ? std::string(text::trim(locked.err)) : locked.error));
+            }
             dcc::host::process::Command cmd;
             cmd.argv = {platform::path_to_utf8(*spec.dpm), "compile-commands"};
             cmd.cwd = spec.project_dir;
@@ -1185,18 +1197,18 @@ export namespace learndc::runner
 
             [[nodiscard]] std::expected<void, std::string> sync_harness(std::string const& stem, std::string const& source)
             {
-                auto files = read_workspace(ws_root, "src/");
-                files.emplace(std::format("tests/{}.dc", stem), source);
+                auto const own = platform::read_file(ws_root / "project.dcon");
+                bool const packages = own && uses_packages(*own);
+                auto files = read_workspace(ws_root, packages ? std::string_view{} : std::string_view{"src/"});
+                files.insert_or_assign(std::format("tests/{}.dc", stem), source);
                 std::string manifest = harness_manifest(stem);
-                if (auto own = platform::read_file(ws_root / "project.dcon"); own && uses_packages(*own))
+                if (packages)
                 {
                     auto const product = std::format("{{\n        {{ name = \"check_{0}\", entry = \"tests/{0}.dc\" }},\n    }}", stem);
                     if (auto replaced = replace_products(*own, product))
                         manifest = std::move(*replaced);
-                    if (auto lock = platform::read_file(ws_root / "project.lock.dcon"))
-                        files.emplace("project.lock.dcon", std::move(*lock));
                 }
-                files.emplace("project.dcon", std::move(manifest));
+                files.insert_or_assign("project.dcon", std::move(manifest));
                 return sync_tree(harness_dir, files, {".dpm", "project.lock.dcon", "compile_commands.json"});
             }
 

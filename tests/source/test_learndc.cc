@@ -4053,6 +4053,38 @@ TEST_CASE("harness exercise passes and fails against learner code")
     }
 }
 
+TEST_CASE("harness builds of projects with path dependencies see the whole workspace")
+{
+    REQUIRE(real_tools_present());
+    for (auto backend : {runner::Backend::Dpm, runner::Backend::DirectLlvm})
+    {
+        TempDir t;
+        auto o = make_options(t.path, backend);
+        auto ex = inline_exercise("basics/path-dependency", "module main;\n\nimport shapes;\n\npublic i32 main() {\n    return shapes::area(1, 1) - 1;\n}\n");
+        ex.starter["project.dcon"] =
+            "dpm::v1::Project {\n    name = \"prog\",\n    version = \"0.1.0\",\n    dependencies = {\n        { location = \"path:libs/shapes\" },\n"
+            "    },\n    products = {\n        { name = \"prog\", entry = \"src/main.dc\" },\n    },\n}\n";
+        ex.starter["libs/shapes/project.dcon"] = "dpm::v1::Project {\n    name = \"shapes\",\n    version = \"0.1.0\",\n}\n";
+        ex.starter["libs/shapes/src/shapes.dc"] = "module shapes;\n\npublic i32 area(i32 w, i32 h) {\n    return w * h;\n}\n";
+        ex.check_files["checks/area_check.dc"] = "module area_check;\nimport shapes;\n\npublic i32 main() {\n    if shapes::area(2, 3) != 6 {\n        return "
+                                                 "1;\n    }\n    println(\"area ok\");\n    return 0;\n}\n";
+        catalog::Check harness;
+        harness.kind = catalog::CheckKind::Harness;
+        harness.name = "area from the library";
+        harness.harness = "checks/area_check.dc";
+        harness.expect_stdout = "area ok\n";
+        ex.checks.push_back(harness);
+        auto const root = t.path / "ws";
+        write_tree(root, ex.starter);
+        auto report = runner::run_checks(ex, root, o);
+        REQUIRE((report.results.size()) == 2u);
+        CHECK(report.results[0].verdict == runner::Verdict::Pass);
+        CHECK(report.results[1].verdict == runner::Verdict::Pass);
+        if (report.results[1].verdict != runner::Verdict::Pass)
+            std::println(std::cerr, "      {}", runner::render_text(report, {}));
+    }
+}
+
 TEST_CASE("diagnostic checks compare compiler behaviour")
 {
     REQUIRE(real_tools_present());
