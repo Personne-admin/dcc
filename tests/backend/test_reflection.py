@@ -202,4 +202,116 @@ public i32 main() {
 }
 ''', [('static for range has 70000 iterations; at most 65536 are expanded', 3)])
 
+RECORDS = '''module main;
+import core::meta;
+
+public struct Point { i32 x; i64 y = 7; u8 tag; }
+public struct Box(T) { u8 flag; T value; }
+public struct Flags { u8 a : 3; u8 b : 5; u16 c; }
+public union Raw { u32 word; u8 byte; }
+public struct Named { i32 x; i64 y; [] const char label; }
+
+Status(Error) dump(T)() {
+    println("{} has {} fields", core::meta::type_name!T(core::meta::NameStyle::Plain), core::meta::field_count!T())?;
+    static for i in 0..core::meta::field_count!T() {
+        static if core::meta::field_is_bitfield!T(i) {
+            println("  {}: {} bits {}+{}", core::meta::field_name!T(i), core::meta::type_name!(core::meta::field_type(T, i))(),
+                    core::meta::field_bit_offset!T(i), core::meta::field_bit_width!T(i))?;
+        } else {
+            println("  {}: {} @{} default={} line={}", core::meta::field_name!T(i), core::meta::type_name!(core::meta::field_type(T, i))(),
+                    core::meta::field_offset!T(i), core::meta::field_has_default!T(i), core::meta::field_location!T(i).line)?;
+        }
+    }
+    return Status::Ok;
+}
+
+Status(Error) show(T)(T* value) {
+    print("{} {{", core::meta::type_name!T(core::meta::NameStyle::Plain))?;
+    static for i in 0..core::meta::field_count!T() {
+        print(" {} = {}", core::meta::field_name!T(i), *core::meta::field!T(value, i))?;
+    }
+    println(" }}")?;
+    return Status::Ok;
+}
+
+void zero_integers(T)(T* value) {
+    static for i in 0..core::meta::field_count!T() {
+        static if core::meta::kind!(core::meta::field_type(T, i))() == core::meta::TypeKind::Int {
+            *core::meta::field!T(value, i) = 0;
+        }
+    }
+}
+
+i64 sum_at_compile_time() {
+    Named n = { x = 3, y = 4, label = "c" };
+    return *core::meta::field!(Named)(&n, 0) as i64 + *core::meta::field!(Named)(&n, 1);
+}
+
+const i64 SUM = sum_at_compile_time();
+
+public Status(Error) main() {
+    println("records")?;
+    dump!(Point)()?;
+    dump!(Box(i64))()?;
+    dump!(Flags)()?;
+    dump!(Raw)()?;
+    println("{} {} {}", core::meta::has_field!(Point)("y"), core::meta::has_field!(Point)("z"), core::meta::field_index!(Point)("tag"))?;
+    Named n = { x = 1, y = 2, label = "here" };
+    show(&n)?;
+    zero_integers(&n);
+    show(&n)?;
+    println("{}", SUM)?;
+    return Status::Ok;
+}
+'''
+
+RECORDS_EXPECTED = '''records
+Point has 3 fields
+  x: i32 @0 default=false line=4
+  y: i64 @8 default=true line=4
+  tag: u8 @16 default=false line=4
+Box(i64) has 2 fields
+  flag: u8 @0 default=false line=5
+  value: i64 @8 default=false line=5
+Flags has 3 fields
+  a: u8 bits 0+3
+  b: u8 bits 3+5
+  c: u16 @2 default=false line=6
+Raw has 2 fields
+  word: u32 @0 default=false line=7
+  byte: u8 @0 default=false line=7
+true false 2
+Named { x = 1 y = 2 label = here }
+Named { x = 0 y = 0 label = here }
+7
+'''
+
+for backend in ('llvm', 'custom'):
+    for opt in ('-O0', '-O2'):
+        run(RECORDS, RECORDS_EXPECTED, '-fbackend', backend, opt)
+
+rejects('''module main;
+import core::meta;
+public struct Flags { u8 a : 3; u8 b : 5; }
+const usize O = core::meta::field_offset!(Flags)(0);
+public i32 main() { return 0; }
+''', [('field `a` is a bitfield; use field_bit_offset', 4)])
+rejects('''module main;
+import core::meta;
+public struct Point { i32 x; }
+const usize O = core::meta::field_offset!(Point)(3);
+public i32 main() { return 0; }
+''', [('field index 3 is out of range for `Point` with 1 fields', 4)])
+rejects('''module main;
+import core::meta;
+const usize N = core::meta::field_count!(i32)();
+public i32 main() { return 0; }
+''', [('field_count requires a struct or union type, not `i32`', 3)])
+rejects('''module main;
+import core::meta;
+public struct Point { i32 x; }
+const usize N = core::meta::field_index!(Point)("y");
+public i32 main() { return 0; }
+''', [('`Point` has no field `y`', 4)])
+
 print(f'  RESULT {checks}/{checks} reflection checks passed')

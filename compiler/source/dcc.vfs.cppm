@@ -210,6 +210,8 @@ public []const char function_name(FunctionNameStyle style = FunctionNameStyle::Q
 
     constexpr std::string_view kCoreMetaSourceText = R"dc(module core::meta;
 
+public import core::source_location;
+
 public using type_argument(T, usize index) = T;
 public using pointee(T) = T;
 public using element(T) = T;
@@ -256,6 +258,41 @@ public usize template_argument_count(T)();
 
 @intrinsic
 public bool same_template(T, U)();
+
+public using field_type(T, usize index) = T;
+
+@intrinsic
+public usize field_count(T)();
+
+@intrinsic
+public []const char field_name(T)(usize index);
+
+@intrinsic
+public usize field_offset(T)(usize index);
+
+@intrinsic
+public bool field_is_bitfield(T)(usize index);
+
+@intrinsic
+public usize field_bit_offset(T)(usize index);
+
+@intrinsic
+public usize field_bit_width(T)(usize index);
+
+@intrinsic
+public bool field_has_default(T)(usize index);
+
+@intrinsic
+public source_location::SourceLocation field_location(T)(usize index);
+
+@intrinsic
+public bool has_field(T)([]const char name);
+
+@intrinsic
+public usize field_index(T)([]const char name);
+
+@intrinsic
+public void* field(T)(T* value, usize index);
 
 @intrinsic
 public [] T allocate(T)(usize count);
