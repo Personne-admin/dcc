@@ -1323,6 +1323,10 @@ export namespace dcc::sema
             if (auto* lit = ast::node_cast<ast::IntLiteralExpr>(expr); lit && lit->value >= 0)
                 return static_cast<std::uint64_t>(lit->value);
 
+            if (expr->sema.const_value && expr->sema.const_value->type && expr->sema.const_value->type->kind == types::TypeKind::Int)
+                if (auto folded = expr->sema.const_value->const_to_int(); folded && *folded >= 0)
+                    return static_cast<std::uint64_t>(*folded);
+
             ast::UsingDecl const* alias = nullptr;
             Scope const* home = scope;
             if (auto* id = ast::node_cast<ast::IdentExpr>(expr))

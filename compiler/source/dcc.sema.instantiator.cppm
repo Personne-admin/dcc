@@ -570,6 +570,7 @@ namespace dcc::sema
                     n->name_range = st->name_range;
                     n->pack_expr = clone_expr(st->pack_expr);
                     n->is_type_for = st->is_type_for;
+                    n->is_range_for = st->is_range_for;
                     n->resolved_pack_type = st->resolved_pack_type;
                     return n;
                 }
@@ -1901,12 +1902,358 @@ namespace dcc::sema
                 fold_in_expr(b.tail);
         }
 
+        class NttpReplacer
+        {
+        public:
+            NttpReplacer(si::InternedHashMap<comptime::Value> const& map, ast::AstContext& ast_ctx) : m_map(map), m_ast_ctx(ast_ctx) {}
+
+            void replace_in_block(ast::Block& b)
+            {
+                for (auto* stmt : b.stmts)
+                    replace_in_stmt(stmt);
+                if (b.tail)
+                    replace_in_expr(b.tail);
+            }
+
+        private:
+            si::InternedHashMap<comptime::Value> const& m_map;
+            ast::AstContext& m_ast_ctx;
+
+            void set_constant_sema(ast::Expr* e, comptime::Value const& v)
+            {
+                set_resolved_type(e->sema, v.type);
+                e->sema.is_constant = true;
+                e->sema.const_value = m_ast_ctx.own_value(v);
+            }
+
+            void replace_in_expr(ast::Expr* e)
+            {
+                if (!e)
+                    return;
+
+                if (e->kind == ast::ExprKind::Ident)
+                {
+                    auto* ident = static_cast<ast::IdentExpr*>(e);
+                    auto it = m_map.find(ident->name);
+                    if (it != m_map.end())
+                    {
+                        set_constant_sema(e, it->second);
+                        return;
+                    }
+                }
+
+                switch (e->kind)
+                {
+                    case ast::ExprKind::IntLiteral:
+                    case ast::ExprKind::FloatLiteral:
+                    case ast::ExprKind::StringLiteral:
+                    case ast::ExprKind::U16StringLiteral:
+                    case ast::ExprKind::CharLiteral:
+                    case ast::ExprKind::U16CharLiteral:
+                    case ast::ExprKind::BoolLiteral:
+                    case ast::ExprKind::NullLiteral:
+                    case ast::ExprKind::Ident:
+                    case ast::ExprKind::PathExpr:
+                        break;
+                    case ast::ExprKind::Unary:
+                        replace_in_expr(static_cast<ast::UnaryExpr*>(e)->operand);
+                        break;
+                    case ast::ExprKind::Postfix:
+                        replace_in_expr(static_cast<ast::PostfixExpr*>(e)->operand);
+                        break;
+                    case ast::ExprKind::Binary: {
+                        auto* bin = static_cast<ast::BinaryExpr*>(e);
+                        replace_in_expr(bin->lhs);
+                        replace_in_expr(bin->rhs);
+                        break;
+                    }
+                    case ast::ExprKind::Call: {
+                        auto* call = static_cast<ast::CallExpr*>(e);
+                        replace_in_expr(call->callee);
+                        for (auto* a : call->args)
+                            replace_in_expr(a);
+                        break;
+                    }
+                    case ast::ExprKind::FieldAccess:
+                        replace_in_expr(static_cast<ast::FieldAccessExpr*>(e)->object);
+                        break;
+                    case ast::ExprKind::PackAccess: {
+                        auto* pa = static_cast<ast::PackAccessExpr*>(e);
+                        replace_in_expr(pa->object);
+                        replace_in_expr(pa->index);
+                        break;
+                    }
+                    case ast::ExprKind::Index: {
+                        auto* idx = static_cast<ast::IndexExpr*>(e);
+                        replace_in_expr(idx->object);
+                        replace_in_expr(idx->index);
+                        break;
+                    }
+                    case ast::ExprKind::Cast: {
+                        auto* cast = static_cast<ast::CastExpr*>(e);
+                        replace_in_expr(cast->operand);
+                        break;
+                    }
+                    case ast::ExprKind::Block:
+                        replace_in_block(static_cast<ast::BlockExpr*>(e)->body);
+                        break;
+                    case ast::ExprKind::If: {
+                        auto* ife = static_cast<ast::IfExpr*>(e);
+                        replace_in_expr(ife->condition);
+                        replace_in_block(ife->then_block);
+                        replace_in_expr(ife->else_branch);
+                        break;
+                    }
+                    case ast::ExprKind::Match: {
+                        auto* me = static_cast<ast::MatchExpr*>(e);
+                        replace_in_expr(me->operand);
+                        for (auto& arm : me->arms)
+                            replace_in_expr(arm.body);
+                        break;
+                    }
+                    case ast::ExprKind::StructLiteral: {
+                        for (auto& f : static_cast<ast::StructLiteralExpr*>(e)->fields)
+                            replace_in_expr(f.value);
+                        break;
+                    }
+                    case ast::ExprKind::Sizeof:
+                    case ast::ExprKind::Alignof:
+                    case ast::ExprKind::Offsetof:
+                        break;
+                    case ast::ExprKind::Compiles: {
+                        auto* ce = static_cast<ast::CompilesExpr*>(e);
+                        for (auto* stmt : ce->body.stmts)
+                            replace_in_stmt(stmt);
+                        if (ce->body.tail)
+                            replace_in_expr(ce->body.tail);
+                        break;
+                    }
+                    case ast::ExprKind::Range: {
+                        auto* r = static_cast<ast::RangeExpr*>(e);
+                        replace_in_expr(r->start);
+                        replace_in_expr(r->end);
+                        break;
+                    }
+                    case ast::ExprKind::SegConstruct: {
+                        auto* r = static_cast<ast::SegConstructExpr*>(e);
+                        replace_in_expr(r->segment);
+                        replace_in_expr(r->offset);
+                        break;
+                    }
+                    case ast::ExprKind::TypeAST:
+                        break;
+                    case ast::ExprKind::TemplateInst: {
+                        auto* ti = static_cast<ast::TemplateInstExpr*>(e);
+                        replace_in_expr(ti->callee);
+                        for (auto& ta : ti->template_args)
+                            replace_in_template_arg(ta);
+                        break;
+                    }
+                    case ast::ExprKind::SizeofPack:
+                        break;
+                    case ast::ExprKind::PackExpansion:
+                        replace_in_expr(static_cast<ast::PackExpansionExpr*>(e)->operand);
+                        break;
+                    case ast::ExprKind::Asm: {
+                        auto* ae = static_cast<ast::AsmExpr*>(e);
+                        for (auto& op : ae->operands)
+                            replace_in_expr(op.expr);
+                        break;
+                    }
+                    case ast::ExprKind::Lambda: {
+                        auto* le = static_cast<ast::LambdaExpr*>(e);
+                        for (auto& p : le->params)
+                            replace_in_type(p.type);
+                        replace_in_expr(le->body);
+                        break;
+                    }
+                }
+            }
+
+            void replace_in_template_arg(ast::TemplateArg& ta)
+            {
+                if (!ta.expr)
+                    if (auto* named = ast::node_cast<ast::NamedType>(ta.type); named && named->path.is_simple() && named->template_args.empty())
+                        if (auto it = m_map.find(named->path.simple_name()); it != m_map.end())
+                        {
+                            auto* ident = m_ast_ctx.make<ast::IdentExpr>(named->range, named->path.simple_name());
+                            set_constant_sema(ident, it->second);
+                            ta.expr = ident;
+                            ta.type = nullptr;
+                            ta.resolved_as = ast::TemplateArg::ResolvedAs::Value;
+                            return;
+                        }
+                replace_in_type(ta.type);
+                if (ta.expr)
+                    replace_in_expr(ta.expr);
+            }
+
+            void replace_in_type(ast::TypeExpr* t)
+            {
+                if (!t)
+                    return;
+
+                switch (t->kind)
+                {
+                    case ast::TypeKind::Typeof:
+                        replace_in_expr(static_cast<ast::TypeofType*>(t)->operand);
+                        break;
+                    case ast::TypeKind::Primitive:
+                        break;
+                    case ast::TypeKind::Named: {
+                        auto* nt = static_cast<ast::NamedType*>(t);
+                        for (auto& ta : nt->template_args)
+                            replace_in_template_arg(ta);
+                        break;
+                    }
+                    case ast::TypeKind::Pointer:
+                        replace_in_type(static_cast<ast::PointerType*>(t)->pointee);
+                        break;
+                    case ast::TypeKind::Array: {
+                        auto* arr = static_cast<ast::ArrayType*>(t);
+                        replace_in_type(arr->element);
+                        if (arr->size)
+                            replace_in_expr(arr->size);
+                        break;
+                    }
+                    case ast::TypeKind::Slice:
+                        replace_in_type(static_cast<ast::SliceType*>(t)->element);
+                        break;
+                    case ast::TypeKind::Fam:
+                        replace_in_type(static_cast<ast::FamType*>(t)->element);
+                        break;
+                    case ast::TypeKind::FuncPtr: {
+                        auto* fp = static_cast<ast::FuncPtrType*>(t);
+                        replace_in_type(fp->return_type);
+                        for (auto& p : fp->params)
+                            replace_in_type(p.type);
+                        break;
+                    }
+                    case ast::TypeKind::Qualified:
+                        replace_in_type(static_cast<ast::QualifiedType*>(t)->inner);
+                        break;
+                    case ast::TypeKind::Restricted: {
+                        auto* rt = static_cast<ast::RestrictedType*>(t);
+                        replace_in_type(rt->underlying);
+                        for (auto* element : rt->elements)
+                            replace_in_expr(element);
+                        break;
+                    }
+                    case ast::TypeKind::PackIndex: {
+                        auto* pi = static_cast<ast::PackIndexType*>(t);
+                        replace_in_type(pi->base);
+                        if (pi->index)
+                            replace_in_expr(pi->index);
+                        break;
+                    }
+                }
+            }
+
+            void replace_in_stmt(ast::Stmt* s)
+            {
+                if (!s)
+                    return;
+
+                switch (s->kind)
+                {
+                    case ast::StmtKind::Expr:
+                        replace_in_expr(static_cast<ast::ExprStmt*>(s)->expr);
+                        break;
+                    case ast::StmtKind::DeclStmt: {
+                        auto* ds = static_cast<ast::DeclStmt*>(s);
+                        if (auto* vd = ast::node_cast<ast::VarDecl>(ds->decl))
+                        {
+                            replace_in_type(vd->type);
+                            replace_in_expr(vd->init);
+                        }
+                        break;
+                    }
+                    case ast::StmtKind::Return:
+                        replace_in_expr(static_cast<ast::ReturnStmt*>(s)->value);
+                        break;
+                    case ast::StmtKind::Break:
+                    case ast::StmtKind::Continue:
+                        break;
+                    case ast::StmtKind::While: {
+                        auto* ws = static_cast<ast::WhileStmt*>(s);
+                        replace_in_expr(ws->condition);
+                        replace_in_block(ws->body);
+                        break;
+                    }
+                    case ast::StmtKind::DoWhile: {
+                        auto* dw = static_cast<ast::DoWhileStmt*>(s);
+                        replace_in_block(dw->body);
+                        replace_in_expr(dw->condition);
+                        break;
+                    }
+                    case ast::StmtKind::For: {
+                        auto* fs = static_cast<ast::ForStmt*>(s);
+                        replace_in_stmt(fs->init);
+                        replace_in_expr(fs->cond);
+                        replace_in_expr(fs->update);
+                        replace_in_block(fs->body);
+                        break;
+                    }
+                    case ast::StmtKind::ForIn: {
+                        auto* fi = static_cast<ast::ForInStmt*>(s);
+                        replace_in_expr(fi->iterable);
+                        replace_in_block(fi->body);
+                        break;
+                    }
+                    case ast::StmtKind::Defer:
+                        replace_in_stmt(static_cast<ast::DeferStmt*>(s)->body);
+                        break;
+                    case ast::StmtKind::StaticIf: {
+                        auto* si = static_cast<ast::StaticIfStmt*>(s);
+                        replace_in_expr(si->condition);
+                        replace_in_block(si->then_block);
+                        replace_in_stmt(si->else_branch);
+                        break;
+                    }
+                    case ast::StmtKind::StaticMatch: {
+                        auto* sm = static_cast<ast::StaticMatchStmt*>(s);
+                        replace_in_expr(sm->operand);
+                        for (auto& arm : sm->arms)
+                            replace_in_expr(arm.body);
+                        break;
+                    }
+                    case ast::StmtKind::StaticFor: {
+                        auto* sf = static_cast<ast::StaticForStmt*>(s);
+                        replace_in_expr(sf->pack_expr);
+                        replace_in_block(sf->body);
+                        break;
+                    }
+                    case ast::StmtKind::Ambiguous: {
+                        auto* as = static_cast<ast::AmbiguousStmt*>(s);
+                        replace_in_expr(as->as_expr);
+                        break;
+                    }
+                    case ast::StmtKind::Asm: {
+                        auto* as = static_cast<ast::AsmStmt*>(s);
+                        for (auto& op : as->operands)
+                            replace_in_expr(op.expr);
+                        break;
+                    }
+                }
+            }
+        };
+
     } // anonymous namespace
 
 } // namespace dcc::sema
 
 export namespace dcc::sema
 {
+    [[nodiscard]] ast::Block clone_block_with_constant(ast::AstContext& ast_ctx, ast::Block const& body, std::string_view name, comptime::Value const& value)
+    {
+        AstCloner cloner{ast_ctx};
+        auto block = cloner.clone_block(body);
+        si::InternedHashMap<comptime::Value> constants;
+        constants[name] = value;
+        NttpReplacer replacer{constants, ast_ctx};
+        replacer.replace_in_block(block);
+        return block;
+    }
 
     struct InstantiatedFunc
     {
@@ -2338,329 +2685,6 @@ export namespace dcc::sema
             if (bv)
                 nttp_map[tp.name] = *bv;
         }
-
-        class NttpReplacer
-        {
-        public:
-            NttpReplacer(si::InternedHashMap<comptime::Value> const& map, ast::AstContext& ast_ctx) : m_map(map), m_ast_ctx(ast_ctx) {}
-
-            void replace_in_block(ast::Block& b)
-            {
-                for (auto* stmt : b.stmts)
-                    replace_in_stmt(stmt);
-                if (b.tail)
-                    replace_in_expr(b.tail);
-            }
-
-        private:
-            si::InternedHashMap<comptime::Value> const& m_map;
-            ast::AstContext& m_ast_ctx;
-
-            void set_constant_sema(ast::Expr* e, comptime::Value const& v)
-            {
-                set_resolved_type(e->sema, v.type);
-                e->sema.is_constant = true;
-                e->sema.const_value = m_ast_ctx.own_value(v);
-            }
-
-            void replace_in_expr(ast::Expr* e)
-            {
-                if (!e)
-                    return;
-
-                if (e->kind == ast::ExprKind::Ident)
-                {
-                    auto* ident = static_cast<ast::IdentExpr*>(e);
-                    auto it = m_map.find(ident->name);
-                    if (it != m_map.end())
-                    {
-                        set_constant_sema(e, it->second);
-                        return;
-                    }
-                }
-
-                switch (e->kind)
-                {
-                    case ast::ExprKind::IntLiteral:
-                    case ast::ExprKind::FloatLiteral:
-                    case ast::ExprKind::StringLiteral:
-                    case ast::ExprKind::U16StringLiteral:
-                    case ast::ExprKind::CharLiteral:
-                    case ast::ExprKind::U16CharLiteral:
-                    case ast::ExprKind::BoolLiteral:
-                    case ast::ExprKind::NullLiteral:
-                    case ast::ExprKind::Ident:
-                    case ast::ExprKind::PathExpr:
-                        break;
-                    case ast::ExprKind::Unary:
-                        replace_in_expr(static_cast<ast::UnaryExpr*>(e)->operand);
-                        break;
-                    case ast::ExprKind::Postfix:
-                        replace_in_expr(static_cast<ast::PostfixExpr*>(e)->operand);
-                        break;
-                    case ast::ExprKind::Binary: {
-                        auto* bin = static_cast<ast::BinaryExpr*>(e);
-                        replace_in_expr(bin->lhs);
-                        replace_in_expr(bin->rhs);
-                        break;
-                    }
-                    case ast::ExprKind::Call: {
-                        auto* call = static_cast<ast::CallExpr*>(e);
-                        replace_in_expr(call->callee);
-                        for (auto* a : call->args)
-                            replace_in_expr(a);
-                        break;
-                    }
-                    case ast::ExprKind::FieldAccess:
-                        replace_in_expr(static_cast<ast::FieldAccessExpr*>(e)->object);
-                        break;
-                    case ast::ExprKind::PackAccess: {
-                        auto* pa = static_cast<ast::PackAccessExpr*>(e);
-                        replace_in_expr(pa->object);
-                        replace_in_expr(pa->index);
-                        break;
-                    }
-                    case ast::ExprKind::Index: {
-                        auto* idx = static_cast<ast::IndexExpr*>(e);
-                        replace_in_expr(idx->object);
-                        replace_in_expr(idx->index);
-                        break;
-                    }
-                    case ast::ExprKind::Cast: {
-                        auto* cast = static_cast<ast::CastExpr*>(e);
-                        replace_in_expr(cast->operand);
-                        break;
-                    }
-                    case ast::ExprKind::Block:
-                        replace_in_block(static_cast<ast::BlockExpr*>(e)->body);
-                        break;
-                    case ast::ExprKind::If: {
-                        auto* ife = static_cast<ast::IfExpr*>(e);
-                        replace_in_expr(ife->condition);
-                        replace_in_block(ife->then_block);
-                        replace_in_expr(ife->else_branch);
-                        break;
-                    }
-                    case ast::ExprKind::Match: {
-                        auto* me = static_cast<ast::MatchExpr*>(e);
-                        replace_in_expr(me->operand);
-                        for (auto& arm : me->arms)
-                            replace_in_expr(arm.body);
-                        break;
-                    }
-                    case ast::ExprKind::StructLiteral: {
-                        for (auto& f : static_cast<ast::StructLiteralExpr*>(e)->fields)
-                            replace_in_expr(f.value);
-                        break;
-                    }
-                    case ast::ExprKind::Sizeof:
-                    case ast::ExprKind::Alignof:
-                    case ast::ExprKind::Offsetof:
-                        break;
-                    case ast::ExprKind::Compiles: {
-                        auto* ce = static_cast<ast::CompilesExpr*>(e);
-                        for (auto* stmt : ce->body.stmts)
-                            replace_in_stmt(stmt);
-                        if (ce->body.tail)
-                            replace_in_expr(ce->body.tail);
-                        break;
-                    }
-                    case ast::ExprKind::Range: {
-                        auto* r = static_cast<ast::RangeExpr*>(e);
-                        replace_in_expr(r->start);
-                        replace_in_expr(r->end);
-                        break;
-                    }
-                    case ast::ExprKind::SegConstruct: {
-                        auto* r = static_cast<ast::SegConstructExpr*>(e);
-                        replace_in_expr(r->segment);
-                        replace_in_expr(r->offset);
-                        break;
-                    }
-                    case ast::ExprKind::TypeAST:
-                        break;
-                    case ast::ExprKind::TemplateInst: {
-                        auto* ti = static_cast<ast::TemplateInstExpr*>(e);
-                        replace_in_expr(ti->callee);
-                        for (auto& ta : ti->template_args)
-                            if (ta.expr)
-                                replace_in_expr(ta.expr);
-                        break;
-                    }
-                    case ast::ExprKind::SizeofPack:
-                        break;
-                    case ast::ExprKind::PackExpansion:
-                        replace_in_expr(static_cast<ast::PackExpansionExpr*>(e)->operand);
-                        break;
-                    case ast::ExprKind::Asm: {
-                        auto* ae = static_cast<ast::AsmExpr*>(e);
-                        for (auto& op : ae->operands)
-                            replace_in_expr(op.expr);
-                        break;
-                    }
-                    case ast::ExprKind::Lambda: {
-                        auto* le = static_cast<ast::LambdaExpr*>(e);
-                        for (auto& p : le->params)
-                            replace_in_type(p.type);
-                        replace_in_expr(le->body);
-                        break;
-                    }
-                }
-            }
-
-            void replace_in_type(ast::TypeExpr* t)
-            {
-                if (!t)
-                    return;
-
-                switch (t->kind)
-                {
-                    case ast::TypeKind::Typeof:
-                        replace_in_expr(static_cast<ast::TypeofType*>(t)->operand);
-                        break;
-                    case ast::TypeKind::Primitive:
-                        break;
-                    case ast::TypeKind::Named: {
-                        auto* nt = static_cast<ast::NamedType*>(t);
-                        for (auto& ta : nt->template_args)
-                        {
-                            replace_in_type(ta.type);
-                            if (ta.expr)
-                                replace_in_expr(ta.expr);
-                        }
-                        break;
-                    }
-                    case ast::TypeKind::Pointer:
-                        replace_in_type(static_cast<ast::PointerType*>(t)->pointee);
-                        break;
-                    case ast::TypeKind::Array: {
-                        auto* arr = static_cast<ast::ArrayType*>(t);
-                        replace_in_type(arr->element);
-                        if (arr->size)
-                            replace_in_expr(arr->size);
-                        break;
-                    }
-                    case ast::TypeKind::Slice:
-                        replace_in_type(static_cast<ast::SliceType*>(t)->element);
-                        break;
-                    case ast::TypeKind::Fam:
-                        replace_in_type(static_cast<ast::FamType*>(t)->element);
-                        break;
-                    case ast::TypeKind::FuncPtr: {
-                        auto* fp = static_cast<ast::FuncPtrType*>(t);
-                        replace_in_type(fp->return_type);
-                        for (auto& p : fp->params)
-                            replace_in_type(p.type);
-                        break;
-                    }
-                    case ast::TypeKind::Qualified:
-                        replace_in_type(static_cast<ast::QualifiedType*>(t)->inner);
-                        break;
-                    case ast::TypeKind::Restricted: {
-                        auto* rt = static_cast<ast::RestrictedType*>(t);
-                        replace_in_type(rt->underlying);
-                        for (auto* element : rt->elements)
-                            replace_in_expr(element);
-                        break;
-                    }
-                    case ast::TypeKind::PackIndex: {
-                        auto* pi = static_cast<ast::PackIndexType*>(t);
-                        replace_in_type(pi->base);
-                        if (pi->index)
-                            replace_in_expr(pi->index);
-                        break;
-                    }
-                }
-            }
-
-            void replace_in_stmt(ast::Stmt* s)
-            {
-                if (!s)
-                    return;
-
-                switch (s->kind)
-                {
-                    case ast::StmtKind::Expr:
-                        replace_in_expr(static_cast<ast::ExprStmt*>(s)->expr);
-                        break;
-                    case ast::StmtKind::DeclStmt: {
-                        auto* ds = static_cast<ast::DeclStmt*>(s);
-                        if (auto* vd = ast::node_cast<ast::VarDecl>(ds->decl))
-                        {
-                            replace_in_type(vd->type);
-                            replace_in_expr(vd->init);
-                        }
-                        break;
-                    }
-                    case ast::StmtKind::Return:
-                        replace_in_expr(static_cast<ast::ReturnStmt*>(s)->value);
-                        break;
-                    case ast::StmtKind::Break:
-                    case ast::StmtKind::Continue:
-                        break;
-                    case ast::StmtKind::While: {
-                        auto* ws = static_cast<ast::WhileStmt*>(s);
-                        replace_in_expr(ws->condition);
-                        replace_in_block(ws->body);
-                        break;
-                    }
-                    case ast::StmtKind::DoWhile: {
-                        auto* dw = static_cast<ast::DoWhileStmt*>(s);
-                        replace_in_block(dw->body);
-                        replace_in_expr(dw->condition);
-                        break;
-                    }
-                    case ast::StmtKind::For: {
-                        auto* fs = static_cast<ast::ForStmt*>(s);
-                        replace_in_stmt(fs->init);
-                        replace_in_expr(fs->cond);
-                        replace_in_expr(fs->update);
-                        replace_in_block(fs->body);
-                        break;
-                    }
-                    case ast::StmtKind::ForIn: {
-                        auto* fi = static_cast<ast::ForInStmt*>(s);
-                        replace_in_expr(fi->iterable);
-                        replace_in_block(fi->body);
-                        break;
-                    }
-                    case ast::StmtKind::Defer:
-                        replace_in_stmt(static_cast<ast::DeferStmt*>(s)->body);
-                        break;
-                    case ast::StmtKind::StaticIf: {
-                        auto* si = static_cast<ast::StaticIfStmt*>(s);
-                        replace_in_expr(si->condition);
-                        replace_in_block(si->then_block);
-                        replace_in_stmt(si->else_branch);
-                        break;
-                    }
-                    case ast::StmtKind::StaticMatch: {
-                        auto* sm = static_cast<ast::StaticMatchStmt*>(s);
-                        replace_in_expr(sm->operand);
-                        for (auto& arm : sm->arms)
-                            replace_in_expr(arm.body);
-                        break;
-                    }
-                    case ast::StmtKind::StaticFor: {
-                        auto* sf = static_cast<ast::StaticForStmt*>(s);
-                        replace_in_expr(sf->pack_expr);
-                        replace_in_block(sf->body);
-                        break;
-                    }
-                    case ast::StmtKind::Ambiguous: {
-                        auto* as = static_cast<ast::AmbiguousStmt*>(s);
-                        replace_in_expr(as->as_expr);
-                        break;
-                    }
-                    case ast::StmtKind::Asm: {
-                        auto* as = static_cast<ast::AsmStmt*>(s);
-                        for (auto& op : as->operands)
-                            replace_in_expr(op.expr);
-                        break;
-                    }
-                }
-            }
-        };
 
         std::optional<ast::Block> cloned_body;
 
@@ -3459,8 +3483,6 @@ export namespace dcc::sema
                             auto folded = try_fold_index(cloned_start);
                             if (!folded)
                             {
-                                if (m_diag)
-                                    m_diag->error(range->start->range, "static for range start must be a compile-time constant integer");
                                 result.push_back(&sf);
                                 return result;
                             }
@@ -3480,8 +3502,6 @@ export namespace dcc::sema
                             auto folded = try_fold_index(cloned_end);
                             if (!folded)
                             {
-                                if (m_diag)
-                                    m_diag->error(range->end->range, "static for range end must be a compile-time constant integer");
                                 result.push_back(&sf);
                                 return result;
                             }

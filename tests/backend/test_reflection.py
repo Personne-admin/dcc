@@ -123,4 +123,83 @@ core::meta::pointee(i32) x = 0;
 public i32 main() { return 0; }
 ''', [('`i32` has no pointee type', 3)])
 
+STATIC_FOR = '''module main;
+import core::meta;
+
+public struct Triple(A, B, C) { A a; B b; C c; }
+
+usize count(usize n) { return n + 1; }
+
+Status(Error) each_argument(T)() {
+    static for i in 0..core::meta::template_argument_count!T() {
+        usize index = i;
+        println("arg {} = {}", index, core::meta::type_name!(core::meta::type_argument(T, i))())?;
+    }
+    return Status::Ok;
+}
+
+Status(Error) sum_array(T)(T values) {
+    i64 total = 0;
+    static for i in 0..core::meta::array_length!T() {
+        total += values[i] as i64;
+    }
+    println("sum {}", total)?;
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    static for i in 0..=2 {
+        const usize square = i * i;
+        println("square {}", square)?;
+    }
+    static for i in 1..count(2) {
+        println("ctfe bound {}", i)?;
+    }
+    static for i in 0..3 {
+        core::meta::type_argument(Triple(i32, i8, u16), i) value = {};
+        println("bits {}", core::meta::bits!(typeof(value))())?;
+    }
+    static for i in 3..3 {
+        println("never")?;
+    }
+    each_argument!(Triple(i32, bool, [] const char))()?;
+    i16[4] values = {1, 2, 3, 4};
+    sum_array(values)?;
+    return Status::Ok;
+}
+'''
+
+STATIC_FOR_EXPECTED = '''square 0
+square 1
+square 4
+ctfe bound 1
+ctfe bound 2
+bits 32
+bits 8
+bits 16
+arg 0 = i32
+arg 1 = bool
+arg 2 = []const char
+sum 10
+'''
+
+for backend in ('llvm', 'custom'):
+    for opt in ('-O0', '-O2'):
+        run(STATIC_FOR, STATIC_FOR_EXPECTED, '-fbackend', backend, opt)
+
+rejects('''module main;
+public i32 main([] const char* args) {
+    static for i in 0..args.len {
+    }
+    return 0;
+}
+''', [('static for range end must be a compile-time constant integer', 3)])
+rejects('''module main;
+public i32 main() {
+    static for i in 0..70000 {
+    }
+    return 0;
+}
+''', [('static for range has 70000 iterations; at most 65536 are expanded', 3)])
+
 print(f'  RESULT {checks}/{checks} reflection checks passed')

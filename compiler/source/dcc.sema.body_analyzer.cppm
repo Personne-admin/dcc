@@ -18663,6 +18663,86 @@ export namespace dcc::sema
             return out;
         }
 
+        std::optional<std::int64_t> static_range_bound(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Expr* bound, int loop_depth, std::uint32_t& next_off,
+                                                       ConstEnv const* const_env, std::string_view which)
+        {
+            auto analyzed = analyze_expr_or_error(mod, fn, scope, bound, loop_depth, next_off, m_types.usize_t(), const_env);
+            if (has_error(analyzed.type))
+                return std::nullopt;
+            comptime::Value const* value = analyzed.constant ? analyzed.constant : bound->sema.const_value;
+            if (!value)
+            {
+                auto result = evaluate_constant(*bound, ctfe::Mode::Required, fn);
+                if (result.flow == ctfe::Flow::Normal && result.value)
+                    value = make_value(std::move(*result.value));
+                else
+                {
+                    if (!result.action_error)
+                    {
+                        error(bound->range, "static for range {} must be a compile-time constant integer", which);
+                        note_evaluated_calls(result);
+                    }
+                    return std::nullopt;
+                }
+            }
+            auto integer = const_to_int(*value);
+            if (!integer)
+                error(bound->range, "static for range {} must be a compile-time constant integer", which);
+            return integer;
+        }
+
+        bool try_expand_static_range_loop(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Block& block, std::size_t index, int loop_depth,
+                                          std::uint32_t& next_off, ConstEnv const* const_env)
+        {
+            auto* sf = ast::node_cast<ast::StaticForStmt>(block.stmts[index]);
+            if (!sf || sf->is_type_for || !ast::node_cast<ast::RangeExpr>(sf->pack_expr))
+                return false;
+            auto* range = ast::node_cast<ast::RangeExpr>(sf->pack_expr);
+            if (!range)
+                return false;
+            auto erase = [&] { block.stmts.erase(block.stmts.begin() + static_cast<std::ptrdiff_t>(index)); };
+            std::int64_t first = 0;
+            if (range->start)
+            {
+                auto start = static_range_bound(mod, fn, scope, range->start, loop_depth, next_off, const_env, "start");
+                if (!start)
+                {
+                    erase();
+                    return true;
+                }
+                first = *start;
+            }
+            if (!range->end)
+            {
+                error(sf->range, "static for range requires an end bound");
+                erase();
+                return true;
+            }
+            auto end = static_range_bound(mod, fn, scope, range->end, loop_depth, next_off, const_env, "end");
+            if (!end)
+            {
+                erase();
+                return true;
+            }
+            auto last = range->inclusive ? *end : *end - 1;
+            if (last >= first && last - first >= 65536)
+            {
+                error(sf->pack_expr->range, "static for range has {} iterations; at most 65536 are expanded", last - first + 1);
+                erase();
+                return true;
+            }
+            std::vector<ast::StmtPtr> iterations;
+            for (auto i = first; i <= last; ++i)
+            {
+                auto body = clone_block_with_constant(m_ast_ctx, sf->body, sf->item_name, comptime::Value::make_int(i, m_types.usize_t()));
+                auto* expr = m_ast_ctx.make<ast::BlockExpr>(sf->body.range, std::move(body));
+                iterations.push_back(m_ast_ctx.make<ast::ExprStmt>(sf->range, expr));
+            }
+            erase();
+            block.stmts.insert(block.stmts.begin() + static_cast<std::ptrdiff_t>(index), iterations.begin(), iterations.end());
+            return true;
+        }
+
         bool try_expand_struct_pack_loop(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Block& block, std::size_t index, int loop_depth,
                                          std::uint32_t& next_off, ConstEnv const* const_env)
         {
@@ -18727,7 +18807,8 @@ export namespace dcc::sema
             for (std::size_t i = 0; i < block.stmts.size(); ++i)
             {
                 auto* s = block.stmts[i];
-                if (s->kind == ast::StmtKind::StaticFor && try_expand_struct_pack_loop(mod, fn, scope, block, i, loop_depth, next_off, const_env))
+                if (s->kind == ast::StmtKind::StaticFor && (try_expand_static_range_loop(mod, fn, scope, block, i, loop_depth, next_off, const_env) ||
+                                                            try_expand_struct_pack_loop(mod, fn, scope, block, i, loop_depth, next_off, const_env)))
                 {
                     if (i >= block.stmts.size())
                         continue;
@@ -19294,6 +19375,9 @@ export namespace dcc::sema
         {
             if (!e)
                 return ConstSizeResult::not_constant();
+            if (e->sema.const_value && e->sema.const_value->type && e->sema.const_value->type->kind == types::TypeKind::Int)
+                if (auto folded = const_to_int(*e->sema.const_value))
+                    return ConstSizeResult::folded(*folded);
 
             switch (e->kind)
             {

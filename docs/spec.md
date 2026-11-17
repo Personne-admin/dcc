@@ -890,6 +890,24 @@ void each(T...)(T args) {
 }
 ```
 
+`static for i in start..end` (or `start..=end`) repeats its body once per
+index. Both bounds are compile-time constant integers, from any constant
+expression: literals, constants, reflection queries such as
+`core::meta::array_length!(T)()` or compile-time function calls. Inside each
+copy `i` is a `usize` constant, so it can index packs and appear where a
+constant is required, including type expressions
+(`core::meta::type_argument(T, i)`). Each copy is analysed separately, as its
+own block, in generic and non-generic code alike. A bound that is not a
+compile-time constant is an error, and at most 65536 copies are expanded.
+
+```dc
+void each_argument(T)() {
+    static for i in 0..core::meta::template_argument_count!(T)() {
+        take(core::meta::type_name!(core::meta::type_argument(T, i))());
+    }
+}
+```
+
 A pack parameter can be forwarded to another variadic function by
 re-expanding it with `...`:
 
@@ -1480,6 +1498,9 @@ query on a type it does not apply to is an error.
 | `pointee(T)` | type a pointer points to |
 | `element(T)` | element type of an array or slice |
 | `underlying(T)` | target of a nominal alias, base of a restricted type, backing type of a plain enum |
+
+`static for i in 0..N` (see §8.5) repeats code per index with `i` constant,
+which is how queries that take an index are used over a whole type.
 
 Nominal aliases are looked through by the structural queries (`is_signed`,
 `bits`, `array_length`, `pointee`, `element`); `kind` and `type_name` report
