@@ -16979,7 +16979,8 @@ export namespace dcc::sema
                 {
                     error(si.condition->range, "static if condition is not a compile-time constant: `{}`",
                           m_diag.source_manager().text_trimmed(si.condition->range));
-                    si.taken_branch = 0;
+                    out.foldable = false;
+                    return out;
                 }
 
                 if (si.taken_branch == 0)
@@ -17381,7 +17382,13 @@ export namespace dcc::sema
                                   m_diag.source_manager().text_trimmed(si.condition->range));
                         }
                     }
-                    bool take_then = !(cond.constant && cond.constant->kind() == comptime::Value::Kind::Bool) || cond.constant->get_bool();
+                    if (!cond.constant || cond.constant->kind() != comptime::Value::Kind::Bool)
+                    {
+                        si.taken_branch = -1;
+                        out.foldable = false;
+                        return out;
+                    }
+                    bool take_then = cond.constant->get_bool();
                     si.taken_branch = take_then ? 0 : 1;
                     if (take_then)
                     {

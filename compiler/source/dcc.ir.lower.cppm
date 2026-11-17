@@ -2673,7 +2673,7 @@ export namespace dcc::ir::lower
                     auto* si = static_cast<ast::StaticIfStmt const*>(stmt);
                     if (si->taken_branch == 0)
                         std::ignore = lower_block_body(si->then_block);
-                    else if (si->else_branch)
+                    else if (si->taken_branch == 1 && si->else_branch)
                         lower_stmt(si->else_branch);
                     break;
                 }
