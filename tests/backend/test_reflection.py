@@ -456,4 +456,114 @@ const [] const char A = core::meta::attribute_argument!(Plain)("align", 0);
 public i32 main() { return 0; }
 ''', [('no `@align` attribute', 4)])
 
+CHECKS = '''module main;
+import core::meta;
+
+public enum Kind { Name([] const char), Other }
+
+i32 describe(T)(const T* kind) {
+    match kind {
+        Name(text) => return 1,
+    }
+    return 0;
+}
+
+public struct Point { i32 x; }
+
+Status(Error) report(T)(T value) {
+    const core::meta::Check field = compiles(T t) { t.x = 1; };
+    const core::meta::Check hook = compiles(T t) {
+        i32 ignored = 0;
+        describe(&t);
+    };
+    println("field ok={} count={}", field.ok, field.failure_count)?;
+    if !field.ok {
+        println("  requirement `{}` line {}", field.first.requirement, field.first.requirement_location.line)?;
+        println("  {} at line {}", field.first.message, field.first.location.line)?;
+    }
+    println("hook ok={}", hook.ok)?;
+    if !hook.ok {
+        println("  requirement `{}` line {}", hook.first.requirement, hook.first.requirement_location.line)?;
+        println("  {} at line {}", hook.first.message, hook.first.location.line)?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("checks")?;
+    report(Point { x = 1 })?;
+    report(Kind::Other)?;
+    return Status::Ok;
+}
+'''
+
+CHECKS_EXPECTED = '''checks
+field ok=true count=0
+hook ok=false
+  requirement `describe(&t);` line 19
+  enum pattern requires enum operand at line 8
+field ok=false count=1
+  requirement `t.x = 1;` line 16
+  unknown field `x` at line 16
+hook ok=false
+  requirement `describe(&t);` line 19
+  enum pattern requires enum operand at line 8
+'''
+
+CONCEPTS = '''module main;
+import core::meta;
+using HasX(T) = compiles(T t) { t.x = 1; };
+public struct Point { i32 x; }
+public struct Other { i32 y; }
+Status(Error) report(T)(T value) {
+    const core::meta::Check c = HasX(T);
+    println("{} {} `{}` {}", HasX(T), c.ok, c.first.requirement, c.first.message)?;
+    return Status::Ok;
+}
+public Status(Error) main() {
+    println("concepts")?;
+    report(Point { x = 1 })?;
+    report(Other { y = 1 })?;
+    return Status::Ok;
+}
+'''
+
+CONCEPTS_EXPECTED = '''concepts
+true true `` 
+false false `t.x = 1;` unknown field `x`
+'''
+
+for backend in ('llvm', 'custom'):
+    for opt in ('-O0', '-O2'):
+        run(CHECKS, CHECKS_EXPECTED, '-fbackend', backend, opt)
+        run(CONCEPTS, CONCEPTS_EXPECTED, '-fbackend', backend, opt)
+
+code, _, stderr, exe = build('''module main;
+using HasX(T) = compiles(T t) { t.x = 1; };
+public struct Point { i32 x; }
+i32 pick(T)(T value) {
+    static if HasX(T) { return 1; } else { return 2; }
+}
+public i32 main() { return pick(Point { x = 1 }) * 10 + pick(5 as i32); }
+''')
+assert code == 0, stderr
+assert subprocess.run([str(exe)], timeout=30).returncode == 12
+checks += 1
+
+rejects('''module main;
+import core;
+import core::meta;
+public import std::fmt;
+public struct Plain { i32 x; }
+void require_format(T)() {
+    const core::meta::Check hook = compiles (T t, std::fmt::CountingWriter* w, const std::fmt::Options* o) {
+        t.format(w, o);
+    };
+    static if !hook.ok {
+        core::compile_error(hook.first.message);
+    }
+}
+public i32 main() { require_format!(Plain)(); return 0; }
+''', [('no matching UFCS function for `format` on receiver type `Plain`', 11)])
+
 print(f'  RESULT {checks}/{checks} reflection checks passed')

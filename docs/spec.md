@@ -506,6 +506,10 @@ void test() {
 
 ### 6.2 Concept definition
 
+A concept application such as `Printable(T)` is also a `bool` constant in
+expressions (`static if Printable(T)`, `const bool ok = Printable(T);`), or a
+`core::meta::Check` where that type is expected (see §9.8).
+
 ```dc
 using Printable(T) = compiles(T t) {
     print(t);
@@ -1525,6 +1529,40 @@ query on a type it does not apply to is an error.
 
 The function forms take the function itself (`core::meta::parameter_name(scale,
 0)`); a function pointer value carries no declaration and is rejected.
+
+A `compiles (...) { ... }` expression or a concept application (`HasX(T)`) is
+a `bool` constant. When the expected type is `core::meta::Check` it is a
+`Check` instead, describing why the requirement failed:
+
+```dc
+public struct Failure {
+    []const char requirement;                         // source text of the failing requirement
+    source_location::SourceLocation requirement_location;
+    []const char message;                             // first error under it
+    source_location::SourceLocation location;         // where that error is
+}
+
+public struct Check {
+    bool ok;
+    usize failure_count;
+    Failure first;                                    // zero when ok
+}
+```
+
+The first error includes errors inside templates the requirement
+instantiated, with their own location. A `Check` is an ordinary compile-time
+constant; checking it does not report anything by itself.
+
+```dc
+void require_format(T)() {
+    const core::meta::Check hook = compiles (T t, std::fmt::CountingWriter* w, const std::fmt::Options* o) {
+        t.format(w, o);
+    };
+    static if !hook.ok {
+        core::compile_error(hook.first.message);
+    }
+}
+```
 
 `static for i in 0..N` (see §8.5) repeats code per index with `i` constant,
 which is how queries that take an index are used over a whole type.

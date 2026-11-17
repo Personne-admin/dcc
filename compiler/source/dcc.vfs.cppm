@@ -347,6 +347,19 @@ public bool function_has_attribute(F)(F function, []const char name);
 @intrinsic
 public []const char function_attribute_argument(F)(F function, []const char name, usize index);
 
+public struct Failure {
+    []const char requirement;
+    source_location::SourceLocation requirement_location;
+    []const char message;
+    source_location::SourceLocation location;
+}
+
+public struct Check {
+    bool ok;
+    usize failure_count;
+    Failure first;
+}
+
 public usize variant_index(T)(T value) {
     static for i in 0..variant_count!T() {
         if value == variant!T(i) {
