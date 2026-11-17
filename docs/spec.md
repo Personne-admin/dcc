@@ -694,18 +694,22 @@ these signatures (public visibility is optional):
 - `i32 main()`
 - `i32 main([] const char* args)`
 - `std::result::Status(E) main()`
+- `std::result::Status(E) main([] const char* args)`
 
 `Status` must be the standard library carrier, possibly reached through a
 structural alias. Its error parameter can be any valid Status payload type;
-it need not be `std::error::Error`. The Status form takes no arguments.
-`Status::Ok` maps to process exit code 0; `Status::Err(error)` maps to 1.
+it need not be `std::error::Error`. The Status forms take no arguments or
+the same argument slice as the integer form; any other parameter list on a
+Status main is an error. `Status::Ok` maps to process exit code 0;
+`Status::Err(error)` maps to 1.
 The complete value is returned with its normal ABI before this entry-boundary
 adaptation. No error is formatted or heap-allocated by the adaptation.
 Integer mains retain their existing OS exit behavior. Linux supplies arguments
-to the slice form; Windows currently supplies an empty slice.
+to the slice forms; Windows currently supplies an empty slice.
 
-The compiler generates an integer adapter for a Status main and uses the
-existing startup thunk and object main metadata. The original function keeps
+The compiler generates an integer adapter for a Status main, taking the
+argument slice when the Status main does, and uses the existing startup
+thunk and object main metadata. The original function keeps
 its return type, name, calling convention and ordinary address-taking behavior.
 Symbols beginning `__dcc_status_entry_` are reserved for these adapters;
 conflicting declarations are diagnosed. There is no ordinary Status-to-integer

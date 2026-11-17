@@ -21,7 +21,9 @@ with tempfile.TemporaryDirectory(prefix='dcc-fallible-main-') as temporary:
         ('module main; void main(){}', 'invalid hosted main return type'),
         ('module main; enum E{Bad} Result(i32,E) main(){return Result::Ok(0);}', 'invalid hosted main return type'),
         ('module main; enum E{Bad} enum Status(T){Ok,Err(T)} Status(E) main(){return Status::Ok;}', 'invalid hosted main return type'),
-        ('module main; Status(Error) main(i32 value){return Status::Ok;}', 'must have no parameters'),
+        ('module main; Status(Error) main(i32 value){return Status::Ok;}', 'must have no parameters or one [] const char* parameter'),
+        ('module main; Status(Error) main([] const char args){return Status::Ok;}', 'must have no parameters or one [] const char* parameter'),
+        ('module main; Status(Error) main([] const char* args, i32 extra){return Status::Ok;}', 'must have no parameters or one [] const char* parameter'),
         ('module main; i32 ordinary(Status(Error) value){return value;} public i32 main(){return 0;}', 'return type mismatch'),
     ]
     for backend in ('llvm', 'custom'):
@@ -35,8 +37,12 @@ with tempfile.TemporaryDirectory(prefix='dcc-fallible-main-') as temporary:
 public struct Custom{u64[32] values;}
 @nomangle public Status(Custom) main(){Custom value={};value.values[31]=42;return Status::Err(value);}
 '''
-    source.write_text(text)
-    for backend in ('llvm', 'custom'):
+    with_args = '''module main;
+public struct Custom{u64[32] values;}
+@nomangle public Status(Custom) main([] const char* args){Custom value={};value.values[31]=args.len as u64;return Status::Err(value);}
+'''
+    for backend, current in (('llvm', text), ('custom', text), ('llvm', with_args), ('custom', with_args)):
+        source.write_text(current)
         for opt in ('-O0', '-O2'):
             for whole in ([], ['-fwhole-program']):
                 result = invoke(['-flibdcext', 'windows', '-target', 'x86_64-coff', '-fbackend', backend, opt, *whole, '-c', source, '-o', obj])

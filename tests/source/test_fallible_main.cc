@@ -17,6 +17,9 @@ TEST_CASE("hosted integer and fallible mains keep their process exit contracts")
         {"module main; Status(Error) main(){Array(i32) a={};defer a.deinit();a.push(42)?;return Status::Ok;}",0,""},
         {"module main; Status(Error) main(){Array(u64) a={};defer a.deinit();a.reserve(~(0 as usize))?;return Status::Ok;}",1,""},
         {"module main; import std::sys::linux::syscall; Status(Error) main(){std::sys::linux::syscall::close(1);println(\"closed\")?;return Status::Ok;}",1,""},
+        {"module main; Status(Error) main([] const char* args){println(\"args {}\",args.len)?;return Status::Ok;}",0,"args 1\n"},
+        {"module main; public Status(Error) main([] const char* args){if args.len==1 && args[0][0]!='\\0' {return Status::Err(Error::Allocation(AllocError::OutOfMemory));}return Status::Ok;}",1,""},
+        {"module main; enum Custom{Bad} Status(Custom) main([] const char* args){if args.len!=1 {return Custom::Bad;}return Status::Ok;}",0,""},
     };
     for(auto backend:{"llvm","custom"})
     {
@@ -78,4 +81,14 @@ public std::result::Status(std::error::Error) main(){return std::result::Status:
 )dc";
     CHECK_EQ(os_test::run(source,false,"-fno-prelude").status,0);
     CHECK_EQ(os_test::run(source,false,"-fno-prelude -fwhole-program -fbackend custom").status,0);
+    auto with_args=R"dc(module main;
+public import std::result;
+public import std::error;
+public std::result::Status(std::error::Error) main([] const char* args){
+    if args.len==1 {return std::result::Status::Ok;}
+    return std::result::Status::Err(std::error::Error::Allocation(std::error::AllocError::OutOfMemory));
+}
+)dc";
+    CHECK_EQ(os_test::run(with_args,false,"-fno-prelude").status,0);
+    CHECK_EQ(os_test::run(with_args,false,"-fno-prelude -fwhole-program -fbackend custom").status,0);
 }

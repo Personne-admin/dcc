@@ -94,6 +94,9 @@ This program is exercised by `tests/stdlib/beginner.dc`. Use `{}` for an empty
 array; `[]` is not an array constructor. `Status::Ok` is a payload-less value,
 not a function call. Hosted main can instead return `Status(Error)` directly;
 success exits 0 and failure exits 1 without automatic error printing.
+`Status(Error) main([] const char* args)` receives the command-line
+arguments like `i32 main([] const char* args)`; `args[0]` is the program
+path on Linux, and Windows currently passes an empty slice.
 
 Run `dpm new hello` and `dpm run` for a generated fallible Hello World.
 See [getting started](getting-started.md) for a direct Status main with arrays.

@@ -1,0 +1,19 @@
+=== FILE: main.dc ===
+module m;
+
+public enum Open {
+    Identifier(
+}
+
+public enum Trailing {
+    Number(i32, ),
+    Empty,
+}
+
+public i32 value() {
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: expected type, found '}'
+main.dc:8: expected type, found ')'

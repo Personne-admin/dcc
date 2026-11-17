@@ -8110,7 +8110,7 @@ export namespace dcc::ir::lower
             return type;
         }
 
-        IrFunction* lower_status_entry(ast::FuncDecl const& declaration, types::EnumType const& status, IrFunction* user)
+        IrFunction* lower_status_entry(ast::FuncDecl const& declaration, types::EnumType const& status, IrFunction* user, bool takes_args)
         {
             m_name_pool.push_back(std::format("__dcc_status_entry_{}", user->name));
             std::string_view name = m_name_pool.back();
@@ -8121,7 +8121,9 @@ export namespace dcc::ir::lower
                 if (global->name == name)
                     throw LowerDiagnostic(std::format("reserved status entry symbol '{}' collides with a declaration", name));
             auto* integer = m_ctx.int_t(32, true);
-            auto* adapter = m_ctx.function(name, static_cast<IrFuncType const*>(m_ctx.func_t(integer, {})));
+            std::array<IrType const*, 1> argument_types{takes_args ? user->func_type->params.front() : nullptr};
+            std::span<IrType const*> parameters = takes_args ? std::span(argument_types) : std::span<IrType const*>{};
+            auto* adapter = m_ctx.function(name, static_cast<IrFuncType const*>(m_ctx.func_t(integer, parameters)));
             adapter->linkage = Linkage::External;
             auto* block = m_ctx.basic_block("entry", 0);
             adapter->entry_block = block;
@@ -8129,6 +8131,12 @@ export namespace dcc::ir::lower
             auto* call = m_ctx.call(user->func_type->return_type, m_ctx.func_ref(user));
             call->c_abi = declaration.sema.is_nomangle;
             call->cc = user->conv;
+            if (takes_args)
+            {
+                auto* args = m_ctx.local("args", 0, parameters[0]);
+                block->params.push_back(args);
+                call->args.push_back(args);
+            }
             block->instructions.push_back(call);
             auto* discriminant = status.tagged_layout->discriminant_type;
             auto* tag_type = m_ctx.int_t(static_cast<std::uint8_t>(discriminant->bits), discriminant->is_signed);
@@ -8174,28 +8182,27 @@ export namespace dcc::ir::lower
                         throw LowerDiagnostic("invalid hosted main return type: expected i32 or std::result::Status(E)");
                     continue;
                 }
-                if (status && !function->params.empty())
-                    throw LowerDiagnostic("Status(E) main must have no parameters");
-                bool args = false;
-                if (function->params.size() == 1)
-                {
-                    auto* parameter = get_canonical_type(function->params[0].type);
+                auto argument_slice = [&](ast::FuncDecl const& candidate) {
+                    auto* parameter = get_canonical_type(candidate.params[0].type);
                     if (!parameter || parameter->kind != types::TypeKind::Slice)
-                        continue;
+                        return false;
                     auto* slice = static_cast<types::SliceType const*>(parameter);
                     if (slice->flavor != types::PointerFlavor::Near || slice->element->kind != types::TypeKind::Pointer)
-                        continue;
+                        return false;
                     auto* pointer = static_cast<types::PointerType const*>(slice->element);
-                    if (pointer->flavor != types::PointerFlavor::Near || pointer->pointee->kind != types::TypeKind::Char ||
-                        !types::has_qual(pointer->pointee_quals, types::Qual::Const) || slice->element_quals != types::Qual::None)
-                        continue;
-                    args = true;
-                }
-                else if (!function->params.empty())
+                    return pointer->flavor == types::PointerFlavor::Near && pointer->pointee->kind == types::TypeKind::Char &&
+                           types::has_qual(pointer->pointee_quals, types::Qual::Const) && slice->element_quals == types::Qual::None;
+                };
+                bool args = function->params.size() == 1 && argument_slice(*function);
+                if (!args && !function->params.empty())
+                {
+                    if (status)
+                        throw LowerDiagnostic("Status(E) main must have no parameters or one [] const char* parameter");
                     continue;
+                }
                 auto* target_function = m_func_map.at(function);
                 if (status)
-                    target_function = lower_status_entry(*function, *status, target_function);
+                    target_function = lower_status_entry(*function, *status, target_function, args);
                 if (m_emit_main_metadata && !m_whole_program)
                 {
                     target_function->linkage = Linkage::External;
@@ -8220,10 +8227,12 @@ export namespace dcc::ir::lower
                     info->alignment = 1;
                     m_module->globals.push_back(info);
                 }
+                auto signature = [](bool fallible, bool arguments) {
+                    return std::format("{} main({})", fallible ? "Status(E)" : "i32", arguments ? "[] const char*" : "");
+                };
                 if (chosen && (m_generate_main_thunk || !m_library.sources.empty()))
-                    throw LowerDiagnostic(std::format("ambiguous program main: {}{} and {}{} are both defined",
-                                                      takes_args ? "i32 main([] const char*)" : "i32 main()", fmt_loc(chosen->range),
-                                                      args ? "i32 main([] const char*)" : "i32 main()", fmt_loc(function->range)));
+                    throw LowerDiagnostic(std::format("ambiguous program main: {}{} and {}{} are both defined", signature(chosen_status, takes_args),
+                                                      fmt_loc(chosen->range), signature(status != nullptr, args), fmt_loc(function->range)));
                 chosen = function;
                 takes_args = args;
                 chosen_status = status != nullptr;

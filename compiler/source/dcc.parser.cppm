@@ -2505,8 +2505,12 @@ export namespace dcc::parser
                     any_payload = true;
                     if (!check(TK::RParen))
                         do
-                            variant.payload.push_back(parse_type());
-                        while (match(TK::Comma));
+                        {
+                            auto* payload = parse_type();
+                            if (!payload)
+                                break;
+                            variant.payload.push_back(payload);
+                        } while (match(TK::Comma));
 
                     expect(TK::RParen, "to close variant payload");
                 }
