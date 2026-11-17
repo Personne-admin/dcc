@@ -657,6 +657,8 @@ export namespace dcc::ir::lower
         {
             if (m_func_map.find(decl) != m_func_map.end())
                 return;
+            if (decl->sema.is_compile_time_bound)
+                return;
 
             if (is_template_func(decl))
                 return;
@@ -768,6 +770,8 @@ export namespace dcc::ir::lower
         {
             if (!fd)
                 lower_panic("get_or_create_func_ref on null FuncDecl");
+            if (fd->sema.is_compile_time_bound)
+                throw LowerDiagnostic(std::format("`{}` runs only at compile time and has no run-time address", fd->name));
 
             if (is_template_func(fd))
             {
@@ -3176,6 +3180,8 @@ export namespace dcc::ir::lower
 
         IrValue* lower_call_expr(ast::CallExpr const* call)
         {
+            if (call->sema.evaluated_at_compile_time && !call->sema.const_value)
+                return nullptr;
             auto* resolved_spec = call->sema.resolved_specialization;
             auto* callee_expr = call->callee;
 

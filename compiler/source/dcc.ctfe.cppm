@@ -96,6 +96,14 @@ export namespace dcc::ctfe
         sm::SourceRange call_site{};
     };
 
+    struct Action
+    {
+        ast::IntrinsicKind kind{};
+        std::string message;
+        sm::SourceRange site{};
+        sm::SourceRange origin{};
+    };
+
     struct Result
     {
         Flow flow{Flow::Normal};
@@ -103,6 +111,9 @@ export namespace dcc::ctfe
         std::string message;
         std::vector<Call> calls;
         AbandonReason abandon_reason{AbandonReason::None};
+        std::vector<Action> actions{};
+        bool action_error{false};
+        bool needs_compile_time{false};
 
         [[nodiscard]] bool failed() const { return flow == Flow::NotEvaluatable || flow == Flow::Error; }
     };
@@ -148,6 +159,9 @@ export namespace dcc::ctfe
         std::unordered_map<comptime::Value const*, comptime::ValuePtr> m_constants;
         Heap m_heap;
         std::unordered_set<std::size_t> m_compile_time_allocations;
+        std::vector<Action> m_actions;
+        bool m_action_error{false};
+        bool m_needs_compile_time{false};
         Trace m_trace;
         std::vector<std::size_t> m_seq_stack;
         std::unordered_set<types::TypePtr> m_question_operand_types;
@@ -675,6 +689,52 @@ export namespace dcc::ctfe
             frame.allocations.push_back(ptr.allocation);
             frame.locals.insert_or_assign(decl, std::move(ptr));
             return {};
+        }
+
+        Result deferred_action(ast::CallExpr const& call, ast::IntrinsicKind kind)
+        {
+            if (specializing())
+                return abandoned(AbandonReason::UnsupportedEffect);
+            if (m_context.runtime_fold)
+            {
+                m_needs_compile_time = true;
+                return failure("call performs a compile-time action");
+            }
+            if (call.sema.call_argument_offset >= call.args.size())
+                return failure("compile-time action has no message");
+            auto message = expression(*call.args[call.sema.call_argument_offset]);
+            if (message.flow != Flow::Normal || !message.value)
+                return message;
+            auto text = message_text(*message.value);
+            if (!text)
+                return failure("compile-time action message is not a string");
+            auto site = m_frames.size() > 1 ? m_frames[1].call.call_site : m_context.call_site;
+            if (!site.valid())
+                site = call.range;
+            m_actions.push_back(Action{kind, std::move(*text), site, call.range});
+            if (kind != ast::IntrinsicKind::CompileError)
+                return {Flow::Normal, {}, {}, {}};
+            m_action_error = true;
+            return failure(m_actions.back().message, true);
+        }
+
+        std::optional<std::string> message_text(comptime::Value const& value)
+        {
+            if (value.kind() == Kind::String)
+                return value.get_string();
+            if (value.kind() != Kind::Slice)
+                return std::nullopt;
+            if (value.slice_is_ref())
+                return read_text(value.slice_base(), value.slice_length());
+            std::string text;
+            for (std::size_t i = 0; i < value.size(); ++i)
+            {
+                auto byte = value.at(i).const_to_int();
+                if (!byte || *byte < 0 || *byte > 255)
+                    return std::nullopt;
+                text.push_back(static_cast<char>(*byte));
+            }
+            return text;
         }
 
         Result compile_time_allocate(ast::CallExpr const& call)
@@ -2064,6 +2124,12 @@ export namespace dcc::ctfe
                 return folded(comptime::Value::make_aggregate(std::move(fields), type_of(call)));
             }
 
+            if (call.sema.compile_time_failed)
+            {
+                m_action_error = true;
+                return failure("call already failed at compile time", true);
+            }
+
             bool is_runtime = call.sema.is_runtime;
             for (auto const& a : call.attrs)
                 if (a.name == "runtime")
@@ -2102,6 +2168,10 @@ export namespace dcc::ctfe
                     return folded(
                         comptime::Value::make_string(current ? current->function_names[static_cast<std::size_t>(*style)] : std::string{}, type_of(call)));
                 }
+                if (call.sema.is_deferred_action && (fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileError ||
+                                                     fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileWarning ||
+                                                     fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileNote))
+                    return deferred_action(call, fn->sema.intrinsic_kind);
                 if (fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileWarning || fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileNote)
                     return {Flow::Normal, {}, {}, {}};
                 if (fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileError)
@@ -2987,6 +3057,9 @@ export namespace dcc::ctfe
             m_constants.clear();
             m_heap = Heap{};
             m_compile_time_allocations.clear();
+            m_actions.clear();
+            m_action_error = false;
+            m_needs_compile_time = false;
             m_frames.push_back(Frame{Call{m_context.function, m_context.call_site}, {}, {}});
 
             auto r = expression(expr);
@@ -2994,8 +3067,11 @@ export namespace dcc::ctfe
                 return failure("control flow escaping a constant expression", true);
             if (r.flow == Flow::Normal && r.value)
                 r = detach(std::move(*r.value), type_of(expr));
-            if (m_mode == Mode::Opportunistic && r.failed())
+            if (m_mode == Mode::Opportunistic && r.failed() && !m_action_error)
                 r.flow = Flow::NotEvaluatable;
+            r.actions = std::move(m_actions);
+            r.action_error = m_action_error;
+            r.needs_compile_time = m_needs_compile_time;
             return r;
         }
     };

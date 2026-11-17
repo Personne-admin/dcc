@@ -260,6 +260,9 @@ export namespace dcc::ast
         bool implicit_addr_of : 1 {};
         bool is_from_instantiation : 1 {};
         bool is_runtime : 1 {};
+        bool is_deferred_action : 1 {};
+        bool compile_time_failed : 1 {};
+        bool evaluated_at_compile_time : 1 {};
 
         UfcsReceiverAdjust ufcs_receiver_adjust{UfcsReceiverAdjust::None};
     };
@@ -309,6 +312,7 @@ export namespace dcc::ast
         bool is_dll_export : 1 {};
         bool is_runtime : 1 {};
         bool is_noreturn : 1 {};
+        bool is_compile_time_bound : 1 {};
 
         bool layout_resolved : 1 {};
         bool is_diverging : 1 {};

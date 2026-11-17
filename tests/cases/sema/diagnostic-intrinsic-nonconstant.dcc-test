@@ -6,7 +6,20 @@ public void test([] const char message) {
     core::compile_error(message);
 }
 
-=== EXPECT-ERROR-COUNT: 1 ===
+public void unused([] const char message) {
+    core::compile_warning(message);
+}
+
+public i32 main([] const char* args) {
+    test("reported at this call");
+    if args.len > 1 {
+        test(args[0..0] as [] const char);
+    }
+    return 0;
+}
+
+=== EXPECT-ERROR-COUNT: 2 ===
 
 === EXPECT-ERRORS EXACT ===
-main.dc:5: compile_error message must be a compile-time string
+main.dc:13: reported at this call
+main.dc:15: `main` must be generated as run-time code, but its call to `test` can only be evaluated at compile time and its arguments are not compile-time constants

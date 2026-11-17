@@ -2093,10 +2093,54 @@ of instantiated specializations. A `compiles` probe treats an error action as
 a failed requirement under its normal diagnostic suppression rules.
 
 Messages can be string literals or compile-time expressions yielding strings,
-including calls to compile-time-evaluable functions. A message that cannot be
-evaluated to a string is an error (`compile_error message must be a compile-time
-string`, and similarly for warning and note). CTFE does not re-emit actions
-already performed by semantic analysis.
+including calls to compile-time-evaluable functions. Such an action is
+performed where it is written, during semantic analysis. CTFE does not re-emit
+actions already performed by semantic analysis. Outside a function body, a
+message that cannot be evaluated to a string is an error (`compile_error
+message must be a compile-time string`, and similarly for warning and note).
+
+Inside a function body, an action whose message is computed (it depends on
+parameters or other values known only when the function runs) is performed
+when compile-time evaluation reaches the call, with the evaluated message. The
+function that contains it is *compile-time-bound*, and so is every function
+that contains a call to a compile-time-bound function that was not itself
+evaluated at compile time. This is decided from the whole body, including
+branches of a runtime `if` that are never taken.
+
+```dc
+import core;
+
+[] const char repeat(char c, i32 count) {
+    Array(char) text = {};
+    for i32 i = 0; i < count; i++ {
+        if !text.push(c).is_ok() { return "push failed"; }
+    }
+    return text.items();
+}
+
+void fail(i32 width) {
+    core::compile_error(repeat('x', width)); // computed: performed by CTFE
+}
+
+void check(T)(T value) {
+    static if sizeof(T) > 4 {
+        fail(sizeof(T) as i32); // error: xxxxxxxx, reported here for u64
+    }
+}
+```
+
+Calls to compile-time-bound functions are evaluated at compile time wherever
+they appear, including in run-time code. A warning or note continues the
+evaluation; an error ends it. Each performed action is reported once at the
+outermost call that started the evaluation. A call evaluated this way
+generates no run-time code; a call that cannot be evaluated is an error
+(`call to `f` must be evaluated at compile time: ...`). Inside a `compiles`
+probe a performed `compile_error` makes the probe fail.
+
+Compile-time-bound functions generate no code and have no run-time address
+(taking one is an error). `main`, `@nomangle` and exported functions must be
+generated, so they cannot be compile-time-bound; the error names the call or
+action that made them so.
 
 ---
 

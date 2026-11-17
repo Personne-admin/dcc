@@ -964,6 +964,39 @@ export namespace dcc::sema
 
             flush_pending_lambdas();
             validate_value_aliases();
+            resolve_compile_time_bound_functions();
+        }
+
+        void resolve_compile_time_bound_functions()
+        {
+            for (bool changed = true; changed;)
+            {
+                changed = false;
+                for (auto const& unfolded : m_unfolded_calls)
+                {
+                    if (!unfolded.callee->sema.is_compile_time_bound || unfolded.caller->sema.is_compile_time_bound)
+                        continue;
+                    if (unfolded.call->sema.const_value)
+                        continue;
+                    unfolded.caller->sema.is_compile_time_bound = true;
+                    m_compile_time_bound_reason.try_emplace(unfolded.caller, unfolded.call->range);
+                    m_compile_time_bound_callee.try_emplace(unfolded.caller, unfolded.callee);
+                    changed = true;
+                }
+            }
+            for (auto const& [function, reason] : m_compile_time_bound_reason)
+            {
+                if (!function->sema.is_compile_time_bound)
+                    continue;
+                bool emitted = function->sema.is_nomangle || function->sema.is_dll_export || (function->name == "main" && function->template_params.empty());
+                if (!emitted)
+                    continue;
+                if (auto it = m_compile_time_bound_callee.find(function); it != m_compile_time_bound_callee.end())
+                    error(reason, "`{}` must be generated as run-time code, but its call to `{}` can only be evaluated at compile time and its arguments are not compile-time constants",
+                          function->name, it->second->name);
+                else
+                    error(reason, "`{}` must be generated as run-time code, but this compile-time action has a computed message", function->name);
+            }
         }
 
         void analyze_single_function(ModuleInfo& mod, ast::FuncDecl& fn)
@@ -1302,6 +1335,16 @@ export namespace dcc::sema
 
         std::pmr::unordered_map<ModuleInfo const*, ConstEnv*> m_module_const_envs{};
         std::unordered_set<ast::VarDecl const*> m_resolving_global_constants;
+        struct UnfoldedCall
+        {
+            ast::FuncDecl* caller;
+            ast::CallExpr const* call;
+            ast::FuncDecl const* callee;
+        };
+        std::vector<UnfoldedCall> m_unfolded_calls;
+        std::unordered_map<ast::FuncDecl const*, sm::SourceRange> m_compile_time_bound_reason;
+        std::unordered_map<ast::FuncDecl const*, ast::FuncDecl const*> m_compile_time_bound_callee;
+        std::unordered_set<std::string> m_reported_compile_time_actions;
         ConstEnv* m_current_module_env{};
         ModuleInfo* m_current_module{};
         bool m_signature_probe{};
@@ -8417,6 +8460,8 @@ export namespace dcc::sema
                         vd->init->sema.const_value = make_value(std::move(*result.value));
                         vd->init->sema.is_constant = true;
                     }
+                    else if (result.action_error)
+                        continue;
                     else if (contains_call(*vd->init))
                     {
                         error(vd->init->range, "initializer for global `{}` is not a constant expression: {}", vd->name, result.message);
@@ -8770,7 +8815,37 @@ export namespace dcc::sema
             auto result = ctfe::Evaluator(std::move(context), mode).evaluate(expr);
             for (auto* fn : speculative)
                 fn->sema.storage = ast::StorageClass::Unresolved;
+            if (!result.actions.empty() && (result.flow == ctfe::Flow::Normal || result.action_error))
+                report_compile_time_actions(result.actions);
             return result;
+        }
+
+        void report_compile_time_actions(std::span<ctfe::Action const> actions)
+        {
+            for (auto const& action : actions)
+            {
+                if (action.kind == ast::IntrinsicKind::CompileError)
+                {
+                    if (m_suppress_errors)
+                    {
+                        ++m_suppressed_error_count;
+                        record_suppressed_error(action.site, action.message);
+                        continue;
+                    }
+                    if (!m_diag.silent())
+                        ++m_error_action_count;
+                }
+                else if (m_suppress_errors)
+                    continue;
+                auto key = std::format("{}:{}:{}:{}:{}", static_cast<std::uint32_t>(action.site.begin.fileId), action.site.begin.offset,
+                                       action.origin.begin.offset, static_cast<int>(action.kind), action.message);
+                if (!m_reported_compile_time_actions.insert(std::move(key)).second)
+                    continue;
+                auto severity = action.kind == ast::IntrinsicKind::CompileError     ? diag::Severity::Error
+                                : action.kind == ast::IntrinsicKind::CompileWarning ? diag::Severity::Warning
+                                                                                    : diag::Severity::Note;
+                m_diag.emit(diag::Diagnostic{severity, action.message}.primary(action.site));
+            }
         }
 
         static ast::FuncDecl const* direct_fold_callee(ast::CallExpr const& call)
@@ -9456,7 +9531,7 @@ export namespace dcc::sema
                         if (probe->sema.const_value || is_constant_initializer_expr(probe, visiting, expected))
                             continue;
                         auto result = evaluate_constant(*probe, ctfe::Mode::Required);
-                        if (result.flow != ctfe::Flow::Normal || !result.value)
+                        if ((result.flow != ctfe::Flow::Normal || !result.value) && !result.action_error)
                             error(f.default_value->range, "default value for field `{}` must be a constant expression", f.name);
                     }
                 }
@@ -11543,7 +11618,7 @@ export namespace dcc::sema
 
             if (expr.kind == ast::ExprKind::Call && !has_error(out.type))
                 if (auto const* f = ast::node_cast<ast::FuncDecl>(out.resolved_decl))
-                    analyze_diagnostic_intrinsic(*f, static_cast<ast::CallExpr const&>(expr), out);
+                    analyze_diagnostic_intrinsic(*f, static_cast<ast::CallExpr const&>(expr), out, fn);
 
             if (expr.kind == ast::ExprKind::Call)
             {
@@ -11604,6 +11679,31 @@ export namespace dcc::sema
                 if (!fn || call_fold_candidate(call))
                 {
                     auto result = evaluate_constant(expr, ctfe::Mode::Opportunistic, fn ? fn : m_default_argument_function, true);
+                    if (result.needs_compile_time)
+                    {
+                        result = evaluate_constant(expr, ctfe::Mode::Required, fn ? fn : m_default_argument_function);
+                        if (result.action_error)
+                        {
+                            const_cast<ast::CallExpr&>(call).sema.compile_time_failed = true;
+                            out.type = m_types.m_errort();
+                            return out;
+                        }
+                        if (result.flow == ctfe::Flow::Normal && !result.value)
+                        {
+                            const_cast<ast::CallExpr&>(call).sema.evaluated_at_compile_time = true;
+                            return out;
+                        }
+                        if (result.flow != ctfe::Flow::Normal)
+                        {
+                            const_cast<ast::CallExpr&>(call).sema.compile_time_failed = true;
+                            auto const* callee = direct_fold_callee(call);
+                            error(call.range, "call to `{}` must be evaluated at compile time: {}", callee ? callee->name : std::string_view{"function"},
+                                  result.message);
+                            note_evaluated_calls(result);
+                            out.type = m_types.m_errort();
+                            return out;
+                        }
+                    }
                     if (result.flow == ctfe::Flow::Normal && result.value && !fold_value_has_unknown(*result.value))
                     {
                         out.constant = make_value(std::move(*result.value));
@@ -11612,6 +11712,9 @@ export namespace dcc::sema
                         expr.sema.is_constant = true;
                     }
                 }
+                if (!out.constant && fn && !call.sema.compile_time_failed && !call.sema.evaluated_at_compile_time)
+                    if (auto const* callee = direct_fold_callee(call); callee && callee->body && !callee->sema.is_intrinsic)
+                        m_unfolded_calls.push_back({fn, &call, callee});
             }
             return out;
         }
@@ -16531,7 +16634,7 @@ export namespace dcc::sema
             return out;
         }
 
-        void analyze_diagnostic_intrinsic(ast::FuncDecl const& f, ast::CallExpr const& call, detail::ExprResult& out)
+        void analyze_diagnostic_intrinsic(ast::FuncDecl const& f, ast::CallExpr const& call, detail::ExprResult& out, ast::FuncDecl* fn)
         {
             switch (f.sema.intrinsic_kind)
             {
@@ -16562,6 +16665,18 @@ export namespace dcc::sema
                             }
                             text->push_back(static_cast<char>(*byte));
                         }
+                    }
+                    if (!text && fn && !m_unevaluated && !has_error(get_resolved_type(message_expr->sema)))
+                    {
+                        const_cast<ast::CallExpr&>(call).sema.is_deferred_action = true;
+                        if (!fn->sema.is_compile_time_bound)
+                        {
+                            fn->sema.is_compile_time_bound = true;
+                            m_compile_time_bound_reason.try_emplace(fn, call.range);
+                        }
+                        if (f.sema.intrinsic_kind == ast::IntrinsicKind::CompileError)
+                            out.is_diverging = true;
+                        return;
                     }
                     if (!text)
                     {
@@ -17410,7 +17525,7 @@ export namespace dcc::sema
                                 si.condition->sema.const_value = cond.constant;
                                 si.condition->sema.is_constant = true;
                             }
-                            else
+                            else if (!result.action_error)
                             {
                                 error(si.condition->range, "static if condition is not a compile-time constant: `{}`",
                                       m_diag.source_manager().text_trimmed(si.condition->range));
