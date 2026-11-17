@@ -1025,6 +1025,12 @@ export namespace dcc::sema
         std::unordered_set<ast::Expr const*> m_warned_array_decay;
 
         std::uint32_t m_suppressed_error_count{};
+        struct SuppressedError
+        {
+            sm::SourceRange range;
+            std::string message;
+        };
+        std::optional<SuppressedError> m_first_suppressed_error;
         bool m_in_explicit_conversion{};
         bool m_allow_implicit_enum{true};
         bool m_disallow_nested_implicit_enum{};
@@ -1442,7 +1448,17 @@ export namespace dcc::sema
                 }
             }
             else
+            {
                 ++m_suppressed_error_count;
+                if (!m_first_suppressed_error)
+                    m_first_suppressed_error = SuppressedError{range, std::format(fmt, std::forward<A>(args)...)};
+            }
+        }
+
+        void record_suppressed_error(sm::SourceRange range, std::string_view message)
+        {
+            if (!m_first_suppressed_error)
+                m_first_suppressed_error = SuppressedError{range, std::string{message}};
         }
 
         template <typename... A> void error_with_fix(sm::SourceRange range, sm::SourceRange fix_range, std::string replacement, std::string fix_message,
@@ -1451,6 +1467,8 @@ export namespace dcc::sema
             if (m_suppress_errors)
             {
                 ++m_suppressed_error_count;
+                if (!m_first_suppressed_error)
+                    m_first_suppressed_error = SuppressedError{range, std::format(fmt, std::forward<A>(args)...)};
                 return;
             }
 
@@ -2576,6 +2594,7 @@ export namespace dcc::sema
             if (m_suppress_errors)
             {
                 ++m_suppressed_error_count;
+                record_suppressed_error(range, primary_msg);
                 return;
             }
 
@@ -3691,6 +3710,7 @@ export namespace dcc::sema
             else
             {
                 ++m_suppressed_error_count;
+                record_suppressed_error(range, message);
                 m_concept_notes.clear();
             }
         }
@@ -15030,6 +15050,7 @@ export namespace dcc::sema
         {
             auto* inner = make_scope(ScopeKind::Block, &scope);
             std::uint32_t tmp_off = next_off;
+            auto outer_first_error = std::exchange(m_first_suppressed_error, std::nullopt);
             [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
             auto* inner_consts = make_const_env(const_env);
             for (auto const& p : c.params)
@@ -15045,6 +15066,8 @@ export namespace dcc::sema
             detail::ExprResult out{};
             out.type = m_types.m_boolt();
             auto const success = !suppress.had_suppressed_errors();
+            if (outer_first_error)
+                m_first_suppressed_error = std::move(outer_first_error);
             out.constant = make_bool_const(success, out.type);
             out.is_constant = true;
             c.value = success;
