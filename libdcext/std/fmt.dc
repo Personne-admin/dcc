@@ -1,8 +1,11 @@
 module std::fmt;
 
-import core;
+public import core;
 import core::meta;
+public import core::source_location;
 import core::target;
+import std::alloc;
+import std::array;
 import std::math;
 import std::mem;
 import std::slice;
@@ -1376,4 +1379,66 @@ Optional(usize) fmt_checked_add(usize a, usize b) {
 Optional(usize) fmt_checked_mul(usize a, usize b) {
     if a != 0 && b > (~(0 as usize)) / a { return Optional::None; }
     return Optional::Some(a * b);
+}
+
+//!
+//! Growable text and compile-time diagnostics
+//!
+
+/// appends `bytes` to a growable array of characters, so an `Array(char)`
+/// can be the writer of `format`.
+public Status(alloc::AllocError) write_all(A)(array::Array(char, A)* self, [] const char bytes) {
+    for usize i = 0; i < bytes.len; i++ {
+        self.push(bytes[i])?;
+    }
+    return Status::Ok;
+}
+
+[] const char compile_time_text(T...)([] const char fmt, T args) {
+    array::Array(char) text = {};
+    if !format(&text, fmt, args...).is_ok() {
+        return "std::fmt: the compile-time diagnostic message has an invalid format string or argument";
+    }
+    return text.items();
+}
+
+/// reports a formatted compile-time error at the call that started the
+/// compile-time evaluation; `fmt` and `args` are those of `format`.
+public void compile_error(T...)([] const char fmt, T args) {
+    core::compile_error(compile_time_text(fmt, args...));
+}
+
+/// reports a formatted compile-time warning; compilation continues.
+public void compile_warning(T...)([] const char fmt, T args) {
+    core::compile_warning(compile_time_text(fmt, args...));
+}
+
+/// reports a formatted compile-time note.
+public void compile_note(T...)([] const char fmt, T args) {
+    core::compile_note(compile_time_text(fmt, args...));
+}
+
+/// reports a formatted compile-time error at `at`.
+public void compile_error_at(T...)(core::source_location::SourceLocation at, [] const char fmt, T args) {
+    core::compile_error_at(compile_time_text(fmt, args...), at);
+}
+
+/// reports a formatted compile-time warning at `at`.
+public void compile_warning_at(T...)(core::source_location::SourceLocation at, [] const char fmt, T args) {
+    core::compile_warning_at(compile_time_text(fmt, args...), at);
+}
+
+/// reports a formatted compile-time note at `at`.
+public void compile_note_at(T...)(core::source_location::SourceLocation at, [] const char fmt, T args) {
+    core::compile_note_at(compile_time_text(fmt, args...), at);
+}
+
+/// a note for `compile_error_with`, with a formatted message.
+public core::Note note_at(T...)(core::source_location::SourceLocation at, [] const char fmt, T args) {
+    return core::Note { message = compile_time_text(fmt, args...), location = at };
+}
+
+/// reports a formatted compile-time error at `at` with `notes` attached.
+public void compile_error_with(T...)(core::source_location::SourceLocation at, [] const core::Note notes, [] const char fmt, T args) {
+    core::compile_error_with(compile_time_text(fmt, args...), at, notes);
 }

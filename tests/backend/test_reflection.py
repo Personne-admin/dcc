@@ -566,4 +566,38 @@ void require_format(T)() {
 public i32 main() { require_format!(Plain)(); return 0; }
 ''', [('no matching UFCS function for `format` on receiver type `Plain`', 11)])
 
+FIRST_PRINT_IN_GENERIC = '''module main;
+import core::meta;
+
+public struct Point { i32 x; i64 y = 7; u8 tag; }
+public struct Box(T) { u8 flag; T value; }
+public struct Flags { u8 a : 3; u8 b : 5; u16 c; }
+public union Raw { u32 word; u8 byte; }
+
+Status(Error) dump(T)() {
+    println("{} has {} fields", core::meta::type_name!T(core::meta::NameStyle::Plain), core::meta::field_count!T())?;
+    static for i in 0..core::meta::field_count!T() {
+        static if core::meta::field_is_bitfield!T(i) {
+            println("  {}: {} bits {}+{}", core::meta::field_name!T(i), core::meta::type_name!(core::meta::field_type(T, i))(),
+                    core::meta::field_bit_offset!T(i), core::meta::field_bit_width!T(i))?;
+        } else {
+            println("  {}: {} @{} default={} line={}", core::meta::field_name!T(i), core::meta::type_name!(core::meta::field_type(T, i))(),
+                    core::meta::field_offset!T(i), core::meta::field_has_default!T(i), core::meta::field_location!T(i).line)?;
+        }
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    dump!(Point)()?;
+    dump!(Box(i64))()?;
+    dump!(Flags)()?;
+    dump!(Raw)()?;
+    println("{} {} {}", core::meta::has_field!(Point)("y"), core::meta::has_field!(Point)("z"), core::meta::field_index!(Point)("tag"))?;
+    return Status::Ok;
+}
+'''
+for backend in ('llvm', 'custom'):
+    run(FIRST_PRINT_IN_GENERIC, RECORDS_EXPECTED.split('Named {')[0].replace('records\n', '').rsplit('true false 2', 1)[0] + 'true false 2\n', '-fbackend', backend)
+
 print(f'  RESULT {checks}/{checks} reflection checks passed')
