@@ -16932,6 +16932,50 @@ export namespace dcc::sema
                     return make_source_location_const(result_type, location, nullptr);
                 }
             }
+            if (query.starts_with("variant"))
+            {
+                auto variants = meta_enum_variants(m_types, subject);
+                if (!variants)
+                    return fail(std::format("{} requires an enum type, not `{}`", query, format_dcc_type(subject)));
+                if (query == "variant_count")
+                    return make_int_const(static_cast<std::int64_t>(variants->size()), result_type);
+                auto const* argument = values.empty() || !values.front() ? nullptr : values.front()->sema.const_value;
+                auto index = argument ? const_to_int(*argument) : std::nullopt;
+                if (!index)
+                    return fail(std::format("{} requires a compile-time variant index", query));
+                if (*index < 0 || static_cast<std::size_t>(*index) >= variants->size())
+                    return fail(std::format("variant index {} is out of range for `{}` with {} variants", *index, format_dcc_type(subject), variants->size()));
+                auto const& variant = (*variants)[static_cast<std::size_t>(*index)];
+                if (query == "variant_name")
+                    return make_str_const(std::string{variant.name}, result_type);
+                if (query == "variant_value")
+                    return make_int_const(variant.decl->discriminant_is_negative && variant.decl->discriminant > 0 ? -variant.decl->discriminant
+                                                                                                                 : variant.decl->discriminant,
+                                          result_type);
+                if (query == "variant_has_payload")
+                    return make_bool_const(variant.payload != nullptr, result_type);
+                if (query == "variant_location")
+                    return make_source_location_const(result_type, variant.decl->range, nullptr);
+                if (query == "variant")
+                {
+                    auto const* enumeration = types::type_cast<types::EnumType>(structural);
+                    if (!enumeration->is_tagged)
+                        return make_int_const(variant.decl->discriminant, enumeration->backing ? enumeration->backing : result_type);
+                    std::vector<comptime::Value const*> payload;
+                    if (variant.payload)
+                    {
+                        std::string why;
+                        auto zero = zero_constant(variant.payload, why);
+                        if (!zero)
+                            return fail(std::format("variant `{}` has a payload of type `{}` without a zero value", variant.name, format_dcc_type(variant.payload)));
+                        payload.push_back(make_value(std::move(*zero)));
+                    }
+                    auto const* folded = fold_tagged_enum_construction(variant.decl, structural, payload);
+                    if (!folded)
+                        return fail(std::format("variant `{}` of `{}` cannot be constructed at compile time", variant.name, format_dcc_type(subject)));
+                    return folded;
+                }
+            }
             return fail(std::format("unknown reflection query `{}`", query));
         }
 
