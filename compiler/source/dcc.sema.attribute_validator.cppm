@@ -122,6 +122,9 @@ namespace
                     d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::CompileTimeAllocate;
                 else if (f->name == "free")
                     d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::CompileTimeFree;
+                else if (f->name == "type_name" || f->name == "kind" || f->name == "is_signed" || f->name == "bits" || f->name == "array_length" ||
+                         f->name == "template_argument_count" || f->name == "same_template")
+                    d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::MetaQuery;
             }
     }
 

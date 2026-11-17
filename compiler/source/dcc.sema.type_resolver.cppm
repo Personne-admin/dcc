@@ -849,7 +849,7 @@ export namespace dcc::sema
                 return out;
             }
 
-            if (sym->name == "type_argument")
+            if (is_meta_type_query(sym->name))
             {
                 auto const* owner = sym->module;
                 if (!owner || owner->canonical_path.str() != "core::meta")
@@ -861,7 +861,7 @@ export namespace dcc::sema
                         }
 
                 if (owner && owner->canonical_path.str() == "core::meta")
-                    return resolve_type_argument(node, mod, env, quiet_unknown);
+                    return resolve_type_argument(node, mod, env, quiet_unknown, sym->name);
             }
 
             out = resolve_symbol_type(*sym, mod, env, node->template_args, node->range, quiet_unknown);
@@ -1054,9 +1054,9 @@ export namespace dcc::sema
         }
 
         [[nodiscard]] static types::TypeResolution project_type_argument(types::TypeContext& types, diag::DiagnosticEngine& diag, types::TypePtr type,
-                                                                         std::uint64_t index, sm::SourceRange range)
+                                                                         std::uint64_t index, sm::SourceRange range, std::string_view query)
         {
-            auto projection = dcc::sema::project_type_argument(types, type, index);
+            auto projection = dcc::sema::project_meta_type(types, query, type, index);
             if (!projection.error.empty())
             {
                 bool const suppressed = types.type_query_suppression && types.type_query_suppression(false);
@@ -1070,7 +1070,7 @@ export namespace dcc::sema
         }
 
         [[nodiscard]] detail::ResolvedType resolve_type_argument(ast::NamedType* node, ModuleInfo const& mod, detail::TemplateEnv const& env,
-                                                                 bool quiet_unknown)
+                                                                 bool quiet_unknown, std::string_view query)
         {
             auto report = [&](sm::SourceRange report_range, std::string message) {
                 bool const suppressed = m_types.type_query_suppression && m_types.type_query_suppression(false);
@@ -1081,23 +1081,27 @@ export namespace dcc::sema
             };
 
             auto const& args = node->template_args;
-            if (args.size() != 2 || !args[0].type)
+            auto const arity = meta_type_query_arity(query);
+            if (args.size() != arity || !args[0].type)
             {
-                report(node->range, "type_argument requires a type and a compile-time index");
+                report(node->range, arity == 2 ? std::format("{} requires a type and a compile-time index", query) : std::format("{} requires a type", query));
                 return {m_types.m_errort(), types::Qual::None};
             }
 
-            if (!args[1].expr)
+            std::optional<std::uint64_t> index = 0;
+            if (arity == 2)
             {
-                report(args[1].range, "type argument index must be a compile-time constant");
-                return {m_types.m_errort(), types::Qual::None};
-            }
-
-            auto index = resolve_const_uint(args[1].expr, mod, env);
-            if (!index)
-            {
-                report(args[1].range, "type argument index must be a compile-time constant");
-                return {m_types.m_errort(), types::Qual::None};
+                if (!args[1].expr)
+                {
+                    report(args[1].range, "type argument index must be a compile-time constant");
+                    return {m_types.m_errort(), types::Qual::None};
+                }
+                index = resolve_const_uint(args[1].expr, mod, env);
+                if (!index)
+                {
+                    report(args[1].range, "type argument index must be a compile-time constant");
+                    return {m_types.m_errort(), types::Qual::None};
+                }
             }
 
             auto operand = resolve_type_expr(args[0].type, mod, env, quiet_unknown);
@@ -1111,18 +1115,18 @@ export namespace dcc::sema
 
             auto* diag = &m_diag;
             auto* types = &m_types;
-            auto range = args[1].range;
+            auto range = args[arity - 1].range;
             auto operand_type = operand.type;
             auto projection_index = *index;
             auto deferred = m_types.deferred_t(
                 node, parameters,
-                [diag, types, range, operand_type, projection_index, parameters](std::span<types::TypePtr const> arguments) {
+                [diag, types, range, operand_type, projection_index, parameters, query](std::span<types::TypePtr const> arguments) {
                     infer::TemplateBindings bindings{*types};
                     for (std::size_t i = 0; i < parameters.size() && i < arguments.size(); ++i)
                         std::ignore = bindings.deduce(parameters[i], arguments[i]);
 
                     auto resolved = bindings.substitute_qualified(operand_type);
-                    return project_type_argument(*types, *diag, resolved.type, projection_index, range);
+                    return project_type_argument(*types, *diag, resolved.type, projection_index, range, query);
                 });
 
             auto substituted = infer::TemplateBindings{m_types}.substitute_qualified(deferred);

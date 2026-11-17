@@ -11618,7 +11618,10 @@ export namespace dcc::sema
 
             if (expr.kind == ast::ExprKind::Call && !has_error(out.type))
                 if (auto const* f = ast::node_cast<ast::FuncDecl>(out.resolved_decl))
+                {
                     analyze_diagnostic_intrinsic(*f, static_cast<ast::CallExpr const&>(expr), out, fn);
+                    analyze_meta_query(mod, fn, scope, *f, static_cast<ast::CallExpr&>(expr), out, const_env);
+                }
 
             if (expr.kind == ast::ExprKind::Call)
             {
@@ -16634,6 +16637,175 @@ export namespace dcc::sema
             return out;
         }
 
+        [[nodiscard]] static types::UserType const* as_user_type(types::TypePtr type) noexcept
+        {
+            if (type && (type->kind == types::TypeKind::Struct || type->kind == types::TypeKind::Union || type->kind == types::TypeKind::Enum))
+                return static_cast<types::UserType const*>(type);
+            return nullptr;
+        }
+
+        [[nodiscard]] std::string qualified_type_name(types::TypePtr type)
+        {
+            auto plain = format_dcc_type(type);
+            ast::Decl const* decl = nullptr;
+            if (auto const* user = as_user_type(type))
+                decl = reinterpret_cast<ast::Decl const*>(user->decl);
+            else if (auto const* nominal = types::type_cast<types::NominalType>(type))
+                decl = static_cast<ast::Decl const*>(nominal->decl);
+            if (!decl)
+                return plain;
+            auto const* owner = find_defining_module(*decl);
+            if (!owner || owner->canonical_path.str().empty())
+                return plain;
+            return std::format("{}::{}", owner->canonical_path.str(), plain);
+        }
+
+        void analyze_meta_query(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::FuncDecl const& f, ast::CallExpr& call, detail::ExprResult& out,
+                                ConstEnv const* const_env)
+        {
+            if (f.sema.intrinsic_kind != ast::IntrinsicKind::MetaQuery || out.constant)
+                return;
+            auto const* inst = ast::node_cast<ast::TemplateInstExpr>(call.callee);
+            if (!inst)
+            {
+                error(call.range, "core::meta::{} needs explicit type arguments: core::meta::{}!(T)()", f.name, f.name);
+                out.type = m_types.m_errort();
+                return;
+            }
+            std::vector<types::TypePtr> types;
+            for (auto const& arg : inst->template_args)
+            {
+                if (!arg.type)
+                {
+                    error(arg.range, "core::meta::{} takes type arguments", f.name);
+                    out.type = m_types.m_errort();
+                    return;
+                }
+                auto type = arg.type->sema.canonical ? get_canonical(arg.type->sema) : resolve_type_node(mod, scope, arg.type, fn, nullptr, const_env);
+                types.push_back(type);
+            }
+            ast::Expr const* style = call.sema.call_argument_offset < call.args.size() ? call.args[call.sema.call_argument_offset] : nullptr;
+            auto value = evaluate_meta_query(f, types, style, out.type, call.range);
+            if (!value)
+            {
+                call.sema.compile_time_failed = true;
+                out.type = m_types.m_errort();
+                return;
+            }
+            out.constant = *value;
+            out.is_constant = *value != nullptr;
+            if (*value)
+            {
+                call.sema.const_value = *value;
+                call.sema.is_constant = true;
+            }
+        }
+
+        std::optional<comptime::Value const*> evaluate_meta_query(ast::FuncDecl const& f, std::span<types::TypePtr const> types, ast::Expr const* style_expr,
+                                                                types::TypePtr result_type, sm::SourceRange range)
+        {
+            auto bound = [&](std::size_t i) -> types::TypePtr { return i < types.size() ? types[i] : nullptr; };
+            auto fail = [&](std::string message) -> std::optional<comptime::Value const*> {
+                error(range, "{}", message);
+                return std::nullopt;
+            };
+            auto subject = bound(0);
+            if (!subject || contains_template_param(subject) || subject->kind == types::TypeKind::Deferred)
+                return static_cast<comptime::Value const*>(nullptr);
+            if (has_error(subject))
+                return std::nullopt;
+            auto structural = subject;
+            while (auto const* nominal = types::type_cast<types::NominalType>(structural))
+                structural = nominal->underlying;
+            auto const query = f.name;
+            if (query == "type_name")
+            {
+                std::int64_t style = 1;
+                if (style_expr)
+                {
+                    auto const* style_value = style_expr->sema.const_value;
+                    auto folded = style_value ? const_to_int(*style_value) : std::nullopt;
+                    if (!folded || *folded < 0 || *folded > 1)
+                        return fail("type_name style must be a compile-time constant NameStyle");
+                    style = *folded;
+                }
+                return make_str_const(style == 0 ? format_dcc_type(subject) : qualified_type_name(subject), result_type);
+            }
+            if (query == "kind")
+            {
+                auto const* kind_enum = types::type_cast<types::EnumType>(result_type);
+                if (!kind_enum || !kind_enum->backing)
+                    return fail("core::meta::TypeKind is unavailable");
+                std::int64_t kind = 15;
+                switch (subject->kind)
+                {
+                    case types::TypeKind::Void: kind = 0; break;
+                    case types::TypeKind::Bool: kind = 1; break;
+                    case types::TypeKind::Int: kind = 2; break;
+                    case types::TypeKind::Float: kind = 3; break;
+                    case types::TypeKind::Char: kind = 4; break;
+                    case types::TypeKind::Pointer: kind = 5; break;
+                    case types::TypeKind::Slice: kind = 6; break;
+                    case types::TypeKind::Array: kind = 7; break;
+                    case types::TypeKind::Struct: kind = 8; break;
+                    case types::TypeKind::Union: kind = 9; break;
+                    case types::TypeKind::Enum: kind = static_cast<types::EnumType const*>(subject)->is_tagged ? 11 : 10; break;
+                    case types::TypeKind::FuncPtr: kind = 12; break;
+                    case types::TypeKind::Restricted: kind = 13; break;
+                    case types::TypeKind::Nominal: kind = 14; break;
+                    default: break;
+                }
+                return make_int_const(kind, kind_enum->backing);
+            }
+            if (query == "is_signed")
+            {
+                if (auto const* integer = types::type_cast<types::IntType>(structural))
+                    return make_bool_const(integer->is_signed, result_type);
+                if (types::type_cast<types::FloatType>(structural))
+                    return make_bool_const(true, result_type);
+                return fail(std::format("is_signed requires an integer or floating-point type, not `{}`", format_dcc_type(subject)));
+            }
+            if (query == "bits")
+            {
+                if (auto const* integer = types::type_cast<types::IntType>(structural))
+                    return make_int_const(integer->bits, result_type);
+                if (auto const* floating = types::type_cast<types::FloatType>(structural))
+                    return make_int_const(floating->bits, result_type);
+                if (structural->kind == types::TypeKind::Char)
+                    return make_int_const(8, result_type);
+                return fail(std::format("bits requires an integer, char or floating-point type, not `{}`", format_dcc_type(subject)));
+            }
+            if (query == "array_length")
+            {
+                if (auto const* array = types::type_cast<types::ArrayType>(structural))
+                    return make_int_const(static_cast<std::int64_t>(array->count), result_type);
+                return fail(std::format("array_length requires an array type, not `{}`", format_dcc_type(subject)));
+            }
+            if (query == "template_argument_count")
+            {
+                auto const* user = as_user_type(structural);
+                return make_int_const(user ? static_cast<std::int64_t>(user->template_args.size()) : 0, result_type);
+            }
+            if (query == "same_template")
+            {
+                auto other = bound(1);
+                if (!other || contains_template_param(other))
+                    return static_cast<comptime::Value const*>(nullptr);
+                while (auto const* nominal = types::type_cast<types::NominalType>(other))
+                    other = nominal->underlying;
+                auto const* lhs = as_user_type(structural);
+                auto const* rhs = as_user_type(other);
+                bool same = lhs && rhs && lhs->kind == rhs->kind && !lhs->template_args.empty() && !rhs->template_args.empty() &&
+                            (lhs->decl == rhs->decl || (lhs->decl && rhs->decl &&
+                                                        find_defining_module(*reinterpret_cast<ast::Decl const*>(lhs->decl)) ==
+                                                            find_defining_module(*reinterpret_cast<ast::Decl const*>(rhs->decl)) &&
+                                                        format_dcc_type(lhs).substr(0, format_dcc_type(lhs).find('(')) ==
+                                                            format_dcc_type(rhs).substr(0, format_dcc_type(rhs).find('('))));
+                return make_bool_const(same, result_type);
+            }
+            return fail(std::format("unknown reflection query `{}`", query));
+        }
+
         void analyze_diagnostic_intrinsic(ast::FuncDecl const& f, ast::CallExpr const& call, detail::ExprResult& out, ast::FuncDecl* fn)
         {
             switch (f.sema.intrinsic_kind)
@@ -19244,7 +19416,8 @@ export namespace dcc::sema
 
         [[nodiscard]] bool is_core_meta_type_argument(ast::UsingDecl const& u) noexcept
         {
-            if (u.alias_path.is_empty() || u.template_params.size() != 2 || u.alias_path.segments.back().name != "type_argument")
+            if (u.alias_path.is_empty() || !is_meta_type_query(u.alias_path.segments.back().name) ||
+                u.template_params.size() != meta_type_query_arity(u.alias_path.segments.back().name))
                 return false;
 
             auto* owner = find_defining_module(u);
@@ -19252,31 +19425,39 @@ export namespace dcc::sema
         }
 
         types::TypePtr resolve_type_argument_in_body(ModuleInfo& mod, Scope const& scope, ast::NamedType const& nt, ast::FuncDecl* fn,
-                                                     std::uint32_t* next_off_ptr, ConstEnv const* const_env)
+                                                     std::uint32_t* next_off_ptr, ConstEnv const* const_env, std::string_view query)
         {
             auto const& args = nt.template_args;
-            if (args.size() != 2 || !args[0].type)
+            auto const arity = meta_type_query_arity(query);
+            if (args.size() != arity || !args[0].type)
             {
-                error(nt.range, "type_argument requires a type and a compile-time index");
+                if (arity == 2)
+                    error(nt.range, "{} requires a type and a compile-time index", query);
+                else
+                    error(nt.range, "{} requires a type", query);
                 return m_types.m_errort();
             }
 
-            if (!args[1].expr)
+            std::int64_t index_value = 0;
+            if (arity == 2)
             {
-                error(args[1].range, "type argument index must be a compile-time constant");
-                return m_types.m_errort();
+                if (!args[1].expr)
+                {
+                    error(args[1].range, "type argument index must be a compile-time constant");
+                    return m_types.m_errort();
+                }
+                auto index = try_eval_const_size_expr(mod, scope, args[1].expr);
+                if (index.tag != ConstSizeResult::Tag::Folded || index.value < 0)
+                {
+                    error(args[1].range, "type argument index must be a compile-time constant");
+                    return m_types.m_errort();
+                }
+                index_value = index.value;
             }
 
             auto subject = args[0].type->sema.canonical ? get_canonical(args[0].type->sema)
                                                         : resolve_type_node(mod, scope, args[0].type, fn, next_off_ptr, const_env);
-            auto index = try_eval_const_size_expr(mod, scope, args[1].expr);
-            if (index.tag != ConstSizeResult::Tag::Folded || index.value < 0)
-            {
-                error(args[1].range, "type argument index must be a compile-time constant");
-                return m_types.m_errort();
-            }
-
-            auto projection = dcc::sema::project_type_argument(m_types, subject, static_cast<std::uint64_t>(index.value));
+            auto projection = dcc::sema::project_meta_type(m_types, query, subject, static_cast<std::uint64_t>(index_value));
             if (!projection.error.empty())
             {
                 error(nt.range, "{}", projection.error);
@@ -19361,7 +19542,7 @@ export namespace dcc::sema
                         if (!decl)
                             return m_types.m_errort();
                         if (auto const* u = ast::node_cast<ast::UsingDecl>(decl); u && is_core_meta_type_argument(*u))
-                            return resolve_type_argument_in_body(mod, scope, *nt, fn, next_off_ptr, const_env);
+                            return resolve_type_argument_in_body(mod, scope, *nt, fn, next_off_ptr, const_env, u->alias_path.segments.back().name);
                         if (auto const* vd = ast::node_cast<ast::VarDecl>(decl))
                         {
                             if (vd->type && vd->type->sema.canonical)

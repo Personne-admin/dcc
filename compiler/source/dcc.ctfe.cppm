@@ -2186,6 +2186,12 @@ export namespace dcc::ctfe
                     return compile_time_allocate(call);
                 if (fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileTimeFree)
                     return compile_time_free(call);
+                if (fn->sema.intrinsic_kind == ast::IntrinsicKind::MetaQuery)
+                {
+                    if (call.sema.const_value)
+                        return folded(*call.sema.const_value);
+                    return failure("reflection query is not resolved");
+                }
 
                 if (fn->sema.is_runtime)
                     is_runtime = true;
@@ -2680,7 +2686,11 @@ export namespace dcc::ctfe
             if (!step())
                 return exhausted();
             if (auto type = type_of(expr); type && type->kind == types::TypeKind::Error)
+            {
+                if (auto const* call = ast::node_cast<ast::CallExpr>(&expr); call && call->sema.compile_time_failed)
+                    m_action_error = true;
                 return failure("expression has no resolved type");
+            }
 
             switch (expr.kind)
             {

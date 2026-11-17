@@ -1459,6 +1459,46 @@ empty if or else branch and to an empty lambda body; an empty block statement,
 including the body of a while or for loop, stays an empty block. A braced block
 whose last statement is `{};` is still a block, not a zero value.
 
+### 9.8 Static reflection (`core::meta`)
+
+`core::meta` (import `core::meta`) answers questions about types at compile
+time. Value queries are calls with explicit type arguments and fold to
+constants usable anywhere a constant is required, including `static if`
+conditions and other queries. Type queries are type expressions like
+`type_argument` (see §9.4). Both resolve when generic arguments are known; a
+query on a type it does not apply to is an error.
+
+| Query | Result |
+| ----- | ------ |
+| `type_name!(T)(NameStyle style = Qualified)` | `[]const char`: `Plain` as diagnostics print it (`Pair(i32, bool)`), `Qualified` with the declaring module (`app::Pair(i32, bool)`) |
+| `kind!(T)()` | `TypeKind`: `Void`, `Bool`, `Int`, `Float`, `Char`, `Pointer`, `Slice`, `Array`, `Struct`, `Union`, `Enum`, `TaggedEnum`, `Function` (function pointers), `Restricted`, `Nominal`, `Other` |
+| `is_signed!(T)()` | `bool`, for integer and floating-point types |
+| `bits!(T)()` | `usize` width of an integer, `char` or floating-point type |
+| `array_length!(T)()` | `usize` element count of a fixed array |
+| `template_argument_count!(T)()` | `usize`; 0 for a non-generic type |
+| `same_template!(T, U)()` | `bool`: both are instances of the same generic struct, union or enum |
+| `pointee(T)` | type a pointer points to |
+| `element(T)` | element type of an array or slice |
+| `underlying(T)` | target of a nominal alias, base of a restricted type, backing type of a plain enum |
+
+Nominal aliases are looked through by the structural queries (`is_signed`,
+`bits`, `array_length`, `pointee`, `element`); `kind` and `type_name` report
+the alias itself.
+
+```dc
+import core::meta;
+
+Status(Error) describe(T)(T value) {
+    static if core::meta::kind!T() == core::meta::TypeKind::Int {
+        println("{}: {}-bit integer", core::meta::type_name!T(), core::meta::bits!T())?;
+    } else static if core::meta::kind!T() == core::meta::TypeKind::Array {
+        core::meta::element(T) first = value[0];
+        println("{} x {}, first {}", core::meta::array_length!T(), core::meta::type_name!(core::meta::element(T))(), first)?;
+    }
+    return Status::Ok;
+}
+```
+
 ## 10. Match Expressions
 
 ```dc

@@ -290,6 +290,7 @@ export namespace dcc::ast
         IsCompileTime,
         CompileTimeAllocate,
         CompileTimeFree,
+        MetaQuery,
     };
 
     struct DeclSema
