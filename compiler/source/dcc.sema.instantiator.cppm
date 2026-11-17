@@ -1195,8 +1195,18 @@ namespace dcc::sema
                 case ast::ExprKind::Call: {
                     auto* ex = static_cast<ast::CallExpr*>(e);
                     substitute_in_expr(ex->callee);
-                    for (auto* a : ex->args)
+                    for (auto*& a : ex->args)
+                    {
+                        if (auto* id = ast::node_cast<ast::IdentExpr>(a))
+                            if (auto it = m_name_map.find(id->name); it != m_name_map.end() && it->second)
+                            {
+                                auto* placeholder = m_ast_ctx.make<ast::PrimitiveType>(id->range, lex::TokenKind::KwVoid);
+                                set_canonical(placeholder->sema, it->second);
+                                a = m_ast_ctx.make<ast::TypeASTExpr>(id->range, placeholder);
+                                continue;
+                            }
                         substitute_in_expr(a);
+                    }
                     break;
                 }
                 case ast::ExprKind::FieldAccess:

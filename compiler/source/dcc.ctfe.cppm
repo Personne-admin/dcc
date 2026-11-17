@@ -2126,6 +2126,8 @@ export namespace dcc::ctfe
 
             if (call.sema.rewritten)
                 return expression(*call.sema.rewritten);
+            if (call.sema.evaluated_at_compile_time && call.sema.const_value)
+                return folded(*call.sema.const_value);
 
             if (call.sema.compile_time_failed)
             {

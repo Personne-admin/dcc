@@ -1064,6 +1064,9 @@ export namespace dcc::sema
             std::string message;
         };
         std::optional<SuppressedError> m_first_suppressed_error;
+        ast::Block const* m_requirement_block{};
+        std::optional<sm::SourceRange> m_failed_requirement;
+        std::vector<RequirementFailure>* m_requirement_failure_sink{};
         bool m_in_explicit_conversion{};
         bool m_allow_implicit_enum{true};
         bool m_disallow_nested_implicit_enum{};
@@ -3897,6 +3900,8 @@ export namespace dcc::sema
                 if (mode == RequirementMode::Diagnostic)
                 {
                     auto [result, failures] = check_requirements(mod, f, scope, *c, bindings, RequirementMode::Diagnostic, env_params);
+                    if (m_requirement_failure_sink)
+                        m_requirement_failure_sink->insert(m_requirement_failure_sink->end(), failures.begin(), failures.end());
                     for (auto const& rf : failures)
                     {
                         auto req_loc = format_source_location(rf.requirement_range);
@@ -11441,7 +11446,10 @@ export namespace dcc::sema
                             out = analyze_binary(mod, fn, scope, static_cast<ast::BinaryExpr&>(expr), loop_depth, next_off, expected_type, const_env);
                         break;
                     case ast::ExprKind::Call:
-                        out = analyze_call(mod, fn, scope, static_cast<ast::CallExpr&>(expr), loop_depth, next_off, expected_type, const_env);
+                        if (auto application = analyze_concept_application(mod, fn, scope, static_cast<ast::CallExpr&>(expr), expected_type))
+                            out = *application;
+                        else
+                            out = analyze_call(mod, fn, scope, static_cast<ast::CallExpr&>(expr), loop_depth, next_off, expected_type, const_env);
                         break;
                     case ast::ExprKind::FieldAccess:
                         out = analyze_field_access(mod, fn, scope, static_cast<ast::FieldAccessExpr&>(expr), loop_depth, next_off, expected_type, const_env);
@@ -15192,8 +15200,163 @@ export namespace dcc::sema
             return out;
         }
 
+        std::optional<detail::ExprResult> analyze_concept_application(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::CallExpr& call,
+                                                                     types::TypePtr expected_type)
+        {
+            if (!call.callee)
+                return std::nullopt;
+            if (auto const* id = ast::node_cast<ast::IdentExpr>(call.callee); id && lookup_name(mod, scope, id->name))
+                return std::nullopt;
+            if (!ast::node_cast<ast::IdentExpr>(call.callee) && !ast::node_cast<ast::PathExpr>(call.callee))
+                return std::nullopt;
+            auto const* concept_decl = resolve_concept_decl(mod, scope, *call.callee);
+            if (!concept_decl || !concept_decl->target_expr)
+                return std::nullopt;
+            detail::ExprResult out{};
+            auto const& params = concept_decl->template_params;
+            if (params.empty() || params.back().is_pack ? call.args.size() < params.size() - (params.empty() ? 0 : 1) : call.args.size() != params.size())
+            {
+                error(call.range, "concept `{}` takes {} type arguments", concept_decl->alias_path.tail_name(), params.size());
+                out.type = m_types.m_errort();
+                return out;
+            }
+            infer::TemplateBindings concept_bindings{m_types};
+            for (std::size_t i = 0; i < params.size() && i < call.args.size(); ++i)
+            {
+                if (params[i].is_pack)
+                    break;
+                auto const* arg = call.args[i];
+                types::TypePtr actual = nullptr;
+                if (auto const* type_expr = ast::node_cast<ast::TypeASTExpr>(arg); type_expr && type_expr->type_node)
+                    actual = type_expr->type_node->sema.canonical ? get_canonical(type_expr->type_node->sema) : resolve_type_node(mod, scope, type_expr->type_node);
+                else if (auto const* id = ast::node_cast<ast::IdentExpr>(arg))
+                {
+                    ast::Path path(m_ast_ctx.allocator());
+                    path.segments.push_back({id->name, id->range});
+                    path.range = id->range;
+                    actual = resolve_type_node(mod, scope, m_ast_ctx.make<ast::NamedType>(id->range, std::move(path)));
+                }
+                else if (auto const* path_expr = ast::node_cast<ast::PathExpr>(arg))
+                    actual = resolve_type_node(mod, scope, m_ast_ctx.make<ast::NamedType>(path_expr->range, path_expr->path));
+                if (!actual || has_error(actual))
+                {
+                    error(arg->range, "concept argument must be a type");
+                    out.type = m_types.m_errort();
+                    return out;
+                }
+                auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(params[i])), params[i].name, static_cast<std::uint32_t>(i),
+                                                          params[i].is_pack);
+                if (!param_ty || !concept_bindings.deduce(param_ty, actual))
+                {
+                    error(arg->range, "concept argument does not match `{}`", params[i].name);
+                    out.type = m_types.m_errort();
+                    return out;
+                }
+            }
+            bool const wants_check = expected_type && is_core_meta_struct(expected_type, "Check");
+            std::vector<RequirementFailure> failures;
+            auto const saved_notes = m_concept_notes.size();
+            auto result = evaluate_concept_decl(mod, scope, fn, *concept_decl, concept_bindings, RequirementMode::Bool);
+            if (wants_check && result && !*result)
+            {
+                auto* saved_sink = std::exchange(m_requirement_failure_sink, &failures);
+                auto const diagnostics_before = m_diag.diagnostic_count();
+                std::ignore = evaluate_concept_decl(mod, scope, fn, *concept_decl, concept_bindings, RequirementMode::Diagnostic);
+                m_diag.discard_silent_since(diagnostics_before);
+                m_requirement_failure_sink = saved_sink;
+            }
+            m_concept_notes.resize(saved_notes);
+            if (!result)
+            {
+                error(call.range, "concept `{}` cannot be evaluated for these arguments", concept_decl->alias_path.tail_name());
+                out.type = m_types.m_errort();
+                return out;
+            }
+            comptime::Value const* value = nullptr;
+            if (wants_check)
+            {
+                std::optional<sm::SourceRange> requirement;
+                std::optional<SuppressedError> first;
+                std::size_t count = 0;
+                for (auto const& failure : failures)
+                    count += std::max<std::size_t>(failure.inner_diagnostics.size(), 1);
+                if (!failures.empty())
+                {
+                    requirement = failures.front().requirement_range;
+                    if (!failures.front().inner_diagnostics.empty())
+                    {
+                        auto const& inner = failures.front().inner_diagnostics.front();
+                        auto range = inner.labels().empty() ? failures.front().requirement_range : inner.labels().front().range;
+                        first = SuppressedError{range, std::string{inner.message()}};
+                    }
+                }
+                value = make_check_value(expected_type, *result, *result ? 0 : std::max<std::size_t>(count, 1), requirement, first, call.range);
+                out.type = expected_type;
+            }
+            else
+            {
+                out.type = m_types.m_boolt();
+                value = make_bool_const(*result, out.type);
+            }
+            if (!value)
+            {
+                out.type = m_types.m_errort();
+                return out;
+            }
+            out.constant = value;
+            out.is_constant = true;
+            call.sema.const_value = value;
+            call.sema.is_constant = true;
+            call.sema.evaluated_at_compile_time = true;
+            return out;
+        }
+
+        [[nodiscard]] bool is_core_meta_struct(types::TypePtr type, std::string_view name)
+        {
+            auto const* structure = types::type_cast<types::StructType>(type);
+            auto const* decl = structure ? reinterpret_cast<ast::StructDecl const*>(structure->decl) : nullptr;
+            if (!decl || decl->name != name)
+                return false;
+            auto const* owner = find_defining_module(*decl);
+            return owner && owner->canonical_path.str() == "core::meta";
+        }
+
+        comptime::Value const* make_check_value(types::TypePtr check_type, bool ok, std::size_t failure_count, std::optional<sm::SourceRange> requirement,
+                                                std::optional<SuppressedError> const& first, sm::SourceRange probe_range)
+        {
+            auto fields = meta_record_fields(m_types, check_type);
+            if (!fields || fields->size() != 3)
+                return nullptr;
+            auto failure_type = (*fields)[2].type;
+            auto failure_fields = meta_record_fields(m_types, failure_type);
+            if (!failure_fields || failure_fields->size() != 4)
+                return nullptr;
+            auto text_type = (*failure_fields)[0].type;
+            auto location_type = (*failure_fields)[1].type;
+            std::vector<comptime::Value> failure;
+            if (ok)
+            {
+                std::string why;
+                auto zero = zero_constant(failure_type, why);
+                if (!zero)
+                    return nullptr;
+                std::vector<comptime::Value> check{comptime::Value::make_bool(true, (*fields)[0].type), comptime::Value::make_int(0, (*fields)[1].type), std::move(*zero)};
+                return make_value(comptime::Value::make_aggregate(std::move(check), check_type));
+            }
+            auto requirement_range = requirement ? *requirement : probe_range;
+            auto message_range = first ? first->range : requirement_range;
+            failure.push_back(*make_str_const(std::string{m_diag.source_manager().text_trimmed(requirement_range)}, text_type));
+            failure.push_back(*make_source_location_const(location_type, requirement_range, nullptr));
+            failure.push_back(*make_str_const(first ? first->message : std::string{}, text_type));
+            failure.push_back(*make_source_location_const(location_type, message_range, nullptr));
+            std::vector<comptime::Value> check{comptime::Value::make_bool(false, (*fields)[0].type),
+                                               comptime::Value::make_int(static_cast<std::int64_t>(failure_count), (*fields)[1].type),
+                                               comptime::Value::make_aggregate(std::move(failure), failure_type)};
+            return make_value(comptime::Value::make_aggregate(std::move(check), check_type));
+        }
+
         detail::ExprResult analyze_compiles(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::CompilesExpr& c, int loop_depth, std::uint32_t& next_off,
-                                            types::TypePtr, ConstEnv const* const_env)
+                                            types::TypePtr expected_type, ConstEnv const* const_env)
         {
             auto* inner = make_scope(ScopeKind::Block, &scope);
             std::uint32_t tmp_off = next_off;
@@ -15209,10 +15372,32 @@ export namespace dcc::sema
                 define_local(*inner, v);
             }
 
+            auto const suppressed_before = m_suppressed_error_count;
+            auto* saved_requirement_block = std::exchange(m_requirement_block, &c.body);
+            auto saved_failed_requirement = std::exchange(m_failed_requirement, std::nullopt);
             std::ignore = analyze_block(mod, fn, *inner, c.body, loop_depth, tmp_off, nullptr, inner_consts);
+            auto failed_requirement = m_failed_requirement;
+            m_requirement_block = saved_requirement_block;
+            m_failed_requirement = saved_failed_requirement;
+            auto const failure_count = m_suppressed_error_count - suppressed_before;
             detail::ExprResult out{};
             out.type = m_types.m_boolt();
             auto const success = !suppress.had_suppressed_errors();
+            if (expected_type && is_core_meta_struct(expected_type, "Check"))
+            {
+                auto const* check = make_check_value(expected_type, success, failure_count, failed_requirement, m_first_suppressed_error, c.range);
+                if (outer_first_error)
+                    m_first_suppressed_error = std::move(outer_first_error);
+                if (check)
+                {
+                    out.type = expected_type;
+                    out.constant = check;
+                    out.is_constant = true;
+                    c.value = success;
+                    c.resolved = true;
+                    return out;
+                }
+            }
             if (outer_first_error)
                 m_first_suppressed_error = std::move(outer_first_error);
             out.constant = make_bool_const(success, out.type);
@@ -19113,7 +19298,10 @@ export namespace dcc::sema
                 if (!reachable && m_error_action_count == error_actions_before)
                     error(s->range, "unreachable statement");
 
+                auto const suppressed_before = m_suppressed_error_count;
                 auto r = analyze_stmt(mod, fn, scope, *s, loop_depth, next_off, const_env);
+                if (&block == m_requirement_block && !m_failed_requirement && m_suppressed_error_count != suppressed_before)
+                    m_failed_requirement = s->range;
 
                 resolve_ambiguous_slot(block.stmts[i]);
 
@@ -19126,7 +19314,10 @@ export namespace dcc::sema
             }
             if (block.tail)
             {
+                auto const suppressed_before = m_suppressed_error_count;
                 auto tr = analyze_expr(mod, fn, scope, *block.tail, loop_depth, next_off, expected_type, const_env, tail_result_discarded);
+                if (&block == m_requirement_block && !m_failed_requirement && m_suppressed_error_count != suppressed_before)
+                    m_failed_requirement = block.tail->range;
                 bool tail_diverges = tr.is_diverging;
                 if (auto* if_expr = ast::node_cast<ast::IfExpr>(block.tail))
                 {

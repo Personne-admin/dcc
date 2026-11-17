@@ -2980,7 +2980,8 @@ export namespace dcc::ir::lower
 
                 case ast::ExprKind::Compiles: {
                     auto* ce = static_cast<ast::CompilesExpr const*>(expr);
-                    if (ce->sema.const_value && ce->sema.const_value->kind() == dcc::comptime::Value::Kind::Bool)
+                    if (ce->sema.const_value && (ce->sema.const_value->kind() == dcc::comptime::Value::Kind::Bool ||
+                                                 ce->sema.const_value->kind() == dcc::comptime::Value::Kind::Aggregate))
                         return materialize_comptime(*ce->sema.const_value, get_sema_resolved_type(expr));
                     lower_panic(ce, "compiles expression without a constant value");
                 }
@@ -3182,8 +3183,8 @@ export namespace dcc::ir::lower
         {
             if (call->sema.rewritten)
                 return lower_expr(call->sema.rewritten);
-            if (call->sema.evaluated_at_compile_time && !call->sema.const_value)
-                return nullptr;
+            if (call->sema.evaluated_at_compile_time)
+                return call->sema.const_value ? materialize_comptime(*call->sema.const_value, get_sema_resolved_type(call)) : nullptr;
             auto* resolved_spec = call->sema.resolved_specialization;
             auto* callee_expr = call->callee;
 

@@ -205,6 +205,19 @@ export namespace dcc::diag
         void set_parser_recovery_suppression(bool enabled) noexcept { m_parser_recovery_suppression_enabled = enabled; }
 
         void set_silent(bool s) noexcept { m_silent = s; }
+
+        void discard_silent_since(std::size_t index)
+        {
+            while (m_emitted.size() > index)
+            {
+                auto severity = m_emitted.back().severity();
+                if (severity == Severity::Error && m_errors > 0)
+                    --m_errors;
+                else if (severity == Severity::Warning && m_warnings > 0)
+                    --m_warnings;
+                m_emitted.pop_back();
+            }
+        }
         [[nodiscard]] bool silent() const noexcept { return m_silent; }
 
         [[nodiscard]] sm::SourceManager const& source_manager() const noexcept { return m_sm; }
