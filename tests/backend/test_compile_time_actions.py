@@ -210,17 +210,16 @@ void limit(T)(T value) {
 
 public i32 main() {
     std::fmt::compile_warning("plain warning {}", 1);
+    limit(1 as u64);
     const core::Note[1] notes = { std::fmt::note_at(core::source_location::source_location(), "hint {}", "here") };
     std::fmt::compile_error_with(core::source_location::source_location(), notes[0..1], "with {} note", 1);
-    limit(1 as u64);
-    return 0;
 }
 '''
 code, output = located_output(FORMATTED)
 assert code == 1 and output == [
     'warning: plain warning 1', '   --> main.dc:17:5',
     'error: `T` is 8 bytes, the limit is   4; costs $12.50', '   --> main.dc:12:9',
-    'error: with 1 note', '   --> main.dc:19:34', '    = note: hint here', '  --> main.dc:18:53',
+    'error: with 1 note', '   --> main.dc:20:34', '    = note: hint here', '  --> main.dc:19:53',
 ], output
 checks += 1
 

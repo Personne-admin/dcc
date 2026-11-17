@@ -2228,7 +2228,9 @@ or symbol. A runtime `if` does not defer the action until execution.
 Discarded `static if` and `static match` branches are not analyzed and do not
 emit diagnostics. Template bodies perform the action for selected branches
 of instantiated specializations. A `compiles` probe treats an error action as
-a failed requirement under its normal diagnostic suppression rules.
+a failed requirement under its normal diagnostic suppression rules. To explain
+a failed probe, ask for a `core::meta::Check` (see §9.8) and report what it
+says.
 
 Messages can be string literals or compile-time expressions yielding strings,
 including calls to compile-time-evaluable functions. Such an action is
