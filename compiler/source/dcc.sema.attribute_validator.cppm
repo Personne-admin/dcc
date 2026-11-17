@@ -123,7 +123,10 @@ namespace
                 else if (f->name == "free")
                     d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::CompileTimeFree;
                 else if (f->name == "type_name" || f->name == "kind" || f->name == "is_signed" || f->name == "bits" || f->name == "array_length" ||
-                         f->name == "template_argument_count" || f->name == "same_template")
+                         f->name == "template_argument_count" || f->name == "same_template" || f->name == "field_count" || f->name == "field_name" ||
+                         f->name == "field_offset" || f->name == "field_is_bitfield" || f->name == "field_bit_offset" || f->name == "field_bit_width" ||
+                         f->name == "field_has_default" || f->name == "field_location" || f->name == "has_field" || f->name == "field_index" ||
+                         f->name == "field")
                     d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::MetaQuery;
             }
     }

@@ -252,6 +252,7 @@ export namespace dcc::ast
         types::Type const* implicit_inner_type{};
 
         dcc::comptime::Value const* const_value{};
+        struct Expr* rewritten{};
 
         bool is_lvalue : 1 {};
         bool is_constant : 1 {};

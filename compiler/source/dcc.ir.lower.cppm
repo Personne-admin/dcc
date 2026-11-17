@@ -3180,6 +3180,8 @@ export namespace dcc::ir::lower
 
         IrValue* lower_call_expr(ast::CallExpr const* call)
         {
+            if (call->sema.rewritten)
+                return lower_expr(call->sema.rewritten);
             if (call->sema.evaluated_at_compile_time && !call->sema.const_value)
                 return nullptr;
             auto* resolved_spec = call->sema.resolved_specialization;

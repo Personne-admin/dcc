@@ -11620,7 +11620,7 @@ export namespace dcc::sema
                 if (auto const* f = ast::node_cast<ast::FuncDecl>(out.resolved_decl))
                 {
                     analyze_diagnostic_intrinsic(*f, static_cast<ast::CallExpr const&>(expr), out, fn);
-                    analyze_meta_query(mod, fn, scope, *f, static_cast<ast::CallExpr&>(expr), out, const_env);
+                    analyze_meta_query(mod, fn, scope, *f, static_cast<ast::CallExpr&>(expr), out, const_env, loop_depth, next_off);
                 }
 
             if (expr.kind == ast::ExprKind::Call)
@@ -16660,11 +16660,55 @@ export namespace dcc::sema
             return std::format("{}::{}", owner->canonical_path.str(), plain);
         }
 
+        void analyze_meta_field_access(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::CallExpr& call, detail::ExprResult& out, ConstEnv const* const_env,
+                                       int loop_depth, std::uint32_t& next_off)
+        {
+            auto fail = [&](std::string message) {
+                error(call.range, "{}", message);
+                call.sema.compile_time_failed = true;
+                out.type = m_types.m_errort();
+            };
+            if (call.sema.call_argument_offset + 2 != call.args.size())
+                return fail("core::meta::field takes a pointer and a compile-time field index: core::meta::field!(T)(&value, i)");
+            auto* object = call.args[call.sema.call_argument_offset];
+            auto* index_expr = call.args[call.sema.call_argument_offset + 1];
+            auto index_value = index_expr->sema.const_value;
+            if (!index_value)
+            {
+                auto evaluated = evaluate_constant(*index_expr, ctfe::Mode::Required, fn);
+                if (evaluated.flow == ctfe::Flow::Normal && evaluated.value)
+                    index_value = make_value(std::move(*evaluated.value));
+            }
+            auto index = index_value ? const_to_int(*index_value) : std::nullopt;
+            if (!index)
+                return fail("core::meta::field needs a compile-time field index");
+            auto const* pointer = types::type_cast<types::PointerType>(get_resolved_type(object->sema));
+            auto fields = pointer ? meta_record_fields(m_types, pointer->pointee) : std::nullopt;
+            if (!fields)
+                return fail("core::meta::field needs a pointer to a struct or union");
+            if (*index < 0 || static_cast<std::size_t>(*index) >= fields->size())
+                return fail(std::format("field index {} is out of range for `{}` with {} fields", *index, format_dcc_type(pointer->pointee), fields->size()));
+            auto const name = (*fields)[static_cast<std::size_t>(*index)].name;
+            auto* access = m_ast_ctx.make<ast::FieldAccessExpr>(call.range, object, name, call.range);
+            auto* address = m_ast_ctx.make<ast::UnaryExpr>(call.range, lex::TokenKind::Amp, access);
+            auto analyzed = analyze_expr_or_error(mod, fn, scope, address, loop_depth, next_off, nullptr, const_env);
+            if (has_error(analyzed.type))
+            {
+                call.sema.compile_time_failed = true;
+                out.type = analyzed.type;
+                return;
+            }
+            call.sema.rewritten = address;
+            out = analyzed;
+        }
+
         void analyze_meta_query(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::FuncDecl const& f, ast::CallExpr& call, detail::ExprResult& out,
-                                ConstEnv const* const_env)
+                                ConstEnv const* const_env, int loop_depth, std::uint32_t& next_off)
         {
             if (f.sema.intrinsic_kind != ast::IntrinsicKind::MetaQuery || out.constant)
                 return;
+            if (f.name == "field")
+                return analyze_meta_field_access(mod, fn, scope, call, out, const_env, loop_depth, next_off);
             auto const* inst = ast::node_cast<ast::TemplateInstExpr>(call.callee);
             if (!inst)
             {
@@ -16684,8 +16728,10 @@ export namespace dcc::sema
                 auto type = arg.type->sema.canonical ? get_canonical(arg.type->sema) : resolve_type_node(mod, scope, arg.type, fn, nullptr, const_env);
                 types.push_back(type);
             }
-            ast::Expr const* style = call.sema.call_argument_offset < call.args.size() ? call.args[call.sema.call_argument_offset] : nullptr;
-            auto value = evaluate_meta_query(f, types, style, out.type, call.range);
+            std::span<ast::Expr* const> values;
+            if (call.sema.call_argument_offset <= call.args.size())
+                values = std::span<ast::Expr* const>(call.args).subspan(call.sema.call_argument_offset);
+            auto value = evaluate_meta_query(f, types, values, out.type, call.range);
             if (!value)
             {
                 call.sema.compile_time_failed = true;
@@ -16701,9 +16747,35 @@ export namespace dcc::sema
             }
         }
 
-        std::optional<comptime::Value const*> evaluate_meta_query(ast::FuncDecl const& f, std::span<types::TypePtr const> types, ast::Expr const* style_expr,
+        std::optional<std::uint64_t> meta_field_offset(types::TypePtr record, std::vector<MetaField> const& fields, std::size_t index)
+        {
+            while (auto const* nominal = types::type_cast<types::NominalType>(record))
+                record = nominal->underlying;
+            auto const& field = fields[index];
+            if (!field.decl)
+                return field.expanded_offset;
+            if (!record->layout_is_default)
+                return field.decl->byte_offset;
+            if (record->kind == types::TypeKind::Union)
+                return 0;
+            std::uint64_t offset = 0;
+            for (std::size_t i = 0; i <= index; ++i)
+            {
+                auto layout = layout_of(fields[i].type);
+                if (!layout)
+                    return std::nullopt;
+                offset = align_up(offset, layout->align);
+                if (i == index)
+                    return offset;
+                offset += layout->size;
+            }
+            return std::nullopt;
+        }
+
+        std::optional<comptime::Value const*> evaluate_meta_query(ast::FuncDecl const& f, std::span<types::TypePtr const> types, std::span<ast::Expr* const> values,
                                                                 types::TypePtr result_type, sm::SourceRange range)
         {
+            ast::Expr const* style_expr = values.empty() ? nullptr : values.front();
             auto bound = [&](std::size_t i) -> types::TypePtr { return i < types.size() ? types[i] : nullptr; };
             auto fail = [&](std::string message) -> std::optional<comptime::Value const*> {
                 error(range, "{}", message);
@@ -16802,6 +16874,63 @@ export namespace dcc::sema
                                                         format_dcc_type(lhs).substr(0, format_dcc_type(lhs).find('(')) ==
                                                             format_dcc_type(rhs).substr(0, format_dcc_type(rhs).find('('))));
                 return make_bool_const(same, result_type);
+            }
+            if (query.starts_with("field_") || query == "has_field")
+            {
+                auto fields = meta_record_fields(m_types, subject);
+                if (!fields)
+                    return fail(std::format("{} requires a struct or union type, not `{}`", query, format_dcc_type(subject)));
+                if (query == "field_count")
+                    return make_int_const(static_cast<std::int64_t>(fields->size()), result_type);
+                auto const* argument = values.empty() || !values.front() ? nullptr : values.front()->sema.const_value;
+                if (query == "has_field" || query == "field_index")
+                {
+                    std::optional<std::string> name;
+                    if (argument && argument->kind() == comptime::Value::Kind::String)
+                        name = argument->get_string();
+                    if (!name)
+                        return fail(std::format("{} requires a compile-time field name", query));
+                    auto found = std::ranges::find(*fields, std::string_view{*name}, &MetaField::name);
+                    if (query == "has_field")
+                        return make_bool_const(found != fields->end(), result_type);
+                    if (found == fields->end())
+                        return fail(std::format("`{}` has no field `{}`", format_dcc_type(subject), *name));
+                    return make_int_const(static_cast<std::int64_t>(found - fields->begin()), result_type);
+                }
+                auto index = argument ? const_to_int(*argument) : std::nullopt;
+                if (!index)
+                    return fail(std::format("{} requires a compile-time field index", query));
+                if (*index < 0 || static_cast<std::size_t>(*index) >= fields->size())
+                    return fail(std::format("field index {} is out of range for `{}` with {} fields", *index, format_dcc_type(subject), fields->size()));
+                auto const position = static_cast<std::size_t>(*index);
+                auto const& field = (*fields)[position];
+                if (query == "field_name")
+                    return make_str_const(std::string{field.name}, result_type);
+                if (query == "field_offset")
+                {
+                    if (field.decl && field.decl->is_bitfield)
+                        return fail(std::format("field `{}` is a bitfield; use field_bit_offset", field.name));
+                    auto offset = meta_field_offset(subject, *fields, position);
+                    if (!offset)
+                        return fail(std::format("the layout of `{}` is not known", format_dcc_type(subject)));
+                    return make_int_const(static_cast<std::int64_t>(*offset), result_type);
+                }
+                bool const bitfield = field.decl && field.decl->is_bitfield;
+                if (query == "field_is_bitfield")
+                    return make_bool_const(bitfield, result_type);
+                if (query == "field_bit_offset" || query == "field_bit_width")
+                {
+                    if (!bitfield)
+                        return fail(std::format("field `{}` is not a bitfield", field.name));
+                    return make_int_const(query == "field_bit_width" ? field.decl->bit_width : field.decl->bit_offset, result_type);
+                }
+                if (query == "field_has_default")
+                    return make_bool_const(field.decl && field.decl->default_value, result_type);
+                if (query == "field_location")
+                {
+                    auto location = field.decl ? field.decl->name_range : range;
+                    return make_source_location_const(result_type, location, nullptr);
+                }
             }
             return fail(std::format("unknown reflection query `{}`", query));
         }

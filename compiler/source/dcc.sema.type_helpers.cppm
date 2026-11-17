@@ -5,6 +5,7 @@ import dcc.ast;
 import dcc.diag;
 import dcc.sm;
 import dcc.types;
+import dcc.sema.infer;
 
 export namespace dcc::sema
 {
@@ -325,12 +326,59 @@ export namespace dcc::sema
 
     [[nodiscard]] inline bool is_meta_type_query(std::string_view name) noexcept
     {
-        return name == "type_argument" || name == "pointee" || name == "element" || name == "underlying";
+        return name == "type_argument" || name == "pointee" || name == "element" || name == "underlying" || name == "field_type";
     }
 
     [[nodiscard]] inline std::size_t meta_type_query_arity(std::string_view name) noexcept
     {
-        return name == "type_argument" ? 2 : 1;
+        return name == "type_argument" || name == "field_type" ? 2 : 1;
+    }
+
+    struct MetaField
+    {
+        std::string_view name;
+        types::TypePtr type{};
+        ast::FieldDecl const* decl{};
+        std::uint64_t expanded_offset{};
+    };
+
+    [[nodiscard]] inline std::optional<std::vector<MetaField>> meta_record_fields(types::TypeContext& types, types::TypePtr type)
+    {
+        while (auto const* nominal = types::type_cast<types::NominalType>(type))
+            type = nominal->underlying;
+        std::vector<MetaField> fields;
+        std::span<ast::FieldDecl const> declared;
+        if (auto const* structure = types::type_cast<types::StructType>(type))
+        {
+            if (structure->has_expansion)
+            {
+                for (std::size_t i = 0; i < structure->expanded_field_count; ++i)
+                    fields.push_back({structure->expanded_fields[i].name, structure->expanded_fields[i].type, nullptr, structure->expanded_fields[i].byte_offset});
+                return fields;
+            }
+            auto const* decl = reinterpret_cast<ast::StructDecl const*>(structure->decl);
+            if (!decl)
+                return std::nullopt;
+            declared = decl->fields;
+        }
+        else if (auto const* unified = types::type_cast<types::UnionType>(type))
+        {
+            auto const* decl = reinterpret_cast<ast::UnionDecl const*>(unified->decl);
+            if (!decl)
+                return std::nullopt;
+            declared = decl->fields;
+        }
+        else
+            return std::nullopt;
+        auto bindings = infer::make_bindings(types, type);
+        for (auto const& field : declared)
+        {
+            auto field_type = field.type ? get_canonical(field.type->sema) : nullptr;
+            if (bindings)
+                field_type = bindings->substitute(field_type);
+            fields.push_back({field.name, field_type, &field, 0});
+        }
+        return fields;
     }
 
     [[nodiscard]] inline TypeArgumentProjection project_meta_type(types::TypeContext& types, std::string_view query, types::TypePtr type, std::uint64_t index)
@@ -354,6 +402,15 @@ export namespace dcc::sema
         }
         while (auto const* nominal = types::type_cast<types::NominalType>(type))
             type = nominal->underlying;
+        if (query == "field_type")
+        {
+            auto fields = meta_record_fields(types, type);
+            if (!fields)
+                return fail("fields");
+            if (index >= fields->size())
+                return {{types.m_errort(), types::Qual::None}, std::format("field index {} is out of range for `{}`", index, format_dcc_type(type))};
+            return {{(*fields)[static_cast<std::size_t>(index)].type, types::Qual::None}, {}};
+        }
         if (query == "pointee")
         {
             if (auto const* pointer = types::type_cast<types::PointerType>(type))

@@ -2124,6 +2124,9 @@ export namespace dcc::ctfe
                 return folded(comptime::Value::make_aggregate(std::move(fields), type_of(call)));
             }
 
+            if (call.sema.rewritten)
+                return expression(*call.sema.rewritten);
+
             if (call.sema.compile_time_failed)
             {
                 m_action_error = true;

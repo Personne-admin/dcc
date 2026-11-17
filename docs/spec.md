@@ -1498,13 +1498,34 @@ query on a type it does not apply to is an error.
 | `pointee(T)` | type a pointer points to |
 | `element(T)` | element type of an array or slice |
 | `underlying(T)` | target of a nominal alias, base of a restricted type, backing type of a plain enum |
+| `field_count!(T)()` | `usize` number of fields of a struct or union (pack fields count expanded) |
+| `field_name!(T)(i)` | `[]const char` name of field `i` |
+| `field_type(T, i)` | type of field `i` |
+| `field_offset!(T)(i)` | `usize` byte offset of field `i` (an error for a bitfield) |
+| `field_is_bitfield!(T)(i)`, `field_bit_offset!(T)(i)`, `field_bit_width!(T)(i)` | bitfield position within its storage unit |
+| `field_has_default!(T)(i)` | `bool`: the field declares a default value |
+| `field_location!(T)(i)` | `SourceLocation` of the field's name |
+| `has_field!(T)("name")`, `field_index!(T)("name")` | lookup by name (`field_index` errors when absent) |
+| `field!(T)(p, i)` | pointer to field `i` of the record `*p`, typed `field_type(T, i)*` |
 
 `static for i in 0..N` (see §8.5) repeats code per index with `i` constant,
 which is how queries that take an index are used over a whole type.
 
-Nominal aliases are looked through by the structural queries (`is_signed`,
-`bits`, `array_length`, `pointee`, `element`); `kind` and `type_name` report
-the alias itself.
+Field indices and names are compile-time arguments: a `static for` index, a
+literal or any other constant. Nominal aliases are looked through by the
+structural queries (`is_signed`, `bits`, `array_length`, `pointee`, `element`
+and the field queries); `kind` and `type_name` report the alias itself.
+
+```dc
+Status(Error) show(T)(T* value) {
+    print("{} {{", core::meta::type_name!T(core::meta::NameStyle::Plain))?;
+    static for i in 0..core::meta::field_count!T() {
+        print(" {} = {}", core::meta::field_name!T(i), *core::meta::field!T(value, i))?;
+    }
+    println(" }}")?;
+    return Status::Ok;
+}
+```
 
 ```dc
 import core::meta;
