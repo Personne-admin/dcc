@@ -91,7 +91,8 @@ public void test(std::fmt::BufferWriter* writer, const std::fmt::Options* option
 )", true);
     CHECK_NE(result.status, 0);
     CHECK_EQ(count(result.diagnostics, "error:"), 1u);
-    CHECK_EQ(count(result.diagnostics, "error: type is not formattable: add format(const T*, W*, const Options*)"), 1u);
+    CHECK_EQ(count(result.diagnostics, "error: type `Unsupported` is not formattable: add format(const T*, W*, const Options*) for T = `Unsupported`"), 1u);
+    CHECK_EQ(count(result.diagnostics, "note: no matching UFCS function for `format` on receiver type `Unsupported`"), 1u);
     CHECK_EQ(count(result.diagnostics, "unknown name"), 0u);
     CHECK_EQ(count(result.diagnostics, "no matching call"), 0u);
 }

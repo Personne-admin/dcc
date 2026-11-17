@@ -1090,6 +1090,7 @@ export namespace dcc::sema
         std::optional<SuppressedError> m_first_suppressed_error;
         ast::Block const* m_requirement_block{};
         std::optional<sm::SourceRange> m_failed_requirement;
+        std::unordered_map<ast::FuncDecl const*, SuppressedError> m_specialization_first_errors;
         std::vector<RequirementFailure>* m_requirement_failure_sink{};
         bool m_in_explicit_conversion{};
         bool m_allow_implicit_enum{true};
@@ -4601,7 +4602,23 @@ export namespace dcc::sema
             }
 
             auto spec = m_spec_registry.get_or_instantiate(f, bindings, range, m_ast_ctx, m_types, &m_diag);
-            if (spec.is_new)
+            bool analyze_now = spec.is_new;
+            if (!spec.is_new && spec.decl)
+                if (auto it = m_specialization_first_errors.find(spec.decl); it != m_specialization_first_errors.end())
+                {
+                    if (m_suppress_errors)
+                    {
+                        ++m_suppressed_error_count;
+                        record_suppressed_error(it->second.range, it->second.message);
+                    }
+                    else
+                    {
+                        m_specialization_first_errors.erase(it);
+                        const_cast<ast::FuncDecl*>(spec.decl)->sema.storage = ast::StorageClass::Unresolved;
+                        analyze_now = true;
+                    }
+                }
+            if (analyze_now)
             {
                 m_spec_registry.mark_analyzing(spec.decl);
                 if (spec.decl && spec.decl->body)
@@ -4622,14 +4639,21 @@ export namespace dcc::sema
 
                     auto const body_lambda_mark = pending_lambda_mark();
                     auto pre_count = m_diag.diagnostic_count();
+                    auto const suppressed_before = m_suppressed_error_count;
+                    auto outer_first_error = std::exchange(m_first_suppressed_error, std::nullopt);
                     analyze_single_function(m_specialization_defining_module ? *m_specialization_defining_module : mod, *spec.decl);
                     auto post_count = m_diag.diagnostic_count();
+                    if (m_suppressed_error_count != suppressed_before)
+                        m_specialization_first_errors.insert_or_assign(
+                            spec.decl, m_first_suppressed_error ? *m_first_suppressed_error : SuppressedError{range, std::format("`{}` cannot be instantiated", f.name)});
+                    if (outer_first_error)
+                        m_first_suppressed_error = std::move(outer_first_error);
 
                     m_specialization_modules.pop_back();
                     m_specialization_instantiation_modules.pop_back();
                     m_specialization_defining_module = saved_defining_mod;
 
-                    bool spec_failed = (post_count > pre_count);
+                    bool spec_failed = post_count > pre_count || m_suppressed_error_count != suppressed_before;
                     if (!spec_failed)
                         spec_failed = report_unresolved_spec_lambdas(*spec.decl, body_lambda_mark);
                     if (!spec_failed && m_concept_bindings && specialization_has_unresolved_local(*spec.decl))
@@ -11781,6 +11805,8 @@ export namespace dcc::sema
                     expr.sema.resolved_specialization ? static_cast<ast::Decl const*>(expr.sema.resolved_specialization) : out.resolved_decl;
                 if (!callee_decl)
                     callee_decl = out.ufcs_callee;
+                if (!callee_decl)
+                    callee_decl = direct_fold_callee(static_cast<ast::CallExpr const&>(expr));
                 if (callee_decl && callee_decl->sema.is_noreturn)
                     out.is_diverging = true;
             }
@@ -18066,7 +18092,7 @@ export namespace dcc::sema
                                                      : expr->sema.resolved_decl;
                             if (!callee)
                                 callee = expr->sema.ufcs_callee;
-                            noreturn_call = callee && callee->sema.is_noreturn;
+                            noreturn_call = (callee && callee->sema.is_noreturn) || expr->sema.is_deferred_action;
                         }
                         out.diverges = result.is_diverging && (m_error_action_count != error_actions_before || noreturn_call);
                         out.falls_through = !out.diverges;
@@ -18528,7 +18554,7 @@ export namespace dcc::sema
                                                      : a.as_expr->sema.resolved_decl;
                             if (!callee)
                                 callee = a.as_expr->sema.ufcs_callee;
-                            noreturn_call = callee && callee->sema.is_noreturn;
+                            noreturn_call = (callee && callee->sema.is_noreturn) || a.as_expr->sema.is_deferred_action;
                         }
                         out.diverges = result.is_diverging && (m_error_action_count != error_actions_before || noreturn_call);
                         out.falls_through = !out.diverges;

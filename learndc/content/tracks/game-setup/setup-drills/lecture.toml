@@ -149,7 +149,7 @@ public Status(Error) main() {
     return Status::Ok;
 }
 """
-diagnostic = "type is not formattable"
+diagnostic = "is not formattable"
 choices = [
     "SDL_GetError is unknown; import sdl3 first",
     "A const char* has no formatter; convert it to a []const char first",

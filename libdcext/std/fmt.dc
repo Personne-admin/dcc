@@ -937,19 +937,31 @@ public Status(FormatError(WriterError(W))) format_value(W, T)(
         } {
             return format_hook(w, value, opts);
         } else {
-            core::compile_error(
-                "type is not formattable: add format(const T*, W*, const Options*)"
-            );
+            report_unformattable!(T, W)();
         }
     } else static if compiles (T t, W* q, const Options* o) {
         t.format(q, o);
     } {
         return format_hook(w, value, opts);
     } else {
-        core::compile_error(
-            "type is not formattable: add format(const T*, W*, const Options*)"
-        );
+        report_unformattable!(T, W)();
     }
+}
+
+/// explains why `T` cannot be formatted with writer `W`: the error names the
+/// type, and a note carries the first error of its `format` hook (or says
+/// that none matches).
+@noreturn
+void report_unformattable(T, W)() {
+    const core::meta::Check hook = compiles (T t, W* q, const Options* o) {
+        t.format(q, o);
+    };
+    const core::Note[1] notes = {
+        note_at(hook.first.location, "{}", hook.first.message),
+    };
+    compile_error_with(core::source_location::source_location(), notes[0..1],
+        "type `{}` is not formattable: add format(const T*, W*, const Options*) for T = `{}`",
+        core::meta::type_name!T(core::meta::NameStyle::Plain), core::meta::type_name!T(core::meta::NameStyle::Plain));
 }
 
 //!
@@ -1404,6 +1416,7 @@ public Status(alloc::AllocError) write_all(A)(array::Array(char, A)* self, [] co
 
 /// reports a formatted compile-time error at the call that started the
 /// compile-time evaluation; `fmt` and `args` are those of `format`.
+@noreturn
 public void compile_error(T...)([] const char fmt, T args) {
     core::compile_error(compile_time_text(fmt, args...));
 }
@@ -1419,6 +1432,7 @@ public void compile_note(T...)([] const char fmt, T args) {
 }
 
 /// reports a formatted compile-time error at `at`.
+@noreturn
 public void compile_error_at(T...)(core::source_location::SourceLocation at, [] const char fmt, T args) {
     core::compile_error_at(compile_time_text(fmt, args...), at);
 }
@@ -1439,6 +1453,7 @@ public core::Note note_at(T...)(core::source_location::SourceLocation at, [] con
 }
 
 /// reports a formatted compile-time error at `at` with `notes` attached.
+@noreturn
 public void compile_error_with(T...)(core::source_location::SourceLocation at, [] const core::Note notes, [] const char fmt, T args) {
     core::compile_error_with(compile_time_text(fmt, args...), at, notes);
 }
