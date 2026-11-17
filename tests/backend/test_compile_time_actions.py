@@ -137,4 +137,51 @@ public i32 main() { common::warn(2); return common::limited(3) + 4; }
             assert not emitted, emitted
             checks += 1
 
+LOCATED = '''module main;
+import core;
+
+[] const char repeat(char c, i32 count) {
+    Array(char) text = {};
+    for i32 i = 0; i < count; i++ {
+        if !text.push(c).is_ok() { return "push failed"; }
+    }
+    return text.items();
+}
+
+void fail_here(i32 width, core::source_location::SourceLocation at = core::source_location::source_location()) {
+    core::compile_error_at(repeat('x', width), at);
+}
+
+void check(T)(T value) {
+    static if sizeof(T) > 4 {
+        fail_here(sizeof(T) as i32);
+    }
+}
+
+public i32 main() {
+    core::compile_warning_at("located warning", core::source_location::source_location());
+    core::Note[2] notes = {
+        { message = "first note", location = core::source_location::source_location() },
+        { message = "second note", location = { file = "elsewhere.dc", line = 3, column = 4, function = "" } },
+    };
+    core::compile_error_with("error with notes", core::source_location::source_location(), notes[0..2]);
+    core::compile_error_at("unmapped", { file = "nowhere.dc", line = 9, column = 2, function = "" });
+    check(1 as u64);
+    return 0;
+}
+'''
+directory = Path(tempfile.mkdtemp(prefix='dcc-compile-time-actions-'))
+(directory / 'main.dc').write_text(LOCATED)
+result = subprocess.run(['timeout', '60', str(compiler), '-flibdcext', str(directory / 'main.dc'), '-o', str(directory / 'program')],
+                        capture_output=True, text=True, timeout=65)
+output = [line.replace(str(directory) + '/', '') for line in ANSI.sub('', result.stderr).splitlines()
+          if re.match(r'(error|warning|note): |\s*-->|\s*= note', line)]
+assert result.returncode == 1 and output == [
+    'warning: located warning', '   --> main.dc:23:49',
+    'error: error with notes', '   --> main.dc:28:50', '    = note: first note', '  --> main.dc:25:46', '    = note: second note', '  --> elsewhere.dc:3:4',
+    'error: nowhere.dc:9:2: unmapped', '   --> main.dc:29:5',
+    'error: xxxxxxxx', '   --> main.dc:18:9',
+], output
+checks += 1
+
 print(f'  RESULT {checks}/{checks} compile-time action checks passed')

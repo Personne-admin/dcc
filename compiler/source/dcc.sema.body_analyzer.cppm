@@ -8825,31 +8825,149 @@ export namespace dcc::sema
             return result;
         }
 
+        comptime::Value const* constant_argument(ast::Expr const& expr)
+        {
+            if (expr.sema.const_value)
+                return expr.sema.const_value;
+            auto result = evaluate_constant(expr, ctfe::Mode::Opportunistic);
+            if (result.flow == ctfe::Flow::Normal && result.value)
+                return make_value(std::move(*result.value));
+            return nullptr;
+        }
+
+        static std::optional<std::string> constant_text(comptime::Value const& value)
+        {
+            if (value.kind() == comptime::Value::Kind::String)
+                return value.get_string();
+            if (value.kind() != comptime::Value::Kind::Slice || value.slice_is_ref())
+                return std::nullopt;
+            std::string text;
+            for (std::size_t i = 0; i < value.size(); ++i)
+            {
+                auto byte = value.at(i).const_to_int();
+                if (!byte || *byte < 0 || *byte > 255)
+                    return std::nullopt;
+                text.push_back(static_cast<char>(*byte));
+            }
+            return text;
+        }
+
+        static std::optional<ctfe::ActionLocation> constant_action_location(comptime::Value const& value)
+        {
+            if (value.kind() != comptime::Value::Kind::Aggregate || value.size() < 3)
+                return std::nullopt;
+            auto file = constant_text(value.at(0));
+            auto line = value.at(1).const_to_int();
+            auto column = value.at(2).const_to_int();
+            if (!file || !line || !column)
+                return std::nullopt;
+            return ctfe::ActionLocation{std::move(*file), static_cast<std::uint32_t>(*line), static_cast<std::uint32_t>(*column)};
+        }
+
+        static std::optional<std::vector<ctfe::ActionNote>> constant_action_notes(comptime::Value const& value)
+        {
+            if (value.kind() != comptime::Value::Kind::Slice || value.slice_is_ref())
+                return std::nullopt;
+            std::vector<ctfe::ActionNote> notes;
+            for (std::size_t i = 0; i < value.size(); ++i)
+            {
+                auto const& note = value.at(i);
+                if (note.kind() != comptime::Value::Kind::Aggregate || note.size() < 2)
+                    return std::nullopt;
+                auto message = constant_text(note.at(0));
+                if (!message)
+                    return std::nullopt;
+                notes.push_back({std::move(*message), constant_action_location(note.at(1))});
+            }
+            return notes;
+        }
+
+        std::optional<sm::SourceRange> source_range_for(ctfe::ActionLocation const& location) const
+        {
+            auto const& sm = m_diag.source_manager();
+            for (std::size_t i = 0; i < sm.file_count(); ++i)
+            {
+                auto const* file = sm.get(static_cast<sm::FileId>(i));
+                if (!file || sm.map_output_path(file->path().string()) != location.file)
+                    continue;
+                auto text = file->text();
+                std::uint32_t line = 1;
+                std::size_t offset = 0;
+                while (line < location.line && offset < text.size())
+                {
+                    if (text[offset++] == '\n')
+                        ++line;
+                }
+                if (line != location.line)
+                    return std::nullopt;
+                for (auto candidate = offset; candidate <= text.size(); ++candidate)
+                {
+                    auto lc = file->line_col(static_cast<sm::Offset>(candidate));
+                    if (!lc || lc->line != location.line)
+                        break;
+                    if (lc->column >= location.column)
+                    {
+                        auto begin = sm::Location{file->id(), static_cast<sm::Offset>(candidate)};
+                        auto end = sm::Location{file->id(), static_cast<sm::Offset>(std::min(candidate + 1, text.size()))};
+                        return sm::SourceRange{begin, end};
+                    }
+                }
+                return std::nullopt;
+            }
+            return std::nullopt;
+        }
+
+        void emit_compile_time_action(ast::IntrinsicKind kind, std::string const& message, sm::SourceRange fallback, std::optional<ctfe::ActionLocation> const& at,
+                                      std::span<ctfe::ActionNote const> notes)
+        {
+            bool const is_error = kind == ast::IntrinsicKind::CompileError || kind == ast::IntrinsicKind::CompileErrorAt || kind == ast::IntrinsicKind::CompileErrorWith;
+            bool const is_warning = kind == ast::IntrinsicKind::CompileWarning || kind == ast::IntrinsicKind::CompileWarningAt;
+            if (m_suppress_errors)
+            {
+                if (is_error)
+                {
+                    ++m_suppressed_error_count;
+                    record_suppressed_error(fallback, message);
+                }
+                return;
+            }
+            if (is_error && !m_diag.silent())
+                ++m_error_action_count;
+            auto range = fallback;
+            auto text = message;
+            if (at)
+            {
+                if (auto mapped = source_range_for(*at))
+                    range = *mapped;
+                else
+                    text = std::format("{}:{}:{}: {}", at->file, at->line, at->column, message);
+            }
+            auto severity = is_error ? diag::Severity::Error : is_warning ? diag::Severity::Warning : diag::Severity::Note;
+            auto diagnostic = diag::Diagnostic{severity, std::move(text)}.primary(range);
+            for (auto const& note : notes)
+            {
+                if (note.location)
+                    std::move(diagnostic).note(std::format("{}\n  --> {}:{}:{}", note.message, note.location->file, note.location->line, note.location->column));
+                else
+                    std::move(diagnostic).note(note.message);
+            }
+            m_diag.emit(std::move(diagnostic));
+        }
+
         void report_compile_time_actions(std::span<ctfe::Action const> actions)
         {
             for (auto const& action : actions)
             {
-                if (action.kind == ast::IntrinsicKind::CompileError)
+                if (m_suppress_errors)
                 {
-                    if (m_suppress_errors)
-                    {
-                        ++m_suppressed_error_count;
-                        record_suppressed_error(action.site, action.message);
-                        continue;
-                    }
-                    if (!m_diag.silent())
-                        ++m_error_action_count;
-                }
-                else if (m_suppress_errors)
+                    emit_compile_time_action(action.kind, action.message, action.site, action.at, action.notes);
                     continue;
+                }
                 auto key = std::format("{}:{}:{}:{}:{}", static_cast<std::uint32_t>(action.site.begin.fileId), action.site.begin.offset,
                                        action.origin.begin.offset, static_cast<int>(action.kind), action.message);
                 if (!m_reported_compile_time_actions.insert(std::move(key)).second)
                     continue;
-                auto severity = action.kind == ast::IntrinsicKind::CompileError     ? diag::Severity::Error
-                                : action.kind == ast::IntrinsicKind::CompileWarning ? diag::Severity::Warning
-                                                                                    : diag::Severity::Note;
-                m_diag.emit(diag::Diagnostic{severity, action.message}.primary(action.site));
+                emit_compile_time_action(action.kind, action.message, action.site, action.at, action.notes);
             }
         }
 
@@ -17293,7 +17411,11 @@ export namespace dcc::sema
             {
                 case ast::IntrinsicKind::CompileError:
                 case ast::IntrinsicKind::CompileWarning:
-                case ast::IntrinsicKind::CompileNote: {
+                case ast::IntrinsicKind::CompileNote:
+                case ast::IntrinsicKind::CompileErrorAt:
+                case ast::IntrinsicKind::CompileWarningAt:
+                case ast::IntrinsicKind::CompileNoteAt:
+                case ast::IntrinsicKind::CompileErrorWith: {
                     auto const* message_expr = call.args[out.call_argument_offset];
                     auto const* message = message_expr->sema.const_value;
                     if (!message || (message->kind() == comptime::Value::Kind::Slice && message->slice_is_ref()))
@@ -17319,7 +17441,27 @@ export namespace dcc::sema
                             text->push_back(static_cast<char>(*byte));
                         }
                     }
-                    if (!text && fn && !m_unevaluated && !has_error(get_resolved_type(message_expr->sema)))
+                    auto const kind = f.sema.intrinsic_kind;
+                    bool const located = kind == ast::IntrinsicKind::CompileErrorAt || kind == ast::IntrinsicKind::CompileWarningAt ||
+                                         kind == ast::IntrinsicKind::CompileNoteAt || kind == ast::IntrinsicKind::CompileErrorWith;
+                    std::optional<ctfe::ActionLocation> at;
+                    std::vector<ctfe::ActionNote> notes;
+                    bool extras_constant = true;
+                    if (located)
+                    {
+                        auto const* location = out.call_argument_offset + 1 < call.args.size() ? constant_argument(*call.args[out.call_argument_offset + 1]) : nullptr;
+                        at = location ? constant_action_location(*location) : std::nullopt;
+                        extras_constant = at.has_value();
+                    }
+                    if (kind == ast::IntrinsicKind::CompileErrorWith && extras_constant)
+                    {
+                        auto const* list = out.call_argument_offset + 2 < call.args.size() ? constant_argument(*call.args[out.call_argument_offset + 2]) : nullptr;
+                        auto parsed = list ? constant_action_notes(*list) : std::nullopt;
+                        extras_constant = parsed.has_value();
+                        if (parsed)
+                            notes = std::move(*parsed);
+                    }
+                    if ((!text || !extras_constant) && fn && !m_unevaluated && !has_error(get_resolved_type(message_expr->sema)))
                     {
                         const_cast<ast::CallExpr&>(call).sema.is_deferred_action = true;
                         if (!fn->sema.is_compile_time_bound)
@@ -17327,8 +17469,27 @@ export namespace dcc::sema
                             fn->sema.is_compile_time_bound = true;
                             m_compile_time_bound_reason.try_emplace(fn, call.range);
                         }
-                        if (f.sema.intrinsic_kind == ast::IntrinsicKind::CompileError)
+                        if (kind == ast::IntrinsicKind::CompileError || kind == ast::IntrinsicKind::CompileErrorAt || kind == ast::IntrinsicKind::CompileErrorWith)
                             out.is_diverging = true;
+                        return;
+                    }
+                    if (text && !extras_constant)
+                    {
+                        if (!m_suppress_errors && !m_diag.silent())
+                            ++m_error_action_count;
+                        error(call.range, "{} location and notes must be compile-time values", f.name);
+                        out.type = m_types.m_errort();
+                        out.is_diverging = true;
+                        return;
+                    }
+                    if (located && text)
+                    {
+                        emit_compile_time_action(kind, *text, call.range, at, notes);
+                        if (kind != ast::IntrinsicKind::CompileWarningAt && kind != ast::IntrinsicKind::CompileNoteAt)
+                        {
+                            out.type = m_types.m_errort();
+                            out.is_diverging = true;
+                        }
                         return;
                     }
                     if (!text)

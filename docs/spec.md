@@ -2275,6 +2275,33 @@ generates no run-time code; a call that cannot be evaluated is an error
 (`call to `f` must be evaluated at compile time: ...`). Inside a `compiles`
 probe a performed `compile_error` makes the probe fail.
 
+Located and structured actions take a `core::source_location::SourceLocation`
+(usually captured by a defaulted `core::source_location::source_location()`
+parameter, which records the caller):
+
+```dc
+public struct Note { []const char message; source_location::SourceLocation location; }
+
+core::compile_error_at(message, location);
+core::compile_warning_at(message, location);
+core::compile_note_at(message, location);
+core::compile_error_with(message, location, notes); // []const core::Note
+```
+
+The diagnostic is reported at `location` instead of the call. A location that
+names no source file of the compilation (built by hand, for example) is
+reported at the call with `file:line:column: ` in front of the message.
+`compile_error_with` reports one error with the given notes attached, each
+followed by its location. These actions follow the same rules as
+`compile_error`: performed where they are written when all arguments are
+constant, or by compile-time evaluation when any of them is computed.
+
+```dc
+void fail_here(i32 width, core::source_location::SourceLocation at = core::source_location::source_location()) {
+    core::compile_error_at(repeat('x', width), at); // reported at the caller of fail_here
+}
+```
+
 Compile-time-bound functions generate no code and have no run-time address
 (taking one is an error). `main`, `@nomangle` and exported functions must be
 generated, so they cannot be compile-time-bound; the error names the call or

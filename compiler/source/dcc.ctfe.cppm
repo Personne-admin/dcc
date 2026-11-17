@@ -96,12 +96,27 @@ export namespace dcc::ctfe
         sm::SourceRange call_site{};
     };
 
+    struct ActionLocation
+    {
+        std::string file;
+        std::uint32_t line{};
+        std::uint32_t column{};
+    };
+
+    struct ActionNote
+    {
+        std::string message;
+        std::optional<ActionLocation> location;
+    };
+
     struct Action
     {
         ast::IntrinsicKind kind{};
         std::string message;
         sm::SourceRange site{};
         sm::SourceRange origin{};
+        std::optional<ActionLocation> at{};
+        std::vector<ActionNote> notes{};
     };
 
     struct Result
@@ -711,11 +726,84 @@ export namespace dcc::ctfe
             auto site = m_frames.size() > 1 ? m_frames[1].call.call_site : m_context.call_site;
             if (!site.valid())
                 site = call.range;
-            m_actions.push_back(Action{kind, std::move(*text), site, call.range});
-            if (kind != ast::IntrinsicKind::CompileError)
+            Action action{kind, std::move(*text), site, call.range};
+            auto const first = call.sema.call_argument_offset;
+            if (kind == ast::IntrinsicKind::CompileErrorAt || kind == ast::IntrinsicKind::CompileWarningAt || kind == ast::IntrinsicKind::CompileNoteAt ||
+                kind == ast::IntrinsicKind::CompileErrorWith)
+            {
+                if (first + 1 >= call.args.size())
+                    return failure("compile-time action has no location");
+                auto location = expression(*call.args[first + 1]);
+                if (location.flow != Flow::Normal || !location.value)
+                    return location;
+                action.at = action_location(*location.value);
+            }
+            if (kind == ast::IntrinsicKind::CompileErrorWith)
+            {
+                if (first + 2 >= call.args.size())
+                    return failure("compile_error_with has no notes");
+                auto notes = expression(*call.args[first + 2]);
+                if (notes.flow != Flow::Normal || !notes.value)
+                    return notes;
+                auto parsed = action_notes(*notes.value);
+                if (!parsed)
+                    return failure("compile_error_with notes are not compile-time values");
+                action.notes = std::move(*parsed);
+            }
+            m_actions.push_back(std::move(action));
+            if (kind != ast::IntrinsicKind::CompileError && kind != ast::IntrinsicKind::CompileErrorAt && kind != ast::IntrinsicKind::CompileErrorWith)
                 return {Flow::Normal, {}, {}, {}};
             m_action_error = true;
             return failure(m_actions.back().message, true);
+        }
+
+        std::optional<comptime::Value> element_value(comptime::Value const& value, std::size_t index)
+        {
+            if (value.kind() == Kind::Aggregate || (value.kind() == Kind::Slice && !value.slice_is_ref()))
+                return index < value.size() ? std::optional<comptime::Value>{value.at(index)} : std::nullopt;
+            if (value.kind() == Kind::Slice && value.slice_is_ref() && index < value.slice_length())
+            {
+                auto element = m_heap.offset(value.slice_base(), static_cast<std::int64_t>(index));
+                auto const* stored = element ? m_heap.read(*element) : nullptr;
+                return stored ? std::optional<comptime::Value>{*stored} : std::nullopt;
+            }
+            return std::nullopt;
+        }
+
+        std::optional<ActionLocation> action_location(comptime::Value const& value)
+        {
+            auto file = element_value(value, 0);
+            auto line = element_value(value, 1);
+            auto column = element_value(value, 2);
+            if (!file || !line || !column)
+                return std::nullopt;
+            auto text = message_text(*file);
+            auto line_number = line->const_to_int();
+            auto column_number = column->const_to_int();
+            if (!text || !line_number || !column_number)
+                return std::nullopt;
+            return ActionLocation{std::move(*text), static_cast<std::uint32_t>(*line_number), static_cast<std::uint32_t>(*column_number)};
+        }
+
+        std::optional<std::vector<ActionNote>> action_notes(comptime::Value const& value)
+        {
+            if (value.kind() != Kind::Slice)
+                return std::nullopt;
+            auto const count = value.slice_is_ref() ? value.slice_length() : value.size();
+            std::vector<ActionNote> notes;
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                auto note = element_value(value, i);
+                if (!note)
+                    return std::nullopt;
+                auto message = element_value(*note, 0);
+                auto location = element_value(*note, 1);
+                auto text = message ? message_text(*message) : std::nullopt;
+                if (!text || !location)
+                    return std::nullopt;
+                notes.push_back({std::move(*text), action_location(*location)});
+            }
+            return notes;
         }
 
         std::optional<std::string> message_text(comptime::Value const& value)
@@ -2173,9 +2261,7 @@ export namespace dcc::ctfe
                     return folded(
                         comptime::Value::make_string(current ? current->function_names[static_cast<std::size_t>(*style)] : std::string{}, type_of(call)));
                 }
-                if (call.sema.is_deferred_action && (fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileError ||
-                                                     fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileWarning ||
-                                                     fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileNote))
+                if (call.sema.is_deferred_action)
                     return deferred_action(call, fn->sema.intrinsic_kind);
                 if (fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileWarning || fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileNote)
                     return {Flow::Normal, {}, {}, {}};

@@ -114,6 +114,23 @@ public void compile_note([]const char message);
 @intrinsic
 public bool is_compile_time();
 
+public struct Note {
+    []const char message;
+    source_location::SourceLocation location;
+}
+
+@intrinsic
+public void compile_error_at([]const char message, source_location::SourceLocation location);
+
+@intrinsic
+public void compile_warning_at([]const char message, source_location::SourceLocation location);
+
+@intrinsic
+public void compile_note_at([]const char message, source_location::SourceLocation location);
+
+@intrinsic
+public void compile_error_with([]const char message, source_location::SourceLocation location, []const Note notes);
+
 )dc";
 
     constexpr std::string_view kCoreAtomicSourceText = R"dc(module core::atomic;
