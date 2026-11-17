@@ -314,6 +314,39 @@ public source_location::SourceLocation variant_location(T)(usize index);
 @intrinsic
 public T variant(T)(usize index);
 
+public using parameter_type(F, usize index) = F;
+public using return_type(F) = F;
+
+@intrinsic
+public usize parameter_count(F)();
+
+@intrinsic
+public bool has_attribute(T)([]const char name);
+
+@intrinsic
+public []const char attribute_argument(T)([]const char name, usize index);
+
+@intrinsic
+public source_location::SourceLocation declaration_location(T)();
+
+@intrinsic
+public []const char module_name(T)();
+
+@intrinsic
+public []const char parameter_name(F)(F function, usize index);
+
+@intrinsic
+public bool parameter_has_default(F)(F function, usize index);
+
+@intrinsic
+public source_location::SourceLocation function_location(F)(F function);
+
+@intrinsic
+public bool function_has_attribute(F)(F function, []const char name);
+
+@intrinsic
+public []const char function_attribute_argument(F)(F function, []const char name, usize index);
+
 public usize variant_index(T)(T value) {
     static for i in 0..variant_count!T() {
         if value == variant!T(i) {

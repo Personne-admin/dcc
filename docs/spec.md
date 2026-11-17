@@ -1515,6 +1515,16 @@ query on a type it does not apply to is an error.
 | `variant_location!(T)(i)` | `SourceLocation` of the variant |
 | `variant!(T)(i)` | the value of variant `i`, with a zero payload if it has one (an error when the payload type has no zero value) |
 | `variant_index(value)` | `usize` index of the variant `value` holds, also at run time; an ordinary function built on `variant!` and `static for` |
+| `parameter_count!(F)()` | `usize` parameter count of a function pointer type (`typeof(f)` for a function `f`) |
+| `parameter_type(F, i)`, `return_type(F)` | parameter and return types of a function pointer type |
+| `parameter_name(f, i)`, `parameter_has_default(f, i)` | name of parameter `i` of the named function `f`, and whether it has a default |
+| `function_location(f)` | `SourceLocation` of the named function `f` |
+| `function_has_attribute(f, "name")`, `function_attribute_argument(f, "name", i)` | attributes of the named function `f` |
+| `has_attribute!(T)("name")`, `attribute_argument!(T)("name", i)` | attributes of the declaration of struct, union, enum or nominal alias `T`; an argument is returned as text (a string argument without quotes) |
+| `declaration_location!(T)()`, `module_name!(T)()` | where `T` is declared and the declaring module's path |
+
+The function forms take the function itself (`core::meta::parameter_name(scale,
+0)`); a function pointer value carries no declaration and is rejected.
 
 `static for i in 0..N` (see §8.5) repeats code per index with `i` constant,
 which is how queries that take an index are used over a whole type.
