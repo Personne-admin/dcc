@@ -541,15 +541,15 @@ TEST_CASE("position conversion scans only the target line (no cross-line bleed)"
     REQUIRE(fid != sm::FileId::Invalid);
 
     mgr.set_position_encoding(sm::PositionEncoding::Utf16);
-    auto loc = mgr.lsp_position_to_location(fid, 1u, 3u); // start of 😀
+    auto loc = mgr.lsp_position_to_location(fid, 1u, 3u);
     REQUIRE(loc.has_value());
     CHECK_EQ(loc->offset, 102u + 6u);
 
-    loc = mgr.lsp_position_to_location(fid, 1u, 4u); // inside 😀 -> clamp to start
+    loc = mgr.lsp_position_to_location(fid, 1u, 4u);
     REQUIRE(loc.has_value());
     CHECK_EQ(loc->offset, 102u + 6u);
 
-    loc = mgr.lsp_position_to_location(fid, 1u, 5u); // past EOL -> clamp to EOL
+    loc = mgr.lsp_position_to_location(fid, 1u, 5u);
     REQUIRE(loc.has_value());
     CHECK_EQ(loc->offset, 112u);
 

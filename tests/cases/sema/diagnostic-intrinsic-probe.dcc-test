@@ -3,7 +3,6 @@ module test;
 import core;
 void compile_error([]const u8 message) {}
 public void test() {
-    // Ordinary user functions with the same name are not intrinsics.
     compile_error("ordinary call");
     static if compiles { core::compile_error("failed requirement"); } {
         core::compile_error("probe unexpectedly succeeded");

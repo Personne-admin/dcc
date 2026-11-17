@@ -13,15 +13,12 @@ i32 rank(const Writer* self, [] u8 bytes) { return 2; }
 [] const u8 make_const();
 
 void test_conversions(const Writer* w) {
-    // Exact type
     consume(w, make_const());
     w.consume(make_const());
 
-    // Mutable to const slice qualification conversion
     consume(w, make_mut());
     w.consume(make_mut());
 
-    // Overload ranking prefers exact match
     i32 r1 = rank(w, make_mut());
     i32 r2 = w.rank(make_mut());
 

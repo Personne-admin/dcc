@@ -14,7 +14,6 @@ import dcdoc.prose;
 
 export namespace dcdoc::typst
 {
-    // All document-wide typography lives here; content routines only assign roles.
     constexpr std::string_view kPreamble = R"typ(
 #set page(paper: "a4", margin: (x: 24mm, y: 22mm),
   header: context {

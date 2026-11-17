@@ -347,7 +347,6 @@ namespace dccd::inlay_hints
                             if (!canon || canon->kind == dcc::types::TypeKind::Error)
                                 continue;
 
-                            // Untyped lambda params are a bare name token.
                             auto const name_range = lp.range;
                             if (!name_range.valid() || !range_overlaps(name_range, request_range))
                                 continue;

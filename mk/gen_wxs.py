@@ -5,7 +5,6 @@ import os
 import sys
 import xml.sax.saxutils as sx
 
-# persistent code used by windows to know that the same program is being updated.
 UPGRADE_CODE = "BC06D996-A013-4321-9967-7BCEDBBD011B"
 PATH_COMPONENT_GUID = "6F1C2B7E-3D4A-4E8B-9A51-2C7D0E9F4B13"
 OPTIONS_COMPONENT_GUID = "0B8E5D21-7A3C-4F96-8E12-5D9C4A7B3E60"

@@ -1319,9 +1319,6 @@ export namespace dcc::sema
             if (auto* lit = ast::node_cast<ast::IntLiteralExpr>(expr); lit && lit->value >= 0)
                 return static_cast<std::uint64_t>(lit->value);
 
-            // A bound may name a value alias (`using usize N = 4096;`),
-            // directly or qualified by its module. Follow the alias to its
-            // constant value so named extents work in array bounds.
             ast::UsingDecl const* alias = nullptr;
             Scope const* home = scope;
             if (auto* id = ast::node_cast<ast::IdentExpr>(expr))
@@ -1364,8 +1361,6 @@ export namespace dcc::sema
                 return std::nullopt;
             }
 
-            // The alias target was written in the alias's home scope, so
-            // chained names resolve there rather than at the use site.
             chain[depth] = alias;
             return resolve_const_uint_alias(alias->target_expr, home, chain, depth + 1);
         }

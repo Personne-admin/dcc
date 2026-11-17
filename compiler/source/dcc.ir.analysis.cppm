@@ -148,7 +148,7 @@ export namespace dcc::ir::analysis
 
         [[nodiscard]] bool strictly_dominates(IrBasicBlock const* a, IrBasicBlock const* b) const { return a != b && dominates(a, b); }
 
-        static DomTree build(IrFunction const& /*func*/, std::vector<IrBasicBlock*> const& rpo, PredMap const& preds)
+        static DomTree build(IrFunction const&, std::vector<IrBasicBlock*> const& rpo, PredMap const& preds)
         {
             DomTree dt;
             if (rpo.empty())
@@ -704,7 +704,7 @@ export namespace dcc::ir::analysis
         std::unordered_map<IrBasicBlock const*, std::unordered_set<IrValue const*>> live_in;
         std::unordered_map<IrBasicBlock const*, std::unordered_set<IrValue const*>> live_out;
 
-        static LivenessInfo compute(IrFunction const& func, UseDef const& /*ud*/, std::vector<IrBasicBlock*> const& rpo)
+        static LivenessInfo compute(IrFunction const& func, UseDef const&, std::vector<IrBasicBlock*> const& rpo)
         {
             LivenessInfo li;
 

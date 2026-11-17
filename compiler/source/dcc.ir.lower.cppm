@@ -12637,7 +12637,6 @@ export namespace dcc::ir::lower
 
         IrValue* load_lvalue_pointer_layers(IrValue* addr, dcc::types::TypePtr obj_type)
         {
-            // Unwrap nominal aliases to find the object's true shape.
             while (obj_type)
             {
                 if (auto* nt = dcc::types::type_cast<dcc::types::NominalType>(obj_type))
@@ -12649,12 +12648,6 @@ export namespace dcc::ir::lower
                 break;
             }
 
-            // A pointer-typed object lives behind exactly one layer of
-            // storage: a single load yields the base pointer for indexing
-            // or field access. Loading further would dereference the
-            // pointee itself, which miscompiles multi-level pointers such
-            // as u8** (extra load plus pointee-sized GEP scale instead of
-            // pointer-sized). Non-pointer objects need no load at all.
             if (obj_type && obj_type->kind == dcc::types::TypeKind::Pointer)
             {
                 auto* ptr_val_ty = lower_type(obj_type);
