@@ -86,6 +86,8 @@ export namespace dcc::ctfe
         std::function<bool(ast::FuncDecl const&)> prepare_function;
         std::unordered_set<ast::FuncDecl const*>* specializing{};
         bool restricted_check{false};
+        bool runtime_fold{false};
+        std::function<comptime::Value const*(ast::VarDecl const&)> resolve_constant;
     };
 
     struct Call
@@ -145,6 +147,7 @@ export namespace dcc::ctfe
         std::vector<Frame> m_frames;
         std::unordered_map<comptime::Value const*, comptime::ValuePtr> m_constants;
         Heap m_heap;
+        std::unordered_set<std::size_t> m_compile_time_allocations;
         Trace m_trace;
         std::vector<std::size_t> m_seq_stack;
         std::unordered_set<types::TypePtr> m_question_operand_types;
@@ -607,13 +610,17 @@ export namespace dcc::ctfe
             return it == m_frames.back().locals.end() ? nullptr : &it->second;
         }
 
-        static comptime::Value const* constant_of(ast::Decl const* decl, ast::Expr const& expr)
+        comptime::Value const* constant_of(ast::Decl const* decl, ast::Expr const& expr) const
         {
             if (expr.sema.const_value)
                 return expr.sema.const_value;
             auto* var = ast::node_cast<ast::VarDecl>(decl);
             if (var && var->sema.is_immutable && var->init)
+            {
+                if (!var->init->sema.const_value && m_context.resolve_constant)
+                    return m_context.resolve_constant(*var);
                 return var->init->sema.const_value;
+            }
             return nullptr;
         }
 
@@ -668,6 +675,55 @@ export namespace dcc::ctfe
             frame.allocations.push_back(ptr.allocation);
             frame.locals.insert_or_assign(decl, std::move(ptr));
             return {};
+        }
+
+        Result compile_time_allocate(ast::CallExpr const& call)
+        {
+            if (specializing() || m_context.runtime_fold)
+                return failure("compile-time allocation in run-time code");
+            auto const* slice = types::type_cast<types::SliceType>(type_of(call));
+            if (!slice || call.sema.call_argument_offset >= call.args.size())
+                return failure("compile-time allocation has no slice result");
+            auto count = expression(*call.args[call.sema.call_argument_offset]);
+            if (count.flow != Flow::Normal || !count.value)
+                return count;
+            auto n = const_eval::const_to_int(*count.value);
+            if (!n || *n < 0)
+                return failure("compile-time allocation count must be a non-negative constant");
+            if (static_cast<std::uint64_t>(*n) >= m_context.memory_limit || m_cells + static_cast<std::size_t>(*n) >= m_context.memory_limit)
+                return limited(AbandonReason::CellExhausted, "memory limit exceeded", true);
+            std::vector<comptime::Value> elements;
+            elements.reserve(static_cast<std::size_t>(*n));
+            for (std::int64_t i = 0; i < *n; ++i)
+                elements.push_back(zero_object(slice->element));
+            auto base = m_heap.allocate_elements(std::move(elements));
+            m_compile_time_allocations.insert(base.allocation);
+            return folded(comptime::Value::make_slice_ref(std::move(base), static_cast<std::size_t>(*n), type_of(call)));
+        }
+
+        Result compile_time_free(ast::CallExpr const& call)
+        {
+            if (specializing() || m_context.runtime_fold)
+                return failure("compile-time allocation in run-time code");
+            if (call.sema.call_argument_offset >= call.args.size())
+                return failure("compile-time free has no argument");
+            auto items = expression(*call.args[call.sema.call_argument_offset]);
+            if (items.flow != Flow::Normal || !items.value)
+                return items;
+            auto const& value = *items.value;
+            if (value.kind() != Kind::Slice || !value.slice_is_ref())
+            {
+                if (value.kind() == Kind::Slice && value.size() == 0)
+                    return {Flow::Normal, {}, {}, {}};
+                return failure("free of storage not allocated at compile time", true);
+            }
+            auto const& base = value.slice_base();
+            if (base.path.size() != 1 || base.path.front() != 0 || !m_compile_time_allocations.contains(base.allocation))
+                return failure("free of storage not allocated at compile time", true);
+            if (!m_heap.is_live(base))
+                return failure("double free of a compile-time allocation", true);
+            m_heap.end_lifetime(base.allocation);
+            return {Flow::Normal, {}, {}, {}};
         }
 
         Result read(comptime::ValuePtr const& ptr)
@@ -2050,6 +2106,16 @@ export namespace dcc::ctfe
                     return {Flow::Normal, {}, {}, {}};
                 if (fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileError)
                     return failure("compile_error reached");
+                if (fn->sema.intrinsic_kind == ast::IntrinsicKind::IsCompileTime)
+                {
+                    if (m_context.runtime_fold)
+                        return failure("result depends on core::is_compile_time()");
+                    return folded(comptime::Value::make_bool(!specializing(), type_of(call)));
+                }
+                if (fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileTimeAllocate)
+                    return compile_time_allocate(call);
+                if (fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileTimeFree)
+                    return compile_time_free(call);
 
                 if (fn->sema.is_runtime)
                     is_runtime = true;
@@ -2503,13 +2569,33 @@ export namespace dcc::ctfe
 
         Result block(ast::Block const& body)
         {
+            std::vector<ast::Stmt const*> defers;
+            auto leave = [&](Result r) -> Result {
+                if (r.failed())
+                    return r;
+                for (auto it = defers.rbegin(); it != defers.rend(); ++it)
+                {
+                    auto deferred = statement(**it);
+                    if (deferred.failed())
+                        return deferred;
+                }
+                return r;
+            };
             for (auto* stmt : body.stmts)
             {
+                if (stmt->kind == ast::StmtKind::Defer)
+                {
+                    if (specializing())
+                        return abandoned(AbandonReason::UnsupportedEffect);
+                    if (auto const* deferred = static_cast<ast::DeferStmt const*>(stmt)->body)
+                        defers.push_back(deferred);
+                    continue;
+                }
                 auto r = statement(*stmt);
                 if (r.flow != Flow::Normal)
-                    return r;
+                    return leave(std::move(r));
             }
-            return body.tail ? expression(*body.tail) : Result{};
+            return leave(body.tail ? expression(*body.tail) : Result{});
         }
 
         [[nodiscard]] static types::TypePtr arithmetic_type(types::TypePtr type) noexcept
@@ -2735,7 +2821,7 @@ export namespace dcc::ctfe
             return folded(comptime::Value::make_far_address(static_cast<std::uint16_t>(*seg_bits), static_cast<std::uint64_t>(*off_bits), target));
         }
 
-        Result detach(comptime::Value value)
+        Result detach(comptime::Value value, types::TypePtr used_as = nullptr)
         {
             switch (value.kind())
             {
@@ -2758,6 +2844,10 @@ export namespace dcc::ctfe
                     auto base = value.slice_base();
                     if (!m_heap.is_live(base))
                         return expired();
+                    if (m_compile_time_allocations.contains(base.allocation))
+                        if (auto const* slice = types::type_cast<types::SliceType>(used_as ? used_as : value.type);
+                            slice && !types::has_qual(slice->element_quals, types::Qual::Const))
+                            return failure("compile-time allocation escapes to run time");
                     if (is_byte_type(element_of(value.type)))
                     {
                         auto text = read_text(base, length);
@@ -2839,6 +2929,7 @@ export namespace dcc::ctfe
             m_frames.clear();
             m_constants.clear();
             m_heap = Heap{};
+            m_compile_time_allocations.clear();
             m_trace = Trace{};
             m_seq_stack.clear();
             m_question_operand_types.clear();
@@ -2895,13 +2986,14 @@ export namespace dcc::ctfe
             m_frames.clear();
             m_constants.clear();
             m_heap = Heap{};
+            m_compile_time_allocations.clear();
             m_frames.push_back(Frame{Call{m_context.function, m_context.call_site}, {}, {}});
 
             auto r = expression(expr);
             if (r.flow == Flow::Return || r.flow == Flow::Break || r.flow == Flow::Continue)
                 return failure("control flow escaping a constant expression", true);
             if (r.flow == Flow::Normal && r.value)
-                r = detach(std::move(*r.value));
+                r = detach(std::move(*r.value), type_of(expr));
             if (m_mode == Mode::Opportunistic && r.failed())
                 r.flow = Flow::NotEvaluatable;
             return r;

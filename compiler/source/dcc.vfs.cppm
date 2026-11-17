@@ -111,6 +111,9 @@ public void compile_warning([]const char message);
 @intrinsic
 public void compile_note([]const char message);
 
+@intrinsic
+public bool is_compile_time();
+
 )dc";
 
     constexpr std::string_view kCoreAtomicSourceText = R"dc(module core::atomic;
@@ -208,6 +211,12 @@ public []const char function_name(FunctionNameStyle style = FunctionNameStyle::Q
     constexpr std::string_view kCoreMetaSourceText = R"dc(module core::meta;
 
 public using type_argument(T, usize index) = T;
+
+@intrinsic
+public [] T allocate(T)(usize count);
+
+@intrinsic
+public void free(T)([] T items);
 
 )dc";
 

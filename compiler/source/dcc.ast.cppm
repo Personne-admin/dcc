@@ -284,6 +284,9 @@ export namespace dcc::ast
         CompileError,
         CompileWarning,
         CompileNote,
+        IsCompileTime,
+        CompileTimeAllocate,
+        CompileTimeFree,
     };
 
     struct DeclSema

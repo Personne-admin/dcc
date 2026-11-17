@@ -1,5 +1,6 @@
 module std::array;
 
+import core;
 import core::allocator_config;
 import std::math;
 import std::slice;
@@ -164,7 +165,7 @@ public Status(AllocError) reserve(T, A)(Array(T, A)* self, usize needed) {
     Optional(usize) bytes = array_checked_mul(target, sizeof(T));
     if bytes.is_none() { return AllocError::OutOfMemory; }
 
-    bool grown_in_place = b.storage.len > 0 && b.alloc.resize_in_place(
+    bool grown_in_place = !core::is_compile_time() && b.storage.len > 0 && b.alloc.resize_in_place(
         as_bytes(b.storage),
         bytes.unwrap_some(),
         alignof (T)

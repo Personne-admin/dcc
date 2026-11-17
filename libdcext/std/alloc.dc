@@ -2,6 +2,8 @@ module std::alloc;
 
 public import std::result;
 
+import core;
+import core::meta;
 import core::slice;
 import std::debug;
 
@@ -120,8 +122,13 @@ void zero_bytes([] u8 raw) {
 //! Typed allocation
 //!
 
-/// allocates uninitialized storage for `count` values of `T`.
+/// allocates uninitialized storage for `count` values of `T`. During
+/// compile-time evaluation the storage comes from the compile-time heap
+/// whatever the policy (and is zero-initialized).
 public Result([] T, AllocError) allocate_slice(T, A)(A* self, usize count) {
+    if core::is_compile_time() {
+        return Result::Ok(core::meta::allocate!T(count));
+    }
     static if sizeof(T) == 0 {
         return Result::Ok(core::slice::from_raw(null as T*, count));
     } else {
@@ -141,13 +148,19 @@ public Result([] T, AllocError) allocate_zeroed_slice(T, A)(A* self, usize count
     if out.is_err() { return out; }
 
     [] T items = out.unwrap();
-    zero_bytes(as_bytes(items));
+    if !core::is_compile_time() {
+        zero_bytes(as_bytes(items));
+    }
     return Result::Ok(items);
 }
 
 /// frees storage obtained from `allocate_slice`, `allocate_zeroed_slice`,
 /// `duplicate_slice` or `create_item`.
 public void free_slice(T, A)(A* self, [] T items) {
+    if core::is_compile_time() {
+        core::meta::free(items);
+        return;
+    }
     static if sizeof(T) != 0 {
         self.free(as_bytes(items), alignof(T));
     }

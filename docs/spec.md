@@ -1742,6 +1742,60 @@ evaluation (CTFE). It is valid on function declarations and call expressions:
   bars that specific invocation from compile-time evaluation, even if the callee function
   itself is not marked `@runtime`.
 
+### 14.4 Evaluation mode and the compile-time heap
+
+`core::is_compile_time()` returns `true` while compile-time evaluation executes
+the call and `false` in generated code. Compile-time evaluation includes
+`static if` conditions, constant globals and their initializers, field
+defaults, compile-time action messages and any other context that requires a
+constant. When the compiler folds an ordinary run-time call on its own, the
+call behaves exactly as at run time: a fold that would observe
+`core::is_compile_time()` is not performed and the call runs normally. A
+condition built from `core::is_compile_time()` (its negation, or a left operand
+of `&&`/`||`) selects its branch in generated code even without optimization,
+so compile-time-only code emits nothing.
+
+`core::meta::allocate!T(count)` (import `core::meta`) returns `count`
+zero-initialized values of `T` on the compile-time heap, and
+`core::meta::free(items)` releases such a block. They are valid only during
+compile-time evaluation: in generated code they fail like an assertion
+(`core::meta::allocate called at run time`). Freeing a block twice or freeing
+storage that did not come from `allocate` is a compile-time error. Blocks still
+live when an evaluation ends are released with it. Allocations count toward the
+compile-time evaluation memory limit; there is no separate size limit.
+
+`std::alloc::allocate_slice`, `allocate_zeroed_slice`, `free_slice` and the
+array growth path use the compile-time heap during compile-time evaluation,
+whatever the allocator policy, so `Array(T)` and code built on the typed
+helpers work in constant expressions. Raw byte allocation through a policy's
+own `allocate` is not compile-time evaluatable.
+
+A value produced by compile-time evaluation is copied into a constant. A
+`[]const T` view of compile-time heap storage becomes constant data; any other
+reference to it (a mutable slice or pointer, for example an `Array(T)` that
+still owns its storage) is an error: `compile-time allocation escapes to run
+time`.
+
+```dc
+usize sum_squares(usize n) {
+    Array(usize) values = {};
+    defer values.deinit();
+    for usize i = 1; i <= n; i++ {
+        if !values.push(i * i).is_ok() { return 0; }
+    }
+    usize total = 0;
+    for usize i = 0; i < values.items().len; i++ { total += values.items()[i]; }
+    return total;
+}
+
+const usize SQUARES = sum_squares(10); // 385, computed at compile time
+```
+
+Compile-time evaluation runs `defer` statements in reverse order when their
+block is left normally or by `return`, `break` or `continue`; a returned value
+is computed before they run. A constant global read during the evaluation of
+another global's initializer is evaluated first if needed, in any module.
+
 ---
 
 ## 15. Function Pointers

@@ -1301,6 +1301,7 @@ export namespace dcc::sema
         };
 
         std::pmr::unordered_map<ModuleInfo const*, ConstEnv*> m_module_const_envs{};
+        std::unordered_set<ast::VarDecl const*> m_resolving_global_constants;
         ConstEnv* m_current_module_env{};
         ModuleInfo* m_current_module{};
         bool m_signature_probe{};
@@ -7950,6 +7951,44 @@ export namespace dcc::sema
             return nullptr;
         }
 
+        comptime::Value const* resolve_global_constant(ast::VarDecl const& var)
+        {
+            if (var.init && var.init->sema.const_value)
+                return var.init->sema.const_value;
+            if (!var.sema.is_immutable || !var.init || !var.type || get_resolved_type(var.init->sema))
+                return nullptr;
+            if (!m_resolving_global_constants.insert(&var).second)
+                return nullptr;
+            struct Done
+            {
+                std::unordered_set<ast::VarDecl const*>& set;
+                ast::VarDecl const* var;
+                ~Done() { set.erase(var); }
+            } done{m_resolving_global_constants, &var};
+            auto* mod = find_defining_module(var);
+            if (!mod || !mod->own_scope)
+                return nullptr;
+            auto env_it = m_module_const_envs.find(mod);
+            auto* env = env_it != m_module_const_envs.end() ? env_it->second : nullptr;
+            auto* saved_env = std::exchange(m_current_module_env, env);
+            auto* saved_module = std::exchange(m_current_module, mod);
+            {
+                ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
+                auto* var_type = var.type->sema.canonical ? get_canonical(var.type->sema) : nullptr;
+                std::ignore = analyze_expr(*mod, nullptr, *mod->own_scope, *var.init, 0, dummy_offset(), var_type, env);
+            }
+            m_current_module_env = saved_env;
+            m_current_module = saved_module;
+            auto const* value = var.init->sema.const_value;
+            if (value)
+            {
+                m_global_const_vals[&var] = value;
+                if (env)
+                    define_constant(*env, var.name, value);
+            }
+            return value;
+        }
+
         void resolve_global_const_values()
         {
             struct Candidate
@@ -8715,16 +8754,18 @@ export namespace dcc::sema
             return m_suppressed_error_count == saved_errors;
         }
 
-        ctfe::Result evaluate_constant(ast::Expr const& expr, ctfe::Mode mode, ast::FuncDecl const* function = nullptr)
+        ctfe::Result evaluate_constant(ast::Expr const& expr, ctfe::Mode mode, ast::FuncDecl const* function = nullptr, bool runtime_fold = false)
         {
             std::vector<ast::FuncDecl*> speculative;
             ctfe::Context context;
+            context.runtime_fold = runtime_fold;
             context.call_site = expr.range;
             context.function = function;
             context.types = &m_types;
             context.source_manager = &m_diag.source_manager();
             context.restricted_check = m_restricted_check;
             context.prepare_function = [&](ast::FuncDecl const& fn) { return prepare_ctfe_function(fn, speculative); };
+            context.resolve_constant = [this](ast::VarDecl const& var) { return resolve_global_constant(var); };
 
             auto result = ctfe::Evaluator(std::move(context), mode).evaluate(expr);
             for (auto* fn : speculative)
@@ -11562,7 +11603,7 @@ export namespace dcc::sema
                 auto const& call = static_cast<ast::CallExpr const&>(expr);
                 if (!fn || call_fold_candidate(call))
                 {
-                    auto result = evaluate_constant(expr, ctfe::Mode::Opportunistic, fn ? fn : m_default_argument_function);
+                    auto result = evaluate_constant(expr, ctfe::Mode::Opportunistic, fn ? fn : m_default_argument_function, true);
                     if (result.flow == ctfe::Flow::Normal && result.value && !fold_value_has_unknown(*result.value))
                     {
                         out.constant = make_value(std::move(*result.value));
