@@ -19,11 +19,11 @@ i32 propagate(Res self) {
 }
 
 i32 test_ok() {
-    return propagate({ ok = true, val = 41 });
+    return @runtime propagate({ ok = true, val = 41 });
 }
 
 i32 test_err() {
-    return propagate({ ok = false, val = 7 });
+    return @runtime propagate({ ok = false, val = 7 });
 }
 
 === EXPECT-IR ===

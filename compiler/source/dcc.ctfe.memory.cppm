@@ -57,6 +57,12 @@ export namespace dcc::ctfe
             return comptime::ValuePtr{false, m_allocations.size() - 1, {0}};
         }
 
+        [[nodiscard]] comptime::ValuePtr allocate_elements(std::vector<comptime::Value> elements)
+        {
+            m_allocations.push_back(Allocation{std::move(elements), true, true});
+            return comptime::ValuePtr{false, m_allocations.size() - 1, {0}};
+        }
+
         [[nodiscard]] comptime::ValuePtr intern(std::string_view key, comptime::Value object)
         {
             std::string cache_key{key};

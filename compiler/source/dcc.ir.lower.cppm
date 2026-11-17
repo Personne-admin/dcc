@@ -4146,6 +4146,23 @@ export namespace dcc::ir::lower
                 case ast::IntrinsicKind::CompileWarning:
                 case ast::IntrinsicKind::CompileNote:
                     return nullptr;
+                case ast::IntrinsicKind::IsCompileTime:
+                    return m_ctx.bool_const(false);
+                case ast::IntrinsicKind::CompileTimeAllocate:
+                case ast::IntrinsicKind::CompileTimeFree: {
+                    emit_assert_call(func->sema.intrinsic_kind == ast::IntrinsicKind::CompileTimeFree ? "core::meta::free called at run time"
+                                                                                                       : "core::meta::allocate called at run time",
+                                     call->range);
+                    emit_unreachable();
+                    set_current_block(create_block("ctfe.dead"));
+                    if (func->sema.intrinsic_kind == ast::IntrinsicKind::CompileTimeFree)
+                        return nullptr;
+                    auto const* slice_type = static_cast<IrSliceType const*>(lower_type(get_sema_resolved_type(call)));
+                    auto* empty = m_ctx.aggregate(slice_type);
+                    empty->values.push_back(m_ctx.null_const(m_ctx.pointer_to(slice_type->element, slice_type->seg, slice_type->flavor)));
+                    empty->values.push_back(m_ctx.int_const(m_ctx.usize_t(), 0));
+                    return empty;
+                }
                 default:
                     break;
             }
@@ -6376,6 +6393,36 @@ export namespace dcc::ir::lower
             return inst;
         }
 
+        IrValue* lower_selected_if_branch(ast::IfExpr const* ie, bool take_then)
+        {
+            IrValue* value = nullptr;
+            push_scope();
+            if (take_then)
+            {
+                for (auto* stmt : ie->then_block.stmts)
+                    lower_stmt(stmt);
+                if (ie->then_block.tail && !current_block_terminated())
+                    value = lower_implicit_enum_construction(ie->then_block.tail, [&]() { return lower_expr(ie->then_block.tail); });
+            }
+            else if (ie->else_branch)
+            {
+                if (ie->else_branch->kind == ast::ExprKind::Block)
+                {
+                    auto* block_expr = static_cast<ast::BlockExpr const*>(ie->else_branch);
+                    for (auto* stmt : block_expr->body.stmts)
+                        lower_stmt(stmt);
+                    if (block_expr->body.tail && !current_block_terminated())
+                        value = lower_implicit_enum_construction(block_expr->body.tail, [&]() { return lower_expr(block_expr->body.tail); });
+                }
+                else if (ie->else_branch->kind == ast::ExprKind::If)
+                    value = lower_implicit_enum_construction(ie->else_branch, [&]() { return lower_if_expr(static_cast<ast::IfExpr const*>(ie->else_branch)); });
+                else
+                    value = lower_implicit_enum_construction(ie->else_branch, [&]() { return lower_expr(ie->else_branch); });
+            }
+            pop_scope();
+            return value;
+        }
+
         IrValue* lower_if_expr(ast::IfExpr const* ie)
         {
             auto* sema_ty = get_sema_resolved_type(ie);
@@ -6387,6 +6434,9 @@ export namespace dcc::ir::lower
             }
             bool has_result = sema_ty && sema_ty->kind != dcc::types::TypeKind::Void;
             auto* ir_result_ty = has_result ? lower_type(sema_ty) : nullptr;
+
+            if (auto fixed = evaluation_mode_condition(ie->condition))
+                return lower_selected_if_branch(ie, *fixed);
 
             auto* then_bb = create_block("if.then");
             auto* else_bb = create_block("if.else");
@@ -7744,9 +7794,45 @@ export namespace dcc::ir::lower
             return tail_val;
         }
 
+        [[nodiscard]] static std::optional<bool> evaluation_mode_condition(ast::Expr const* expr)
+        {
+            if (!expr)
+                return std::nullopt;
+            if (auto const* call = ast::node_cast<ast::CallExpr>(expr))
+            {
+                ast::FuncDecl const* target = call->sema.resolved_specialization;
+                if (!target)
+                    target = ast::node_cast<ast::FuncDecl>(call->sema.resolved_decl);
+                if (!target && call->callee)
+                    target = ast::node_cast<ast::FuncDecl>(call->callee->sema.resolved_decl);
+                if (target && target->sema.intrinsic_kind == ast::IntrinsicKind::IsCompileTime)
+                    return false;
+                return std::nullopt;
+            }
+            if (auto const* unary = ast::node_cast<ast::UnaryExpr>(expr); unary && unary->op == dcc::lex::TokenKind::Bang)
+            {
+                if (auto inner = evaluation_mode_condition(unary->operand))
+                    return !*inner;
+                return std::nullopt;
+            }
+            if (auto const* bin = ast::node_cast<ast::BinaryExpr>(expr))
+            {
+                auto lhs = evaluation_mode_condition(bin->lhs);
+                if (!lhs)
+                    return std::nullopt;
+                if (bin->op == dcc::lex::TokenKind::AmpAmp)
+                    return *lhs ? evaluation_mode_condition(bin->rhs) : std::optional<bool>{false};
+                if (bin->op == dcc::lex::TokenKind::PipePipe)
+                    return *lhs ? std::optional<bool>{true} : evaluation_mode_condition(bin->rhs);
+            }
+            return std::nullopt;
+        }
+
         IrValue* lower_short_circuit_and(ast::BinaryExpr const* bin, dcc::types::TypePtr sema_ty, IrType const* ir_ty)
         {
             std::ignore = sema_ty;
+            if (auto lhs = evaluation_mode_condition(bin->lhs))
+                return *lhs ? lower_expr(bin->rhs) : m_ctx.bool_const(false);
             auto* rhs_bb = create_block("sc.rhs");
             auto* merge_bb = create_block("sc.merge");
 
@@ -7770,6 +7856,8 @@ export namespace dcc::ir::lower
         IrValue* lower_short_circuit_or(ast::BinaryExpr const* bin, dcc::types::TypePtr sema_ty, IrType const* ir_ty)
         {
             std::ignore = sema_ty;
+            if (auto lhs = evaluation_mode_condition(bin->lhs))
+                return *lhs ? m_ctx.bool_const(true) : lower_expr(bin->rhs);
             auto* rhs_bb = create_block("sc.rhs");
             auto* merge_bb = create_block("sc.merge");
 

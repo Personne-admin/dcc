@@ -116,6 +116,12 @@ namespace
                     d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::CompileWarning;
                 else if (f->name == "compile_note")
                     d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::CompileNote;
+                else if (f->name == "is_compile_time")
+                    d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::IsCompileTime;
+                else if (f->name == "allocate")
+                    d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::CompileTimeAllocate;
+                else if (f->name == "free")
+                    d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::CompileTimeFree;
             }
     }
 
