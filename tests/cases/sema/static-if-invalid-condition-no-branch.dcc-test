@@ -1,0 +1,33 @@
+=== FILE: main.dc ===
+module main;
+import core;
+
+i32 runtime_value() {
+    return @runtime counter();
+}
+
+i32 counter() {
+    return 3;
+}
+
+void pick(T)(T value) {
+    static if runtime_value() == 3 {
+        core::compile_error("then branch must not be analysed");
+    } else {
+        core::compile_error("else branch must not be analysed");
+    }
+    static if missing_name {
+        undefined_in_then();
+    } else {
+        undefined_in_else();
+    }
+}
+
+public i32 main() {
+    pick(1 as i32);
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:13: static if condition is not a compile-time constant: `runtime_value() == 3`
+main.dc:18: unknown name `missing_name`
