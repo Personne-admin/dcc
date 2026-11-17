@@ -1792,6 +1792,13 @@ export namespace dcc::ctfe
                         return abandoned(AbandonReason::TraceExhausted);
                     return emit_residual(expr, {*base}, type_of(expr));
                 }
+                if (object.value->kind() == Kind::String)
+                {
+                    auto attached = attach(*object.value);
+                    if (attached.flow != Flow::Normal || !attached.value)
+                        return attached;
+                    object = std::move(attached);
+                }
                 if (object.value->kind() != Kind::Slice)
                     return failure("slice field has no compile-time value");
                 if (expr.field == "len")
@@ -2215,7 +2222,7 @@ export namespace dcc::ctfe
             if (call.sema.rewritten)
                 return expression(*call.sema.rewritten);
             if (call.sema.evaluated_at_compile_time && call.sema.const_value)
-                return folded(*call.sema.const_value);
+                return attach(*call.sema.const_value);
 
             if (call.sema.compile_time_failed)
             {
@@ -2280,7 +2287,7 @@ export namespace dcc::ctfe
                 if (fn->sema.intrinsic_kind == ast::IntrinsicKind::MetaQuery)
                 {
                     if (call.sema.const_value)
-                        return folded(*call.sema.const_value);
+                        return attach(*call.sema.const_value);
                     return failure("reflection query is not resolved");
                 }
 
@@ -3046,10 +3053,23 @@ export namespace dcc::ctfe
                     break;
             }
 
+            std::vector<types::TypePtr> element_types;
+            if (value.kind() == Kind::Aggregate && value.type)
+            {
+                if (auto const* array = types::type_cast<types::ArrayType>(value.type))
+                    element_types.assign(value.size(), array->element);
+                else if (value.type->kind == types::TypeKind::Struct)
+                {
+                    auto fields = record_fields(value.type);
+                    if (fields.size() == value.size())
+                        for (auto const& field : fields)
+                            element_types.push_back(field_type(value.type, field));
+                }
+            }
             if (value.kind() == Kind::Aggregate || value.kind() == Kind::Slice)
                 for (std::size_t i = 0; i < value.size(); ++i)
                 {
-                    auto r = detach(value.at(i));
+                    auto r = detach(value.at(i), i < element_types.size() ? element_types[i] : nullptr);
                     if (r.flow != Flow::Normal || !r.value)
                         return r;
                     value.at(i) = std::move(*r.value);

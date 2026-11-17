@@ -184,4 +184,69 @@ assert result.returncode == 1 and output == [
 ], output
 checks += 1
 
+def located_output(source):
+    directory = Path(tempfile.mkdtemp(prefix='dcc-compile-time-actions-'))
+    (directory / 'main.dc').write_text(source)
+    result = subprocess.run(['timeout', '60', str(compiler), '-flibdcext', str(directory / 'main.dc'), '-o', str(directory / 'program')],
+                            capture_output=True, text=True, timeout=65)
+    return result.returncode, [line.replace(str(directory) + '/', '') for line in ANSI.sub('', result.stderr).splitlines()
+                               if re.match(r'(error|warning|note): |\s*-->|\s*= note', line)]
+
+
+FORMATTED = '''module main;
+import core;
+public import std::fmt;
+
+public struct Money { i64 cents; }
+public Status(std::fmt::FormatError(std::fmt::WriterError(W))) format(W)(const Money* self, W* out, const std::fmt::Options* opts) if std::fmt::Writer(W) {
+    return std::fmt::format(out, "${}.{:02}", self.cents / 100, self.cents % 100);
+}
+
+void limit(T)(T value) {
+    static if sizeof(T) > 4 {
+        std::fmt::compile_error("`{}` is {} bytes, the limit is {:>3}; costs {}", "T", sizeof(T), 4, Money { cents = 1250 });
+    }
+}
+
+public i32 main() {
+    std::fmt::compile_warning("plain warning {}", 1);
+    const core::Note[1] notes = { std::fmt::note_at(core::source_location::source_location(), "hint {}", "here") };
+    std::fmt::compile_error_with(core::source_location::source_location(), notes[0..1], "with {} note", 1);
+    limit(1 as u64);
+    return 0;
+}
+'''
+code, output = located_output(FORMATTED)
+assert code == 1 and output == [
+    'warning: plain warning 1', '   --> main.dc:17:5',
+    'error: `T` is 8 bytes, the limit is   4; costs $12.50', '   --> main.dc:12:9',
+    'error: with 1 note', '   --> main.dc:19:34', '    = note: hint here', '  --> main.dc:18:53',
+], output
+checks += 1
+
+GUIDE = '''module main;
+import core;
+import core::meta;
+public import std::fmt;
+public struct Plain { i32 x; }
+void require_hook(T)() {
+    const core::meta::Check hook = compiles (T t, std::fmt::CountingWriter* w, const std::fmt::Options* o) {
+        t.format(w, o);
+    };
+    static if !hook.ok {
+        core::Note[1] notes = { std::fmt::note_at(hook.first.location, "{}", hook.first.message) };
+        std::fmt::compile_error_with(core::source_location::source_location(), notes[0..1],
+            "`{}` has no usable format hook", core::meta::type_name!T());
+    }
+}
+
+public i32 main() { require_hook!(Plain)(); return 0; }
+'''
+code, output = located_output(GUIDE)
+assert code == 1 and output == [
+    'error: `main::Plain` has no usable format hook', '   --> main.dc:12:38',
+    '    = note: no matching UFCS function for `format` on receiver type `Plain`', '  --> main.dc:8:9',
+], output
+checks += 1
+
 print(f'  RESULT {checks}/{checks} compile-time action checks passed')

@@ -967,6 +967,30 @@ export namespace dcc::sema
             resolve_compile_time_bound_functions();
         }
 
+        bool evaluate_bound_call(ast::FuncDecl* caller, ast::CallExpr const* bound_call)
+        {
+            auto& call = const_cast<ast::CallExpr&>(*bound_call);
+            if (call.sema.const_value || call.sema.evaluated_at_compile_time)
+                return true;
+            if (call.sema.compile_time_failed)
+                return true;
+            auto result = evaluate_constant(call, ctfe::Mode::Required, caller);
+            if (result.action_error)
+            {
+                call.sema.compile_time_failed = true;
+                return true;
+            }
+            if (result.flow != ctfe::Flow::Normal)
+                return false;
+            if (result.value)
+            {
+                call.sema.const_value = make_value(std::move(*result.value));
+                call.sema.is_constant = true;
+            }
+            call.sema.evaluated_at_compile_time = true;
+            return true;
+        }
+
         void resolve_compile_time_bound_functions()
         {
             for (bool changed = true; changed;)
@@ -976,7 +1000,7 @@ export namespace dcc::sema
                 {
                     if (!unfolded.callee->sema.is_compile_time_bound || unfolded.caller->sema.is_compile_time_bound)
                         continue;
-                    if (unfolded.call->sema.const_value)
+                    if (unfolded.call->sema.const_value || evaluate_bound_call(unfolded.caller, unfolded.call))
                         continue;
                     unfolded.caller->sema.is_compile_time_bound = true;
                     m_compile_time_bound_reason.try_emplace(unfolded.caller, unfolded.call->range);
@@ -8792,9 +8816,11 @@ export namespace dcc::sema
             auto saved_defer_depth = std::exchange(m_defer_depth, 0);
             auto* saved_capture_scope = std::exchange(m_lambda_capture_scope, nullptr);
             auto* saved_bindings = std::exchange(m_concept_bindings, nullptr);
+            auto* saved_defining_module = std::exchange(m_specialization_defining_module, nullptr);
             m_current_module = mod;
             m_current_module_env = ensure_module_env(*mod);
             analyze_function(*mod, const_cast<ast::FuncDecl&>(fn));
+            m_specialization_defining_module = saved_defining_module;
             m_current_module = saved_module;
             m_current_module_env = saved_env;
             m_active_defers = std::move(saved_defers);
