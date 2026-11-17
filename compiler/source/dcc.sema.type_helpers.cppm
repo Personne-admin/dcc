@@ -323,6 +323,50 @@ export namespace dcc::sema
         return {{user->template_args[static_cast<std::size_t>(index)], types::Qual::None}, {}};
     }
 
+    [[nodiscard]] inline bool is_meta_type_query(std::string_view name) noexcept
+    {
+        return name == "type_argument" || name == "pointee" || name == "element" || name == "underlying";
+    }
+
+    [[nodiscard]] inline std::size_t meta_type_query_arity(std::string_view name) noexcept
+    {
+        return name == "type_argument" ? 2 : 1;
+    }
+
+    [[nodiscard]] inline TypeArgumentProjection project_meta_type(types::TypeContext& types, std::string_view query, types::TypePtr type, std::uint64_t index)
+    {
+        if (query == "type_argument")
+            return project_type_argument(types, type, index);
+        if (!type || type->kind == types::TypeKind::Error)
+            return {{types.m_errort(), types::Qual::None}, {}};
+        auto fail = [&](std::string_view what) -> TypeArgumentProjection {
+            return {{types.m_errort(), types::Qual::None}, std::format("`{}` has no {}", format_dcc_type(type), what)};
+        };
+        if (query == "underlying")
+        {
+            if (auto const* nominal = types::type_cast<types::NominalType>(type))
+                return {{nominal->underlying, types::Qual::None}, {}};
+            if (auto const* restricted = types::type_cast<types::RestrictedType>(type))
+                return {{restricted->underlying, types::Qual::None}, {}};
+            if (auto const* enumeration = types::type_cast<types::EnumType>(type); enumeration && enumeration->backing && !enumeration->is_tagged)
+                return {{enumeration->backing, types::Qual::None}, {}};
+            return fail("underlying type");
+        }
+        while (auto const* nominal = types::type_cast<types::NominalType>(type))
+            type = nominal->underlying;
+        if (query == "pointee")
+        {
+            if (auto const* pointer = types::type_cast<types::PointerType>(type))
+                return {{pointer->pointee, pointer->pointee_quals}, {}};
+            return fail("pointee type");
+        }
+        if (auto const* array = types::type_cast<types::ArrayType>(type))
+            return {{array->element, types::Qual::None}, {}};
+        if (auto const* slice = types::type_cast<types::SliceType>(type))
+            return {{slice->element, slice->element_quals}, {}};
+        return fail("element type");
+    }
+
     [[nodiscard]] inline bool is_func_param_sema_pack(ast::FuncParam const& p, ast::FuncDecl const& fn)
     {
         if (p.is_pack)

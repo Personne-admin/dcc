@@ -3280,7 +3280,8 @@ export namespace dcc::ir::lower
 
             if (direct_target &&
                 (direct_target->sema.intrinsic_kind == ast::IntrinsicKind::SourceLocation ||
-                 direct_target->sema.intrinsic_kind == ast::IntrinsicKind::FunctionName) &&
+                 direct_target->sema.intrinsic_kind == ast::IntrinsicKind::FunctionName ||
+                 direct_target->sema.intrinsic_kind == ast::IntrinsicKind::MetaQuery) &&
                 call->sema.const_value)
                 return materialize_comptime(*call->sema.const_value, get_sema_resolved_type(call));
 

@@ -211,6 +211,51 @@ public []const char function_name(FunctionNameStyle style = FunctionNameStyle::Q
     constexpr std::string_view kCoreMetaSourceText = R"dc(module core::meta;
 
 public using type_argument(T, usize index) = T;
+public using pointee(T) = T;
+public using element(T) = T;
+public using underlying(T) = T;
+
+public enum NameStyle { Plain, Qualified }
+
+public enum TypeKind {
+    Void,
+    Bool,
+    Int,
+    Float,
+    Char,
+    Pointer,
+    Slice,
+    Array,
+    Struct,
+    Union,
+    Enum,
+    TaggedEnum,
+    Function,
+    Restricted,
+    Nominal,
+    Other,
+}
+
+@intrinsic
+public []const char type_name(T)(NameStyle style = NameStyle::Qualified);
+
+@intrinsic
+public TypeKind kind(T)();
+
+@intrinsic
+public bool is_signed(T)();
+
+@intrinsic
+public usize bits(T)();
+
+@intrinsic
+public usize array_length(T)();
+
+@intrinsic
+public usize template_argument_count(T)();
+
+@intrinsic
+public bool same_template(T, U)();
 
 @intrinsic
 public [] T allocate(T)(usize count);
