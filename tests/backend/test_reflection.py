@@ -314,4 +314,79 @@ const usize N = core::meta::field_index!(Point)("y");
 public i32 main() { return 0; }
 ''', [('`Point` has no field `y`', 4)])
 
+ENUMS = '''module main;
+import core::meta;
+
+public enum Color : i16 { Red = -2, Green, Blue = 10 }
+public enum Shape { Dot, Circle(i32), Label([] const char) }
+public enum Maybe(T) { Nothing, Just(T) }
+
+Status(Error) list(T)() {
+    println("{} has {} variants", core::meta::type_name!T(core::meta::NameStyle::Plain), core::meta::variant_count!T())?;
+    static for i in 0..core::meta::variant_count!T() {
+        static if core::meta::variant_has_payload!T(i) {
+            println("  {} = {} payload {}", core::meta::variant_name!T(i), core::meta::variant_value!T(i),
+                    core::meta::type_name!(core::meta::variant_payload(T, i))())?;
+        } else {
+            println("  {} = {} line {}", core::meta::variant_name!T(i), core::meta::variant_value!T(i), core::meta::variant_location!T(i).line)?;
+        }
+    }
+    return Status::Ok;
+}
+
+[] const char name_of(T)(T value) {
+    static for i in 0..core::meta::variant_count!T() {
+        if value == core::meta::variant!T(i) {
+            return core::meta::variant_name!T(i);
+        }
+    }
+    return "?";
+}
+
+const usize BLUE = core::meta::variant_index(Color::Blue);
+
+public Status(Error) main() {
+    println("enums")?;
+    list!(Color)()?;
+    list!(Shape)()?;
+    list!(Maybe(u8))()?;
+    println("{} {} {}", name_of(Color::Green), name_of(Shape::Circle(5)), name_of(Shape::Label("x")))?;
+    println("{} {} {}", core::meta::variant_index(Shape::Label("y")), BLUE, core::meta::variant_index(Maybe(u8)::Just(3)))?;
+    return Status::Ok;
+}
+'''
+
+ENUMS_EXPECTED = '''enums
+Color has 3 variants
+  Red = -2 line 4
+  Green = -1 line 4
+  Blue = 10 line 4
+Shape has 3 variants
+  Dot = 0 line 5
+  Circle = 1 payload i32
+  Label = 2 payload []const char
+Maybe(u8) has 2 variants
+  Nothing = 0 line 6
+  Just = 1 payload u8
+Green Circle Label
+2 2 1
+'''
+
+for backend in ('llvm', 'custom'):
+    for opt in ('-O0', '-O2'):
+        run(ENUMS, ENUMS_EXPECTED, '-fbackend', backend, opt)
+
+rejects('''module main;
+import core::meta;
+public enum Shape { Dot, Circle(i32) }
+core::meta::variant_payload(Shape, 0) x = 0;
+public i32 main() { return 0; }
+''', [('variant `Dot` of `Shape` has no payload', 4)])
+rejects('''module main;
+import core::meta;
+public struct Point { i32 x; }
+const usize N = core::meta::variant_count!(Point)();
+public i32 main() { return 0; }
+''', [('variant_count requires an enum type, not `Point`', 4)])
+
 print(f'  RESULT {checks}/{checks} reflection checks passed')

@@ -1507,6 +1507,14 @@ query on a type it does not apply to is an error.
 | `field_location!(T)(i)` | `SourceLocation` of the field's name |
 | `has_field!(T)("name")`, `field_index!(T)("name")` | lookup by name (`field_index` errors when absent) |
 | `field!(T)(p, i)` | pointer to field `i` of the record `*p`, typed `field_type(T, i)*` |
+| `variant_count!(T)()` | `usize` number of variants of an enum |
+| `variant_name!(T)(i)` | `[]const char` name of variant `i` |
+| `variant_value!(T)(i)` | `i64` discriminant of variant `i` |
+| `variant_has_payload!(T)(i)` | `bool`: variant `i` of a tagged enum carries a payload |
+| `variant_payload(T, i)` | payload type of variant `i` (an error without a payload) |
+| `variant_location!(T)(i)` | `SourceLocation` of the variant |
+| `variant!(T)(i)` | the value of variant `i`, with a zero payload if it has one (an error when the payload type has no zero value) |
+| `variant_index(value)` | `usize` index of the variant `value` holds, also at run time; an ordinary function built on `variant!` and `static for` |
 
 `static for i in 0..N` (see §8.5) repeats code per index with `i` constant,
 which is how queries that take an index are used over a whole type.

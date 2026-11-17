@@ -326,12 +326,46 @@ export namespace dcc::sema
 
     [[nodiscard]] inline bool is_meta_type_query(std::string_view name) noexcept
     {
-        return name == "type_argument" || name == "pointee" || name == "element" || name == "underlying" || name == "field_type";
+        return name == "type_argument" || name == "pointee" || name == "element" || name == "underlying" || name == "field_type" ||
+               name == "variant_payload";
     }
 
     [[nodiscard]] inline std::size_t meta_type_query_arity(std::string_view name) noexcept
     {
-        return name == "type_argument" || name == "field_type" ? 2 : 1;
+        return name == "type_argument" || name == "field_type" || name == "variant_payload" ? 2 : 1;
+    }
+
+    struct MetaVariant
+    {
+        std::string_view name;
+        ast::EnumVariant const* decl{};
+        types::TypePtr payload{};
+    };
+
+    [[nodiscard]] inline std::optional<std::vector<MetaVariant>> meta_enum_variants(types::TypeContext& types, types::TypePtr type)
+    {
+        while (auto const* nominal = types::type_cast<types::NominalType>(type))
+            type = nominal->underlying;
+        auto const* enumeration = types::type_cast<types::EnumType>(type);
+        if (!enumeration)
+            return std::nullopt;
+        auto const* decl = reinterpret_cast<ast::EnumDecl const*>(enumeration->decl);
+        if (!decl)
+            return std::nullopt;
+        auto bindings = infer::make_bindings(types, type);
+        std::vector<MetaVariant> variants;
+        for (auto const& variant : decl->variants)
+        {
+            types::TypePtr payload = nullptr;
+            if (!variant.payload.empty() && variant.payload.front())
+            {
+                payload = get_canonical(variant.payload.front()->sema);
+                if (bindings)
+                    payload = bindings->substitute(payload);
+            }
+            variants.push_back({variant.name, &variant, payload});
+        }
+        return variants;
     }
 
     struct MetaField
@@ -402,6 +436,18 @@ export namespace dcc::sema
         }
         while (auto const* nominal = types::type_cast<types::NominalType>(type))
             type = nominal->underlying;
+        if (query == "variant_payload")
+        {
+            auto variants = meta_enum_variants(types, type);
+            if (!variants)
+                return fail("variants");
+            if (index >= variants->size())
+                return {{types.m_errort(), types::Qual::None}, std::format("variant index {} is out of range for `{}`", index, format_dcc_type(type))};
+            auto const& variant = (*variants)[static_cast<std::size_t>(index)];
+            if (!variant.payload)
+                return {{types.m_errort(), types::Qual::None}, std::format("variant `{}` of `{}` has no payload", variant.name, format_dcc_type(type))};
+            return {{variant.payload, types::Qual::None}, {}};
+        }
         if (query == "field_type")
         {
             auto fields = meta_record_fields(types, type);

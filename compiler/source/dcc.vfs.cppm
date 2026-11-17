@@ -294,6 +294,35 @@ public usize field_index(T)([]const char name);
 @intrinsic
 public void* field(T)(T* value, usize index);
 
+public using variant_payload(T, usize index) = T;
+
+@intrinsic
+public usize variant_count(T)();
+
+@intrinsic
+public []const char variant_name(T)(usize index);
+
+@intrinsic
+public i64 variant_value(T)(usize index);
+
+@intrinsic
+public bool variant_has_payload(T)(usize index);
+
+@intrinsic
+public source_location::SourceLocation variant_location(T)(usize index);
+
+@intrinsic
+public T variant(T)(usize index);
+
+public usize variant_index(T)(T value) {
+    static for i in 0..variant_count!T() {
+        if value == variant!T(i) {
+            return i;
+        }
+    }
+    return variant_count!T();
+}
+
 @intrinsic
 public [] T allocate(T)(usize count);
 
