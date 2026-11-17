@@ -327,12 +327,12 @@ export namespace dcc::sema
     [[nodiscard]] inline bool is_meta_type_query(std::string_view name) noexcept
     {
         return name == "type_argument" || name == "pointee" || name == "element" || name == "underlying" || name == "field_type" ||
-               name == "variant_payload";
+               name == "variant_payload" || name == "parameter_type" || name == "return_type";
     }
 
     [[nodiscard]] inline std::size_t meta_type_query_arity(std::string_view name) noexcept
     {
-        return name == "type_argument" || name == "field_type" || name == "variant_payload" ? 2 : 1;
+        return name == "type_argument" || name == "field_type" || name == "variant_payload" || name == "parameter_type" ? 2 : 1;
     }
 
     struct MetaVariant
@@ -436,6 +436,17 @@ export namespace dcc::sema
         }
         while (auto const* nominal = types::type_cast<types::NominalType>(type))
             type = nominal->underlying;
+        if (query == "parameter_type" || query == "return_type")
+        {
+            auto const* function = types::type_cast<types::FuncPtrType>(type);
+            if (!function)
+                return fail("parameters");
+            if (query == "return_type")
+                return {{function->return_type, types::Qual::None}, {}};
+            if (index >= function->params.size())
+                return {{types.m_errort(), types::Qual::None}, std::format("parameter index {} is out of range for `{}`", index, format_dcc_type(type))};
+            return {{function->params[static_cast<std::size_t>(index)], types::Qual::None}, {}};
+        }
         if (query == "variant_payload")
         {
             auto variants = meta_enum_variants(types, type);

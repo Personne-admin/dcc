@@ -389,4 +389,71 @@ const usize N = core::meta::variant_count!(Point)();
 public i32 main() { return 0; }
 ''', [('variant_count requires an enum type, not `Point`', 4)])
 
+FUNCTIONS = '''module main;
+import core::meta;
+
+@packed
+public struct Header { u8 kind; u32 size; }
+
+@align(16)
+public struct Aligned { u8 x; }
+
+@inline
+i64 scale(i32 value, i64 factor = 2) { return value as i64 * factor; }
+
+@section(".text.fast")
+void tick() {}
+
+Status(Error) describe_type(F)() {
+    println("{} parameters, returns {}", core::meta::parameter_count!F(), core::meta::type_name!(core::meta::return_type(F))())?;
+    static for i in 0..core::meta::parameter_count!F() {
+        println("  {}", core::meta::type_name!(core::meta::parameter_type(F, i))())?;
+    }
+    return Status::Ok;
+}
+
+public Status(Error) main() {
+    println("functions")?;
+    describe_type!(typeof(scale))()?;
+    static for i in 0..core::meta::parameter_count!(typeof(scale))() {
+        println("  {} default={}", core::meta::parameter_name(scale, i), core::meta::parameter_has_default(scale, i))?;
+    }
+    println("{} {} line {}", core::meta::function_has_attribute(scale, "inline"), core::meta::function_has_attribute(scale, "noinline"),
+            core::meta::function_location(scale).line)?;
+    println("{}", core::meta::function_attribute_argument(tick, "section", 0))?;
+    println("{} {} {}", core::meta::has_attribute!(Header)("packed"), core::meta::has_attribute!(Aligned)("packed"), core::meta::attribute_argument!(Aligned)("align", 0))?;
+    println("{} line {} {}", core::meta::module_name!(Header)(), core::meta::declaration_location!(Header)().line, core::meta::module_name!(Array(i32))())?;
+    return Status::Ok;
+}
+'''
+
+FUNCTIONS_EXPECTED = '''functions
+2 parameters, returns i64
+  i32
+  i64
+  value default=false
+  factor default=true
+true false line 11
+.text.fast
+true false 16
+main line 5 std::array
+'''
+
+for backend in ('llvm', 'custom'):
+    for opt in ('-O0', '-O2'):
+        run(FUNCTIONS, FUNCTIONS_EXPECTED, '-fbackend', backend, opt)
+
+rejects('''module main;
+import core::meta;
+i32 twice(i32 x) { return x * 2; }
+[] const char name_of(F)(F function) { return core::meta::parameter_name(function, 0); }
+public i32 main() { return name_of(twice).len as i32; }
+''', [('core::meta::parameter_name needs a named function, not an arbitrary function pointer value', 4)])
+rejects('''module main;
+import core::meta;
+public struct Plain { i32 x; }
+const [] const char A = core::meta::attribute_argument!(Plain)("align", 0);
+public i32 main() { return 0; }
+''', [('no `@align` attribute', 4)])
+
 print(f'  RESULT {checks}/{checks} reflection checks passed')

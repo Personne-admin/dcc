@@ -16660,6 +16660,93 @@ export namespace dcc::sema
             return std::format("{}::{}", owner->canonical_path.str(), plain);
         }
 
+        [[nodiscard]] std::optional<std::string> meta_text_argument(ast::Expr const* expr)
+        {
+            auto const* value = expr ? expr->sema.const_value : nullptr;
+            if (value && value->kind() == comptime::Value::Kind::String)
+                return value->get_string();
+            return std::nullopt;
+        }
+
+        [[nodiscard]] std::string attribute_argument_text(ast::Expr const* argument)
+        {
+            if (auto const* text = ast::node_cast<ast::StringLiteralExpr>(argument))
+                return std::string{text->value};
+            return std::string{m_diag.source_manager().text_trimmed(argument->range)};
+        }
+
+        std::optional<comptime::Value const*> meta_attribute_query(std::span<ast::Attribute const> attrs, std::string_view query, std::span<ast::Expr* const> values,
+                                                                 types::TypePtr result_type, sm::SourceRange range)
+        {
+            auto name = values.empty() ? std::nullopt : meta_text_argument(values.front());
+            if (!name)
+            {
+                error(range, "{} requires a compile-time attribute name", query);
+                return std::nullopt;
+            }
+            auto found = std::ranges::find(attrs, std::string_view{*name}, &ast::Attribute::name);
+            if (!query.ends_with("argument"))
+                return make_bool_const(found != attrs.end(), result_type);
+            if (found == attrs.end())
+            {
+                error(range, "no `@{}` attribute", *name);
+                return std::nullopt;
+            }
+            auto const* index_value = values.size() > 1 && values[1] ? values[1]->sema.const_value : nullptr;
+            auto index = index_value ? const_to_int(*index_value) : std::nullopt;
+            if (!index || *index < 0 || static_cast<std::size_t>(*index) >= found->args.size())
+            {
+                error(range, "`@{}` has {} arguments; the index must be a compile-time constant below that", *name, found->args.size());
+                return std::nullopt;
+            }
+            return make_str_const(attribute_argument_text(found->args[static_cast<std::size_t>(*index)]), result_type);
+        }
+
+        void analyze_meta_function_query(ast::FuncDecl const& f, ast::CallExpr& call, detail::ExprResult& out)
+        {
+            auto fail = [&](std::string message) {
+                error(call.range, "{}", message);
+                call.sema.compile_time_failed = true;
+                out.type = m_types.m_errort();
+            };
+            if (call.sema.call_argument_offset >= call.args.size())
+                return fail(std::format("core::meta::{} needs a function", f.name));
+            auto* designator = call.args[call.sema.call_argument_offset];
+            auto const* function = ast::node_cast<ast::FuncDecl>(designator->sema.resolved_decl);
+            if (!function)
+                return fail(std::format("core::meta::{} needs a named function, not an arbitrary function pointer value", f.name));
+            auto values = std::span<ast::Expr* const>(call.args).subspan(call.sema.call_argument_offset + 1);
+            comptime::Value const* value = nullptr;
+            if (f.name == "function_location")
+                value = make_source_location_const(out.type, function->name_range.valid() ? function->name_range : function->range, nullptr);
+            else if (f.name == "function_has_attribute" || f.name == "function_attribute_argument")
+            {
+                auto result = meta_attribute_query(function->attrs, f.name, values, out.type, call.range);
+                if (!result)
+                {
+                    call.sema.compile_time_failed = true;
+                    out.type = m_types.m_errort();
+                    return;
+                }
+                value = *result;
+            }
+            else
+            {
+                auto const* index_value = values.empty() || !values.front() ? nullptr : values.front()->sema.const_value;
+                auto index = index_value ? const_to_int(*index_value) : std::nullopt;
+                if (!index)
+                    return fail(std::format("{} requires a compile-time parameter index", f.name));
+                if (*index < 0 || static_cast<std::size_t>(*index) >= function->params.size())
+                    return fail(std::format("parameter index {} is out of range for `{}` with {} parameters", *index, function->name, function->params.size()));
+                auto const& parameter = function->params[static_cast<std::size_t>(*index)];
+                value = f.name == "parameter_name" ? make_str_const(std::string{parameter.name}, out.type) : make_bool_const(parameter.default_value != nullptr, out.type);
+            }
+            out.constant = value;
+            out.is_constant = true;
+            call.sema.const_value = value;
+            call.sema.is_constant = true;
+        }
+
         void analyze_meta_field_access(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::CallExpr& call, detail::ExprResult& out, ConstEnv const* const_env,
                                        int loop_depth, std::uint32_t& next_off)
         {
@@ -16709,6 +16796,8 @@ export namespace dcc::sema
                 return;
             if (f.name == "field")
                 return analyze_meta_field_access(mod, fn, scope, call, out, const_env, loop_depth, next_off);
+            if (f.name.starts_with("parameter_name") || f.name == "parameter_has_default" || f.name.starts_with("function_"))
+                return analyze_meta_function_query(f, call, out);
             auto const* inst = ast::node_cast<ast::TemplateInstExpr>(call.callee);
             if (!inst)
             {
@@ -16931,6 +17020,40 @@ export namespace dcc::sema
                     auto location = field.decl ? field.decl->name_range : range;
                     return make_source_location_const(result_type, location, nullptr);
                 }
+            }
+            if (query == "parameter_count")
+            {
+                auto const* function = types::type_cast<types::FuncPtrType>(structural);
+                if (!function)
+                    return fail(std::format("parameter_count requires a function pointer type, not `{}`", format_dcc_type(subject)));
+                return make_int_const(static_cast<std::int64_t>(function->params.size()), result_type);
+            }
+            if (query == "has_attribute" || query == "attribute_argument" || query == "declaration_location" || query == "module_name")
+            {
+                ast::Decl const* decl = nullptr;
+                if (auto const* user = as_user_type(subject))
+                    decl = reinterpret_cast<ast::Decl const*>(user->decl);
+                else if (auto const* nominal = types::type_cast<types::NominalType>(subject))
+                    decl = static_cast<ast::Decl const*>(nominal->decl);
+                if (!decl)
+                    return fail(std::format("{} requires a declared type (struct, union, enum or nominal alias), not `{}`", query, format_dcc_type(subject)));
+                if (query == "declaration_location")
+                {
+                    auto location = decl->range;
+                    if (auto const* structure = ast::node_cast<ast::StructDecl>(decl); structure && structure->name_range.valid())
+                        location = structure->name_range;
+                    else if (auto const* unified = ast::node_cast<ast::UnionDecl>(decl); unified && unified->name_range.valid())
+                        location = unified->name_range;
+                    else if (auto const* enumeration = ast::node_cast<ast::EnumDecl>(decl); enumeration && enumeration->name_range.valid())
+                        location = enumeration->name_range;
+                    return make_source_location_const(result_type, location, nullptr);
+                }
+                if (query == "module_name")
+                {
+                    auto const* owner = find_defining_module(*decl);
+                    return make_str_const(owner ? owner->canonical_path.str() : std::string{}, result_type);
+                }
+                return meta_attribute_query(decl->attrs, query, values, result_type, range);
             }
             if (query.starts_with("variant"))
             {

@@ -127,7 +127,10 @@ namespace
                          f->name == "field_offset" || f->name == "field_is_bitfield" || f->name == "field_bit_offset" || f->name == "field_bit_width" ||
                          f->name == "field_has_default" || f->name == "field_location" || f->name == "has_field" || f->name == "field_index" ||
                          f->name == "field" || f->name == "variant_count" || f->name == "variant_name" || f->name == "variant_value" ||
-                         f->name == "variant_has_payload" || f->name == "variant_location" || f->name == "variant")
+                         f->name == "variant_has_payload" || f->name == "variant_location" || f->name == "variant" || f->name == "parameter_count" ||
+                         f->name == "has_attribute" || f->name == "attribute_argument" || f->name == "declaration_location" || f->name == "module_name" ||
+                         f->name == "parameter_name" || f->name == "parameter_has_default" || f->name == "function_location" ||
+                         f->name == "function_has_attribute" || f->name == "function_attribute_argument")
                     d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::MetaQuery;
             }
     }
