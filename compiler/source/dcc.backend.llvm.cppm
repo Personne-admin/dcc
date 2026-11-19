@@ -3084,30 +3084,8 @@ namespace dcc::backend
                             position[func->blocks[i]] = i;
                     auto block_successors = [&](IrBasicBlock* bb) {
                         std::vector<IrBasicBlock*> successors;
-                        if (bb && bb->terminator)
-                        {
-                            switch (bb->terminator->kind)
-                            {
-                                case IrNodeKind::Br:
-                                    successors.push_back(static_cast<IrBrInst*>(bb->terminator)->target);
-                                    break;
-                                case IrNodeKind::BrCond: {
-                                    auto* branch = static_cast<IrBrCondInst*>(bb->terminator);
-                                    successors.push_back(branch->true_target);
-                                    successors.push_back(branch->false_target);
-                                    break;
-                                }
-                                case IrNodeKind::Switch: {
-                                    auto* sw = static_cast<IrSwitchInst*>(bb->terminator);
-                                    successors.push_back(sw->default_target);
-                                    for (auto& c : sw->cases)
-                                        successors.push_back(c.target);
-                                    break;
-                                }
-                                default:
-                                    break;
-                            }
-                        }
+                        if (bb)
+                            for_each_successor(bb->terminator, [&](IrBasicBlock* succ) { successors.push_back(succ); });
                         auto rank = [&](IrBasicBlock* b) {
                             auto it = position.find(b);
                             return it != position.end() ? it->second : std::numeric_limits<std::size_t>::max();
