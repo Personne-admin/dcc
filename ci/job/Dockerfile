@@ -63,7 +63,9 @@ RUN set -eux; \
     wixl --version; msiinfo --version; \
     rm -rf /tmp/msitools /tmp/msitools.tar.xz /tmp/meson /tmp/meson.whl; \
     mkdir -p /usr/share/freedos; \
-    curl -fsSL --retry 6 --retry-all-errors --retry-delay 20 --connect-timeout 30 -o /tmp/freedos.zip "https://download.freedos.org/${FREEDOS_VERSION}/FD14-FloppyEdition.zip"; \
+    curl -fsSL --retry 2 --retry-all-errors --retry-delay 10 --connect-timeout 20 -o /tmp/freedos.zip "https://download.freedos.org/${FREEDOS_VERSION}/FD14-FloppyEdition.zip" \
+        || curl -fsSL --retry 6 --retry-all-errors --retry-delay 20 --connect-timeout 30 -o /tmp/freedos.zip \
+            "https://www.ibiblio.org/pub/micro/pc-stuff/freedos/files/distributions/${FREEDOS_VERSION}/FD14-FloppyEdition.zip"; \
     echo "${FREEDOS_ZIP_SHA256}  /tmp/freedos.zip" | sha256sum -c -; \
     unzip -p /tmp/freedos.zip 144m/x86BOOT.img > /usr/share/freedos/x86BOOT.img; \
     echo "${FREEDOS_IMAGE_SHA256}  /usr/share/freedos/x86BOOT.img" | sha256sum -c -; \
