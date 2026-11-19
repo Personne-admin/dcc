@@ -1,0 +1,139 @@
+=== TARGET: x86_64-coff FLAGS: -fseh ===
+=== FILE: main.dc ===
+module m;
+
+import core::seh;
+
+struct R {
+    bool ok;
+    i32 value;
+}
+
+bool is_ok(R self) { return self.ok; }
+i32 unwrap(R self) { return self.value; }
+i32 unwrap_err(R self) { return self.value; }
+
+R value() {
+    return { ok = true, value = 1 };
+}
+
+i32 filter_errors() {
+    try {
+    } except value()? {
+    }
+    try {
+    } except 1.5 {
+    }
+    return 0;
+}
+
+i32 finally_errors() {
+    for i32 i = 0; i < 2; i++ {
+        try {
+        } finally {
+            return 1;
+        }
+        try {
+        } finally {
+            break;
+        }
+        try {
+        } finally {
+            i32 v = value()?;
+        }
+        try {
+        } finally {
+            defer i = 0;
+        }
+    }
+    return 0;
+}
+
+void leave_errors() {
+    leave;
+    try {
+        defer leave;
+    } finally {
+        leave;
+    }
+    try {
+    } except 1 {
+        leave;
+    }
+}
+
+u32 intrinsic_errors() {
+    u32 code = core::seh::exception_code();
+    core::seh::ExceptionPointers* info = core::seh::exception_info();
+    bool abnormal = core::seh::abnormal_termination();
+    try {
+    } except core::seh::Disposition::ExecuteHandler {
+        info = core::seh::exception_info();
+        code = core::seh::exception_code();
+    }
+    try {
+    } except core::seh::exception_code() == core::seh::EXCEPTION_ACCESS_VIOLATION {
+    }
+    try {
+    } except core::seh::exception_info().record.code == 5 {
+    }
+    try {
+    } finally {
+        abnormal = core::seh::abnormal_termination();
+    }
+    defer abnormal = core::seh::abnormal_termination();
+    return code;
+}
+
+void ok_forms() {
+    i32 x = 0;
+    try {
+        x = 1;
+        leave;
+    } except core::seh::Disposition::ExecuteHandler {
+        x = 2;
+    } finally {
+        x = 3;
+    }
+    try {
+        try {
+            leave;
+        } finally {
+            x = 4;
+        }
+    } except 1 {
+        x = 5;
+    }
+    try {
+        try {
+        } except 1 {
+            leave;
+        }
+    } finally {
+        x = 6;
+    }
+}
+
+i32 falls_through_after_leave() {
+    try {
+        leave;
+    } finally {
+    }
+    return 1;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:20: `?` cannot propagate out of an `except` filter; handle the result explicitly
+main.dc:23: `except` filter must be an integer, a bool or `core::seh::Disposition`, not `f64`
+main.dc:32: `finally` block must not transfer control
+main.dc:36: `finally` block must not transfer control
+main.dc:40: `?` cannot propagate out of a `finally` block; handle the result explicitly
+main.dc:44: defer is not allowed inside a `finally` block
+main.dc:51: `leave` outside a `try` block
+main.dc:53: deferred statement must not transfer control
+main.dc:55: `finally` block must not transfer control
+main.dc:59: `leave` outside a `try` block
+main.dc:64: `exception_code()` is only valid in an `except` filter or handler
+main.dc:65: `exception_info()` is only valid in an `except` filter
+main.dc:66: `abnormal_termination()` is only valid in a `finally` block or a deferred statement
+main.dc:69: `exception_info()` is only valid in an `except` filter

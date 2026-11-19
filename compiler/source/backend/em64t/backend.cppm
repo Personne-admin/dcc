@@ -176,7 +176,14 @@ namespace dcc::backend
                         return artifact;
                     }
                 }
-
+                for (auto* function : module.functions)
+                    if (function && function->has_eh)
+                    {
+                        artifact.diagnostics.push_back(BackendDiagnostic{
+                            function->range,
+                            std::format("custom backend: function '{}' uses structured exception handling; use -fbackend llvm", function->name)});
+                        return artifact;
+                    }
 
                 bool want_mir = opts.requested_artifacts.contains(ArtifactKind::MirText);
                 bool want_asm = opts.requested_artifacts.contains(ArtifactKind::AsmText);

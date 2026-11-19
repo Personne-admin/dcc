@@ -1667,6 +1667,48 @@ namespace dcc::backend
             });
         }
 
+        struct EhEmitState
+        {
+            LLVMModuleRef module{};
+            LLVMValueRef llvm_func{};
+            LLVMBasicBlockRef unwind_dest{};
+            LLVMValueRef funclet{};
+        };
+
+        inline thread_local EhEmitState* t_eh_state = nullptr;
+
+        [[nodiscard]] LLVMValueRef build_call_or_invoke(LLVMBuilderRef builder, LLVMContextRef ctx, LLVMTypeRef fn_type, LLVMValueRef callee,
+                                                        LLVMValueRef* args, unsigned count, bool allow_invoke = true)
+        {
+            auto* state = t_eh_state;
+            LLVMOperandBundleRef bundle = nullptr;
+            if (state && state->funclet)
+            {
+                LLVMValueRef token[] = {state->funclet};
+                bundle = LLVMCreateOperandBundle("funclet", 7, token, 1);
+            }
+            LLVMValueRef result;
+            if (allow_invoke && state && state->unwind_dest)
+            {
+                auto* cont = LLVMAppendBasicBlockInContext(ctx, state->llvm_func, "invoke.cont");
+                result = LLVMBuildInvokeWithOperandBundles(builder, fn_type, callee, args, count, cont, state->unwind_dest, bundle ? &bundle : nullptr,
+                                                           bundle ? 1u : 0u, "");
+                LLVMPositionBuilderAtEnd(builder, cont);
+            }
+            else
+                result = LLVMBuildCallWithOperandBundles(builder, fn_type, callee, args, count, bundle ? &bundle : nullptr, bundle ? 1u : 0u, "");
+            if (bundle)
+                LLVMDisposeOperandBundle(bundle);
+            return result;
+        }
+
+        [[nodiscard]] LLVMValueRef eh_intrinsic(LLVMModuleRef module, std::string_view name, LLVMTypeRef& type, LLVMContextRef ctx)
+        {
+            auto id = LLVMLookupIntrinsicID(name.data(), name.size());
+            type = LLVMIntrinsicGetType(ctx, id, nullptr, 0);
+            return LLVMGetIntrinsicDeclaration(module, id, nullptr, 0);
+        }
+
         class LlvmBackendImpl : public Backend
         {
         public:
@@ -1817,6 +1859,12 @@ namespace dcc::backend
                         auto* cv_md = LLVMValueAsMetadata(llvm_const_int(LLVMInt32TypeInContext(ctx), 1, false));
                         LLVMAddModuleFlag(llvm_mod, LLVMModuleFlagBehaviorWarning, "CodeView", 8, cv_md);
                     }
+                }
+
+                if (std::ranges::any_of(input_module->functions, [](IrFunction const* f) { return f->has_eh; }))
+                {
+                    auto* asynch_md = LLVMValueAsMetadata(llvm_const_int(LLVMInt32TypeInContext(ctx), 1, false));
+                    LLVMAddModuleFlag(llvm_mod, LLVMModuleFlagBehaviorWarning, "eh-asynch", 9, asynch_md);
                 }
 
                 std::unordered_map<IrValue const*, LLVMValueRef> val_map;
@@ -3085,7 +3133,7 @@ namespace dcc::backend
                     auto block_successors = [&](IrBasicBlock* bb) {
                         std::vector<IrBasicBlock*> successors;
                         if (bb)
-                            for_each_successor(bb->terminator, [&](IrBasicBlock* succ) { successors.push_back(succ); });
+                            for_each_block_successor(bb, [&](IrBasicBlock* succ) { successors.push_back(succ); });
                         auto rank = [&](IrBasicBlock* b) {
                             auto it = position.find(b);
                             return it != position.end() ? it->second : std::numeric_limits<std::size_t>::max();
@@ -3127,6 +3175,89 @@ namespace dcc::backend
 
                 std::uint32_t instruction_index = 0;
 
+                EhEmitState eh_state{LLVMGetGlobalParent(llvm_func), llvm_func, nullptr, nullptr};
+                struct EhStateGuard
+                {
+                    EhEmitState* previous;
+                    ~EhStateGuard() { t_eh_state = previous; }
+                } eh_state_guard{std::exchange(t_eh_state, &eh_state)};
+
+                if (func->has_eh)
+                {
+                    auto* module_ref = LLVMGetGlobalParent(llvm_func);
+                    auto* personality = LLVMGetNamedFunction(module_ref, "__C_specific_handler");
+                    if (!personality)
+                        personality = LLVMAddFunction(module_ref, "__C_specific_handler", LLVMFunctionType(LLVMInt32TypeInContext(ctx), nullptr, 0, 1));
+                    LLVMSetPersonalityFn(llvm_func, personality);
+
+                    std::unordered_map<IrValue const*, IrBasicBlock const*> pad_home;
+                    for (auto* bb : func->blocks)
+                    {
+                        if (!bb)
+                            continue;
+                        if (bb->terminator && bb->terminator->kind == IrNodeKind::CatchSwitch)
+                            pad_home[static_cast<IrValue const*>(bb->terminator)] = bb;
+                        else if (!bb->instructions.empty() && is_eh_pad(bb->instructions.front()))
+                            pad_home[bb->instructions.front()] = bb;
+                    }
+
+                    std::function<LLVMValueRef(IrValue const*)> ensure_pad = [&](IrValue const* pad) -> LLVMValueRef {
+                        if (!pad)
+                            return nullptr;
+                        if (auto it = val_map.find(pad); it != val_map.end())
+                            return it->second;
+                        auto home = pad_home.find(pad);
+                        if (home == pad_home.end())
+                            return nullptr;
+                        LLVMValueRef built = nullptr;
+                        switch (pad->kind)
+                        {
+                            case IrNodeKind::CleanupPad: {
+                                auto* parent = ensure_pad(static_cast<IrCleanupPadInst const*>(pad)->parent_pad);
+                                LLVMPositionBuilderAtEnd(builder, bb_map[home->second]);
+                                built = LLVMBuildCleanupPad(builder, parent, nullptr, 0, "");
+                                break;
+                            }
+                            case IrNodeKind::CatchSwitch: {
+                                auto* cs = static_cast<IrCatchSwitchInst const*>(pad);
+                                auto* parent = ensure_pad(cs->parent_pad);
+                                LLVMPositionBuilderAtEnd(builder, bb_map[home->second]);
+                                built = LLVMBuildCatchSwitch(builder, parent, cs->unwind_dest ? bb_map[cs->unwind_dest] : nullptr,
+                                                             static_cast<unsigned>(cs->handlers.size()), "");
+                                for (auto* handler : cs->handlers)
+                                    LLVMAddHandler(built, bb_map[handler]);
+                                break;
+                            }
+                            case IrNodeKind::CatchPad: {
+                                auto* cp = static_cast<IrCatchPadInst const*>(pad);
+                                auto* cs = ensure_pad(cp->catch_switch);
+                                LLVMValueRef filter = nullptr;
+                                if (cp->filter)
+                                    if (auto* gref = ir_cast<IrGlobalRef>(cp->filter); gref && gref->function)
+                                        if (auto it = val_map.find(gref->function); it != val_map.end())
+                                            filter = it->second;
+                                if (!filter)
+                                    filter = LLVMConstNull(LLVMPointerTypeInContext(ctx, 0));
+                                LLVMPositionBuilderAtEnd(builder, bb_map[home->second]);
+                                built = LLVMBuildCatchPad(builder, cs, &filter, 1, "");
+                                break;
+                            }
+                            default:
+                                break;
+                        }
+                        val_map[pad] = built;
+                        return built;
+                    };
+                    for (auto const& [pad, home] : pad_home)
+                        if (!ensure_pad(pad))
+                        {
+                            add_diag(diags, func->range, std::format("LLVM backend: could not build exception handling pad in function '{}'", func->name));
+                            return false;
+                        }
+                }
+
+                std::unordered_map<IrBasicBlock const*, LLVMBasicBlockRef> exit_bb;
+
                 for (auto* bb : emit_order)
                 {
                     if (!bb)
@@ -3134,12 +3265,22 @@ namespace dcc::backend
 
                     auto* llvm_bb = bb_map[bb];
                     LLVMPositionBuilderAtEnd(builder, llvm_bb);
+                    eh_state.unwind_dest = bb->unwind_target ? bb_map[bb->unwind_target] : nullptr;
+                    eh_state.funclet = nullptr;
+                    if (bb->funclet)
+                        if (auto it = val_map.find(bb->funclet); it != val_map.end())
+                            eh_state.funclet = it->second;
 
                     instruction_index = 0;
                     if (debug)
                         block_debug_loc = first_block_debug_loc(bb);
                     for (auto* inst : bb->instructions)
                     {
+                        if (is_eh_pad(inst))
+                        {
+                            ++instruction_index;
+                            continue;
+                        }
                         apply_debug_loc(builder, inst);
                         auto const diag_count = diags.size();
                         if (!emit_instruction(inst, builder, ctx, tc, val_map, bb_map, target, diags, debug, func))
@@ -3154,7 +3295,11 @@ namespace dcc::backend
                         ++instruction_index;
                     }
 
-                    if (bb->terminator)
+                    exit_bb[bb] = LLVMGetInsertBlock(builder);
+                    if (bb->terminator && bb->terminator->kind == IrNodeKind::CatchSwitch)
+                    {
+                    }
+                    else if (bb->terminator)
                     {
                         apply_debug_loc(builder, bb->terminator);
                         auto const diag_count = diags.size();
@@ -3232,8 +3377,9 @@ namespace dcc::backend
                                 return false;
                             }
 
+                            auto exit_it = exit_bb.find(pred.block);
                             LLVMValueRef vals[] = {val};
-                            LLVMBasicBlockRef blocks[] = {bb_it->second};
+                            LLVMBasicBlockRef blocks[] = {exit_it != exit_bb.end() ? exit_it->second : bb_it->second};
                             LLVMAddIncoming(phi, vals, blocks, 1);
                         }
                     }
@@ -4554,7 +4700,7 @@ namespace dcc::backend
                             }
                         }
 
-                        auto* call_inst = LLVMBuildCall2(builder, sig.fn_type, callee, args.data(), static_cast<unsigned>(args.size()), "");
+                        auto* call_inst = build_call_or_invoke(builder, ctx, sig.fn_type, callee, args.data(), static_cast<unsigned>(args.size()));
                         auto add_indirect_call_attr = [&](unsigned index, IrType const* type, const char* name) {
                             auto kind = LLVMGetEnumAttributeKindForName(name, static_cast<unsigned>(std::strlen(name)));
                             if (kind != 0)
@@ -5207,6 +5353,67 @@ namespace dcc::backend
                         }
                         break;
                     }
+                    case IrNodeKind::SehMarker: {
+                        static constexpr std::string_view names[] = {"llvm.seh.try.begin", "llvm.seh.try.end", "llvm.seh.scope.begin", "llvm.seh.scope.end"};
+                        auto* state = t_eh_state;
+                        if (!state || !state->unwind_dest)
+                            break;
+                        LLVMTypeRef type{};
+                        auto* fn = eh_intrinsic(state->module, names[static_cast<std::size_t>(static_cast<IrSehMarkerInst const*>(inst)->marker)], type, ctx);
+                        std::ignore = build_call_or_invoke(builder, ctx, type, fn, nullptr, 0);
+                        break;
+                    }
+                    case IrNodeKind::ExceptionCode: {
+                        auto* state = t_eh_state;
+                        auto* ec = static_cast<IrExceptionCodeInst const*>(inst);
+                        auto pad = val_map.find(ec->pad);
+                        if (!state || pad == val_map.end())
+                            return false;
+                        LLVMTypeRef type{};
+                        auto* fn = eh_intrinsic(state->module, "llvm.eh.exceptioncode", type, ctx);
+                        LLVMValueRef args[] = {pad->second};
+                        auto* code = LLVMBuildCall2(builder, type, fn, args, 1, "");
+                        val_map[inst] = code;
+                        break;
+                    }
+                    case IrNodeKind::LocalEscape: {
+                        auto* state = t_eh_state;
+                        auto* le = static_cast<IrLocalEscapeInst const*>(inst);
+                        std::vector<LLVMValueRef> slots;
+                        for (auto* slot : le->slots)
+                        {
+                            auto* v = lookup(slot);
+                            if (!v)
+                                return false;
+                            slots.push_back(v);
+                        }
+                        if (!state || slots.empty())
+                            break;
+                        LLVMTypeRef type{};
+                        auto* fn = eh_intrinsic(state->module, "llvm.localescape", type, ctx);
+                        std::ignore = LLVMBuildCall2(builder, type, fn, slots.data(), static_cast<unsigned>(slots.size()), "");
+                        break;
+                    }
+                    case IrNodeKind::LocalRecover: {
+                        auto* state = t_eh_state;
+                        auto* lr = static_cast<IrLocalRecoverInst const*>(inst);
+                        auto* parent = ir_cast<IrGlobalRef>(lr->parent);
+                        auto* parent_fn = parent && parent->function ? lookup(parent->function) : nullptr;
+                        auto* frame = lookup(lr->frame);
+                        if (!state || !parent_fn || !frame)
+                            return false;
+                        LLVMTypeRef fp_type{};
+                        auto* recoverfp = eh_intrinsic(state->module, "llvm.eh.recoverfp", fp_type, ctx);
+                        LLVMValueRef fp_args[] = {parent_fn, frame};
+                        auto* fp = LLVMBuildCall2(builder, fp_type, recoverfp, fp_args, 2, "");
+                        LLVMTypeRef recover_type{};
+                        auto* recover = eh_intrinsic(state->module, "llvm.localrecover", recover_type, ctx);
+                        LLVMValueRef recover_args[] = {parent_fn, fp, LLVMConstInt(LLVMInt32TypeInContext(ctx), lr->index, 0)};
+                        auto* slot = LLVMBuildCall2(builder, recover_type, recover, recover_args, 3, "");
+                        set_name(slot);
+                        val_map[inst] = slot;
+                        break;
+                    }
                     default:
                         add_diag(diags, inst->range, std::format("LLVM backend: unsupported instruction kind {}", static_cast<int>(inst->kind)));
                         return false;
@@ -5250,6 +5457,23 @@ namespace dcc::backend
 
                 switch (term->kind)
                 {
+                    case IrNodeKind::CatchRet: {
+                        auto* cr = static_cast<IrCatchRetInst const*>(term);
+                        auto pad = val_map.find(cr->pad);
+                        auto* target_bb = bb_map[cr->target];
+                        if (pad == val_map.end() || !target_bb)
+                            return false;
+                        LLVMBuildCatchRet(builder, pad->second, target_bb);
+                        break;
+                    }
+                    case IrNodeKind::CleanupRet: {
+                        auto* cr = static_cast<IrCleanupRetInst const*>(term);
+                        auto pad = val_map.find(cr->pad);
+                        if (pad == val_map.end())
+                            return false;
+                        LLVMBuildCleanupRet(builder, pad->second, cr->unwind_dest ? bb_map[cr->unwind_dest] : nullptr);
+                        break;
+                    }
                     case IrNodeKind::Br: {
                         auto* b = static_cast<IrBrInst const*>(term);
                         auto* target_bb = bb_map[b->target];

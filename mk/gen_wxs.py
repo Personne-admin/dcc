@@ -64,7 +64,7 @@ def main():
         if not os.path.isfile(os.path.join(stage_dir, "bin", name)):
             p.error(f"MSI payload is missing bin/{name}")
 
-    for name in ("kernel32", "ws2_32", "advapi32", "shell32"):
+    for name in ("kernel32", "ws2_32", "advapi32", "shell32", "ntdll"):
         if not os.path.isfile(os.path.join(stage_dir, "lib", "lib" + name + ".a")):
             p.error(f"MSI payload is missing lib/lib{name}.a")
 

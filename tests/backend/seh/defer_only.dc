@@ -1,0 +1,9 @@
+module defer_only;
+
+@nomangle extern void note(i32 v);
+
+@nomangle public i32 deferred(i32 v) {
+    defer note(v);
+    note(v + 1);
+    return v;
+}

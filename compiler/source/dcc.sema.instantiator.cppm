@@ -543,6 +543,24 @@ namespace dcc::sema
                     auto* st = static_cast<ast::DeferStmt const*>(s);
                     return m_ctx.make<ast::DeferStmt>(st->range, clone_stmt(st->body));
                 }
+                case ast::StmtKind::Try: {
+                    auto* st = static_cast<ast::TryStmt const*>(s);
+                    auto* n = m_ctx.make<ast::TryStmt>(st->range, clone_block(st->body), m_ctx.allocator());
+                    n->filter = clone_expr(st->filter);
+                    n->except_range = st->except_range;
+                    n->handler = clone_block(st->handler);
+                    n->finally_range = st->finally_range;
+                    n->finally_block = clone_block(st->finally_block);
+                    n->has_except = st->has_except;
+                    n->has_finally = st->has_finally;
+                    return n;
+                }
+                case ast::StmtKind::Leave: {
+                    auto* st = static_cast<ast::LeaveStmt const*>(s);
+                    auto* n = m_ctx.make<ast::LeaveStmt>(st->range, m_ctx.allocator());
+                    n->exit_defers.assign(st->exit_defers.begin(), st->exit_defers.end());
+                    return n;
+                }
                 case ast::StmtKind::StaticIf: {
                     auto* st = static_cast<ast::StaticIfStmt const*>(s);
                     auto then_blk = clone_block(st->then_block);
@@ -1344,6 +1362,7 @@ namespace dcc::sema
                     break;
                 case ast::StmtKind::Break:
                 case ast::StmtKind::Continue:
+                case ast::StmtKind::Leave:
                     break;
                 case ast::StmtKind::While: {
                     auto* st = static_cast<ast::WhileStmt*>(s);
@@ -1375,6 +1394,14 @@ namespace dcc::sema
                 case ast::StmtKind::Defer:
                     substitute_in_stmt(static_cast<ast::DeferStmt*>(s)->body);
                     break;
+                case ast::StmtKind::Try: {
+                    auto* st = static_cast<ast::TryStmt*>(s);
+                    substitute_in_block(st->body);
+                    substitute_in_expr(st->filter);
+                    substitute_in_block(st->handler);
+                    substitute_in_block(st->finally_block);
+                    break;
+                }
                 case ast::StmtKind::StaticIf: {
                     auto* st = static_cast<ast::StaticIfStmt*>(s);
                     substitute_in_expr(st->condition);
@@ -1799,6 +1826,7 @@ namespace dcc::sema
                 case ast::StmtKind::Return:
                 case ast::StmtKind::Break:
                 case ast::StmtKind::Continue:
+                case ast::StmtKind::Leave:
                 case ast::StmtKind::Ambiguous:
                 case ast::StmtKind::Asm:
                     break;
@@ -1817,6 +1845,13 @@ namespace dcc::sema
                 case ast::StmtKind::Defer:
                     fold_in_stmt(static_cast<ast::DeferStmt*>(s)->body);
                     break;
+                case ast::StmtKind::Try: {
+                    auto* st = static_cast<ast::TryStmt*>(s);
+                    fold_block(st->body);
+                    fold_block(st->handler);
+                    fold_block(st->finally_block);
+                    break;
+                }
                 case ast::StmtKind::StaticIf: {
                     auto* si = static_cast<ast::StaticIfStmt*>(s);
                     fold_block(si->then_block);
@@ -2183,6 +2218,7 @@ namespace dcc::sema
                         break;
                     case ast::StmtKind::Break:
                     case ast::StmtKind::Continue:
+                    case ast::StmtKind::Leave:
                         break;
                     case ast::StmtKind::While: {
                         auto* ws = static_cast<ast::WhileStmt*>(s);
@@ -2213,6 +2249,14 @@ namespace dcc::sema
                     case ast::StmtKind::Defer:
                         replace_in_stmt(static_cast<ast::DeferStmt*>(s)->body);
                         break;
+                    case ast::StmtKind::Try: {
+                        auto* st = static_cast<ast::TryStmt*>(s);
+                        replace_in_block(st->body);
+                        replace_in_expr(st->filter);
+                        replace_in_block(st->handler);
+                        replace_in_block(st->finally_block);
+                        break;
+                    }
                     case ast::StmtKind::StaticIf: {
                         auto* si = static_cast<ast::StaticIfStmt*>(s);
                         replace_in_expr(si->condition);
@@ -2921,6 +2965,7 @@ export namespace dcc::sema
                         case ast::StmtKind::Break:
                             break;
                         case ast::StmtKind::Continue:
+                        case ast::StmtKind::Leave:
                             break;
                         case ast::StmtKind::While: {
                             auto* ws = static_cast<ast::WhileStmt*>(s);
@@ -2951,6 +2996,14 @@ export namespace dcc::sema
                         case ast::StmtKind::Defer: {
                             auto* ds = static_cast<ast::DeferStmt*>(s);
                             expand_in_stmt(ds->body);
+                            break;
+                        }
+                        case ast::StmtKind::Try: {
+                            auto* st = static_cast<ast::TryStmt*>(s);
+                            expand_block(st->body);
+                            expand_in_expr(st->filter, false);
+                            expand_block(st->handler);
+                            expand_block(st->finally_block);
                             break;
                         }
                         case ast::StmtKind::StaticIf: {
@@ -3563,6 +3616,7 @@ export namespace dcc::sema
                                             break;
                                         case ast::StmtKind::Break:
                                         case ast::StmtKind::Continue:
+                                        case ast::StmtKind::Leave:
                                         case ast::StmtKind::Ambiguous:
                                             break;
                                         case ast::StmtKind::While: {
@@ -3614,6 +3668,14 @@ export namespace dcc::sema
                                         case ast::StmtKind::Defer: {
                                             auto* ds = static_cast<ast::DeferStmt*>(s);
                                             replace_in_stmt(ds->body);
+                                            break;
+                                        }
+                                        case ast::StmtKind::Try: {
+                                            auto* st = static_cast<ast::TryStmt*>(s);
+                                            replace_in_block(st->body);
+                                            replace_in_expr(st->filter);
+                                            replace_in_block(st->handler);
+                                            replace_in_block(st->finally_block);
                                             break;
                                         }
                                         case ast::StmtKind::Asm: {
@@ -3850,6 +3912,7 @@ export namespace dcc::sema
                                         break;
                                     case ast::StmtKind::Break:
                                     case ast::StmtKind::Continue:
+                                    case ast::StmtKind::Leave:
                                     case ast::StmtKind::Ambiguous:
                                         break;
                                     case ast::StmtKind::While: {
@@ -3901,6 +3964,14 @@ export namespace dcc::sema
                                     case ast::StmtKind::Defer: {
                                         auto* ds = static_cast<ast::DeferStmt*>(s);
                                         replace_in_stmt(ds->body);
+                                        break;
+                                    }
+                                    case ast::StmtKind::Try: {
+                                        auto* st = static_cast<ast::TryStmt*>(s);
+                                        replace_in_block(st->body);
+                                        replace_in_expr(st->filter);
+                                        replace_in_block(st->handler);
+                                        replace_in_block(st->finally_block);
                                         break;
                                     }
                                     case ast::StmtKind::Asm: {
@@ -4327,6 +4398,7 @@ export namespace dcc::sema
                             break;
                         case ast::StmtKind::Break:
                         case ast::StmtKind::Continue:
+                        case ast::StmtKind::Leave:
                         case ast::StmtKind::Ambiguous:
                             break;
                         case ast::StmtKind::While:
@@ -4353,6 +4425,14 @@ export namespace dcc::sema
                         case ast::StmtKind::Defer:
                             walk_stmt(static_cast<ast::DeferStmt const*>(s)->body);
                             break;
+                        case ast::StmtKind::Try: {
+                            auto* st = static_cast<ast::TryStmt const*>(s);
+                            walk_block(st->body);
+                            walk_expr(st->filter);
+                            walk_block(st->handler);
+                            walk_block(st->finally_block);
+                            break;
+                        }
                         case ast::StmtKind::StaticIf:
                             walk_expr(static_cast<ast::StaticIfStmt const*>(s)->condition);
                             walk_block(static_cast<ast::StaticIfStmt const*>(s)->then_block);

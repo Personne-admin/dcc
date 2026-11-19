@@ -1,0 +1,58 @@
+=== TARGET: x86_64-coff FLAGS: -fseh ===
+=== FILE: main.dc ===
+module test;
+
+import core::seh;
+
+@nomangle extern void use(i32* p);
+@nomangle extern void note(i32 v);
+
+@nomangle public i32 probe(i32* p, i32 limit) {
+    i32 local = 1;
+    defer note(local);
+    try {
+        try {
+            local = *p;
+            use(&local);
+        } finally {
+            note(core::seh::abnormal_termination() as i32);
+        }
+    } except core::seh::exception_code() == core::seh::EXCEPTION_ACCESS_VIOLATION && local < limit {
+        return core::seh::exception_code() as i32;
+    }
+    return local;
+}
+
+@nomangle public i32 catch_all(i32* p) {
+    try {
+        return *p;
+    } except 1 {
+        return -1;
+    }
+}
+
+@nomangle public i32 plain(i32 v) {
+    defer note(v);
+    return v;
+}
+
+=== EXPECT-LLVM-PATTERNS ===
+CONTAINS: define i32 @probe(ptr %p, i32 %limit) #0 personality ptr @__C_specific_handler
+CONTAINS: call void (...) @llvm.localescape(
+CONTAINS: invoke void @llvm.seh.scope.begin()
+CONTAINS: invoke void @llvm.seh.try.begin()
+CONTAINS: invoke void @llvm.seh.try.end()
+CONTAINS: invoke void @llvm.seh.scope.end()
+CONTAINS: cleanuppad within none []
+CONTAINS: [ "funclet"(token
+CONTAINS: catchswitch within none [label %seh.catch
+CONTAINS: [ptr @"probe$seh_filter1"]
+CONTAINS: [ptr null]
+CONTAINS: call i32 @llvm.eh.exceptioncode(token
+CONTAINS: load volatile i32, ptr %p
+CONTAINS: call ptr @llvm.eh.recoverfp(ptr @probe, ptr %frame)
+CONTAINS: call ptr @llvm.localrecover(ptr @probe,
+CONTAINS: define internal i32 @"probe$seh_filter1"(ptr %exception_pointers, ptr %frame)
+CONTAINS: !"eh-asynch", i32 1}
+CONTAINS: define i32 @plain(i32 %v) #0 personality ptr @__C_specific_handler
+FORBID: define i32 @plain(i32 %v) #0 {

@@ -20,9 +20,12 @@ export namespace dcc::backend::object
         return paths;
     }
 
-    [[nodiscard]] inline std::optional<std::string> missing_windows_import_library(std::vector<std::string> const& paths)
+    [[nodiscard]] inline std::optional<std::string> missing_windows_import_library(std::vector<std::string> const& paths, bool seh_imports = false)
     {
-        for (auto name : windows_import_libraries)
+        std::vector<std::string_view> names(windows_import_libraries.begin(), windows_import_libraries.end());
+        if (seh_imports)
+            names.push_back("ntdll");
+        for (auto name : names)
         {
             auto file = std::format("lib{}.a", name);
             bool found = std::ranges::any_of(paths, [&](std::string const& path) {
@@ -250,8 +253,9 @@ export namespace dcc::backend::object
         }
         auto const& plan = *planned;
         auto paths = plan.search_paths;
+        bool const seh_imports = windows && opts.target.seh && !opts.target.seh_runtime_libdcext;
         if (windows)
-            if (auto missing = missing_windows_import_library(paths))
+            if (auto missing = missing_windows_import_library(paths, seh_imports))
             {
                 host::process::Result result;
                 result.error = *missing;
@@ -284,6 +288,8 @@ export namespace dcc::backend::object
         if (windows)
             for (auto name : windows_import_libraries)
                 add({"-l" + std::string{name}});
+        if (seh_imports)
+            add({"-lntdll"});
         auto result = host::process::run(command);
         if (!result.started && result.error.starts_with("cannot find "))
             result.error = std::format("linker '{}' not found; dcc needs ld.lld beside dcc or on PATH to write executables", command.argv.front());

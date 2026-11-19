@@ -1,0 +1,92 @@
+module dcext::seh;
+
+public import core::seh;
+
+using Filter = i32(*)(core::seh::ExceptionPointers*, void*);
+using Termination = void(*)(u8, void*);
+
+struct ScopeRecord {
+    u32 begin;
+    u32 end;
+    u32 handler;
+    u32 target;
+}
+
+public struct DispatcherContext {
+    u64 control_pc;
+    u64 image_base;
+    void* function_entry;
+    u64 establisher_frame;
+    u64 target_ip;
+    core::seh::Context* context;
+    void* language_handler;
+    void* handler_data;
+    void* history_table;
+    u32 scope_index;
+    u32 fill0;
+}
+
+const i32 CONTINUE_EXECUTION = 0;
+const i32 CONTINUE_SEARCH = 1;
+
+@nomangle
+extern void RtlUnwindEx(void* target_frame, void* target_ip, core::seh::ExceptionRecord* record, void* return_value,
+                        core::seh::Context* context, void* history);
+
+ScopeRecord* scope_record(void* table, u32 index) {
+    return ((table as usize) + 4 + (index as usize) * 16) as ScopeRecord*;
+}
+
+bool covers(ScopeRecord* scope, u64 pc) {
+    return pc >= scope.begin as u64 && pc < scope.end as u64;
+}
+
+@nomangle
+public i32 __dcext_C_specific_handler(core::seh::ExceptionRecord* record, void* frame, core::seh::Context* context, DispatcherContext* dispatch) {
+    void* table = dispatch.handler_data;
+    u32 count = *(table as u32*);
+    u64 pc = dispatch.control_pc - dispatch.image_base;
+    u32 unwinding = core::seh::EXCEPTION_UNWINDING | core::seh::EXCEPTION_EXIT_UNWIND;
+
+    if (record.flags & unwinding) != 0 {
+        u64 target = dispatch.target_ip - dispatch.image_base;
+        bool target_unwind = (record.flags & core::seh::EXCEPTION_TARGET_UNWIND) != 0;
+        for u32 index = dispatch.scope_index; index < count; index++ {
+            ScopeRecord* scope = scope_record(table, index);
+            if !covers(scope, pc) {
+                continue;
+            }
+            if scope.target != 0 {
+                if target_unwind && target == scope.target as u64 {
+                    break;
+                }
+                continue;
+            }
+            dispatch.scope_index = index + 1;
+            Termination handler = (dispatch.image_base + scope.handler as u64) as Termination;
+            handler(1, frame);
+        }
+        return CONTINUE_SEARCH;
+    }
+
+    core::seh::ExceptionPointers pointers = { record = record, context = context };
+    for u32 index = dispatch.scope_index; index < count; index++ {
+        ScopeRecord* scope = scope_record(table, index);
+        if !covers(scope, pc) || scope.target == 0 {
+            continue;
+        }
+        if scope.handler != 1 {
+            Filter filter = (dispatch.image_base + scope.handler as u64) as Filter;
+            i32 disposition = filter(&pointers, frame);
+            if disposition < 0 {
+                return CONTINUE_EXECUTION;
+            }
+            if disposition == 0 {
+                continue;
+            }
+        }
+        void* target = (dispatch.image_base + scope.target as u64) as void*;
+        RtlUnwindEx(frame, target, record, record.code as usize as void*, dispatch.context, dispatch.history_table);
+    }
+    return CONTINUE_SEARCH;
+}

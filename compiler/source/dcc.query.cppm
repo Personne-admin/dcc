@@ -891,6 +891,7 @@ namespace dcc::query
                 }
                 case ast::StmtKind::Break:
                 case ast::StmtKind::Continue:
+                case ast::StmtKind::Leave:
                     break;
                 case ast::StmtKind::While: {
                     auto* s = static_cast<ast::WhileStmt const*>(stmt);
@@ -934,6 +935,18 @@ namespace dcc::query
                     auto* s = static_cast<ast::DeferStmt const*>(stmt);
                     if (s->body && range_contains_or_touches_end(s->body->range, target))
                         walk_stmt(s->body, result, target, opts);
+                    break;
+                }
+                case ast::StmtKind::Try: {
+                    auto* s = static_cast<ast::TryStmt const*>(stmt);
+                    if (range_contains_or_touches_end(s->body.range, target))
+                        walk_block(s->body, result, target, opts);
+                    if (s->filter && range_contains_or_touches_end(s->filter->range, target))
+                        walk_expr(s->filter, result, target, opts);
+                    if (s->has_except && range_contains_or_touches_end(s->handler.range, target))
+                        walk_block(s->handler, result, target, opts);
+                    if (s->has_finally && range_contains_or_touches_end(s->finally_block.range, target))
+                        walk_block(s->finally_block, result, target, opts);
                     break;
                 }
                 case ast::StmtKind::StaticIf: {
@@ -4146,6 +4159,13 @@ namespace dcc::query
                         auto const* s = static_cast<ast::DeferStmt const*>(stmt);
                         if (s->body)
                             visit_stmt(s->body, depth);
+                        break;
+                    }
+                    case StmtKind::Try: {
+                        auto const* s = static_cast<ast::TryStmt const*>(stmt);
+                        visit_block(s->body, depth + 1);
+                        visit_block(s->handler, depth + 1);
+                        visit_block(s->finally_block, depth + 1);
                         break;
                     }
                     case StmtKind::StaticIf: {

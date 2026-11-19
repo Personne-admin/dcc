@@ -168,6 +168,19 @@ export namespace dcc::parser
             return tok.kind == TK::Identifier && tok.interned == "in";
         }
 
+        bool is_contextual_at(std::size_t n, std::string_view word)
+        {
+            auto const& tok = peek(n);
+            return tok.kind == TK::Identifier && tok.interned == word;
+        }
+
+        bool is_contextual_stmt_start()
+        {
+            if (is_contextual_at(0, "try") && check_at(1, TK::LBrace))
+                return true;
+            return is_contextual_at(0, "leave") && check_at(1, TK::Semicolon);
+        }
+
         bool match_in()
         {
             if (!is_in_at(0))
@@ -3366,6 +3379,16 @@ export namespace dcc::parser
                     break;
             }
 
+            if (is_contextual_at(0, "try") && check_at(1, TK::LBrace))
+                return parse_try_stmt();
+
+            if (is_contextual_at(0, "leave") && check_at(1, TK::Semicolon))
+            {
+                advance();
+                advance();
+                return m_ctx.make<ast::LeaveStmt>(range_from(start), m_ctx.allocator());
+            }
+
             if (auto* stmt = try_parse_decl_or_expr_stmt())
                 return stmt;
 
@@ -3694,6 +3717,35 @@ export namespace dcc::parser
             s->cond = cond;
             s->update = update;
             return s;
+        }
+
+        ast::Stmt* parse_try_stmt()
+        {
+            auto start = loc();
+            advance();
+            auto body = parse_block();
+            auto* stmt = m_ctx.make<ast::TryStmt>(sm::SourceRange{}, std::move(body), m_ctx.allocator());
+            if (is_contextual_at(0, "except"))
+            {
+                auto except_start = loc();
+                advance();
+                stmt->has_except = true;
+                stmt->filter = parse_expr(0, true);
+                stmt->except_range = range_from(except_start);
+                stmt->handler = parse_block();
+            }
+            if (is_contextual_at(0, "finally") && check_at(1, TK::LBrace))
+            {
+                auto finally_start = loc();
+                advance();
+                stmt->has_finally = true;
+                stmt->finally_range = range_from(finally_start);
+                stmt->finally_block = parse_block();
+            }
+            if (!stmt->has_except && !stmt->has_finally)
+                error_at(single_range(), "expected 'except' or 'finally' after 'try' block");
+            stmt->range = range_from(start);
+            return stmt;
         }
 
         ast::Stmt* parse_defer_stmt()
@@ -4036,7 +4088,7 @@ export namespace dcc::parser
             while (!check(TK::RBrace) && !eof())
             {
                 RecoveryRangeBoundary recovery_boundary{*this};
-                if (is_stmt_keyword_token(peek().kind))
+                if (is_stmt_keyword_token(peek().kind) || is_contextual_stmt_start())
                 {
                     auto* s = parse_stmt();
                     if (s)

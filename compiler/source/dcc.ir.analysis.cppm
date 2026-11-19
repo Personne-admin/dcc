@@ -28,7 +28,7 @@ export namespace dcc::ir::analysis
         }
 
         auto get_succ = [](IrBasicBlock const* bb, std::vector<IrBasicBlock*>& out) {
-            for_each_successor(bb->terminator, [&](IrBasicBlock* succ) { out.push_back(succ); });
+            for_each_block_successor(bb, [&](IrBasicBlock* succ) { out.push_back(succ); });
         };
 
         while (!stack.empty())
@@ -69,7 +69,7 @@ export namespace dcc::ir::analysis
             if (!bb->terminator)
                 continue;
 
-            for_each_successor(bb->terminator, [&](IrBasicBlock* succ) {
+            for_each_block_successor(bb, [&](IrBasicBlock* succ) {
                 if (succ)
                     pm[succ].push_back(bb);
             });
@@ -677,7 +677,7 @@ export namespace dcc::ir::analysis
             auto preds = build_pred_map(func);
             std::unordered_map<IrBasicBlock const*, std::vector<IrBasicBlock*>> succs;
             for (auto* bb : func.blocks)
-                for_each_successor(bb->terminator, [&](IrBasicBlock* succ) { succs[bb].push_back(succ); });
+                for_each_block_successor(bb, [&](IrBasicBlock* succ) { succs[bb].push_back(succ); });
 
             std::unordered_map<IrBasicBlock const*, std::unordered_set<IrValue const*>> gen;
             std::unordered_map<IrBasicBlock const*, std::unordered_set<IrValue const*>> kill;

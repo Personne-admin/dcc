@@ -60,6 +60,8 @@ runtime linux dcext::linux::clone linux/clone.dc
 runtime windows dcext::windows::startup windows/startup.dc
 runtime windows dcext::windows::chkstk windows/chkstk.dc
 runtime windows dcext::windows::fltused windows/fltused.dc
+runtime windows dcext::seh common/seh.dc
+runtime freestanding dcext::seh common/seh.dc
 startup linux _start __dc_main
 startup windows _start __dc_main
 edge hosted _start __dc_rt_init

@@ -1727,6 +1727,9 @@ A deferred statement cannot transfer control out of itself: `return`, `break`,
 and a `defer` cannot be nested in another. Handle a fallible result inside a
 deferred statement explicitly, for example with `match` or `if !r.is_ok()`.
 
+With `-fseh`, deferred statements also run when an exception unwinds through
+their scope (section 21).
+
 ---
 
 ## 13. Control Flow
@@ -2503,3 +2506,75 @@ The slug is lowercase words joined with hyphens. Repeated titles append `-2`,
 
 On i8086 unreal, `core::seg::offset` and `with_offset` use `u32` so far/based offsets remain lossless despite 16-bit `usize`; other models retain `usize`.
 `core::target::CODE_MODEL` exposes the active `CodeModel` enum (Default, Small, Kernel, Medium, Large, Unreal, Unreal32).
+
+---
+
+## 21. Structured Exception Handling
+
+Structured exception handling (SEH) catches hardware faults (access
+violations, integer division by zero, breakpoints) and software exceptions
+raised with `core::seh::raise_exception` on `x86_64-coff` targets. It needs
+`-fseh` and the LLVM backend; other targets and `-fbackend custom` report an
+error. See docs/seh.md for the runtime contract.
+
+```dc
+import core::seh;
+
+i32 read_or(volatile i32* p, i32 fallback) {
+    try {
+        return *p;
+    } except core::seh::exception_code() == core::seh::EXCEPTION_ACCESS_VIOLATION {
+        return fallback;
+    }
+}
+
+void update(Device* d) {
+    lock(d);
+    try {
+        write_registers(d);
+    } finally {
+        unlock(d);
+    }
+}
+```
+
+`try`, `except`, `finally` and `leave` are contextual keywords: `try` is a
+keyword only at the start of a statement when a block follows, `except` and
+`finally` only directly after a `try` block, and `leave` only as the
+statement `leave;`. Elsewhere they are ordinary identifiers.
+
+- `try B except F H` runs `B`. When an exception reaches `B`, the filter
+  expression `F` is evaluated before any frame is unwound. `F` is an integer,
+  a `bool` (`true` means handle) or a `core::seh::Disposition`:
+  `ExecuteHandler` (1) unwinds to the handler block `H`, `ContinueSearch` (0)
+  passes the exception to outer handlers, `ContinueExecution` (-1) resumes at
+  the faulting instruction.
+- `try B finally Fin` runs `Fin` whenever control leaves `B`: falling off the
+  end, `return`, `break`, `continue`, `leave`, `?`, and exception unwinding.
+- `try B except F H finally Fin` is `try { try B except F H } finally Fin`.
+- `leave;` jumps to the end of the innermost enclosing `try` body; pending
+  `finally` blocks and defers run.
+
+A filter can read the locals and parameters visible at the `try` statement.
+It cannot use `?`, `return`, `break`, `continue`, `leave`, `defer` or `try`.
+A `finally` block follows the deferred-statement rules (section 12): it cannot
+use `?`, `return`, `break`, `continue`, `leave` or `defer`.
+
+With `-fseh`, every `defer` also runs when an exception unwinds through its
+scope, in reverse order together with the `finally` blocks. Frames compiled
+without `-fseh` are unwound without running their defers.
+
+`core::seh` provides the intrinsics:
+
+| Intrinsic | Valid in | Result |
+| --- | --- | --- |
+| `exception_code()` | filter, `except` handler | the exception code (`u32`) |
+| `exception_info()` | filter | `ExceptionPointers*` (record and context) |
+| `abnormal_termination()` | `finally`, deferred statement | `true` only while an exception unwinds |
+
+`abnormal_termination()` differs from MSVC's `_abnormal_termination()`:
+leaving a `try` body with `return`, `break` or `leave` is a normal exit.
+
+A `try` statement falls through when its body or its handler falls through;
+a `finally` block that cannot complete makes the whole statement diverge.
+`try` is not available during compile-time evaluation.

@@ -64,6 +64,8 @@ export namespace dcc::cli
         bool data_sections{false};
         bool data_sections_explicit{false};
         bool red_zone{true};
+        bool seh{false};
+        std::string_view seh_runtime{};
         bool simd{true};
         bool x87{true};
         bool stack_protector{true};
@@ -120,6 +122,7 @@ export namespace dcc::cli
     constexpr std::string_view k_choice_libdcext[] = {"linux", "windows", "freestanding"};
     constexpr std::string_view k_choice_opt[] = {"0", "1", "2", "s"};
     constexpr std::string_view k_choice_auto_init[] = {"none", "pattern", "zero"};
+    constexpr std::string_view k_choice_seh_runtime[] = {"libdcext", "external"};
 
     struct CliError
     {
@@ -421,6 +424,28 @@ export namespace dcc::cli
          "red zone",
          "on",
          [](Options& o, bool on, std::string_view, char**) { o.red_zone = on; }},
+
+        {"-fseh",
+         "-fno-seh",
+         {},
+         Arg::None,
+         "",
+         {},
+         Phase::Compile,
+         "structured exception handling (try, except, finally) for x86_64-coff; defers also run during exception unwinding",
+         "off",
+         [](Options& o, bool on, std::string_view, char**) { o.seh = on; }},
+
+        {"-fseh-runtime",
+         "",
+         {},
+         Arg::Required,
+         "<provider>",
+         k_choice_seh_runtime,
+         Phase::Both,
+         "provider of __C_specific_handler with -fseh (libdcext, or external for the operating system's)",
+         "external with -flibdcext windows, else libdcext",
+         [](Options& o, bool, std::string_view v, char**) { o.seh_runtime = v; }},
 
         {"-ffunction-sections", "-fno-function-sections", {}, Arg::None, "", {}, Phase::Compile, "per-function sections", "off",
          [](Options& o, bool on, std::string_view, char**) { o.function_sections = on; o.function_sections_explicit = true; }},

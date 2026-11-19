@@ -30,7 +30,7 @@ for f in ./bin/dcc.exe ./bin/dccd.exe ./bin/dpm.exe ./bin/learndc.exe ./bin/ld.l
     grep -qxF "$f" "$work/installed.txt" || { echo "error: $f not installed" >&2; exit 1; }
 done
 echo "installed $(wc -l < "$work/installed.txt") files under C:\\Program Files\\dcc"
-if grep -E '^\./lib/' "$work/installed.txt" | grep -vE '/(libdcext-(windows|freestanding)-(llvm|custom)|lib(kernel32|ws2_32|advapi32|shell32))\.a$'; then
+if grep -E '^\./lib/' "$work/installed.txt" | grep -vE '/(libdcext-(windows|freestanding)-(llvm|custom)|lib(kernel32|ws2_32|advapi32|shell32|ntdll))\.a$'; then
     echo "error: unexpected libraries installed" >&2
     exit 1
 fi

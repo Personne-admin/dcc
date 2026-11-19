@@ -132,7 +132,7 @@
             "patterns": [
                 {
                     "name": "keyword.control.dc",
-                    "match": "\\b(?:if|else|while|for|do|match|break|continue|return|defer|as)\\b"
+                    "match": "\\b(?:if|else|while|for|do|match|break|continue|return|defer|as|try|except|finally|leave)\\b"
                 },
                 {
                     "name": "keyword.other.dc",

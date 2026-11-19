@@ -505,6 +505,34 @@ export namespace dcc::sema
                     line_fmt("Asm volatile={} dialect={}", static_cast<ast::AsmStmt const&>(s).is_volatile,
                              static_cast<ast::AsmStmt const&>(s).dialect == ast::AsmDialect::Intel ? "intel" : "att");
                     break;
+                case ast::StmtKind::Try: {
+                    auto const& t = static_cast<ast::TryStmt const&>(s);
+                    line("Try");
+                    m_indent++;
+                    print_block(t.body);
+                    if (t.has_except)
+                    {
+                        line("Except");
+                        m_indent++;
+                        if (t.filter)
+                            print_expr(*t.filter);
+                        print_block(t.handler);
+                        m_indent--;
+                    }
+                    if (t.has_finally)
+                    {
+                        line("Finally");
+                        m_indent++;
+                        print_block(t.finally_block);
+                        m_indent--;
+                    }
+                    m_indent--;
+                    break;
+                }
+                case ast::StmtKind::Leave:
+                    line("Leave");
+                    print_exit_defers(static_cast<ast::LeaveStmt const&>(s).exit_defers);
+                    break;
             }
         }
 
@@ -1077,6 +1105,15 @@ export namespace dcc::sema
         std::pmr::polymorphic_allocator<> m_alloc;
         SpecializationRegistry& m_spec_registry;
         target::TargetConfig const* m_target{};
+        struct SehContext
+        {
+            std::uint32_t try_body_depth{};
+            std::uint32_t filter_depth{};
+            std::uint32_t handler_depth{};
+            std::uint32_t finally_depth{};
+        };
+        SehContext m_seh{};
+        std::vector<bool> m_try_has_leave;
         bool m_restricted_check{false};
         bool m_suppress_errors{};
         std::unordered_set<ast::Expr const*> m_warned_array_decay;
@@ -2014,6 +2051,17 @@ export namespace dcc::sema
                 case ast::StmtKind::Defer: {
                     auto* d = static_cast<ast::DeferStmt const*>(stmt);
                     collect_written_names(d->body, out, env);
+                    break;
+                }
+                case ast::StmtKind::Try: {
+                    auto* t = static_cast<ast::TryStmt const*>(stmt);
+                    for (auto const* block : {&t->body, &t->handler, &t->finally_block})
+                    {
+                        for (auto* s : block->stmts)
+                            collect_written_names(s, out, env);
+                        collect_written_expr_names(block->tail, out, env);
+                    }
+                    collect_written_expr_names(t->filter, out, env);
                     break;
                 }
                 case ast::StmtKind::StaticIf: {
@@ -3549,6 +3597,14 @@ export namespace dcc::sema
                         case ast::StmtKind::Defer:
                             visit_stmt(static_cast<ast::DeferStmt*>(s)->body);
                             break;
+                        case ast::StmtKind::Try: {
+                            auto* t = static_cast<ast::TryStmt*>(s);
+                            visit_block(t->body);
+                            visit_expr(t->filter);
+                            visit_block(t->handler);
+                            visit_block(t->finally_block);
+                            break;
+                        }
                         case ast::StmtKind::StaticIf: {
                             auto* si = static_cast<ast::StaticIfStmt*>(s);
                             visit_expr(si->condition);
@@ -3580,6 +3636,7 @@ export namespace dcc::sema
                         }
                         case ast::StmtKind::Break:
                         case ast::StmtKind::Continue:
+                        case ast::StmtKind::Leave:
                             break;
                         case ast::StmtKind::Asm: {
                             auto* a = static_cast<ast::AsmStmt*>(s);
@@ -8838,6 +8895,7 @@ export namespace dcc::sema
             auto* saved_env = m_current_module_env;
             auto saved_defers = std::exchange(m_active_defers, {});
             auto saved_defer_depth = std::exchange(m_defer_depth, 0);
+            auto saved_seh = std::exchange(m_seh, {});
             auto* saved_capture_scope = std::exchange(m_lambda_capture_scope, nullptr);
             auto* saved_bindings = std::exchange(m_concept_bindings, nullptr);
             auto* saved_defining_module = std::exchange(m_specialization_defining_module, nullptr);
@@ -8849,6 +8907,7 @@ export namespace dcc::sema
             m_current_module_env = saved_env;
             m_active_defers = std::move(saved_defers);
             m_defer_depth = saved_defer_depth;
+            m_seh = saved_seh;
             m_lambda_capture_scope = saved_capture_scope;
             m_concept_bindings = saved_bindings;
             return m_suppressed_error_count == saved_errors;
@@ -9164,13 +9223,15 @@ export namespace dcc::sema
                 BodyAnalyzer& ba;
                 std::vector<sm::SourceRange> defers;
                 std::uint32_t depth;
+                SehContext seh;
 
                 ~DeferStateGuard()
                 {
                     ba.m_active_defers = std::move(defers);
                     ba.m_defer_depth = depth;
+                    ba.m_seh = seh;
                 }
-            } defer_state_guard{*this, std::exchange(m_active_defers, {}), std::exchange(m_defer_depth, 0u)};
+            } defer_state_guard{*this, std::exchange(m_active_defers, {}), std::exchange(m_defer_depth, 0u), std::exchange(m_seh, {})};
 
             auto* root = make_scope(ScopeKind::Function, nullptr);
             auto* root_consts = make_const_env(nullptr);
@@ -12693,7 +12754,7 @@ export namespace dcc::sema
                     if (m_defer_depth)
                     {
                         out.type = m_types.m_errort();
-                        error(p.range, "`?` cannot propagate out of a deferred statement; handle the result explicitly");
+                        error(p.range, "{}", cleanup_question_message());
                         return out;
                     }
 
@@ -16977,6 +17038,18 @@ export namespace dcc::sema
             out.resolved_decl = &f;
             out.spec_commit = committed_spec;
             out.call_argument_offset = func_arg_start;
+            if (!quiet && (f.sema.intrinsic_kind == ast::IntrinsicKind::SehExceptionCode || f.sema.intrinsic_kind == ast::IntrinsicKind::SehExceptionInfo ||
+                           f.sema.intrinsic_kind == ast::IntrinsicKind::SehAbnormalTermination))
+            {
+                if (f.sema.intrinsic_kind == ast::IntrinsicKind::SehExceptionCode && !m_seh.filter_depth && !m_seh.handler_depth)
+                    error(range, "`exception_code()` is only valid in an `except` filter or handler");
+                else if (f.sema.intrinsic_kind == ast::IntrinsicKind::SehExceptionInfo && !m_seh.filter_depth)
+                    error(range, "`exception_info()` is only valid in an `except` filter");
+                else if (f.sema.intrinsic_kind == ast::IntrinsicKind::SehAbnormalTermination && (!m_defer_depth || m_seh.filter_depth))
+                    error(range, "`abnormal_termination()` is only valid in a `finally` block or a deferred statement");
+                else
+                    check_seh_available(range);
+            }
             if (f.sema.intrinsic_kind == ast::IntrinsicKind::SourceLocation)
             {
                 out.constant = make_source_location_const(out.type, range, fn);
@@ -18159,7 +18232,7 @@ export namespace dcc::sema
                     }
                     if (m_defer_depth)
                     {
-                        error(s.range, "deferred statement must not transfer control");
+                        error(s.range, "{}", cleanup_transfer_message());
                         return {.foldable = false};
                     }
                     static_cast<ast::ReturnStmt&>(s).exit_defers = snapshot_exit_defers();
@@ -18168,7 +18241,7 @@ export namespace dcc::sema
                     static_cast<ast::BreakStmt&>(s).exit_defers.clear();
                     if (m_defer_depth)
                     {
-                        error(s.range, "deferred statement must not transfer control");
+                        error(s.range, "{}", cleanup_transfer_message());
                         return {.foldable = false};
                     }
                     if (loop_depth == 0)
@@ -18181,7 +18254,7 @@ export namespace dcc::sema
                     static_cast<ast::ContinueStmt&>(s).exit_defers.clear();
                     if (m_defer_depth)
                     {
-                        error(s.range, "deferred statement must not transfer control");
+                        error(s.range, "{}", cleanup_transfer_message());
                         return {.foldable = false};
                     }
                     if (loop_depth == 0)
@@ -18362,10 +18435,27 @@ export namespace dcc::sema
                     out.foldable = false;
                     return out;
                 }
+                case ast::StmtKind::Try:
+                    return analyze_try_stmt(mod, fn, scope, static_cast<ast::TryStmt&>(s), loop_depth, next_off, const_env);
+                case ast::StmtKind::Leave: {
+                    if (m_defer_depth)
+                    {
+                        error(s.range, "{}", cleanup_transfer_message());
+                        return {.foldable = false};
+                    }
+                    if (!m_seh.try_body_depth)
+                        error(s.range, "`leave` outside a `try` block");
+                    else if (!m_try_has_leave.empty())
+                        m_try_has_leave.back() = true;
+                    return {.falls_through = false, .foldable = false};
+                }
                 case ast::StmtKind::Defer: {
                     if (m_defer_depth)
                     {
-                        error(s.range, "defer is not allowed inside a deferred statement");
+                        error(s.range, "{}",
+                              m_seh.filter_depth    ? "defer is not allowed inside an `except` filter"
+                              : m_seh.finally_depth ? "defer is not allowed inside a `finally` block"
+                                                    : "defer is not allowed inside a deferred statement");
                         return {.foldable = false};
                     }
                     auto& defer_stmt = static_cast<ast::DeferStmt&>(s);
@@ -19494,6 +19584,114 @@ export namespace dcc::sema
             }
 
             error(slot->range, "ambiguous statement could not be resolved as a declaration or expression");
+        }
+
+        [[nodiscard]] char const* cleanup_transfer_message() const noexcept
+        {
+            if (m_seh.filter_depth)
+                return "`except` filter must not transfer control";
+            if (m_seh.finally_depth)
+                return "`finally` block must not transfer control";
+            return "deferred statement must not transfer control";
+        }
+
+        [[nodiscard]] char const* cleanup_question_message() const noexcept
+        {
+            if (m_seh.filter_depth)
+                return "`?` cannot propagate out of an `except` filter; handle the result explicitly";
+            if (m_seh.finally_depth)
+                return "`?` cannot propagate out of a `finally` block; handle the result explicitly";
+            return "`?` cannot propagate out of a deferred statement; handle the result explicitly";
+        }
+
+        bool check_seh_available(sm::SourceRange range)
+        {
+            if (!m_target || !m_target->seh)
+            {
+                error(range, "structured exception handling requires `-fseh`");
+                return false;
+            }
+            if (m_target->arch != target::Arch::X86_64 || m_target->object_format != target::ObjectFormat::Coff)
+            {
+                error(range, "structured exception handling is only supported for the x86_64-coff target");
+                return false;
+            }
+            return true;
+        }
+
+        detail::StmtResult analyze_try_stmt(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::TryStmt& t, int loop_depth, std::uint32_t& next_off,
+                                            ConstEnv const* const_env)
+        {
+            if (m_seh.filter_depth)
+            {
+                error(t.range, "`try` is not allowed inside an `except` filter");
+                return {.foldable = false};
+            }
+            if (!fn)
+            {
+                error(t.range, "`try` outside a function");
+                return {.foldable = false};
+            }
+            check_seh_available(t.range);
+            fn->sema.has_seh = true;
+
+            detail::StmtResult out{};
+            out.foldable = false;
+
+            ++m_seh.try_body_depth;
+            m_try_has_leave.push_back(false);
+            auto* body_scope = make_scope(ScopeKind::Block, &scope);
+            auto body = analyze_block(mod, fn, *body_scope, t.body, loop_depth, next_off, nullptr, make_const_env(const_env), true);
+            bool const body_left = m_try_has_leave.back();
+            m_try_has_leave.pop_back();
+            --m_seh.try_body_depth;
+
+            bool falls_through = body.falls_through || body_left;
+            bool has_return = body.has_return;
+            bool diverges = body.diverges && !body_left;
+
+            if (t.has_except)
+            {
+                if (t.filter)
+                {
+                    ++m_defer_depth;
+                    ++m_seh.filter_depth;
+                    auto filter = analyze_expr_or_error(mod, fn, scope, t.filter, loop_depth, next_off, m_types.int_t(32, true), make_const_env(const_env));
+                    --m_seh.filter_depth;
+                    --m_defer_depth;
+                    auto const* ft = filter.type;
+                    if (ft && ft->kind != types::TypeKind::Error && ft->kind != types::TypeKind::Int && ft->kind != types::TypeKind::Enum &&
+                        ft->kind != types::TypeKind::Bool)
+                        error(t.filter->range, "`except` filter must be an integer, a bool or `core::seh::Disposition`, not `{}`", format_type_str(ft));
+                }
+                ++m_seh.handler_depth;
+                auto* handler_scope = make_scope(ScopeKind::Block, &scope);
+                auto handler = analyze_block(mod, fn, *handler_scope, t.handler, loop_depth, next_off, nullptr, make_const_env(const_env), true);
+                --m_seh.handler_depth;
+                falls_through = falls_through || handler.falls_through;
+                has_return = has_return || handler.has_return;
+                diverges = diverges && handler.diverges;
+            }
+
+            if (t.has_finally)
+            {
+                ++m_defer_depth;
+                ++m_seh.finally_depth;
+                auto* finally_scope = make_scope(ScopeKind::Block, &scope);
+                auto fin = analyze_block(mod, fn, *finally_scope, t.finally_block, loop_depth, next_off, nullptr, make_const_env(const_env), true);
+                --m_seh.finally_depth;
+                --m_defer_depth;
+                if (!fin.falls_through)
+                {
+                    falls_through = false;
+                    diverges = diverges || fin.diverges;
+                }
+            }
+
+            out.falls_through = falls_through;
+            out.diverges = !falls_through && diverges;
+            out.has_return = has_return;
+            return out;
         }
 
         detail::StmtResult analyze_block(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Block& block, int loop_depth, std::uint32_t& next_off,

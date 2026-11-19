@@ -1,0 +1,12 @@
+=== TARGET: x86_64-elf FLAGS: -fseh ===
+=== FILE: main.dc ===
+module m;
+
+void f() {
+    try {
+    } finally {
+    }
+}
+
+=== EXPECT-ERRORS ===
+main.dc:4: structured exception handling is only supported for the x86_64-coff target

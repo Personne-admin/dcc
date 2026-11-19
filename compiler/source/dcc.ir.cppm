@@ -351,6 +351,16 @@ export namespace dcc::ir
         Fence,
         InlineAsm,
 
+        CatchSwitch,
+        CatchPad,
+        CatchRet,
+        CleanupPad,
+        CleanupRet,
+        SehMarker,
+        ExceptionCode,
+        LocalEscape,
+        LocalRecover,
+
         BasicBlock,
         Function,
         Global,
@@ -1121,6 +1131,105 @@ export namespace dcc::ir
         IrSwitchInst(IrValue* v, IrBasicBlock* def_t, std::pmr::polymorphic_allocator<> a) : IrNode(Kind), value(v), cases(a), default_target(def_t) {}
     };
 
+    struct IrCatchSwitchInst : IrValue
+    {
+        static constexpr auto Kind = IrNodeKind::CatchSwitch;
+
+        IrValue* parent_pad{};
+        std::pmr::vector<IrBasicBlock*> handlers;
+        IrBasicBlock* unwind_dest{};
+
+        IrCatchSwitchInst(IrValue* parent, IrBasicBlock* unwind, std::pmr::polymorphic_allocator<> a)
+            : IrValue(Kind), parent_pad(parent), handlers(a), unwind_dest(unwind)
+        {
+        }
+    };
+
+    struct IrCatchPadInst : IrValue
+    {
+        static constexpr auto Kind = IrNodeKind::CatchPad;
+
+        IrValue* catch_switch{};
+        IrValue* filter{};
+
+        IrCatchPadInst(IrValue* cs, IrValue* f) : IrValue(Kind), catch_switch(cs), filter(f) {}
+    };
+
+    struct IrCatchRetInst : IrNode
+    {
+        static constexpr auto Kind = IrNodeKind::CatchRet;
+
+        IrValue* pad{};
+        IrBasicBlock* target{};
+
+        IrCatchRetInst(IrValue* p, IrBasicBlock* t) : IrNode(Kind), pad(p), target(t) {}
+    };
+
+    struct IrCleanupPadInst : IrValue
+    {
+        static constexpr auto Kind = IrNodeKind::CleanupPad;
+
+        IrValue* parent_pad{};
+
+        explicit IrCleanupPadInst(IrValue* parent) : IrValue(Kind), parent_pad(parent) {}
+    };
+
+    struct IrCleanupRetInst : IrNode
+    {
+        static constexpr auto Kind = IrNodeKind::CleanupRet;
+
+        IrValue* pad{};
+        IrBasicBlock* unwind_dest{};
+
+        IrCleanupRetInst(IrValue* p, IrBasicBlock* u) : IrNode(Kind), pad(p), unwind_dest(u) {}
+    };
+
+    enum class SehMarkerKind : std::uint8_t
+    {
+        TryBegin,
+        TryEnd,
+        ScopeBegin,
+        ScopeEnd,
+    };
+
+    struct IrSehMarkerInst : IrValue
+    {
+        static constexpr auto Kind = IrNodeKind::SehMarker;
+
+        SehMarkerKind marker;
+
+        explicit IrSehMarkerInst(SehMarkerKind m) : IrValue(Kind), marker(m) {}
+    };
+
+    struct IrExceptionCodeInst : IrValue
+    {
+        static constexpr auto Kind = IrNodeKind::ExceptionCode;
+
+        IrValue* pad{};
+
+        IrExceptionCodeInst(IrType const* t, IrValue* p) : IrValue(Kind), pad(p) { type = t; }
+    };
+
+    struct IrLocalEscapeInst : IrValue
+    {
+        static constexpr auto Kind = IrNodeKind::LocalEscape;
+
+        std::pmr::vector<IrValue*> slots;
+
+        explicit IrLocalEscapeInst(std::pmr::polymorphic_allocator<> a) : IrValue(Kind), slots(a) {}
+    };
+
+    struct IrLocalRecoverInst : IrValue
+    {
+        static constexpr auto Kind = IrNodeKind::LocalRecover;
+
+        IrValue* parent{};
+        IrValue* frame{};
+        std::uint32_t index{};
+
+        IrLocalRecoverInst(IrType const* t, IrValue* p, IrValue* f, std::uint32_t i) : IrValue(Kind), parent(p), frame(f), index(i) { type = t; }
+    };
+
     struct IrPhiInst : IrValue
     {
         static constexpr auto Kind = IrNodeKind::Phi;
@@ -1263,6 +1372,8 @@ export namespace dcc::ir
         IrNode* terminator{};
 
         IrFunction* parent{};
+        IrBasicBlock* unwind_target{};
+        IrValue* funclet{};
 
         std::pmr::vector<IrValue*> params;
 
@@ -1296,20 +1407,54 @@ export namespace dcc::ir
                     f(c.target);
                 break;
             }
+            case IrNodeKind::CatchSwitch: {
+                auto* cs = static_cast<IrCatchSwitchInst*>(terminator);
+                for (auto*& h : cs->handlers)
+                    f(h);
+                if (cs->unwind_dest)
+                    f(cs->unwind_dest);
+                break;
+            }
+            case IrNodeKind::CatchRet:
+                f(static_cast<IrCatchRetInst*>(terminator)->target);
+                break;
+            case IrNodeKind::CleanupRet: {
+                auto* cr = static_cast<IrCleanupRetInst*>(terminator);
+                if (cr->unwind_dest)
+                    f(cr->unwind_dest);
+                break;
+            }
             default:
                 break;
         }
     }
 
-    template <typename F>
-    void for_each_successor(IrNode const* terminator, F&& f)
+    template <typename F> void for_each_block_successor(IrBasicBlock const* block, F&& f)
     {
-        for_each_successor_slot(const_cast<IrNode*>(terminator), [&](IrBasicBlock*& slot) { f(slot); });
+        if (!block)
+            return;
+        for_each_successor(block->terminator, f);
+        if (block->unwind_target)
+            f(block->unwind_target);
     }
 
-    [[nodiscard]] inline bool has_successors(IrNode const* terminator) noexcept
+    [[nodiscard]] inline bool is_eh_pad(IrNode const* node) noexcept
     {
-        return terminator && (terminator->kind == IrNodeKind::Br || terminator->kind == IrNodeKind::BrCond || terminator->kind == IrNodeKind::Switch);
+        return node && (node->kind == IrNodeKind::CatchPad || node->kind == IrNodeKind::CleanupPad);
+    }
+
+    [[nodiscard]] inline bool is_eh_pad_block(IrBasicBlock const* block) noexcept
+    {
+        if (!block)
+            return false;
+        if (block->terminator && block->terminator->kind == IrNodeKind::CatchSwitch)
+            return true;
+        return !block->instructions.empty() && is_eh_pad(block->instructions.front());
+    }
+
+    template <typename F> void for_each_successor(IrNode const* terminator, F&& f)
+    {
+        for_each_successor_slot(const_cast<IrNode*>(terminator), [&](IrBasicBlock*& slot) { f(slot); });
     }
 
     struct IrFunction : IrValue
@@ -1328,6 +1473,7 @@ export namespace dcc::ir
 
         bool is_dll_import{};
         bool is_dll_export{};
+        bool has_eh{};
         Linkage linkage{Linkage::Internal};
         std::uint32_t alignment{};
         CallingConv conv{CallingConv::Cdecl};
@@ -1490,8 +1636,13 @@ export namespace dcc::ir
                 m_pointer_align = target->pointer_align;
                 m_far_offset_bits = target->far_offset_bits();
                 m_little_endian = target->little_endian;
+                m_seh = target->seh;
+                m_seh_runtime_libdcext = target->seh_runtime_libdcext;
             }
         }
+
+        [[nodiscard]] bool seh() const noexcept { return m_seh; }
+        [[nodiscard]] bool seh_runtime_libdcext() const noexcept { return m_seh_runtime_libdcext; }
 
         [[nodiscard]] std::uint8_t pointer_bits() const noexcept { return m_pointer_bits; }
         [[nodiscard]] std::uint8_t offset_bits(PointerFlavor flavor) const noexcept { return flavor == PointerFlavor::Near ? m_pointer_bits : m_far_offset_bits; }
@@ -1706,6 +1857,18 @@ export namespace dcc::ir
             return make<IrAtomicCmpXchgInst>(result_t, ptr, expected, desired, success, failure);
         }
         [[nodiscard]] IrFenceInst* fence(IrMemoryOrdering ord) { return make<IrFenceInst>(ord); }
+        [[nodiscard]] IrCatchSwitchInst* catch_switch(IrValue* parent, IrBasicBlock* unwind) { return make<IrCatchSwitchInst>(parent, unwind); }
+        [[nodiscard]] IrCatchPadInst* catch_pad(IrValue* cs, IrValue* filter) { return make<IrCatchPadInst>(cs, filter); }
+        [[nodiscard]] IrCatchRetInst* catch_ret(IrValue* pad, IrBasicBlock* target) { return make<IrCatchRetInst>(pad, target); }
+        [[nodiscard]] IrCleanupPadInst* cleanup_pad(IrValue* parent) { return make<IrCleanupPadInst>(parent); }
+        [[nodiscard]] IrCleanupRetInst* cleanup_ret(IrValue* pad, IrBasicBlock* unwind) { return make<IrCleanupRetInst>(pad, unwind); }
+        [[nodiscard]] IrSehMarkerInst* seh_marker(SehMarkerKind m) { return make<IrSehMarkerInst>(m); }
+        [[nodiscard]] IrExceptionCodeInst* exception_code(IrType const* t, IrValue* pad) { return make<IrExceptionCodeInst>(t, pad); }
+        [[nodiscard]] IrLocalEscapeInst* local_escape() { return make<IrLocalEscapeInst>(); }
+        [[nodiscard]] IrLocalRecoverInst* local_recover(IrType const* t, IrValue* parent, IrValue* frame, std::uint32_t index)
+        {
+            return make<IrLocalRecoverInst>(t, parent, frame, index);
+        }
 
         [[nodiscard]] IrGepInst* gep(IrType const* result_t, IrValue* base) { return make<IrGepInst>(result_t, base, m_arena); }
 
@@ -1795,6 +1958,8 @@ export namespace dcc::ir
         IrBoolType const* m_bool{};
 
         bool m_little_endian{true};
+        bool m_seh{false};
+        bool m_seh_runtime_libdcext{false};
         std::uint8_t m_far_offset_bits{64};
         std::uint8_t m_pointer_bits{64};
         std::uint8_t m_pointer_align{8};
@@ -2213,7 +2378,8 @@ export namespace dcc::ir
 
         static bool is_terminator(IrNodeKind k)
         {
-            return k == IrNodeKind::Br || k == IrNodeKind::BrCond || k == IrNodeKind::Ret || k == IrNodeKind::Unreachable || k == IrNodeKind::Switch;
+            return k == IrNodeKind::Br || k == IrNodeKind::BrCond || k == IrNodeKind::Ret || k == IrNodeKind::Unreachable || k == IrNodeKind::Switch ||
+                   k == IrNodeKind::CatchSwitch || k == IrNodeKind::CatchRet || k == IrNodeKind::CleanupRet;
         }
 
         void print_inst(IrNode const* inst, std::string_view result_name)
@@ -2460,6 +2626,112 @@ export namespace dcc::ir
                 case IrNodeKind::InlineAsm:
                     print_inline_asm(static_cast<IrInlineAsmInst const*>(inst), result_name);
                     break;
+
+                case IrNodeKind::CatchSwitch: {
+                    auto* cs = static_cast<IrCatchSwitchInst const*>(inst);
+                    pad();
+                    std::format_to(std::back_inserter(m_out), "%{} = catchswitch within ", result_name);
+                    if (cs->parent_pad)
+                        print_value(cs->parent_pad);
+                    else
+                        write("none");
+                    write(" [");
+                    for (std::size_t i = 0; i < cs->handlers.size(); ++i)
+                    {
+                        if (i)
+                            write(", ");
+                        print_label(cs->handlers[i]);
+                    }
+                    write("] unwind ");
+                    if (cs->unwind_dest)
+                        print_label(cs->unwind_dest);
+                    else
+                        write("to caller");
+                    m_out += '\n';
+                    break;
+                }
+                case IrNodeKind::CatchPad: {
+                    auto* cp = static_cast<IrCatchPadInst const*>(inst);
+                    pad();
+                    std::format_to(std::back_inserter(m_out), "%{} = catchpad within ", result_name);
+                    print_value(cp->catch_switch);
+                    write(" [");
+                    if (cp->filter)
+                        print_value(cp->filter);
+                    else
+                        write("all");
+                    write("]\n");
+                    break;
+                }
+                case IrNodeKind::CatchRet: {
+                    auto* cr = static_cast<IrCatchRetInst const*>(inst);
+                    pad();
+                    write("catchret from ");
+                    print_value(cr->pad);
+                    write(" to ");
+                    print_label(cr->target);
+                    m_out += '\n';
+                    break;
+                }
+                case IrNodeKind::CleanupPad: {
+                    auto* cp = static_cast<IrCleanupPadInst const*>(inst);
+                    pad();
+                    std::format_to(std::back_inserter(m_out), "%{} = cleanuppad within ", result_name);
+                    if (cp->parent_pad)
+                        print_value(cp->parent_pad);
+                    else
+                        write("none");
+                    m_out += '\n';
+                    break;
+                }
+                case IrNodeKind::CleanupRet: {
+                    auto* cr = static_cast<IrCleanupRetInst const*>(inst);
+                    pad();
+                    write("cleanupret from ");
+                    print_value(cr->pad);
+                    write(" unwind ");
+                    if (cr->unwind_dest)
+                        print_label(cr->unwind_dest);
+                    else
+                        write("to caller");
+                    m_out += '\n';
+                    break;
+                }
+                case IrNodeKind::SehMarker: {
+                    static constexpr std::string_view names[] = {"seh.try.begin", "seh.try.end", "seh.scope.begin", "seh.scope.end"};
+                    pad();
+                    write(names[static_cast<std::size_t>(static_cast<IrSehMarkerInst const*>(inst)->marker)]);
+                    m_out += '\n';
+                    break;
+                }
+                case IrNodeKind::ExceptionCode:
+                    pad();
+                    std::format_to(std::back_inserter(m_out), "%{} = exception_code ", result_name);
+                    print_value(static_cast<IrExceptionCodeInst const*>(inst)->pad);
+                    m_out += '\n';
+                    break;
+                case IrNodeKind::LocalEscape: {
+                    auto* le = static_cast<IrLocalEscapeInst const*>(inst);
+                    pad();
+                    write("localescape");
+                    for (std::size_t i = 0; i < le->slots.size(); ++i)
+                    {
+                        write(i ? ", " : " ");
+                        print_value(le->slots[i]);
+                    }
+                    m_out += '\n';
+                    break;
+                }
+                case IrNodeKind::LocalRecover: {
+                    auto* lr = static_cast<IrLocalRecoverInst const*>(inst);
+                    pad();
+                    std::format_to(std::back_inserter(m_out), "%{} = localrecover ", result_name);
+                    print_value(lr->parent);
+                    write(", ");
+                    print_value(lr->frame);
+                    std::format_to(std::back_inserter(m_out), ", {}\n", lr->index);
+                    break;
+                }
 
                 default:
                     break;
@@ -3071,6 +3343,12 @@ export namespace dcc::ir
                 write(")");
             }
 
+            if (bb->unwind_target)
+            {
+                write(" unwind ");
+                print_label(bb->unwind_target);
+            }
+
             write(":\n");
 
             Indent i(m_indent);
@@ -3087,7 +3365,8 @@ export namespace dcc::ir
             }
 
             if (bb->terminator)
-                print_inst(bb->terminator, {});
+                print_inst(bb->terminator,
+                           bb->terminator->kind == IrNodeKind::CatchSwitch ? static_cast<IrValue const*>(bb->terminator)->name : std::string_view{});
         }
 
         void print_module(IrModule const* m)

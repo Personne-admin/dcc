@@ -3,6 +3,7 @@ export module dcc.ir.lower;
 import std;
 import dcc.sm;
 import dcc.ast;
+import dcc.ast.visitor;
 import dcc.lex.tokens;
 import dcc.types;
 import dcc.comptime;
@@ -30,6 +31,7 @@ export namespace dcc::ir::lower
             : m_ctx(ctx), m_spec_reg(spec_reg), m_module_graph(module_graph), m_type_ctx(type_ctx), m_bounds_check(bounds_check),
               m_restricted_check(restricted_check), m_source_manager(source_manager), m_partial_eval(partial_eval), m_far_check(far_check)
         {
+            m_seh = ctx.seh();
         }
 
         void set_library_manifest(library::Manifest manifest, target::TargetConfig const& target, bool main_thunk)
@@ -44,6 +46,7 @@ export namespace dcc::ir::lower
         void set_whole_program(bool enabled) noexcept { m_whole_program = enabled; }
         void set_entry_symbol(std::string_view symbol) { m_entry_symbol = std::string{symbol}; }
         void set_print_reachability(bool enabled) noexcept { m_print_reachability = enabled; }
+        void set_seh(bool enabled) noexcept { m_seh = enabled; }
 
         struct LowerDiagnostic final : std::runtime_error
         {
@@ -110,6 +113,8 @@ export namespace dcc::ir::lower
                 for (auto* global : m_module->globals)
                     if (global->retain && !global->is_declaration)
                         directives += std::format(" /include:{} ", global->name);
+                if (m_ctx.seh_runtime_libdcext() && std::ranges::any_of(m_module->functions, [](IrFunction const* f) { return f->has_eh; }))
+                    directives += " /alternatename:__C_specific_handler=__dcext_C_specific_handler /include:__dcext_C_specific_handler ";
                 if (!directives.empty())
                 {
                     auto* type = m_ctx.array_t(m_ctx.int_t(8, false), directives.size());
@@ -1075,6 +1080,8 @@ export namespace dcc::ir::lower
             if (!current_block_terminated())
                 if (ir_ret_type->kind == IrTypeKind::Void)
                     emit_ret();
+
+            finish_seh_function(ir_func);
         }
 
         IrBasicBlock* create_block(std::string_view name = {})
@@ -1091,6 +1098,7 @@ export namespace dcc::ir::lower
             }
 
             bb->parent = m_current_func;
+            bb->funclet = m_current_funclet;
             m_current_func->blocks.push_back(bb);
             return bb;
         }
@@ -1161,9 +1169,35 @@ export namespace dcc::ir::lower
 
         void add_phi_incoming(IrPhiInst* phi, IrValue* value, IrBasicBlock* block) { phi->incoming.push_back({value, block}); }
 
+        struct MapEntry
+        {
+            IrValue* value{};
+            bool is_storage{};
+            dcc::types::TypePtr sema_type{};
+            bool is_volatile{};
+        };
+
+        struct EhAction
+        {
+            enum class Kind : std::uint8_t
+            {
+                Defer,
+                Finally,
+                Except,
+            };
+
+            Kind kind{Kind::Defer};
+            ast::Stmt const* defer_body{};
+            ast::Block const* finally_block{};
+            IrBasicBlock* pad_block{};
+            IrValue* home_funclet{};
+        };
+
         struct DeferEntry
         {
             ast::Stmt const* body;
+            EhAction* action{};
+            std::size_t eh_index{};
         };
 
         struct ScopeFrame
@@ -1188,11 +1222,47 @@ export namespace dcc::ir::lower
             if (!current_block_terminated())
             {
                 auto defers = m_scope_frames.back().defers;
+                auto saved_stack = m_eh_stack;
                 for (auto it = defers.rbegin(); it != defers.rend(); ++it)
-                    lower_stmt(it->body);
+                    run_defer_on_exit(*it);
+                m_eh_stack = std::move(saved_stack);
             }
 
+            for (auto const& entry : m_scope_frames.back().defers)
+                if (entry.action && m_eh_stack.size() > entry.eh_index)
+                {
+                    m_eh_stack.resize(entry.eh_index);
+                    break;
+                }
+
             m_scope_frames.pop_back();
+        }
+
+        void run_defer_on_exit(DeferEntry const& entry)
+        {
+            if (!entry.action)
+            {
+                lower_stmt(entry.body);
+                return;
+            }
+
+            if (m_eh_stack.size() > entry.eh_index + 1)
+                m_eh_stack.resize(entry.eh_index + 1);
+            auto marker = entry.action->kind == EhAction::Kind::Defer ? SehMarkerKind::ScopeEnd : SehMarkerKind::TryEnd;
+            append_inst(m_ctx.seh_marker(marker));
+            m_eh_stack.resize(entry.eh_index);
+
+            switch (entry.action->kind)
+            {
+                case EhAction::Kind::Defer:
+                    lower_stmt(entry.action->defer_body);
+                    break;
+                case EhAction::Kind::Finally:
+                    std::ignore = lower_block_body(*entry.action->finally_block);
+                    break;
+                case EhAction::Kind::Except:
+                    break;
+            }
         }
 
         [[nodiscard]] std::uint32_t current_scope_id() const noexcept { return m_scope_frames.empty() ? 0u : m_scope_frames.back().scope_id; }
@@ -1274,6 +1344,8 @@ export namespace dcc::ir::lower
             {
                 if (current_block_terminated())
                     return;
+                if (m_seh)
+                    assign_unwind_region(inst);
                 block = m_current_block;
             }
 
@@ -1297,17 +1369,537 @@ export namespace dcc::ir::lower
             if (m_scope_frames.empty())
                 lower_panic("defer outside any scope");
 
-            m_scope_frames.back().defers.push_back({body});
+            if (!m_seh || m_filter)
+            {
+                m_scope_frames.back().defers.push_back({body});
+                return;
+            }
+
+            auto& action = m_eh_actions.emplace_back();
+            action.kind = EhAction::Kind::Defer;
+            action.defer_body = body;
+            push_eh_action(action, body);
+            std::ignore = current_unwind_target();
+            append_inst(m_ctx.seh_marker(SehMarkerKind::ScopeBegin));
+        }
+
+        void lower_try_stmt(ast::TryStmt const* t)
+        {
+            if (!m_seh)
+                throw LowerDiagnostic{std::format("structured exception handling requires -fseh{}", fmt_loc(t->range))};
+            auto* after = create_block("seh.after");
+            m_leave_stack.push_back({m_scope_frames.size(), after});
+            bool leave_popped = false;
+            auto end_body = [&] {
+                if (!leave_popped)
+                {
+                    m_leave_stack.pop_back();
+                    leave_popped = true;
+                }
+            };
+
+            if (t->has_finally)
+            {
+                push_scope();
+                auto& action = m_eh_actions.emplace_back();
+                action.kind = EhAction::Kind::Finally;
+                action.finally_block = &t->finally_block;
+                push_eh_action(action, nullptr);
+                std::ignore = current_unwind_target();
+                append_inst(m_ctx.seh_marker(SehMarkerKind::TryBegin));
+            }
+
+            if (t->has_except)
+                lower_except_part(t, end_body);
+            else
+            {
+                std::ignore = lower_block_body(t->body);
+                end_body();
+            }
+
+            if (t->has_finally)
+                pop_scope();
+
+            end_body();
+            emit_br(after);
+            set_current_block(after);
+        }
+
+        template <typename EndBody> void lower_except_part(ast::TryStmt const* t, EndBody& end_body)
+        {
+            IrValue* filter_ref = build_filter_function(t);
+            auto* outer = current_unwind_target();
+
+            auto* dispatch = create_block("seh.dispatch");
+            auto* cs = m_ctx.catch_switch(m_current_funclet, outer);
+            auto name = ident_name();
+            cs->name = m_name_pool.back();
+            dispatch->terminator = cs;
+            dispatch->terminator->debug_loc = make_source_loc(m_active_range, current_scope_id());
+
+            auto* catch_block = create_block("seh.catch");
+            auto* pad = m_ctx.catch_pad(cs, filter_ref);
+            auto pad_name = ident_name();
+            pad->name = m_name_pool.back();
+            pad->debug_loc = make_source_loc(m_active_range, current_scope_id());
+            catch_block->instructions.push_back(pad);
+            catch_block->funclet = pad;
+            cs->handlers.push_back(catch_block);
+
+            auto* handler = create_block("seh.handler");
+            catch_block->terminator = m_ctx.catch_ret(pad, handler);
+            catch_block->terminator->debug_loc = make_source_loc(m_active_range, current_scope_id());
+
+            push_scope();
+            auto& action = m_eh_actions.emplace_back();
+            action.kind = EhAction::Kind::Except;
+            action.pad_block = dispatch;
+            push_eh_action(action, nullptr);
+            append_inst(m_ctx.seh_marker(SehMarkerKind::TryBegin));
+
+            std::ignore = lower_block_body(t->body);
+            end_body();
+            pop_scope();
+
+            auto* done = create_block("seh.except.after");
+            emit_br(done);
+
+            set_current_block(handler);
+            auto* i32_type = m_ctx.int_t(32, false);
+            auto* slot = m_ctx.alloca(m_ctx.pointer_to(i32_type), i32_type);
+            auto slot_name = ident_name();
+            slot->name = m_name_pool.back();
+            append_inst(slot);
+            auto* code = m_ctx.exception_code(i32_type, pad);
+            auto code_name = ident_name();
+            code->name = m_name_pool.back();
+            append_inst(code);
+            append_inst(m_ctx.store(code, slot));
+
+            m_except_code_slots.push_back(slot);
+            std::ignore = lower_block_body(t->handler);
+            m_except_code_slots.pop_back();
+            emit_br(done);
+            set_current_block(done);
+        }
+
+        void lower_leave_stmt()
+        {
+            if (m_leave_stack.empty())
+                lower_panic("leave outside a try body");
+            auto const frame = m_leave_stack.back();
+            flush_defers_to_depth(frame.scope_depth);
+            emit_br(frame.target);
+        }
+
+        void collect_filter_captures(ast::Expr const* expr, std::vector<ast::IdentExpr const*>& out)
+        {
+            struct Collector : ast::RecursiveAstVisitor
+            {
+                std::vector<ast::IdentExpr const*>* out;
+                void visitIdentExpr(ast::IdentExpr const* id) override { out->push_back(id); }
+            } collector;
+            collector.out = &out;
+            collector.visitExpr(expr);
+        }
+
+        [[nodiscard]] std::uint32_t escape_slot(IrValue* slot)
+        {
+            if (auto it = m_escape_index.find(slot); it != m_escape_index.end())
+                return it->second;
+            if (!m_local_escape)
+                m_local_escape = m_ctx.local_escape();
+            auto index = static_cast<std::uint32_t>(m_local_escape->slots.size());
+            m_local_escape->slots.push_back(slot);
+            m_escape_index[slot] = index;
+            return index;
+        }
+
+        [[nodiscard]] IrValue* filter_capture_slot(MapEntry const& entry, bool& holds_pointer)
+        {
+            holds_pointer = false;
+            if (entry.is_storage && entry.value && entry.value->kind == IrNodeKind::Alloca && !static_cast<IrAllocaInst const*>(entry.value)->count)
+                return entry.value;
+
+            if (current_block_terminated() || !entry.value || !entry.value->type)
+                return nullptr;
+
+            holds_pointer = entry.is_storage;
+            auto* type = entry.value->type;
+            auto* slot = m_ctx.alloca(m_ctx.pointer_to(type), type);
+            auto name = ident_name();
+            slot->name = m_name_pool.back();
+            append_inst(slot);
+            append_inst(m_ctx.store(entry.value, slot));
+            return slot;
+        }
+
+        [[nodiscard]] IrValue* build_filter_function(ast::TryStmt const* t)
+        {
+            auto const* filter = t->filter;
+            if (!filter)
+                return nullptr;
+            if (auto const* cv = filter->sema.const_value)
+            {
+                if (cv->kind() == comptime::Value::Kind::Int && cv->get_int() == 1)
+                    return nullptr;
+                if (cv->kind() == comptime::Value::Kind::Bool && cv->get_bool())
+                    return nullptr;
+            }
+
+            struct Capture
+            {
+                ast::Decl const* decl{};
+                std::string_view name;
+                MapEntry entry;
+                IrType const* slot_type{};
+                std::uint32_t index{};
+                bool holds_pointer{};
+            };
+            std::vector<Capture> captures;
+            std::vector<ast::IdentExpr const*> idents;
+            collect_filter_captures(filter, idents);
+            for (auto const* id : idents)
+            {
+                auto const* resolved =
+                    id->sema.resolved_specialization ? static_cast<ast::Decl const*>(id->sema.resolved_specialization) : id->sema.resolved_decl;
+                MapEntry const* found = nullptr;
+                Capture c;
+                if (resolved)
+                    if (auto it = m_value_map.find(resolved); it != m_value_map.end())
+                    {
+                        found = &it->second;
+                        c.decl = resolved;
+                    }
+                if (!found)
+                    if (auto it = m_named_values.find(id->name); it != m_named_values.end())
+                    {
+                        found = &it->second;
+                        c.name = id->name;
+                    }
+                if (!found)
+                    continue;
+                if (std::ranges::any_of(captures, [&](Capture const& other) { return other.decl ? other.decl == c.decl : other.name == c.name && !c.decl; }))
+                    continue;
+                auto* slot = filter_capture_slot(*found, c.holds_pointer);
+                if (!slot)
+                    continue;
+                c.entry = *found;
+                c.slot_type = slot->type;
+                c.index = escape_slot(slot);
+                captures.push_back(c);
+            }
+
+            auto* i32_type = m_ctx.int_t(32, true);
+            auto* ptr_type = m_ctx.pointer_to(m_ctx.int_t(8, false));
+            std::array<IrType const*, 2> params{ptr_type, ptr_type};
+            auto* type = static_cast<IrFuncType const*>(m_ctx.func_t(i32_type, params));
+            m_name_pool.push_back(std::format("{}$seh_filter{}", m_current_func->name, ++m_filter_counter));
+            auto* fn = m_ctx.function(m_name_pool.back(), type);
+            fn->linkage = Linkage::Internal;
+            fn->source_name = m_current_func->source_name;
+            fn->decl_file_id = m_current_func->decl_file_id;
+            fn->decl_line = m_current_func->decl_line;
+            m_module->functions.push_back(fn);
+            auto* parent_ref = m_ctx.func_ref(m_current_func);
+
+            auto* saved_func = m_current_func;
+            auto* saved_block = m_current_block;
+            auto saved_values = std::move(m_value_map);
+            auto saved_named = std::move(m_named_values);
+            auto saved_scopes = std::move(m_scope_frames);
+            auto saved_loops = std::move(m_loop_stack);
+            auto saved_local_id = m_next_local_id;
+            auto saved_block_id = m_next_block_id;
+            auto saved_stack = std::move(m_eh_stack);
+            auto* saved_funclet = m_current_funclet;
+            auto saved_leaves = std::move(m_leave_stack);
+            auto saved_code_slots = std::move(m_except_code_slots);
+            m_value_map = {};
+            m_named_values = {};
+            m_scope_frames = std::pmr::vector<ScopeFrame>(m_ctx.allocator());
+            m_loop_stack = std::pmr::vector<LoopFrame>(m_ctx.allocator());
+            m_eh_stack = {};
+            m_leave_stack = {};
+            m_except_code_slots = {};
+            m_current_funclet = nullptr;
+            m_next_local_id = 0;
+            m_next_block_id = 1;
+
+            m_current_func = fn;
+            auto* entry = m_ctx.basic_block("entry", 0);
+            entry->parent = fn;
+            fn->entry_block = entry;
+            fn->blocks.push_back(entry);
+            m_current_block = entry;
+            auto* info = m_ctx.local("exception_pointers", 0, ptr_type);
+            auto* frame = m_ctx.local("frame", 1, ptr_type);
+            entry->params.push_back(info);
+            entry->params.push_back(frame);
+            m_filter = FilterContext{info, frame};
+
+            for (auto const& c : captures)
+            {
+                auto* recovered = m_ctx.local_recover(c.slot_type, parent_ref, frame, c.index);
+                auto name = ident_name();
+                recovered->name = m_name_pool.back();
+                append_inst(recovered);
+                MapEntry mapped = c.entry;
+                if (c.holds_pointer)
+                {
+                    auto* pointer = m_ctx.load(c.entry.value->type, recovered);
+                    auto pointer_name = ident_name();
+                    pointer->name = m_name_pool.back();
+                    append_inst(pointer);
+                    mapped.value = pointer;
+                }
+                else
+                {
+                    mapped.value = recovered;
+                    mapped.is_storage = true;
+                }
+                if (c.decl)
+                    m_value_map[c.decl] = mapped;
+                else
+                    m_named_values[c.name] = mapped;
+            }
+
+            push_scope();
+            auto* value = lower_expr(filter);
+            if (value && value->type && value->type->kind == IrTypeKind::Bool)
+            {
+                auto* widened = m_ctx.zext(i32_type, value);
+                auto name = ident_name();
+                widened->name = m_name_pool.back();
+                append_inst(widened);
+                value = widened;
+            }
+            else if (value && value->type && value->type->kind == IrTypeKind::Int)
+            {
+                auto const* it = static_cast<IrIntType const*>(value->type);
+                IrValue* converted = nullptr;
+                if (it->bits < 32)
+                    converted = it->is_signed ? static_cast<IrValue*>(m_ctx.sext(i32_type, value)) : m_ctx.zext(i32_type, value);
+                else if (it->bits > 32)
+                    converted = m_ctx.trunc(i32_type, value);
+                else if (value->type != i32_type)
+                    converted = m_ctx.bitcast(i32_type, value);
+                if (converted)
+                {
+                    auto name = ident_name();
+                    converted->name = m_name_pool.back();
+                    append_inst(converted);
+                    value = converted;
+                }
+            }
+            pop_scope();
+            emit_ret(value ? value : m_ctx.int_const(i32_type, 0));
+
+            m_filter.reset();
+            m_current_func = saved_func;
+            m_current_block = saved_block;
+            m_value_map = std::move(saved_values);
+            m_named_values = std::move(saved_named);
+            m_scope_frames = std::move(saved_scopes);
+            m_loop_stack = std::move(saved_loops);
+            m_next_local_id = saved_local_id;
+            m_next_block_id = saved_block_id;
+            m_eh_stack = std::move(saved_stack);
+            m_current_funclet = saved_funclet;
+            m_leave_stack = std::move(saved_leaves);
+            m_except_code_slots = std::move(saved_code_slots);
+            return m_ctx.func_ref(fn);
+        }
+
+        [[nodiscard]] IrValue* lower_seh_intrinsic(ast::FuncDecl const* func, ast::CallExpr const* call)
+        {
+            auto* result_type = lower_type(get_sema_resolved_type(call));
+            switch (func->sema.intrinsic_kind)
+            {
+                case ast::IntrinsicKind::SehAbnormalTermination:
+                    return m_ctx.bool_const(m_in_unwind_cleanup);
+                case ast::IntrinsicKind::SehExceptionInfo: {
+                    if (!m_filter)
+                        lower_panic("exception_info outside an except filter");
+                    if (m_filter->info->type == result_type)
+                        return m_filter->info;
+                    auto* cast = m_ctx.bitcast(result_type, m_filter->info);
+                    auto name = ident_name();
+                    cast->name = m_name_pool.back();
+                    append_inst(cast);
+                    return cast;
+                }
+                case ast::IntrinsicKind::SehExceptionCode: {
+                    IrValue* code = nullptr;
+                    if (m_filter)
+                    {
+                        auto* ptr_type = m_ctx.pointer_to(m_ctx.int_t(8, false));
+                        auto* record = m_ctx.load(ptr_type, m_filter->info);
+                        auto record_name = ident_name();
+                        record->name = m_name_pool.back();
+                        append_inst(record);
+                        code = m_ctx.load(result_type, record);
+                    }
+                    else
+                    {
+                        if (m_except_code_slots.empty())
+                            lower_panic("exception_code outside an except filter or handler");
+                        code = m_ctx.load(result_type, m_except_code_slots.back());
+                    }
+                    auto name = ident_name();
+                    code->name = m_name_pool.back();
+                    append_inst(code);
+                    return code;
+                }
+                default:
+                    return nullptr;
+            }
+        }
+
+        void finish_seh_function(IrFunction* fn)
+        {
+            if (!m_seh)
+                return;
+
+            for (auto* block : fn->blocks)
+            {
+                if (!m_try_body_blocks.contains(block))
+                    continue;
+                for (auto* inst : block->instructions)
+                {
+                    if (inst->kind == IrNodeKind::Load)
+                        inst->kind = IrNodeKind::LoadVolatile;
+                    else if (inst->kind == IrNodeKind::Store)
+                        inst->kind = IrNodeKind::StoreVolatile;
+                }
+            }
+
+            if (m_local_escape && fn->entry_block)
+                fn->entry_block->instructions.push_back(m_local_escape);
+
+            fn->has_eh = std::ranges::any_of(fn->blocks, [](IrBasicBlock const* b) { return b->unwind_target || is_eh_pad_block(b); });
+
+            m_eh_actions.clear();
+            m_eh_stack.clear();
+            m_current_funclet = nullptr;
+            m_in_unwind_cleanup = false;
+            m_leave_stack.clear();
+            m_unwind_assigned.clear();
+            m_try_body_blocks.clear();
+            m_except_code_slots.clear();
+            m_local_escape = nullptr;
+            m_escape_index.clear();
+        }
+
+        void push_eh_action(EhAction& action, ast::Stmt const* body)
+        {
+            action.home_funclet = m_current_funclet;
+            m_scope_frames.back().defers.push_back({body, &action, m_eh_stack.size()});
+            m_eh_stack.push_back(&action);
         }
 
         void flush_defers_to_depth(std::size_t depth)
         {
+            auto saved_stack = m_eh_stack;
             for (std::size_t i = m_scope_frames.size(); i > depth; --i)
             {
                 auto defers = m_scope_frames[i - 1].defers;
                 for (auto it = defers.rbegin(); it != defers.rend(); ++it)
-                    lower_stmt(it->body);
+                    run_defer_on_exit(*it);
             }
+            m_eh_stack = std::move(saved_stack);
+        }
+
+        [[nodiscard]] IrBasicBlock* unwind_target_for(std::size_t depth)
+        {
+            if (depth == 0)
+                return nullptr;
+            auto* action = m_eh_stack[depth - 1];
+            if (!action->pad_block)
+                build_cleanup_pad(*action, depth);
+            return action->pad_block;
+        }
+
+        [[nodiscard]] IrBasicBlock* current_unwind_target() { return m_filter ? nullptr : unwind_target_for(m_eh_stack.size()); }
+
+        [[nodiscard]] bool in_try_body() const
+        {
+            return std::ranges::any_of(m_eh_stack, [](EhAction const* a) { return a->kind != EhAction::Kind::Defer; });
+        }
+
+        void build_cleanup_pad(EhAction& action, std::size_t depth)
+        {
+            auto* outer = unwind_target_for(depth - 1);
+
+            auto* saved_block = m_current_block;
+            auto saved_stack = m_eh_stack;
+            auto* saved_funclet = m_current_funclet;
+            bool const saved_unwinding = m_in_unwind_cleanup;
+            auto saved_loops = m_loop_stack;
+            auto saved_leaves = m_leave_stack;
+
+            auto* block = create_block("seh.cleanup");
+            action.pad_block = block;
+            auto* pad = m_ctx.cleanup_pad(action.home_funclet);
+            auto name = ident_name();
+            pad->name = m_name_pool.back();
+            pad->debug_loc = make_source_loc(m_active_range, current_scope_id());
+            block->instructions.push_back(pad);
+            block->funclet = pad;
+
+            m_current_block = block;
+            m_eh_stack.resize(depth - 1);
+            m_current_funclet = pad;
+            m_in_unwind_cleanup = true;
+            m_leave_stack.clear();
+
+            if (action.kind == EhAction::Kind::Defer)
+                lower_stmt(action.defer_body);
+            else
+                std::ignore = lower_block_body(*action.finally_block);
+
+            if (!current_block_terminated())
+            {
+                m_current_block->terminator = m_ctx.cleanup_ret(pad, outer);
+                record_terminator_source_loc();
+            }
+
+            m_current_block = saved_block;
+            m_eh_stack = std::move(saved_stack);
+            m_current_funclet = saved_funclet;
+            m_in_unwind_cleanup = saved_unwinding;
+            m_loop_stack = std::move(saved_loops);
+            m_leave_stack = std::move(saved_leaves);
+        }
+
+        void assign_unwind_region(IrValue const* inst)
+        {
+            if (!m_seh || inst->kind == IrNodeKind::Phi || inst->kind == IrNodeKind::Alloca)
+                return;
+
+            auto* want = current_unwind_target();
+            bool const try_body = !m_filter && in_try_body();
+            auto* block = m_current_block;
+            if (!m_unwind_assigned.contains(block))
+            {
+                block->unwind_target = want;
+                m_unwind_assigned.insert(block);
+                if (try_body)
+                    m_try_body_blocks.insert(block);
+                return;
+            }
+
+            if (block->unwind_target == want && try_body == m_try_body_blocks.contains(block))
+                return;
+
+            auto* next = create_block("seh.region");
+            block->terminator = m_ctx.br(next);
+            record_terminator_source_loc();
+            m_current_block = next;
+            next->unwind_target = want;
+            m_unwind_assigned.insert(next);
+            if (try_body)
+                m_try_body_blocks.insert(next);
         }
 
         void flush_all_defers() { flush_defers_to_depth(0); }
@@ -1330,14 +1922,6 @@ export namespace dcc::ir::lower
         }
 
     private:
-        struct MapEntry
-        {
-            IrValue* value{};
-            bool is_storage{};
-            dcc::types::TypePtr sema_type{};
-            bool is_volatile{};
-        };
-
         [[nodiscard]] dcc::types::TypePtr make_ptr_sema_type(dcc::types::TypePtr pointee, dcc::types::Qual quals) const
         {
             if (!m_type_ctx || !pointee)
@@ -2702,6 +3286,16 @@ export namespace dcc::ir::lower
 
                 case ast::StmtKind::Asm: {
                     std::ignore = lower_asm(*static_cast<ast::AsmStmt const*>(stmt), nullptr);
+                    break;
+                }
+
+                case ast::StmtKind::Try: {
+                    lower_try_stmt(static_cast<ast::TryStmt const*>(stmt));
+                    break;
+                }
+
+                case ast::StmtKind::Leave: {
+                    lower_leave_stmt();
                     break;
                 }
 
@@ -4152,6 +4746,10 @@ export namespace dcc::ir::lower
         {
             switch (func->sema.intrinsic_kind)
             {
+                case ast::IntrinsicKind::SehExceptionCode:
+                case ast::IntrinsicKind::SehExceptionInfo:
+                case ast::IntrinsicKind::SehAbnormalTermination:
+                    return lower_seh_intrinsic(func, call);
                 case ast::IntrinsicKind::CompileError:
                 case ast::IntrinsicKind::CompileWarning:
                 case ast::IntrinsicKind::CompileNote:
@@ -7913,6 +8511,32 @@ export namespace dcc::ir::lower
         std::pmr::vector<ScopeFrame> m_scope_frames;
         std::pmr::vector<LoopFrame> m_loop_stack;
 
+        struct LeaveFrame
+        {
+            std::size_t scope_depth;
+            IrBasicBlock* target;
+        };
+
+        struct FilterContext
+        {
+            IrValue* info{};
+            IrValue* frame{};
+        };
+
+        bool m_seh{false};
+        std::deque<EhAction> m_eh_actions;
+        std::vector<EhAction*> m_eh_stack;
+        IrValue* m_current_funclet{};
+        bool m_in_unwind_cleanup{};
+        std::vector<LeaveFrame> m_leave_stack;
+        std::unordered_set<IrBasicBlock const*> m_unwind_assigned;
+        std::unordered_set<IrBasicBlock const*> m_try_body_blocks;
+        std::vector<IrValue*> m_except_code_slots;
+        std::optional<FilterContext> m_filter;
+        IrLocalEscapeInst* m_local_escape{};
+        std::unordered_map<IrValue const*, std::uint32_t> m_escape_index;
+        std::uint32_t m_filter_counter{};
+
         bool m_bounds_check{false};
         bool m_restricted_check{false};
         sm::SourceManager const* m_source_manager{};
@@ -8012,6 +8636,16 @@ export namespace dcc::ir::lower
                 case IrNodeKind::Phi:
                     for (auto const& p : static_cast<IrPhiInst const*>(v)->incoming)
                         visit(p.value);
+                    return;
+                case IrNodeKind::CatchPad:
+                    visit(static_cast<IrCatchPadInst const*>(v)->filter);
+                    return;
+                case IrNodeKind::LocalRecover:
+                    visit(static_cast<IrLocalRecoverInst const*>(v)->parent);
+                    return;
+                case IrNodeKind::LocalEscape:
+                    for (auto* slot : static_cast<IrLocalEscapeInst const*>(v)->slots)
+                        visit(slot);
                     return;
                 case IrNodeKind::Call: {
                     auto* c = static_cast<IrCallInst const*>(v);
@@ -8532,6 +9166,8 @@ export namespace dcc::ir::lower
                     make_live(global);
             for (auto const& record : m_library.records)
                 keep_symbol(record.symbol);
+            if (m_ctx.seh_runtime_libdcext() && std::ranges::any_of(m_module->functions, [](IrFunction const* f) { return f->has_eh; }))
+                keep_symbol("__dcext_C_specific_handler");
             while (!work.empty() || !assembly_work.empty())
             {
                 while (!assembly_work.empty())
