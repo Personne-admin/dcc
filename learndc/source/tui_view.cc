@@ -4054,10 +4054,13 @@ namespace learndc::tui
 
     std::string render_snapshot(model::Model const& m, int width, int height, bool ansi)
     {
+        auto const color_support = ftxui::Terminal::ColorSupport();
+        ftxui::Terminal::SetColorSupport(ftxui::Terminal::Color::TrueColor);
         auto element = build(m, model::Size{width, height});
         auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(width), ftxui::Dimension::Fixed(height));
         ftxui::Render(screen, element);
         auto raw = screen.ToString();
+        ftxui::Terminal::SetColorSupport(color_support);
         std::string out;
         for (auto const& line : text::split_lines(text::replace_all(raw, "\r\n", "\n")))
         {
