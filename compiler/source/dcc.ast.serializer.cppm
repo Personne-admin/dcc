@@ -812,6 +812,24 @@ export namespace dcc::ast
             IndentScope is(m_indent_level);
             visitStmt(s->body);
         }
+        void visitTryStmt(TryStmt const* s) override
+        {
+            line("Try");
+            IndentScope is(m_indent_level);
+            print_block("Body", s->body);
+            if (s->has_except)
+            {
+                line("Filter");
+                {
+                    IndentScope is2(m_indent_level);
+                    visitExpr(s->filter);
+                }
+                print_block("Except", s->handler);
+            }
+            if (s->has_finally)
+                print_block("Finally", s->finally_block);
+        }
+        void visitLeaveStmt(LeaveStmt const*) override { line("Leave"); }
         void visitStaticIfStmt(StaticIfStmt const* s) override
         {
             line("StaticIf");

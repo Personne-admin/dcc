@@ -62,7 +62,7 @@
     },
     'keyword': [
       {
-        pattern: /\b(?:if|else|while|for|do|match|break|continue|return|defer|as|in|static|module|import|public|struct|enum|union|using|const|restrict|volatile|extern|asm|sizeof|alignof|offsetof|compiles)\b/
+        pattern: /\b(?:if|else|while|for|do|match|break|continue|return|defer|try|except|finally|leave|as|in|static|module|import|public|struct|enum|union|using|const|restrict|volatile|extern|asm|sizeof|alignof|offsetof|compiles)\b/
       }
     ],
     'boolean': {

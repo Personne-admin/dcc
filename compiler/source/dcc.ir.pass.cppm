@@ -229,6 +229,8 @@ export namespace dcc::ir::pass
                 bool any_changed = false;
                 for (auto* f : cloned->functions)
                 {
+                    if (f->has_eh)
+                        continue;
                     FunctionPassContext fctx;
                     fctx.func = f;
                     fctx.ctx = &output_ctx;
@@ -358,6 +360,7 @@ namespace dcc::ir::pass
         }
 
         IrValue* clone_value_impl(IrValue const* v, IrContext& dst, CloneCtx& cctx);
+        IrNode* clone_terminator_impl(IrNode const* term, IrContext& dst, CloneCtx& cctx);
 
         IrValue* clone_value_impl(IrValue const* v, IrContext& dst, CloneCtx& cctx)
         {
@@ -775,6 +778,41 @@ namespace dcc::ir::pass
                     break;
                 }
 
+                case IrNodeKind::CatchSwitch:
+                    return static_cast<IrValue*>(clone_terminator_impl(v, dst, cctx));
+                case IrNodeKind::CatchPad: {
+                    auto* cp = static_cast<IrCatchPadInst const*>(v);
+                    result = dst.catch_pad(clone_value_impl(cp->catch_switch, dst, cctx), clone_value_impl(cp->filter, dst, cctx));
+                    break;
+                }
+                case IrNodeKind::CleanupPad: {
+                    auto* cp = static_cast<IrCleanupPadInst const*>(v);
+                    result = dst.cleanup_pad(clone_value_impl(cp->parent_pad, dst, cctx));
+                    break;
+                }
+                case IrNodeKind::SehMarker:
+                    result = dst.seh_marker(static_cast<IrSehMarkerInst const*>(v)->marker);
+                    break;
+                case IrNodeKind::ExceptionCode: {
+                    auto* ec = static_cast<IrExceptionCodeInst const*>(v);
+                    result = dst.exception_code(clone_type_impl(ec->type, dst, cctx), clone_value_impl(ec->pad, dst, cctx));
+                    break;
+                }
+                case IrNodeKind::LocalEscape: {
+                    auto* le = static_cast<IrLocalEscapeInst const*>(v);
+                    auto* fresh = dst.local_escape();
+                    for (auto* slot : le->slots)
+                        fresh->slots.push_back(clone_value_impl(slot, dst, cctx));
+                    result = fresh;
+                    break;
+                }
+                case IrNodeKind::LocalRecover: {
+                    auto* lr = static_cast<IrLocalRecoverInst const*>(v);
+                    result = dst.local_recover(clone_type_impl(lr->type, dst, cctx), clone_value_impl(lr->parent, dst, cctx),
+                                               clone_value_impl(lr->frame, dst, cctx), lr->index);
+                    break;
+                }
+
                 case IrNodeKind::BasicBlock: {
                     auto* bb = static_cast<IrBasicBlock const*>(v);
                     auto it2 = cctx.bb_map.find(bb);
@@ -787,6 +825,8 @@ namespace dcc::ir::pass
                 case IrNodeKind::Ret:
                 case IrNodeKind::Unreachable:
                 case IrNodeKind::Switch:
+                case IrNodeKind::CatchRet:
+                case IrNodeKind::CleanupRet:
                     break;
 
                 case IrNodeKind::Function:
@@ -841,6 +881,26 @@ namespace dcc::ir::pass
 
                     return new_sw;
                 }
+                case IrNodeKind::CatchSwitch: {
+                    auto* cs = static_cast<IrCatchSwitchInst const*>(term);
+                    if (auto it = cctx.value_map.find(cs); it != cctx.value_map.end())
+                        return it->second;
+                    auto* fresh = dst.catch_switch(nullptr, cs->unwind_dest ? cctx.bb_map[cs->unwind_dest] : nullptr);
+                    fresh->name = cs->name;
+                    cctx.value_map[cs] = fresh;
+                    fresh->parent_pad = clone_value_impl(cs->parent_pad, dst, cctx);
+                    for (auto* h : cs->handlers)
+                        fresh->handlers.push_back(cctx.bb_map[h]);
+                    return fresh;
+                }
+                case IrNodeKind::CatchRet: {
+                    auto* cr = static_cast<IrCatchRetInst const*>(term);
+                    return dst.catch_ret(clone_value_impl(cr->pad, dst, cctx), cctx.bb_map[cr->target]);
+                }
+                case IrNodeKind::CleanupRet: {
+                    auto* cr = static_cast<IrCleanupRetInst const*>(term);
+                    return dst.cleanup_ret(clone_value_impl(cr->pad, dst, cctx), cr->unwind_dest ? cctx.bb_map[cr->unwind_dest] : nullptr);
+                }
                 default:
                     return nullptr;
             }
@@ -892,6 +952,7 @@ namespace dcc::ir::pass
                 new_f->linkage = f->linkage;
                 new_f->alignment = f->alignment;
                 new_f->conv = f->conv;
+                new_f->has_eh = f->has_eh;
                 cctx.func_map[f] = new_f;
                 mod->functions.push_back(new_f);
 
@@ -918,6 +979,9 @@ namespace dcc::ir::pass
 
                 if (f->entry_block)
                     new_f->entry_block = cctx.bb_map[f->entry_block];
+                for (auto* bb : f->blocks)
+                    if (bb->unwind_target)
+                        cctx.bb_map[bb]->unwind_target = cctx.bb_map[bb->unwind_target];
             }
 
             for (auto* g : src->globals)
@@ -946,6 +1010,8 @@ namespace dcc::ir::pass
                         }
                     }
 
+                    if (bb->funclet)
+                        new_bb->funclet = cloner_detail::clone_value_impl(bb->funclet, dst, cctx);
                     new_bb->terminator = cloner_detail::clone_terminator_impl(bb->terminator, dst, cctx);
                     if (new_bb->terminator && bb->terminator)
                         new_bb->terminator->debug_loc = bb->terminator->debug_loc;

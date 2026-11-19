@@ -1,0 +1,15 @@
+module freestanding;
+
+import core::seh;
+
+volatile i32 g_sink = 0;
+
+@nomangle
+public i32 user_entry(volatile i32* p) {
+    try {
+        g_sink = *p;
+    } except core::seh::exception_code() == core::seh::EXCEPTION_ACCESS_VIOLATION {
+        return 1;
+    }
+    return 0;
+}

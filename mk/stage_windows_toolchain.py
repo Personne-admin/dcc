@@ -10,7 +10,7 @@ import urllib.request
 import zipfile
 
 SYSTEM_DLLS = set('advapi32 bcrypt crypt32 dbghelp imagehlp kernel32 kernelbase msvcrt ntdll ole32 oleaut32 psapi rpcrt4 secur32 shell32 shlwapi user32 userenv version winmm ws2_32 wsock32 ucrtbase normaliz comdlg32 gdi32 wintrust'.split())
-IMPORT_LIBS = ('kernel32', 'ws2_32', 'advapi32', 'shell32')
+IMPORT_LIBS = ('kernel32', 'ws2_32', 'advapi32', 'shell32', 'ntdll')
 
 
 def imports(path, readobj):

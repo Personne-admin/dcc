@@ -394,6 +394,122 @@ public void free(T)([] T items);
 
 )dc";
 
+    constexpr std::string_view kCoreSehSourceText = R"dc(module core::seh;
+
+public enum Disposition : i32 {
+    ContinueExecution = -1,
+    ContinueSearch = 0,
+    ExecuteHandler = 1,
+}
+
+public const u32 EXCEPTION_ACCESS_VIOLATION = 0xC0000005;
+public const u32 EXCEPTION_DATATYPE_MISALIGNMENT = 0x80000002;
+public const u32 EXCEPTION_BREAKPOINT = 0x80000003;
+public const u32 EXCEPTION_SINGLE_STEP = 0x80000004;
+public const u32 EXCEPTION_ARRAY_BOUNDS_EXCEEDED = 0xC000008C;
+public const u32 EXCEPTION_FLT_DIVIDE_BY_ZERO = 0xC000008E;
+public const u32 EXCEPTION_INT_DIVIDE_BY_ZERO = 0xC0000094;
+public const u32 EXCEPTION_INT_OVERFLOW = 0xC0000095;
+public const u32 EXCEPTION_PRIV_INSTRUCTION = 0xC0000096;
+public const u32 EXCEPTION_IN_PAGE_ERROR = 0xC0000006;
+public const u32 EXCEPTION_ILLEGAL_INSTRUCTION = 0xC000001D;
+public const u32 EXCEPTION_NONCONTINUABLE_EXCEPTION = 0xC0000025;
+public const u32 EXCEPTION_STACK_OVERFLOW = 0xC00000FD;
+public const u32 EXCEPTION_INVALID_DISPOSITION = 0xC0000026;
+
+public const u32 EXCEPTION_NONCONTINUABLE = 0x1;
+public const u32 EXCEPTION_UNWINDING = 0x2;
+public const u32 EXCEPTION_EXIT_UNWIND = 0x4;
+public const u32 EXCEPTION_TARGET_UNWIND = 0x20;
+public const u32 EXCEPTION_COLLIDED_UNWIND = 0x40;
+public const u32 EXCEPTION_MAXIMUM_PARAMETERS = 15;
+
+public struct ExceptionRecord {
+    u32 code;
+    u32 flags;
+    ExceptionRecord* record;
+    void* address;
+    u32 parameter_count;
+    u64[15] information;
+}
+
+public struct M128 {
+    u64 low;
+    i64 high;
+}
+
+@align(16)
+public struct Context {
+    u64 p1_home;
+    u64 p2_home;
+    u64 p3_home;
+    u64 p4_home;
+    u64 p5_home;
+    u64 p6_home;
+    u32 context_flags;
+    u32 mx_csr;
+    u16 seg_cs;
+    u16 seg_ds;
+    u16 seg_es;
+    u16 seg_fs;
+    u16 seg_gs;
+    u16 seg_ss;
+    u32 eflags;
+    u64 dr0;
+    u64 dr1;
+    u64 dr2;
+    u64 dr3;
+    u64 dr6;
+    u64 dr7;
+    u64 rax;
+    u64 rcx;
+    u64 rdx;
+    u64 rbx;
+    u64 rsp;
+    u64 rbp;
+    u64 rsi;
+    u64 rdi;
+    u64 r8;
+    u64 r9;
+    u64 r10;
+    u64 r11;
+    u64 r12;
+    u64 r13;
+    u64 r14;
+    u64 r15;
+    u64 rip;
+    u8[512] float_save;
+    M128[26] vector_register;
+    u64 vector_control;
+    u64 debug_control;
+    u64 last_branch_to_rip;
+    u64 last_branch_from_rip;
+    u64 last_exception_to_rip;
+    u64 last_exception_from_rip;
+}
+
+public struct ExceptionPointers {
+    ExceptionRecord* record;
+    Context* context;
+}
+
+@intrinsic
+public u32 exception_code();
+
+@intrinsic
+public ExceptionPointers* exception_info();
+
+@intrinsic
+public bool abnormal_termination();
+
+@nomangle
+extern void RaiseException(u32 code, u32 flags, u32 argument_count, const usize* arguments);
+
+public void raise_exception(u32 code, u32 flags = 0, []const usize arguments = {}) {
+    RaiseException(code, flags, arguments.len as u32, arguments.ptr);
+}
+)dc";
+
     constexpr VirtualModuleEntry kCoreModules[] = {
         {
             .module_path = "core",
@@ -414,6 +530,11 @@ public void free(T)([] T items);
             .module_path = "core::meta",
             .uri = "dcc-core:/core/meta.dc",
             .source_text = kCoreMetaSourceText,
+        },
+        {
+            .module_path = "core::seh",
+            .uri = "dcc-core:/core/seh.dc",
+            .source_text = kCoreSehSourceText,
         },
     };
 

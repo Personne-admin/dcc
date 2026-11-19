@@ -73,6 +73,8 @@ export namespace dcc::target
         bool function_sections{false};
         bool data_sections{false};
         bool no_red_zone{false};
+        bool seh{false};
+        bool seh_runtime_libdcext{false};
         bool no_simd{false};
         bool no_x87{false};
         bool no_stack_protector{false};

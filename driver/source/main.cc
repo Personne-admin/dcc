@@ -1664,6 +1664,14 @@ auto main(int argc, char** argv) -> int
     compile_opts.target.data_sections = opts.data_sections_explicit ? opts.data_sections : whole_program_sections;
     compile_opts.target.no_simd = !opts.simd;
     compile_opts.target.no_x87 = !opts.x87;
+    compile_opts.target.seh = opts.seh;
+    if (opts.seh_runtime == "libdcext" && !opts.libdcext)
+    {
+        std::println(std::cerr, "dcc: error: -fseh-runtime=libdcext requires -flibdcext");
+        return 1;
+    }
+    compile_opts.target.seh_runtime_libdcext =
+        opts.seh && (opts.seh_runtime == "libdcext" || (opts.seh_runtime.empty() && opts.libdcext && compile_opts.target.os == dcc::target::Os::Freestanding));
 
     compile_opts.import_roots.push_back(input_path.parent_path());
 
@@ -1742,6 +1750,12 @@ auto main(int argc, char** argv) -> int
     bool need_backend = backend_needed(opts);
     if (opts.dump_ir || need_backend)
     {
+        if (opts.seh && need_backend && opts.backend_name != "llvm")
+        {
+            std::println(std::cerr, "dcc: error: -fseh requires the LLVM backend (-fbackend llvm)");
+            return 1;
+        }
+
         if (compile_opts.target.arch == dcc::target::Arch::I8086 && need_backend && opts.backend_name == "llvm")
         {
             std::println(std::cerr, "dcc: error: LLVM backend does not support target '{}'; use -fbackend custom", compile_opts.target.triple);
@@ -1795,6 +1809,8 @@ auto main(int argc, char** argv) -> int
             target.function_sections = compile_opts.target.function_sections;
             target.data_sections = compile_opts.target.data_sections;
             target.no_red_zone = !opts.red_zone;
+            target.seh = opts.seh;
+            target.seh_runtime_libdcext = compile_opts.target.seh_runtime_libdcext;
             target.no_simd = !opts.simd;
             target.no_x87 = !opts.x87;
             target.no_stack_protector = !opts.stack_protector;

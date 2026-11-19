@@ -1,0 +1,12 @@
+=== TARGET: x86_64-coff ===
+=== FILE: main.dc ===
+module m;
+
+void f() {
+    try {
+    } finally {
+    }
+}
+
+=== EXPECT-ERRORS ===
+main.dc:4: structured exception handling requires `-fseh`

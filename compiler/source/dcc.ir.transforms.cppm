@@ -1220,6 +1220,8 @@ namespace dcc::ir::pass
 
             if (!pred->terminator || pred->terminator->kind != IrNodeKind::Br)
                 continue;
+            if (pred->unwind_target != bb->unwind_target || is_eh_pad_block(bb))
+                continue;
             if (static_cast<IrBrInst*>(pred->terminator)->target != bb)
                 continue;
 
@@ -1274,7 +1276,7 @@ namespace dcc::ir::pass
             update_succ_phis(bb, pred);
             {
                 std::vector<IrBasicBlock*> succs;
-                for_each_successor(pred->terminator, [&](IrBasicBlock* succ) { succs.push_back(succ); });
+                for_each_block_successor(pred, [&](IrBasicBlock* succ) { succs.push_back(succ); });
                 pm.erase(bb);
                 for (auto* succ : succs)
                 {
@@ -1341,7 +1343,7 @@ namespace dcc::ir::pass
             worklist.pop_back();
 
             auto push_succ = [&](IrBasicBlock const* b) {
-                for_each_successor(b->terminator, [&](IrBasicBlock* succ) {
+                for_each_block_successor(b, [&](IrBasicBlock* succ) {
                     if (reachable.insert(succ).second)
                         worklist.push_back(succ);
                 });
@@ -2394,7 +2396,7 @@ namespace dcc::ir::pass
         [[nodiscard]] static InlineCalleeGate inline_classify_callee(IrFunction const* callee, InlineScc const& scc)
         {
             InlineCalleeGate gate;
-            if (!callee || callee->blocks.empty() || !callee->entry_block)
+            if (!callee || callee->blocks.empty() || !callee->entry_block || callee->has_eh)
                 return gate;
             bool forced = inline_has_attr(*callee, IrFuncAttr::Inline);
             if (inline_has_attr(*callee, IrFuncAttr::NoInline))
@@ -4355,7 +4357,7 @@ namespace dcc::ir::pass
                 };
                 for (auto* caller : order)
                 {
-                    if (!caller)
+                    if (!caller || caller->has_eh)
                         continue;
 
                     std::size_t sites_done = 0;

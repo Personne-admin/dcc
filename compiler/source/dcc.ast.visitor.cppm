@@ -84,6 +84,8 @@ export namespace dcc::ast
         virtual void visitForStmt(ForStmt const*) {}
         virtual void visitForInStmt(ForInStmt const*) {}
         virtual void visitDeferStmt(DeferStmt const*) {}
+        virtual void visitTryStmt(TryStmt const*) {}
+        virtual void visitLeaveStmt(LeaveStmt const*) {}
         virtual void visitStaticIfStmt(StaticIfStmt const*) {}
         virtual void visitStaticMatchStmt(StaticMatchStmt const*) {}
         virtual void visitStaticForStmt(StaticForStmt const*) {}
@@ -183,6 +185,7 @@ export namespace dcc::ast
         void visitForStmt(ForStmt const*) override;
         void visitForInStmt(ForInStmt const*) override;
         void visitDeferStmt(DeferStmt const*) override;
+        void visitTryStmt(TryStmt const*) override;
         void visitStaticIfStmt(StaticIfStmt const*) override;
         void visitStaticMatchStmt(StaticMatchStmt const*) override;
         void visitStaticForStmt(StaticForStmt const*) override;
@@ -816,6 +819,12 @@ namespace dcc::ast
             case StmtKind::Asm:
                 visitAsmStmt(node_cast<AsmStmt>(stmt));
                 break;
+            case StmtKind::Try:
+                visitTryStmt(node_cast<TryStmt>(stmt));
+                break;
+            case StmtKind::Leave:
+                visitLeaveStmt(node_cast<LeaveStmt>(stmt));
+                break;
         }
     }
 
@@ -875,6 +884,19 @@ namespace dcc::ast
     {
         if (s->body)
             visitStmt(s->body);
+    }
+
+    void RecursiveAstVisitor::visitTryStmt(TryStmt const* s)
+    {
+        visitBlock(s->body);
+        if (s->has_except)
+        {
+            if (s->filter)
+                visitExpr(s->filter);
+            visitBlock(s->handler);
+        }
+        if (s->has_finally)
+            visitBlock(s->finally_block);
     }
 
     void RecursiveAstVisitor::visitStaticIfStmt(StaticIfStmt const* s)

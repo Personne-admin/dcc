@@ -169,6 +169,8 @@ export namespace dcc::ast
         StaticFor,
         Ambiguous,
         Asm,
+        Try,
+        Leave,
     };
 
     enum class PatternKind : std::uint8_t
@@ -296,6 +298,9 @@ export namespace dcc::ast
         CompileWarningAt,
         CompileNoteAt,
         CompileErrorWith,
+        SehExceptionCode,
+        SehExceptionInfo,
+        SehAbnormalTermination,
     };
 
     struct DeclSema
@@ -319,6 +324,7 @@ export namespace dcc::ast
         bool is_runtime : 1 {};
         bool is_noreturn : 1 {};
         bool is_compile_time_bound : 1 {};
+        bool has_seh : 1 {};
 
         bool layout_resolved : 1 {};
         bool is_diverging : 1 {};
@@ -1166,6 +1172,27 @@ export namespace dcc::ast
         static constexpr auto Kind = StmtKind::Defer;
         StmtPtr body;
         DeferStmt(sm::SourceRange r, StmtPtr b) : Stmt(Kind, r), body(b) {}
+    };
+
+    struct TryStmt : Stmt
+    {
+        static constexpr auto Kind = StmtKind::Try;
+        Block body;
+        ExprPtr filter{};
+        sm::SourceRange except_range{};
+        Block handler;
+        sm::SourceRange finally_range{};
+        Block finally_block;
+        bool has_except{};
+        bool has_finally{};
+        TryStmt(sm::SourceRange r, Block b, Allocator a) : Stmt(Kind, r), body(std::move(b)), handler(a), finally_block(a) {}
+    };
+
+    struct LeaveStmt : Stmt
+    {
+        static constexpr auto Kind = StmtKind::Leave;
+        std::pmr::vector<sm::SourceRange> exit_defers;
+        LeaveStmt(sm::SourceRange r, Allocator a) : Stmt(Kind, r), exit_defers(a) {}
     };
 
     struct StaticIfStmt : Stmt

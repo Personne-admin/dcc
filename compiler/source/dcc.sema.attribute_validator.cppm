@@ -124,6 +124,12 @@ namespace
                     d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::CompileNoteAt;
                 else if (f->name == "compile_error_with")
                     d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::CompileErrorWith;
+                else if (f->name == "exception_code")
+                    d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::SehExceptionCode;
+                else if (f->name == "exception_info")
+                    d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::SehExceptionInfo;
+                else if (f->name == "abnormal_termination")
+                    d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::SehAbnormalTermination;
                 else if (f->name == "is_compile_time")
                     d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::IsCompileTime;
                 else if (f->name == "allocate")
@@ -543,6 +549,13 @@ export namespace dcc::sema
             case ast::StmtKind::Defer: {
                 auto const& d = static_cast<ast::DeferStmt const&>(*stmt);
                 validate_local_var_attrs(registry, diag, d.body);
+                break;
+            }
+            case ast::StmtKind::Try: {
+                auto const& t = static_cast<ast::TryStmt const&>(*stmt);
+                walk_block(t.body);
+                walk_block(t.handler);
+                walk_block(t.finally_block);
                 break;
             }
             case ast::StmtKind::StaticIf: {

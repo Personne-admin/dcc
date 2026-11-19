@@ -264,6 +264,7 @@ namespace
         std::string target_cpu;
         bool target_restricted_check{false};
         bool target_function_sections{false};
+        bool target_seh{false};
         bool target_data_sections{false};
         std::size_t target_line{};
         std::vector<ExpectAst> ast_blocks;
@@ -434,6 +435,8 @@ namespace
                             fx.target_restricted_check = true;
                         else if (option == "-ffunction-sections")
                             fx.target_function_sections = true;
+                        else if (option == "-fseh")
+                            fx.target_seh = true;
                         else if (option == "-fdata-sections")
                             fx.target_data_sections = true;
                     }
@@ -1848,6 +1851,7 @@ namespace
         {
             fixture_target->function_sections = fx.target_function_sections;
             fixture_target->data_sections = fx.target_data_sections;
+            fixture_target->seh = fx.target_seh;
         }
 
         if (fixture_target)

@@ -1,0 +1,189 @@
+module main;
+
+import core::seh;
+
+i32 g_trace = 0;
+volatile i32 g_zero = 0;
+volatile i32 g_sink = 0;
+volatile usize g_null = 0;
+
+struct Check {
+    bool ok;
+    i32 value;
+}
+
+bool is_ok(Check self) { return self.ok; }
+i32 unwrap(Check self) { return self.value; }
+i32 unwrap_err(Check self) { return self.value; }
+
+@noinline
+void mark(i32 v) {
+    g_trace = g_trace * 10 + v;
+}
+
+@noinline
+volatile i32* null_pointer() {
+    return g_null as volatile i32*;
+}
+
+i32 null_read() {
+    volatile i32* p = null_pointer();
+    i32 result = 0;
+    try {
+        result = *p;
+    } except core::seh::exception_code() == core::seh::EXCEPTION_ACCESS_VIOLATION {
+        result = 7;
+    }
+    return result;
+}
+
+i32 divide(i32 a) {
+    try {
+        return a / g_zero;
+    } except core::seh::exception_code() == core::seh::EXCEPTION_INT_DIVIDE_BY_ZERO {
+        return -1;
+    }
+}
+
+@noinline
+void unwind_inner(volatile i32* p) {
+    defer mark(1);
+    try {
+        mark(2);
+        g_sink = *p;
+        mark(9);
+    } finally {
+        if core::seh::abnormal_termination() {
+            mark(3);
+        } else {
+            mark(8);
+        }
+    }
+}
+
+i32 unwinding() {
+    g_trace = 0;
+    try {
+        unwind_inner(null_pointer());
+    } except 1 {
+        mark(4);
+    }
+    return g_trace;
+}
+
+i32 continue_search() {
+    i32 outer = 0;
+    try {
+        try {
+            g_sink = *null_pointer();
+        } except core::seh::Disposition::ContinueSearch {
+            return 100;
+        }
+    } except core::seh::Disposition::ExecuteHandler {
+        outer = 1;
+    }
+    return outer;
+}
+
+i32 filter_locals(i32 wanted) {
+    i32 hits = 0;
+    i32 seen = wanted - 1;
+    try {
+        g_sink = *null_pointer();
+    } except core::seh::exception_info().record.address != null && seen + 1 == wanted {
+        hits = wanted;
+    }
+    return hits;
+}
+
+i32 leave_path() {
+    g_trace = 0;
+    try {
+        mark(1);
+        leave;
+    } finally {
+        if core::seh::abnormal_termination() {
+            mark(8);
+        } else {
+            mark(2);
+        }
+    }
+    return g_trace;
+}
+
+Check fails() {
+    return { ok = false, value = 6 };
+}
+
+i32 question_inner() {
+    defer mark(2);
+    try {
+        mark(1);
+        i32 v = fails()?;
+        mark(9);
+    } finally {
+        mark(3);
+    }
+    return 0;
+}
+
+i32 question_path() {
+    g_trace = 0;
+    i32 r = question_inner();
+    return g_trace * 10 + r;
+}
+
+i32 raised() {
+    try {
+        core::seh::raise_exception(0xE0000001);
+    } except core::seh::exception_code() == 0xE0000001 {
+        return 5;
+    }
+    return 0;
+}
+
+i32 loop_break() {
+    g_trace = 0;
+    for i32 i = 0; i < 3; i++ {
+        try {
+            if i == 1 {
+                break;
+            }
+            mark(1);
+        } finally {
+            mark(2);
+        }
+    }
+    return g_trace;
+}
+
+public i32 main() {
+    if null_read() != 7 {
+        return 1;
+    }
+    if divide(5) != -1 {
+        return 2;
+    }
+    if unwinding() != 2314 {
+        return 3;
+    }
+    if continue_search() != 1 {
+        return 4;
+    }
+    if filter_locals(3) != 3 {
+        return 5;
+    }
+    if leave_path() != 12 {
+        return 6;
+    }
+    if question_path() != 1326 {
+        return 7;
+    }
+    if raised() != 5 {
+        return 8;
+    }
+    if loop_break() != 122 {
+        return 9;
+    }
+    return 0;
+}

@@ -16,7 +16,7 @@ class InstallerDiscovery(unittest.TestCase):
         for name in ['dcc.exe', 'dccd.exe', 'dpm.exe', 'learndc.exe', 'ld.lld.exe']:
             (stage / 'bin' / name).write_bytes(b'fixture')
         (stage / 'lib').mkdir()
-        for name in ['kernel32', 'ws2_32', 'advapi32', 'shell32']:
+        for name in ['kernel32', 'ws2_32', 'advapi32', 'shell32', 'ntdll']:
             (stage / 'lib' / ('lib' + name + '.a')).write_bytes(b'fixture')
         for name in ['include/std.dc', 'include/libdcext.manifest', 'include/dpm/v1.dc', 'LICENSE', 'licenses/FTXUI-LICENSE']:
             target = stage / name
