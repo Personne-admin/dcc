@@ -37,7 +37,7 @@ import core::seh;
 }
 
 === EXPECT-LLVM-PATTERNS ===
-CONTAINS: define i32 @probe(ptr %p, i32 %limit) #0 personality ptr @__C_specific_handler
+CONTAINS: define i32 @probe(ptr %p, i32 %limit) #1 personality ptr @__C_specific_handler
 CONTAINS: call void (...) @llvm.localescape(
 CONTAINS: invoke void @llvm.seh.scope.begin()
 CONTAINS: invoke void @llvm.seh.try.begin()
@@ -54,5 +54,6 @@ CONTAINS: call ptr @llvm.eh.recoverfp(ptr @probe, ptr %frame)
 CONTAINS: call ptr @llvm.localrecover(ptr @probe,
 CONTAINS: define internal i32 @"probe$seh_filter1"(ptr %exception_pointers, ptr %frame)
 CONTAINS: !"eh-asynch", i32 1}
-CONTAINS: define i32 @plain(i32 %v) #0 personality ptr @__C_specific_handler
-FORBID: define i32 @plain(i32 %v) #0 {
+CONTAINS: define i32 @plain(i32 %v) #1 personality ptr @__C_specific_handler
+CONTAINS: attributes #1 = { noinline uwtable
+FORBID: define i32 @plain(i32 %v) #0
