@@ -1722,6 +1722,11 @@ void process_file([]const u8 path) {
 
 `defer` takes a single statement. Deferred statements execute in reverse order at scope exit. This includes early `return`, `break`, `continue`.
 
+A deferred statement cannot transfer control out of itself: `return`, `break`,
+`continue` and the `?` operator (which returns early) are errors inside it,
+and a `defer` cannot be nested in another. Handle a fallible result inside a
+deferred statement explicitly, for example with `match` or `if !r.is_ok()`.
+
 ---
 
 ## 13. Control Flow
