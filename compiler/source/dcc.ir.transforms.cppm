@@ -1256,27 +1256,7 @@ namespace dcc::ir::pass
                 if (!new_block->terminator)
                     return;
 
-                switch (new_block->terminator->kind)
-                {
-                    case IrNodeKind::Br:
-                        succs.push_back(static_cast<IrBrInst*>(new_block->terminator)->target);
-                        break;
-                    case IrNodeKind::BrCond: {
-                        auto* br = static_cast<IrBrCondInst*>(new_block->terminator);
-                        succs.push_back(br->true_target);
-                        succs.push_back(br->false_target);
-                        break;
-                    }
-                    case IrNodeKind::Switch: {
-                        auto* sw = static_cast<IrSwitchInst*>(new_block->terminator);
-                        succs.push_back(sw->default_target);
-                        for (auto& c : sw->cases)
-                            succs.push_back(c.target);
-                        break;
-                    }
-                    default:
-                        break;
-                }
+                for_each_successor(new_block->terminator, [&](IrBasicBlock* succ) { succs.push_back(succ); });
                 for (auto* succ : succs)
                 {
                     for (auto* inst : succ->instructions)
@@ -1294,30 +1274,7 @@ namespace dcc::ir::pass
             update_succ_phis(bb, pred);
             {
                 std::vector<IrBasicBlock*> succs;
-                if (pred->terminator)
-                {
-                    switch (pred->terminator->kind)
-                    {
-                        case IrNodeKind::Br:
-                            succs.push_back(static_cast<IrBrInst*>(pred->terminator)->target);
-                            break;
-                        case IrNodeKind::BrCond: {
-                            auto* br = static_cast<IrBrCondInst*>(pred->terminator);
-                            succs.push_back(br->true_target);
-                            succs.push_back(br->false_target);
-                            break;
-                        }
-                        case IrNodeKind::Switch: {
-                            auto* sw = static_cast<IrSwitchInst*>(pred->terminator);
-                            succs.push_back(sw->default_target);
-                            for (auto& c : sw->cases)
-                                succs.push_back(c.target);
-                            break;
-                        }
-                        default:
-                            break;
-                    }
-                }
+                for_each_successor(pred->terminator, [&](IrBasicBlock* succ) { succs.push_back(succ); });
                 pm.erase(bb);
                 for (auto* succ : succs)
                 {
@@ -1384,35 +1341,10 @@ namespace dcc::ir::pass
             worklist.pop_back();
 
             auto push_succ = [&](IrBasicBlock const* b) {
-                if (!b->terminator)
-                    return;
-
-                switch (b->terminator->kind)
-                {
-                    case IrNodeKind::Br:
-                        if (reachable.insert(static_cast<IrBrInst*>(b->terminator)->target).second)
-                            worklist.push_back(static_cast<IrBrInst*>(b->terminator)->target);
-                        break;
-                    case IrNodeKind::BrCond: {
-                        auto* br = static_cast<IrBrCondInst*>(b->terminator);
-                        if (reachable.insert(br->true_target).second)
-                            worklist.push_back(br->true_target);
-                        if (reachable.insert(br->false_target).second)
-                            worklist.push_back(br->false_target);
-                        break;
-                    }
-                    case IrNodeKind::Switch: {
-                        auto* sw = static_cast<IrSwitchInst*>(b->terminator);
-                        if (reachable.insert(sw->default_target).second)
-                            worklist.push_back(sw->default_target);
-                        for (auto& c : sw->cases)
-                            if (reachable.insert(c.target).second)
-                                worklist.push_back(c.target);
-                        break;
-                    }
-                    default:
-                        break;
-                }
+                for_each_successor(b->terminator, [&](IrBasicBlock* succ) {
+                    if (reachable.insert(succ).second)
+                        worklist.push_back(succ);
+                });
             };
 
             push_succ(bb);
@@ -1430,27 +1362,7 @@ namespace dcc::ir::pass
                 {
                     auto clean_succ_phis = [&](IrBasicBlock const* b) {
                         std::vector<IrBasicBlock*> succs;
-                        switch (b->terminator->kind)
-                        {
-                            case IrNodeKind::Br:
-                                succs.push_back(static_cast<IrBrInst*>(b->terminator)->target);
-                                break;
-                            case IrNodeKind::BrCond: {
-                                auto* br = static_cast<IrBrCondInst*>(b->terminator);
-                                succs.push_back(br->true_target);
-                                succs.push_back(br->false_target);
-                                break;
-                            }
-                            case IrNodeKind::Switch: {
-                                auto* sw = static_cast<IrSwitchInst*>(b->terminator);
-                                succs.push_back(sw->default_target);
-                                for (auto& c : sw->cases)
-                                    succs.push_back(c.target);
-                                break;
-                            }
-                            default:
-                                break;
-                        }
+                        for_each_successor(b->terminator, [&](IrBasicBlock* succ) { succs.push_back(succ); });
                         for (auto* succ : succs)
                         {
                             for (auto* inst : succ->instructions)
@@ -2074,6 +1986,8 @@ namespace dcc::ir::pass
                                 mark_edge(block, item.target);
                         }
                     }
+                    else
+                        for_each_successor(block->terminator, [&](IrBasicBlock* succ) { mark_edge(block, succ); });
                     continue;
                 }
                 if (auto* phi = ir_cast<IrPhiInst>(inst))
@@ -4881,25 +4795,10 @@ namespace dcc::ir::pass
                     phi->incoming.push_back({value, block});
                 }
             for (auto* before : incoming)
-            {
-                if (auto* branch = ir_cast<IrBrInst>(before->terminator))
-                    branch->target = block;
-                else if (auto* conditional = ir_cast<IrBrCondInst>(before->terminator))
-                {
-                    if (conditional->true_target == loop.header)
-                        conditional->true_target = block;
-                    if (conditional->false_target == loop.header)
-                        conditional->false_target = block;
-                }
-                else if (auto* selection = ir_cast<IrSwitchInst>(before->terminator))
-                {
-                    if (selection->default_target == loop.header)
-                        selection->default_target = block;
-                    for (auto& item : selection->cases)
-                        if (item.target == loop.header)
-                            item.target = block;
-                }
-            }
+                for_each_successor_slot(before->terminator, [&](IrBasicBlock*& slot) {
+                    if (slot == loop.header)
+                        slot = block;
+                });
             ctx.func->blocks.push_back(block);
             ctx.invalidate_cfg();
             return block;

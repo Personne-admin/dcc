@@ -28,29 +28,7 @@ export namespace dcc::ir::analysis
         }
 
         auto get_succ = [](IrBasicBlock const* bb, std::vector<IrBasicBlock*>& out) {
-            if (!bb->terminator)
-                return;
-            switch (bb->terminator->kind)
-            {
-                case IrNodeKind::Br:
-                    out.push_back(static_cast<IrBrInst*>(bb->terminator)->target);
-                    break;
-                case IrNodeKind::BrCond: {
-                    auto* br = static_cast<IrBrCondInst*>(bb->terminator);
-                    out.push_back(br->true_target);
-                    out.push_back(br->false_target);
-                    break;
-                }
-                case IrNodeKind::Switch: {
-                    auto* sw = static_cast<IrSwitchInst*>(bb->terminator);
-                    out.push_back(sw->default_target);
-                    for (auto& c : sw->cases)
-                        out.push_back(c.target);
-                    break;
-                }
-                default:
-                    break;
-            }
+            for_each_successor(bb->terminator, [&](IrBasicBlock* succ) { out.push_back(succ); });
         };
 
         while (!stack.empty())
@@ -91,31 +69,10 @@ export namespace dcc::ir::analysis
             if (!bb->terminator)
                 continue;
 
-            auto add_succ = [&](IrBasicBlock* succ) {
+            for_each_successor(bb->terminator, [&](IrBasicBlock* succ) {
                 if (succ)
                     pm[succ].push_back(bb);
-            };
-            switch (bb->terminator->kind)
-            {
-                case IrNodeKind::Br:
-                    add_succ(static_cast<IrBrInst*>(bb->terminator)->target);
-                    break;
-                case IrNodeKind::BrCond: {
-                    auto* br = static_cast<IrBrCondInst*>(bb->terminator);
-                    add_succ(br->true_target);
-                    add_succ(br->false_target);
-                    break;
-                }
-                case IrNodeKind::Switch: {
-                    auto* sw = static_cast<IrSwitchInst*>(bb->terminator);
-                    add_succ(sw->default_target);
-                    for (auto& c : sw->cases)
-                        add_succ(c.target);
-                    break;
-                }
-                default:
-                    break;
-            }
+            });
         }
         return pm;
     }
@@ -720,32 +677,7 @@ export namespace dcc::ir::analysis
             auto preds = build_pred_map(func);
             std::unordered_map<IrBasicBlock const*, std::vector<IrBasicBlock*>> succs;
             for (auto* bb : func.blocks)
-            {
-                if (!bb->terminator)
-                    continue;
-
-                switch (bb->terminator->kind)
-                {
-                    case IrNodeKind::Br:
-                        succs[bb].push_back(static_cast<IrBrInst*>(bb->terminator)->target);
-                        break;
-                    case IrNodeKind::BrCond: {
-                        auto* br = static_cast<IrBrCondInst*>(bb->terminator);
-                        succs[bb].push_back(br->true_target);
-                        succs[bb].push_back(br->false_target);
-                        break;
-                    }
-                    case IrNodeKind::Switch: {
-                        auto* sw = static_cast<IrSwitchInst*>(bb->terminator);
-                        succs[bb].push_back(sw->default_target);
-                        for (auto& c : sw->cases)
-                            succs[bb].push_back(c.target);
-                        break;
-                    }
-                    default:
-                        break;
-                }
-            }
+                for_each_successor(bb->terminator, [&](IrBasicBlock* succ) { succs[bb].push_back(succ); });
 
             std::unordered_map<IrBasicBlock const*, std::unordered_set<IrValue const*>> gen;
             std::unordered_map<IrBasicBlock const*, std::unordered_set<IrValue const*>> kill;

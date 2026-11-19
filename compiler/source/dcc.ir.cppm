@@ -1273,6 +1273,45 @@ export namespace dcc::ir
         [[nodiscard]] bool has_name() const noexcept { return !name.empty(); }
     };
 
+    template <typename F>
+    void for_each_successor_slot(IrNode* terminator, F&& f)
+    {
+        if (!terminator)
+            return;
+        switch (terminator->kind)
+        {
+            case IrNodeKind::Br:
+                f(static_cast<IrBrInst*>(terminator)->target);
+                break;
+            case IrNodeKind::BrCond: {
+                auto* br = static_cast<IrBrCondInst*>(terminator);
+                f(br->true_target);
+                f(br->false_target);
+                break;
+            }
+            case IrNodeKind::Switch: {
+                auto* sw = static_cast<IrSwitchInst*>(terminator);
+                f(sw->default_target);
+                for (auto& c : sw->cases)
+                    f(c.target);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    template <typename F>
+    void for_each_successor(IrNode const* terminator, F&& f)
+    {
+        for_each_successor_slot(const_cast<IrNode*>(terminator), [&](IrBasicBlock*& slot) { f(slot); });
+    }
+
+    [[nodiscard]] inline bool has_successors(IrNode const* terminator) noexcept
+    {
+        return terminator && (terminator->kind == IrNodeKind::Br || terminator->kind == IrNodeKind::BrCond || terminator->kind == IrNodeKind::Switch);
+    }
+
     struct IrFunction : IrValue
     {
         static constexpr auto Kind = IrNodeKind::Function;
