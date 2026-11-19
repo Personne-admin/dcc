@@ -1,0 +1,27 @@
+=== FILE: main.dc ===
+module m;
+
+struct R {
+    bool ok;
+    i32 value;
+}
+
+bool is_ok(R self) { return self.ok; }
+i32 unwrap(R self) { return self.value; }
+i32 unwrap_err(R self) { return self.value; }
+
+R value() {
+    return { ok = true, value = 1 };
+}
+
+i32 run() {
+    defer value()?;
+    defer {
+        i32 v = value()?;
+    }
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:17: `?` cannot propagate out of a deferred statement; handle the result explicitly
+main.dc:19: `?` cannot propagate out of a deferred statement; handle the result explicitly

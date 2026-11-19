@@ -12690,6 +12690,12 @@ export namespace dcc::sema
                         error_with_fix(p.range, p.op_range, "", "remove the `?` operator", "cannot use `?` outside a function");
                         return out;
                     }
+                    if (m_defer_depth)
+                    {
+                        out.type = m_types.m_errort();
+                        error(p.range, "`?` cannot propagate out of a deferred statement; handle the result explicitly");
+                        return out;
+                    }
 
                     types::TypePtr ret_type = fn->return_type ? get_canonical(fn->return_type->sema) : m_types.m_voidt();
 
