@@ -2918,9 +2918,16 @@ namespace dcc::backend
                     LLVMAddAttributeAtIndex(llvm_func, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex), attr);
                 }
 
+                if (func->has_eh)
+                {
+                    auto kind = LLVMGetEnumAttributeKindForName("noinline", 8);
+                    if (kind != 0)
+                        LLVMAddAttributeAtIndex(llvm_func, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex), LLVMCreateEnumAttribute(ctx, kind, 0));
+                }
+
                 for (auto const& a : func->attrs)
                 {
-                    if (a.kind == IrFuncAttr::Inline)
+                    if (a.kind == IrFuncAttr::Inline && !func->has_eh)
                     {
                         auto kind = LLVMGetEnumAttributeKindForName("alwaysinline", 12);
                         if (kind != 0)
@@ -2929,7 +2936,7 @@ namespace dcc::backend
                             LLVMAddAttributeAtIndex(llvm_func, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex), attr);
                         }
                     }
-                    else if (a.kind == IrFuncAttr::NoInline)
+                    else if (a.kind == IrFuncAttr::NoInline && !func->has_eh)
                     {
                         auto kind = LLVMGetEnumAttributeKindForName("noinline", 8);
                         if (kind != 0)
