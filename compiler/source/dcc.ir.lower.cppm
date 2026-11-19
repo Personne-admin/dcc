@@ -114,7 +114,7 @@ export namespace dcc::ir::lower
                     if (global->retain && !global->is_declaration)
                         directives += std::format(" /include:{} ", global->name);
                 if (m_ctx.seh_runtime_libdcext() && std::ranges::any_of(m_module->functions, [](IrFunction const* f) { return f->has_eh; }))
-                    directives += " /alternatename:__C_specific_handler=__dcext_C_specific_handler /include:__dcext_C_specific_handler ";
+                    directives += " /include:__dcext_C_specific_handler ";
                 if (!directives.empty())
                 {
                     auto* type = m_ctx.array_t(m_ctx.int_t(8, false), directives.size());
