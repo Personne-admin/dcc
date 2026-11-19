@@ -59,7 +59,7 @@ def check_freestanding(dcc, scratch):
     stub.write_text('void RtlUnwindEx(void) {}\nvoid _start(void) {}\n')
     stub_obj = scratch / 'stub.o'
     run(['clang', '-target', 'x86_64-pc-windows-msvc', '-c', stub, '-o', stub_obj])
-    for runtime, expected in (('libdcext', '__dcext_C_specific_handler'), ('external', None)):
+    for runtime in ('libdcext', 'external'):
         for whole in (True, False):
             obj = scratch / ('freestanding-' + runtime + ('-whole' if whole else '') + '.o')
             run([dcc, '-target', 'x86_64-coff', '-flibdcext', 'freestanding', '-fseh', '-fseh-runtime=' + runtime,
@@ -67,12 +67,12 @@ def check_freestanding(dcc, scratch):
             directives = drectve(obj)
             symbols = run(['llvm-nm', obj]).stdout
             if runtime == 'libdcext':
-                assert '/alternatename:__C_specific_handler=__dcext_C_specific_handler' in directives, directives
                 assert '/include:__dcext_C_specific_handler' in directives, directives
                 assert (' T __dcext_C_specific_handler' in symbols) == whole, symbols
+                assert re.search(r'\b[TW] __C_specific_handler\b', symbols), symbols
             else:
-                assert 'alternatename' not in directives and '__dcext_C_specific_handler' not in symbols, (directives, symbols)
-            assert re.search(r'\bU __C_specific_handler\b', symbols), symbols
+                assert '__dcext_C_specific_handler' not in directives + symbols, (directives, symbols)
+                assert re.search(r'\bU __C_specific_handler\b', symbols), symbols
             checks += 1
             if not whole:
                 continue
@@ -86,8 +86,9 @@ def check_freestanding(dcc, scratch):
                 inputs.append(handler_obj)
             run(['ld.lld', '-m', 'i386pep', '--subsystem', 'console', '--entry', '_start', *inputs, '-o', image])
             unwind = run(['llvm-readobj', '--unwind', image]).stdout
-            want = expected or '__C_specific_handler'
-            assert re.search(r'Handler: ' + re.escape(want) + r' \(', unwind), unwind
+            assert re.search(r'Handler: __C_specific_handler \(', unwind), unwind
+            image_symbols = run(['llvm-objdump', '-t', image]).stdout
+            assert ('__dcext_C_specific_handler' in image_symbols) == (runtime == 'libdcext'), image_symbols
             checks += 1
     return checks
 
@@ -124,10 +125,9 @@ def execute_hosted(dcc, scratch):
                 handlers = set(int(v, 16) for v in re.findall(r'Handler: \S+ \((0x[0-9a-fA-F]+)\)', unwind))
                 symbols = dict((name, int(value, 16)) for value, name in re.findall(r'(0x[0-9a-f]+) (\S+)$', run(['llvm-objdump', '-t', exe]).stdout, re.M))
                 assert len(handlers) == 1, (runtime, level, whole, handlers)
-                if runtime == 'libdcext':
-                    assert symbols.get('__dcext_C_specific_handler') == symbols.get('__C_specific_handler'), (runtime, level, whole, symbols)
-                else:
-                    assert '__dcext_C_specific_handler' not in symbols, (runtime, level, whole)
+                imported = '__imp___C_specific_handler' in symbols
+                assert imported == (runtime == 'external'), (runtime, level, whole, imported)
+                assert ('__dcext_C_specific_handler' in symbols) == (runtime == 'libdcext'), (runtime, level, whole)
                 result = subprocess.run(['timeout', '60', wine, str(exe)], capture_output=True, text=True, timeout=65)
                 assert result.returncode == 0, (runtime, level, whole, result.returncode, result.stdout, result.stderr)
                 checks += 1

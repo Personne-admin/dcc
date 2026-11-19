@@ -1709,6 +1709,30 @@ namespace dcc::backend
             return LLVMGetIntrinsicDeclaration(module, id, nullptr, 0);
         }
 
+        [[nodiscard]] LLVMValueRef libdcext_seh_trampoline(LLVMModuleRef module, LLVMContextRef ctx)
+        {
+            auto* ptr = LLVMPointerTypeInContext(ctx, 0);
+            LLVMTypeRef params[] = {ptr, ptr, ptr, ptr};
+            auto* type = LLVMFunctionType(LLVMInt32TypeInContext(ctx), params, 4, 0);
+            auto* implementation = LLVMGetNamedFunction(module, "__dcext_C_specific_handler");
+            if (!implementation)
+                implementation = LLVMAddFunction(module, "__dcext_C_specific_handler", type);
+            auto* trampoline = LLVMAddFunction(module, "__C_specific_handler", type);
+            LLVMSetLinkage(trampoline, LLVMLinkOnceODRLinkage);
+            auto* comdat = LLVMGetOrInsertComdat(module, "__C_specific_handler");
+            LLVMSetComdatSelectionKind(comdat, LLVMAnyComdatSelectionKind);
+            LLVMSetComdat(trampoline, comdat);
+            auto* block = LLVMAppendBasicBlockInContext(ctx, trampoline, "entry");
+            auto* builder = LLVMCreateBuilderInContext(ctx);
+            LLVMPositionBuilderAtEnd(builder, block);
+            LLVMValueRef args[] = {LLVMGetParam(trampoline, 0), LLVMGetParam(trampoline, 1), LLVMGetParam(trampoline, 2), LLVMGetParam(trampoline, 3)};
+            auto* call = LLVMBuildCall2(builder, LLVMGlobalGetValueType(implementation), implementation, args, 4, "");
+            LLVMSetTailCallKind(call, LLVMTailCallKindMustTail);
+            LLVMBuildRet(builder, call);
+            LLVMDisposeBuilder(builder);
+            return trampoline;
+        }
+
         class LlvmBackendImpl : public Backend
         {
         public:
@@ -3193,6 +3217,8 @@ namespace dcc::backend
                 {
                     auto* module_ref = LLVMGetGlobalParent(llvm_func);
                     auto* personality = LLVMGetNamedFunction(module_ref, "__C_specific_handler");
+                    if (!personality && target.seh_runtime_libdcext)
+                        personality = libdcext_seh_trampoline(module_ref, ctx);
                     if (!personality)
                         personality = LLVMAddFunction(module_ref, "__C_specific_handler", LLVMFunctionType(LLVMInt32TypeInContext(ctx), nullptr, 0, 1));
                     LLVMSetPersonalityFn(llvm_func, personality);

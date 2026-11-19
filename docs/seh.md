@@ -18,15 +18,12 @@ limitations.
     default for hosted Windows and for builds without libdcext.
   - `libdcext`: libdcext's implementation (`dcext::seh`,
     `__dcext_C_specific_handler`) is used. Each object with SEH scopes
-    carries the linker directives
-    `/alternatename:__C_specific_handler=__dcext_C_specific_handler` and
-    `/include:__dcext_C_specific_handler`, so an existing
-    `__C_specific_handler` definition still takes precedence. This is the
-    default for `-flibdcext freestanding`.
+    defines `__C_specific_handler` as a COMDAT (selectany) trampoline that
+    tail-calls `__dcext_C_specific_handler`, so the handler exported by
+    import libraries (mingw's kernel32 and ntdll both export one) is never
+    linked. This is the default for `-flibdcext freestanding`.
 
-On hosted Windows the libdcext provider takes `RtlUnwindEx` from kernel32;
-ntdll is not linked, because its `__C_specific_handler` export would take
-precedence over the `/alternatename` fallback.
+On hosted Windows the libdcext provider takes `RtlUnwindEx` from kernel32.
 
 In project.dcon, pass them in the build settings' `extra_flags`, for
 example `extra_flags = { "-fseh", "-fseh-runtime=libdcext" }`.
