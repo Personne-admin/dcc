@@ -120,6 +120,14 @@ def execute_hosted(dcc, scratch):
                 exe = scratch / ('hosted-' + runtime + level + whole + '.exe')
                 run([dcc, '-target', 'x86_64-coff', '-flibdcext', 'windows', '-fseh', '-fseh-runtime=' + runtime, level, whole, HOSTED,
                      '-L', sysroot, '-o', exe])
+                unwind = run(['llvm-readobj', '--unwind', exe]).stdout
+                handlers = set(int(v, 16) for v in re.findall(r'Handler: \S+ \((0x[0-9a-fA-F]+)\)', unwind))
+                symbols = dict((name, int(value, 16)) for value, name in re.findall(r'(0x[0-9a-f]+) (\S+)$', run(['llvm-objdump', '-t', exe]).stdout, re.M))
+                assert len(handlers) == 1, (runtime, level, whole, handlers)
+                if runtime == 'libdcext':
+                    assert symbols.get('__dcext_C_specific_handler') == symbols.get('__C_specific_handler'), (runtime, level, whole, symbols)
+                else:
+                    assert '__dcext_C_specific_handler' not in symbols, (runtime, level, whole)
                 result = subprocess.run(['timeout', '60', wine, str(exe)], capture_output=True, text=True, timeout=65)
                 assert result.returncode == 0, (runtime, level, whole, result.returncode, result.stdout, result.stderr)
                 checks += 1
