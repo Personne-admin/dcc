@@ -14,6 +14,11 @@ ARG ACTIONLINT_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b3
 ARG FREEDOS_VERSION=1.4
 ARG FREEDOS_ZIP_SHA256=45b1fa7c52dd996c3bfa5e352ffcd410781b952a6ad629f15a4c9ec4bbaefc5a
 ARG FREEDOS_IMAGE_SHA256=552f7cbb0625960c050a3e682a4d2121cc2ffdfa9dc9d592ccd49edf179333dc
+ARG MSITOOLS_VERSION=0.106
+ARG MSITOOLS_SHA256=1ed34279cf8080f14f1b8f10e649474125492a089912e7ca70e59dfa2e5a659b
+ARG MESON_VERSION=1.6.1
+ARG MESON_URL=https://files.pythonhosted.org/packages/d2/f3/9d53c24a7113e08879b14117f83e7105251e6ecf7e03bb7c04926888db9c/meson-1.6.1-py3-none-any.whl
+ARG MESON_SHA256=3f41f6b03df56bb76836cc33c94e1a404c3584d48b3259540794a60a21fad1f9
 
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 LC_ALL=C.UTF-8
 
@@ -26,7 +31,8 @@ RUN set -eux; \
     echo "deb [arch=amd64,i386 signed-by=/usr/share/keyrings/winehq.gpg] https://dl.winehq.org/wine-builds/ubuntu/ noble main" > /etc/apt/sources.list.d/winehq.list; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        git binutils libcmark-dev msitools wixl dpkg-dev fakeroot zstd unzip qemu-system-x86 mtools \
+        git binutils libcmark-dev dpkg-dev fakeroot zstd unzip qemu-system-x86 mtools \
+        valac bison gettext ninja-build pkg-config libgsf-1-dev libgcab-dev libglib2.0-dev libxml2-dev \
         "winehq-devel=${WINE_VERSION}" "wine-devel=${WINE_VERSION}" "wine-devel-amd64=${WINE_VERSION}" "wine-devel-i386=${WINE_VERSION}"; \
     rm -rf /var/lib/apt/lists/*; \
     curl -fsSL -o /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz"; \
@@ -42,6 +48,18 @@ RUN set -eux; \
     echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -; \
     tar -xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint; \
     rm /tmp/actionlint.tar.gz; \
+    curl -fsSL -o /tmp/meson.whl "${MESON_URL}"; \
+    echo "${MESON_SHA256}  /tmp/meson.whl" | sha256sum -c -; \
+    python3 -m zipfile -e /tmp/meson.whl /tmp/meson; \
+    curl -fsSL -o /tmp/msitools.tar.xz "https://download.gnome.org/sources/msitools/${MSITOOLS_VERSION}/msitools-${MSITOOLS_VERSION}.tar.xz"; \
+    echo "${MSITOOLS_SHA256}  /tmp/msitools.tar.xz" | sha256sum -c -; \
+    mkdir /tmp/msitools; tar -xf /tmp/msitools.tar.xz -C /tmp/msitools --strip-components=1; \
+    (cd /tmp/msitools && export CC=clang PYTHONPATH=/tmp/meson \
+        && python3 -m mesonbuild.mesonmain setup build --prefix=/usr/local --buildtype=release -Dintrospection=false >/dev/null \
+        && python3 -m mesonbuild.mesonmain compile -C build >/dev/null \
+        && python3 -m mesonbuild.mesonmain install -C build >/dev/null); \
+    ldconfig; \
+    rm -rf /tmp/msitools /tmp/msitools.tar.xz /tmp/meson /tmp/meson.whl; \
     mkdir -p /usr/share/freedos; \
     curl -fsSL -o /tmp/freedos.zip "https://download.freedos.org/${FREEDOS_VERSION}/FD14-FloppyEdition.zip"; \
     echo "${FREEDOS_ZIP_SHA256}  /tmp/freedos.zip" | sha256sum -c -; \
