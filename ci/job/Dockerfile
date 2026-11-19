@@ -24,7 +24,7 @@ ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 LC_ALL=C.UTF-8
 
 RUN set -eux; \
     dpkg --add-architecture i386; \
-    curl -fsSL https://dl.winehq.org/wine-builds/winehq.key -o /tmp/winehq.key; \
+    curl -fsSL --retry 6 --retry-all-errors --retry-delay 20 --connect-timeout 30 https://dl.winehq.org/wine-builds/winehq.key -o /tmp/winehq.key; \
     gpg --show-keys --with-colons /tmp/winehq.key | awk -F: '$1 == "fpr" { print $10 }' | grep -qx "${WINEHQ_KEY_FINGERPRINT}"; \
     gpg --dearmor -o /usr/share/keyrings/winehq.gpg /tmp/winehq.key; \
     rm /tmp/winehq.key; \
@@ -36,23 +36,23 @@ RUN set -eux; \
         gobject-introspection libgirepository1.0-dev gir1.2-gsf-1 gir1.2-gcab-1.0 \
         "winehq-devel=${WINE_VERSION}" "wine-devel=${WINE_VERSION}" "wine-devel-amd64=${WINE_VERSION}" "wine-devel-i386=${WINE_VERSION}"; \
     rm -rf /var/lib/apt/lists/*; \
-    curl -fsSL -o /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz"; \
+    curl -fsSL --retry 6 --retry-all-errors --retry-delay 20 --connect-timeout 30 -o /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz"; \
     echo "${NODE_SHA256}  /tmp/node.tar.xz" | sha256sum -c -; \
     tar -xf /tmp/node.tar.xz -C /usr/local --strip-components=1 --exclude='*/CHANGELOG.md' --exclude='*/README.md' --exclude='*/LICENSE'; \
     rm /tmp/node.tar.xz; \
-    curl -fsSL -o /tmp/nasm.tar.xz "https://www.nasm.us/pub/nasm/releasebuilds/${NASM_VERSION}/nasm-${NASM_VERSION}.tar.xz"; \
+    curl -fsSL --retry 6 --retry-all-errors --retry-delay 20 --connect-timeout 30 -o /tmp/nasm.tar.xz "https://www.nasm.us/pub/nasm/releasebuilds/${NASM_VERSION}/nasm-${NASM_VERSION}.tar.xz"; \
     echo "${NASM_SHA256}  /tmp/nasm.tar.xz" | sha256sum -c -; \
     mkdir /tmp/nasm; tar -xf /tmp/nasm.tar.xz -C /tmp/nasm --strip-components=1; \
     (cd /tmp/nasm && ./configure CC=clang --prefix=/usr/local >/dev/null && make -j"$(nproc)" nasm ndisasm >/dev/null && install -m 755 nasm ndisasm /usr/local/bin/); \
     rm -rf /tmp/nasm /tmp/nasm.tar.xz; \
-    curl -fsSL -o /tmp/actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"; \
+    curl -fsSL --retry 6 --retry-all-errors --retry-delay 20 --connect-timeout 30 -o /tmp/actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"; \
     echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -; \
     tar -xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint; \
     rm /tmp/actionlint.tar.gz; \
-    curl -fsSL -o /tmp/meson.whl "${MESON_URL}"; \
+    curl -fsSL --retry 6 --retry-all-errors --retry-delay 20 --connect-timeout 30 -o /tmp/meson.whl "${MESON_URL}"; \
     echo "${MESON_SHA256}  /tmp/meson.whl" | sha256sum -c -; \
     python3 -m zipfile -e /tmp/meson.whl /tmp/meson; \
-    curl -fsSL -o /tmp/msitools.tar.xz "https://download.gnome.org/sources/msitools/${MSITOOLS_VERSION}/msitools-${MSITOOLS_VERSION}.tar.xz"; \
+    curl -fsSL --retry 6 --retry-all-errors --retry-delay 20 --connect-timeout 30 -o /tmp/msitools.tar.xz "https://download.gnome.org/sources/msitools/${MSITOOLS_VERSION}/msitools-${MSITOOLS_VERSION}.tar.xz"; \
     echo "${MSITOOLS_SHA256}  /tmp/msitools.tar.xz" | sha256sum -c -; \
     mkdir /tmp/msitools; tar -xf /tmp/msitools.tar.xz -C /tmp/msitools --strip-components=1; \
     (cd /tmp/msitools && export CC=clang PYTHONPATH=/tmp/meson \
@@ -63,7 +63,7 @@ RUN set -eux; \
     wixl --version; msiinfo --version; \
     rm -rf /tmp/msitools /tmp/msitools.tar.xz /tmp/meson /tmp/meson.whl; \
     mkdir -p /usr/share/freedos; \
-    curl -fsSL -o /tmp/freedos.zip "https://download.freedos.org/${FREEDOS_VERSION}/FD14-FloppyEdition.zip"; \
+    curl -fsSL --retry 6 --retry-all-errors --retry-delay 20 --connect-timeout 30 -o /tmp/freedos.zip "https://download.freedos.org/${FREEDOS_VERSION}/FD14-FloppyEdition.zip"; \
     echo "${FREEDOS_ZIP_SHA256}  /tmp/freedos.zip" | sha256sum -c -; \
     unzip -p /tmp/freedos.zip 144m/x86BOOT.img > /usr/share/freedos/x86BOOT.img; \
     echo "${FREEDOS_IMAGE_SHA256}  /usr/share/freedos/x86BOOT.img" | sha256sum -c -; \
