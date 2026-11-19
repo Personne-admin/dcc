@@ -5620,8 +5620,12 @@ export namespace dcc::ir::lower
                 auto* ret_sema_type = m_current_func_decl ? get_canonical_type(m_current_func_decl->return_type) : nullptr;
                 if (ret_sema_type)
                 {
+                    auto const* variant = p->unwrap_err_constructed_variant;
+                    if (!p->unwrap_err_needs_nested_enum)
+                        if (auto adjusted = residual_error_wrap(ret_sema_type, variant, get_canonical_type(unwrap_err_callee->return_type), return_val))
+                            variant = adjusted;
                     IrValue* payloads[] = {return_val};
-                    return_val = lower_tagged_enum_construction(p->unwrap_err_constructed_variant, ret_sema_type, payloads);
+                    return_val = lower_tagged_enum_construction(variant, ret_sema_type, payloads);
                 }
             }
 
@@ -12058,6 +12062,46 @@ export namespace dcc::ir::lower
             payload_bytes->name = m_name_pool.back();
             append_inst(payload_bytes);
             return payload_bytes;
+        }
+
+        [[nodiscard]] static ast::EnumVariant const* enum_variant_named(types::EnumType const* et, std::string_view name, std::size_t& index)
+        {
+            auto const* ed = et ? reinterpret_cast<ast::EnumDecl const*>(et->decl) : nullptr;
+            if (!ed)
+                return nullptr;
+            for (std::size_t i = 0; i < ed->variants.size(); ++i)
+                if (ed->variants[i].name == name)
+                {
+                    index = i;
+                    return &ed->variants[i];
+                }
+            return nullptr;
+        }
+
+        ast::EnumVariant const* residual_error_wrap(types::TypePtr ret_sema_type, ast::EnumVariant const* variant, types::TypePtr error_type, IrValue*& value)
+        {
+            auto const* outer = types::type_cast<types::EnumType>(ret_sema_type);
+            if (!outer || !outer->tagged_layout || !error_type)
+                return nullptr;
+            std::size_t index = 0;
+            auto const* own = enum_variant_named(outer, variant->name, index);
+            if (!own || index >= outer->tagged_layout->variant_count)
+                return nullptr;
+            auto const* payload_type = outer->tagged_layout->variants[index].variant_payload_type_or_null;
+            if (!payload_type || payload_type == error_type)
+                return own;
+            auto const* inner = types::type_cast<types::EnumType>(payload_type);
+            if (!inner || !inner->tagged_layout)
+                return own;
+            auto const* inner_decl = reinterpret_cast<ast::EnumDecl const*>(inner->decl);
+            for (std::size_t i = 0; inner_decl && i < inner->tagged_layout->variant_count && i < inner_decl->variants.size(); ++i)
+                if (inner->tagged_layout->variants[i].variant_payload_type_or_null == error_type && inner_decl->variants[i].payload.size() == 1)
+                {
+                    IrValue* payloads[] = {value};
+                    value = lower_tagged_enum_construction(&inner_decl->variants[i], payload_type, payloads);
+                    return own;
+                }
+            return own;
         }
 
         IrValue* lower_tagged_enum_construction(ast::EnumVariant const* variant, dcc::types::TypePtr enum_type, std::span<IrValue*> payload_args)
