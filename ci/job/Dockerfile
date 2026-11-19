@@ -33,6 +33,7 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
         git binutils libcmark-dev dpkg-dev fakeroot zstd unzip qemu-system-x86 mtools \
         valac bison gettext ninja-build pkg-config libgsf-1-dev libgcab-dev libglib2.0-dev libxml2-dev \
+        gobject-introspection libgirepository1.0-dev gir1.2-gsf-1 gir1.2-gcab-1.0 \
         "winehq-devel=${WINE_VERSION}" "wine-devel=${WINE_VERSION}" "wine-devel-amd64=${WINE_VERSION}" "wine-devel-i386=${WINE_VERSION}"; \
     rm -rf /var/lib/apt/lists/*; \
     curl -fsSL -o /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz"; \
@@ -55,10 +56,11 @@ RUN set -eux; \
     echo "${MSITOOLS_SHA256}  /tmp/msitools.tar.xz" | sha256sum -c -; \
     mkdir /tmp/msitools; tar -xf /tmp/msitools.tar.xz -C /tmp/msitools --strip-components=1; \
     (cd /tmp/msitools && export CC=clang PYTHONPATH=/tmp/meson \
-        && python3 -m mesonbuild.mesonmain setup build --prefix=/usr/local --buildtype=release -Dintrospection=false >/dev/null \
+        && python3 -m mesonbuild.mesonmain setup build --prefix=/usr/local --buildtype=release >/dev/null \
         && python3 -m mesonbuild.mesonmain compile -C build >/dev/null \
         && python3 -m mesonbuild.mesonmain install -C build >/dev/null); \
     ldconfig; \
+    wixl --version; msiinfo --version; \
     rm -rf /tmp/msitools /tmp/msitools.tar.xz /tmp/meson /tmp/meson.whl; \
     mkdir -p /usr/share/freedos; \
     curl -fsSL -o /tmp/freedos.zip "https://download.freedos.org/${FREEDOS_VERSION}/FD14-FloppyEdition.zip"; \
