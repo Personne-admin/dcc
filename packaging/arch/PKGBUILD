@@ -1,6 +1,6 @@
 pkgname=dcc-git
 _pkgname=dcc
-pkgver=r1132.g8eaa5005
+pkgver=r1152.g10e09bdd
 pkgrel=1
 pkgdesc='dc systems programming language compiler and language server'
 arch=('x86_64')
