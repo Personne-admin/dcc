@@ -24,6 +24,10 @@ limitations.
     `__C_specific_handler` definition still takes precedence. This is the
     default for `-flibdcext freestanding`.
 
+On hosted Windows the libdcext provider takes `RtlUnwindEx` from kernel32;
+ntdll is not linked, because its `__C_specific_handler` export would take
+precedence over the `/alternatename` fallback.
+
 In project.dcon, pass them in the build settings' `extra_flags`, for
 example `extra_flags = { "-fseh", "-fseh-runtime=libdcext" }`.
 
@@ -51,10 +55,10 @@ An operating system that dispatches exceptions to DC code must:
   `return_value`; `exception_code()` in an `except` handler reads it from
   RAX, as MSVC-compatible handlers do;
 - provide `RaiseException(code, flags, count, arguments)` if programs call
-  `core::seh::raise_exception`.
+  `core::seh::RaiseException`.
 
-`-fseh-runtime=libdcext` only needs `RtlUnwindEx` (and `RaiseException` for
-`raise_exception`); `-fseh-runtime=external` also needs
+`-fseh-runtime=libdcext` only needs `RtlUnwindEx` (and `RaiseException` if
+programs raise exceptions); `-fseh-runtime=external` also needs
 `__C_specific_handler`.
 
 ## Code generation

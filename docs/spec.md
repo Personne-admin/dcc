@@ -2513,7 +2513,7 @@ On i8086 unreal, `core::seg::offset` and `with_offset` use `u32` so far/based of
 
 Structured exception handling (SEH) catches hardware faults (access
 violations, integer division by zero, breakpoints) and software exceptions
-raised with `core::seh::raise_exception` on `x86_64-coff` targets. It needs
+raised with `core::seh::RaiseException` on `x86_64-coff` targets. It needs
 `-fseh` and the LLVM backend; other targets and `-fbackend custom` report an
 error. See docs/seh.md for the runtime contract.
 

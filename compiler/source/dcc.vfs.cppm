@@ -503,11 +503,7 @@ public ExceptionPointers* exception_info();
 public bool abnormal_termination();
 
 @nomangle
-extern void RaiseException(u32 code, u32 flags, u32 argument_count, const usize* arguments);
-
-public void raise_exception(u32 code, u32 flags = 0, []const usize arguments = {}) {
-    RaiseException(code, flags, arguments.len as u32, arguments.ptr);
-}
+public extern void RaiseException(u32 code, u32 flags = 0, u32 argument_count = 0, const usize* arguments = null);
 )dc";
 
     constexpr VirtualModuleEntry kCoreModules[] = {

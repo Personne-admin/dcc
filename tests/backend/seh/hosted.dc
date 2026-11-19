@@ -135,7 +135,7 @@ i32 question_path() {
 
 i32 raised() {
     try {
-        core::seh::raise_exception(0xE0000001);
+        core::seh::RaiseException(0xE0000001);
     } except core::seh::exception_code() == 0xE0000001 {
         return 5;
     }
