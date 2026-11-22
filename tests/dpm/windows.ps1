@@ -183,6 +183,9 @@ finally {
         if ($null -ne $job) { if (!$job.Process.HasExited) { $job.Process.Kill() }; $job.Process.Dispose() }
     }
     if ($null -ne $event) { $event.Dispose() }
-    foreach ($key in $Saved.Keys) { [Environment]::SetEnvironmentVariable($key, $Saved[$key]) }
+    foreach ($key in $Saved.Keys) {
+        if ($null -eq $Saved[$key]) { Remove-Item -LiteralPath "Env:$key" -ErrorAction SilentlyContinue }
+        else { [Environment]::SetEnvironmentVariable($key, $Saved[$key]) }
+    }
     Remove-Item -LiteralPath $Work -Recurse -ErrorAction SilentlyContinue
 }
