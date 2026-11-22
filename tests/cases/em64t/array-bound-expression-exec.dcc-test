@@ -1,0 +1,73 @@
+=== FILE: slots.dc ===
+module slots;
+
+public using u32 LAST = 0xF8;
+
+public using u32 FIRST = 2;
+
+public using u32 COUNT = (LAST >> 3) - FIRST;
+
+=== FILE: test.dc ===
+module test;
+
+import slots;
+
+using usize WIDTH = 4;
+
+using usize HALF = WIDTH / 2;
+
+struct Inline {
+    u8[3 - 1] bytes;
+    u32 count;
+}
+
+struct Local {
+    u8[WIDTH * 2 + HALF] bytes;
+    u32 count;
+}
+
+struct Hoisted {
+    u8[HALF << 3] bytes;
+    u32 count;
+}
+
+struct Imported {
+    u64[(slots::LAST >> 3) - slots::FIRST] slots;
+    u32 count;
+}
+
+struct ImportedAlias {
+    u64[slots::COUNT] slots;
+    u32 count;
+}
+
+@nomangle
+public i32 dcc_main() {
+    if offsetof(Inline, count) != 4 as usize {
+        return 1;
+    }
+    if offsetof(Local, count) != 12 as usize {
+        return 2;
+    }
+    if offsetof(Hoisted, count) != 16 as usize {
+        return 3;
+    }
+    if offsetof(Imported, count) != 232 as usize {
+        return 4;
+    }
+    if offsetof(ImportedAlias, count) != 232 as usize {
+        return 5;
+    }
+    ImportedAlias held = {};
+    held.slots[28] = 7;
+    held.count = 1;
+    if held.slots[0] != 0 || held.slots[28] != 7 || held.count != 1 {
+        return 6;
+    }
+    return 0;
+}
+
+=== ENTRY: test.dc ===
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

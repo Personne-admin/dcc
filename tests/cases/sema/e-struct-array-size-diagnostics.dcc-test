@@ -1,0 +1,35 @@
+=== FILE: main.dc ===
+module m;
+
+using u32 TWO = 2;
+
+u32 variable = 4;
+
+struct Negative {
+    u8[TWO - 3] items;
+}
+
+struct Overflow {
+    u8[0xFFFFFFFFFFFFFFFF * 2] items;
+}
+
+struct DivideByZero {
+    u8[TWO / 0] items;
+}
+
+struct ShiftLosesBits {
+    u8[1 << 64] items;
+}
+
+struct NotConstant {
+    u8[variable] items;
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===
+main.dc:8: array size must be a non-negative integer constant
+main.dc:12: array size must be a non-negative integer constant
+main.dc:16: array size must be a non-negative integer constant
+main.dc:20: array size must be a non-negative integer constant
+main.dc:24: array size must be a non-negative integer constant

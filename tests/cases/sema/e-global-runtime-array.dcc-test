@@ -7,4 +7,4 @@ u16[g_len] bad_global;
 === ENTRY: main.dc ===
 
 === EXPECT-ERRORS ===
-main.dc:4: global array size must be a constant integer
+main.dc:4: array size must be a non-negative integer constant

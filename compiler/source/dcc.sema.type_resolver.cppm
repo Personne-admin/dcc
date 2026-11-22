@@ -115,7 +115,8 @@ export namespace dcc::sema
                         return;
                     }
             };
-            m_previous_decl_layout_query = std::exchange(m_types.decl_layout_query, [this](void const* decl) { ensure_decl_finalized(static_cast<ast::Decl const*>(decl)); });
+            m_previous_decl_layout_query =
+                std::exchange(m_types.decl_layout_query, [this](void const* decl) { ensure_decl_finalized(static_cast<ast::Decl const*>(decl)); });
             prepare_placeholders();
 
             for (auto const& m : m_modules)
@@ -716,6 +717,12 @@ export namespace dcc::sema
                         break;
                     }
                     auto count = resolve_const_uint(t->size, mod, env);
+                    if (!count && const_uint_names_known(t->size, mod.own_scope))
+                    {
+                        m_diag.error(t->size->range, "array size must be a non-negative integer constant");
+                        out.type = m_types.m_errort();
+                        break;
+                    }
                     out.type = m_types.array_t(inner.type, count.value_or(0));
                     break;
                 }
@@ -1025,19 +1032,18 @@ export namespace dcc::sema
                 auto const arg_count = resolved_args.size();
                 auto const decl_range = range;
                 bool const report = !quiet_unknown;
-                auto deferred = m_types.deferred_t(decl_ptr, gate_args,
-                                                   [type_ctx, diag, decl_ptr, kind, arg_count, decl_range, report](std::span<types::TypePtr const> arguments) {
-                                                       std::vector<types::TypePtr> args;
-                                                       args.reserve(arg_count);
-                                                       for (std::size_t i = 0; i < arg_count && i < arguments.size(); ++i)
-                                                       {
-                                                           args.push_back(arguments[i]);
-                                                           if (report)
-                                                               std::ignore = diagnose_unselected_default_allocator(*type_ctx, *diag, arguments[i], decl_range);
-                                                       }
-                                                       return types::TypeResolution{
-                                                           type_ctx->nominal_t(kind, decl_ptr, args, kind == types::TypeKind::Struct), types::Qual::None};
-                                                   });
+                auto deferred = m_types.deferred_t(
+                    decl_ptr, gate_args, [type_ctx, diag, decl_ptr, kind, arg_count, decl_range, report](std::span<types::TypePtr const> arguments) {
+                        std::vector<types::TypePtr> args;
+                        args.reserve(arg_count);
+                        for (std::size_t i = 0; i < arg_count && i < arguments.size(); ++i)
+                        {
+                            args.push_back(arguments[i]);
+                            if (report)
+                                std::ignore = diagnose_unselected_default_allocator(*type_ctx, *diag, arguments[i], decl_range);
+                        }
+                        return types::TypeResolution{type_ctx->nominal_t(kind, decl_ptr, args, kind == types::TypeKind::Struct), types::Qual::None};
+                    });
                 return {deferred, types::Qual::None};
             }
 
@@ -1119,8 +1125,7 @@ export namespace dcc::sema
             auto operand_type = operand.type;
             auto projection_index = *index;
             auto deferred = m_types.deferred_t(
-                node, parameters,
-                [diag, types, range, operand_type, projection_index, parameters, query](std::span<types::TypePtr const> arguments) {
+                node, parameters, [diag, types, range, operand_type, projection_index, parameters, query](std::span<types::TypePtr const> arguments) {
                     infer::TemplateBindings bindings{*types};
                     for (std::size_t i = 0; i < parameters.size() && i < arguments.size(); ++i)
                         std::ignore = bindings.deduce(parameters[i], arguments[i]);
@@ -1148,7 +1153,6 @@ export namespace dcc::sema
                 m_diag.error(range, "cyclic type alias `{}`", detail::decl_name(&u));
                 return {m_types.m_errort(), types::Qual::None};
             }
-
 
             detail::ResolvedType out{m_types.m_errort(), types::Qual::None};
             auto inst_env = env;
@@ -1353,6 +1357,17 @@ export namespace dcc::sema
             {
                 return resolve_const_uint_alias(cast->operand, scope, chain, depth);
             }
+            else if (auto* unary = ast::node_cast<ast::UnaryExpr>(expr))
+            {
+                if (unary->op != lex::TokenKind::Plus)
+                    return std::nullopt;
+
+                return resolve_const_uint_alias(unary->operand, scope, chain, depth);
+            }
+            else if (auto* binary = ast::node_cast<ast::BinaryExpr>(expr))
+            {
+                return fold_const_uint_binary(binary, scope, chain, depth);
+            }
 
             if (!alias || alias->using_kind != ast::UsingKind::ValueAlias)
                 return std::nullopt;
@@ -1371,6 +1386,91 @@ export namespace dcc::sema
 
             chain[depth] = alias;
             return resolve_const_uint_alias(alias->target_expr, home, chain, depth + 1);
+        }
+
+        [[nodiscard]] std::optional<std::uint64_t> fold_const_uint_binary(ast::BinaryExpr const* binary, Scope const* scope,
+                                                                          std::array<ast::UsingDecl const*, 16>& chain, std::size_t depth)
+        {
+            auto lhs = resolve_const_uint_alias(binary->lhs, scope, chain, depth);
+            if (!lhs)
+                return std::nullopt;
+
+            auto rhs = resolve_const_uint_alias(binary->rhs, scope, chain, depth);
+            if (!rhs)
+                return std::nullopt;
+
+            std::uint64_t value{};
+            switch (binary->op)
+            {
+                case lex::TokenKind::Plus:
+                    if (__builtin_add_overflow(*lhs, *rhs, &value))
+                        return std::nullopt;
+                    return value;
+                case lex::TokenKind::Minus:
+                    if (__builtin_sub_overflow(*lhs, *rhs, &value))
+                        return std::nullopt;
+                    return value;
+                case lex::TokenKind::Star:
+                    if (__builtin_mul_overflow(*lhs, *rhs, &value))
+                        return std::nullopt;
+                    return value;
+                case lex::TokenKind::Slash:
+                    if (*rhs == 0)
+                        return std::nullopt;
+                    return *lhs / *rhs;
+                case lex::TokenKind::Percent:
+                    if (*rhs == 0)
+                        return std::nullopt;
+                    return *lhs % *rhs;
+                case lex::TokenKind::Amp:
+                    return *lhs & *rhs;
+                case lex::TokenKind::Pipe:
+                    return *lhs | *rhs;
+                case lex::TokenKind::Caret:
+                    return *lhs ^ *rhs;
+                case lex::TokenKind::LtLt:
+                    if (*rhs >= 64 || ((*lhs << *rhs) >> *rhs) != *lhs)
+                        return std::nullopt;
+                    return *lhs << *rhs;
+                case lex::TokenKind::GtGt:
+                    if (*rhs >= 64)
+                        return std::nullopt;
+                    return *lhs >> *rhs;
+                default:
+                    return std::nullopt;
+            }
+        }
+
+        [[nodiscard]] bool const_uint_names_known(ast::Expr const* expr, Scope const* scope)
+        {
+            if (!expr || !scope)
+                return false;
+
+            if (ast::node_cast<ast::IntLiteralExpr>(expr))
+                return true;
+
+            if (auto* id = ast::node_cast<ast::IdentExpr>(expr))
+            {
+                auto vs = scope->lookup_values(id->name);
+                return !vs.empty() && vs.front().kind != SymbolKind::TemplateParam;
+            }
+
+            if (auto* pe = ast::node_cast<ast::PathExpr>(expr))
+            {
+                auto const* sym = resolve_value_path(*scope, pe->path);
+                return sym && sym->kind != SymbolKind::TemplateParam;
+            }
+
+            if (auto* cast = ast::node_cast<ast::CastExpr>(expr))
+                return const_uint_names_known(cast->operand, scope);
+
+            if (auto* unary = ast::node_cast<ast::UnaryExpr>(expr))
+                return const_uint_names_known(unary->operand, scope);
+
+            if (auto* binary = ast::node_cast<ast::BinaryExpr>(expr))
+                return const_uint_names_known(binary->lhs, scope) && const_uint_names_known(binary->rhs, scope);
+
+            return false;
         }
 
         [[nodiscard]] std::string path_str(ast::Path const& p) const
@@ -2056,8 +2156,7 @@ export namespace dcc::sema
                 std::ignore = bt;
                 if (f.bit_width != 1)
                 {
-                    m_diag.error(f.bit_width_expr ? f.bit_width_expr->range : f.range, "bool bitfield `{}` must have width 1, got {}", f.name,
-                                 f.bit_width);
+                    m_diag.error(f.bit_width_expr ? f.bit_width_expr->range : f.range, "bool bitfield `{}` must have width 1, got {}", f.name, f.bit_width);
                     return false;
                 }
                 return true;
@@ -2132,8 +2231,8 @@ export namespace dcc::sema
                     }
                     if (!fits)
                     {
-                        m_diag.error(f.type->range, "enumerator `{}` value {} does not fit in bitfield `{}` width {}", v.name, disc_value_str(dv),
-                                     f.name, f.bit_width);
+                        m_diag.error(f.type->range, "enumerator `{}` value {} does not fit in bitfield `{}` width {}", v.name, disc_value_str(dv), f.name,
+                                     f.bit_width);
                         return false;
                     }
                 }
