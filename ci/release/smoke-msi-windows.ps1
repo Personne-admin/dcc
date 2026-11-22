@@ -80,10 +80,10 @@ function Check-Installed([string]$Prefix, [bool]$OnPath) {
     $v = Run-Tool $learndc @('--version')
     Check ($v.Code -eq 0 -and $v.Out -match 'learndc') "learndc --version failed: $($v.Code) $($v.Err)"
     $l = Run-Tool $learndc @('list', '--json') @{ LEARNDC_HOME = $learnHome }
-    Check ($l.Code -eq 0 -and $l.Out -match 'fundamentals/hello-world') "learndc list --json did not show the embedded catalog: $($l.Code) $($l.Err)"
-    $s = Run-Tool $learndc @('show', 'fundamentals/hello-world') @{ LEARNDC_HOME = $learnHome }
+    Check ($l.Code -eq 0 -and $l.Out -match 'first-steps/hello-world') "learndc list --json did not show the embedded catalog: $($l.Code) $($l.Err)"
+    $s = Run-Tool $learndc @('show', 'first-steps/hello-world') @{ LEARNDC_HOME = $learnHome }
     Check ($s.Code -eq 0 -and $s.Out -match 'Hello, Ada') 'learndc show did not print the embedded instructions'
-    $h = Run-Tool $learndc @('hint', 'fundamentals/hello-world', '--level', '1') @{ LEARNDC_HOME = $learnHome }
+    $h = Run-Tool $learndc @('hint', 'first-steps/hello-world', '--level', '1') @{ LEARNDC_HOME = $learnHome }
     Check ($h.Code -eq 0 -and $h.Out.Length -gt 0) 'learndc hint did not print an embedded hint'
     $lnk = Shortcut-Path
     Check (Test-Path $lnk) "the Start Menu shortcut $lnk is missing"

@@ -34,5 +34,5 @@ learndc --version
 export LEARNDC_HOME="$work/learndc home"
 learndc list --json > "$work/learndc-list.json"
 learndc doctor --json > "$work/learndc-doctor.json" || true
-grep -q '"fundamentals/hello-world"' "$work/learndc-list.json"
+grep -q '"first-steps/hello-world"' "$work/learndc-list.json"
 echo "smoke ok on $PRETTY_NAME"

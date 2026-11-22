@@ -40,7 +40,7 @@ timeout 60 wine "$inst/bin/dpm.exe" --version
 timeout 60 wine "$inst/bin/learndc.exe" --version | tr -d '\r'
 mkdir -p "$work/learndc home"
 LEARNDC_HOME="$(winepath -w "$work/learndc home")" timeout 60 wine "$inst/bin/learndc.exe" list --json | tr -d '\r' > "$work/learndc-list.json"
-grep -q '"fundamentals/hello-world"' "$work/learndc-list.json" || { echo "error: learndc.exe did not list its embedded exercises" >&2; exit 1; }
+grep -q '"first-steps/hello-world"' "$work/learndc-list.json" || { echo "error: learndc.exe did not list its embedded exercises" >&2; exit 1; }
 python3 "$here/../../tests/lsp_stdio.py" "$inst/bin/dccd.exe" --wine wine
 cp "$here/smoke/hello.dc" "$work/"
 cd "$work"
