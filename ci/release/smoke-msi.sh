@@ -21,7 +21,7 @@ msiinfo export "$msi" Shortcut | tr -d '\r' > "$work/shortcut.idt"
 msiinfo export "$msi" Environment | tr -d '\r' > "$work/environment.idt"
 grep -q 'Learn DC' "$work/shortcut.idt" || { echo "error: no Learn DC shortcut in the MSI" >&2; cat "$work/shortcut.idt" >&2; exit 1; }
 grep -q '\[#f_bin_learndc_exe\]' "$work/shortcut.idt" || { echo "error: the Learn DC shortcut does not target learndc.exe" >&2; exit 1; }
-grep -q $'=\*PATH\t\[~\];\[INSTALLDIR\]bin' "$work/environment.idt" || { echo "error: the MSI does not append [INSTALLDIR]bin to the system PATH" >&2; cat "$work/environment.idt" >&2; exit 1; }
+grep -q $'=-\*PATH\t\[~\];\[INSTALLDIR\]bin' "$work/environment.idt" || { echo "error: the MSI does not append [INSTALLDIR]bin to the system PATH and remove it on uninstall" >&2; cat "$work/environment.idt" >&2; exit 1; }
 wine msiexec /i "$msi" /qn
 wineserver -w
 inst="$WINEPREFIX/drive_c/Program Files/dcc"
