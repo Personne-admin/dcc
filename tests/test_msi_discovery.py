@@ -122,7 +122,7 @@ class InstallerDiscovery(unittest.TestCase):
             self.assertEqual(component.find('w:Condition', NS).text, 'ADDTOPATH = "1"')
             env = component.find('w:Environment', NS)
             self.assertEqual(env.attrib, {'Id': 'e_path', 'Name': 'PATH', 'Value': '[INSTALLDIR]bin', 'Action': 'set',
-                                          'Part': 'last', 'System': 'yes', 'Permanent': 'no'})
+                                          'Part': 'last', 'System': 'yes', 'Permanent': 'yes'})
             self.assertEqual(component.find('w:RegistryValue', NS).attrib['KeyPath'], 'yes')
             self.assertIsNotNone(xml.find(".//w:Feature/w:ComponentRef[@Id='c_path_entry']", NS))
             self.assertEqual(xml.findall('.//w:Environment', NS), [env])
