@@ -94,7 +94,7 @@ def main():
         f'<Component Id="c_path_entry" Guid="{PATH_COMPONENT_GUID}">'
         f'<Condition>ADDTOPATH = "1"</Condition>'
         f'<RegistryValue Root="HKLM" Key="{INSTALLER_KEY}" Name="PathEntry" Type="string" Value="[INSTALLDIR]bin" KeyPath="yes" />'
-        f'<Environment Id="e_path" Name="PATH" Value="[INSTALLDIR]bin" Action="set" Part="last" System="yes" Permanent="no" />'
+        f'<Environment Id="e_path" Name="PATH" Value="[INSTALLDIR]bin" Action="set" Part="last" System="yes" Permanent="yes" />'
         f"</Component>"
         f'<Component Id="c_installer_options" Guid="{OPTIONS_COMPONENT_GUID}">'
         f'<RegistryValue Root="HKLM" Key="{INSTALLER_KEY}" Name="AddToPath" Type="string" Value="[ADDTOPATH]" KeyPath="yes" />'
