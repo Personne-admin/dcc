@@ -36,7 +36,7 @@ function Expect-Exit([string]$What, [string[]]$Arguments, [int]$Code) {
     if ($r.Code -ne $Code) {
         Write-Host $r.Out
         Write-Host $r.Err
-        Fail "$What: expected exit $Code, got $($r.Code)"
+        Fail "${What}: expected exit $Code, got $($r.Code)"
     }
     Write-Host "ok: $What (exit $Code)"
     $r
@@ -77,10 +77,10 @@ if ($doctor.items.Count -lt 5) { Fail "doctor listed too few items" }
 $r = Expect-Exit "list --json" @("list", "--json") 0
 $list = $r.Out | ConvertFrom-Json
 $ids = @($list.exercises | ForEach-Object { $_.id })
-if ($ids -notcontains "fundamentals/hello-world") { Fail "list does not contain fundamentals/hello-world" }
+if ($ids -notcontains "first-steps/hello-world") { Fail "list does not contain first-steps/hello-world" }
 
-$r = Expect-Exit "start" @("start", "fundamentals/hello-world") 0
-$workspace = Join-Path $home1 "workspaces\fundamentals\hello-world"
+$r = Expect-Exit "start" @("start", "first-steps/hello-world") 0
+$workspace = Join-Path $home1 "workspaces\first-steps\hello-world"
 $entry = Join-Path $workspace "src\main.dc"
 if (-not (Test-Path -LiteralPath $entry)) { Fail "workspace entry file missing: $entry" }
 
@@ -108,7 +108,7 @@ if (-not $report.completed_now) { Fail "solution did not complete the exercise" 
 $r = Expect-Exit "progress --json" @("progress", "--json") 0
 $progress = $r.Out | ConvertFrom-Json
 if ($progress.completed -ne 1) { Fail "progress.completed is $($progress.completed), expected 1" }
-$entryProgress = $progress.exercises | Where-Object { $_.id -eq "fundamentals/hello-world" }
+$entryProgress = $progress.exercises | Where-Object { $_.id -eq "first-steps/hello-world" }
 if ($entryProgress.status -ne "completed") { Fail "hello-world status is $($entryProgress.status)" }
 
 $exportFile = Join-Path $Root "learndc smoke $uni export.json"
@@ -125,12 +125,12 @@ $progress2 = $r.Out | ConvertFrom-Json
 if ($progress2.completed -ne 1) { Fail "imported progress.completed is $($progress2.completed), expected 1" }
 
 $env:LEARNDC_HOME = $home1
-[void](Expect-Exit "start (variables)" @("start", "fundamentals/variables") 0)
+[void](Expect-Exit "start (variables)" @("start", "values/variables") 0)
 
 $psi = New-Object System.Diagnostics.ProcessStartInfo
 $psi.FileName = $script:LearndcPath
 [void]$psi.ArgumentList.Add("watch")
-[void]$psi.ArgumentList.Add("fundamentals/variables")
+[void]$psi.ArgumentList.Add("values/variables")
 $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
 $psi.UseShellExecute = $false
