@@ -44,14 +44,14 @@ namespace
 
     fs::path schema_root()
     {
-        if (char const* env = std::getenv("DPM_SCHEMA_ROOT"))
+        if (char const* env = std::getenv("DPM_SCHEMA_ROOT"); env && *env)
             return env;
         return dcc::config::current_prefix(g_argv).path / "include";
     }
 
     fs::path dcc_path()
     {
-        if (char const* env = std::getenv("DCC"))
+        if (char const* env = std::getenv("DCC"); env && *env)
             return env;
         return dcc::config::current_prefix(g_argv).path / "bin" /
 #ifdef _WIN32

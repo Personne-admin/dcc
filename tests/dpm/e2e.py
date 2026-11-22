@@ -160,6 +160,8 @@ def scenario_basic():
     r = dpm(app, "build")
     check(r.returncode == 0, "build", detail(r))
     check(os.path.isfile(os.path.join(app, ".dpm/out/debug/host/basic")), "build output path")
+    r = dpm(app, "build", env={"DPM_SCHEMA_ROOT": "", "DCC": ""})
+    check(r.returncode == 0, "empty DPM_SCHEMA_ROOT and DCC count as unset", detail(r))
     check(os.path.isfile(os.path.join(app, "compile_commands.json")), "compile_commands.json merged")
     r = run_app(app)
     check(r.returncode == 7, "run propagates the exit code", detail(r))
