@@ -87,10 +87,11 @@ function Check-Installed([string]$Prefix, [bool]$OnPath) {
     Check ($h.Code -eq 0 -and $h.Out.Length -gt 0) 'learndc hint did not print an embedded hint'
     $lnk = Shortcut-Path
     Check (Test-Path $lnk) "the Start Menu shortcut $lnk is missing"
-    $shell = New-Object -ComObject WScript.Shell
-    $target = $shell.CreateShortcut($lnk).TargetPath
+    $shell = New-Object -ComObject Shell.Application
+    $link = $shell.Namespace((Split-Path -Parent $lnk)).ParseName((Split-Path -Leaf $lnk)).GetLink
+    $target = $link.Path
     Check ([IO.Path]::GetFullPath($target) -eq [IO.Path]::GetFullPath($learndc)) "the shortcut targets $target instead of $learndc"
-    Check ($shell.CreateShortcut($lnk).Arguments -eq '') 'the shortcut passes arguments; it must open the dashboard'
+    Check ($link.Arguments -eq '') 'the shortcut passes arguments; it must open the dashboard'
     if ($OnPath) {
         Check ((Count-Entry $bin) -eq 1) "machine PATH has $(Count-Entry $bin) entries for $bin, expected 1"
         foreach ($t in $Tools) {
